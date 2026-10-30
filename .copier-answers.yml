@@ -1,0 +1,16 @@
+# Written by copier. Do not edit by hand.
+#
+# This file records which version of the template this repository came from,
+# so that `copier update` can merge only the template changes made since.
+# Deleting it turns the repository back into a point-in-time copy.
+_commit: v1.32.0
+_src_path: gh:coolbress/plinth-template
+archetype: library
+host: github
+license: Apache-2.0
+owner: coolbress
+owner_has_issue_forms: true
+owner_has_pr_template: true
+plinth_sha: d50950bb50538680c508b0fe35498da4e8723dfa
+project_name: nexusbt
+

@@ -1,0 +1,58 @@
+# What `settings.json` allows, and what it leaves to ask
+
+`settings.json` in this folder decides which commands run without an
+approval. Every command `AGENTS.md` and `CONTRIBUTING.md` tell the agent to
+run either matches a rule in `permissions.allow` or is in a table below, left
+to ask on purpose. A command missing from the allow list is a decision, not an
+omission, and this file says which and why. A test in the template this
+repository was rendered from holds the documents and the list against each
+other, so a new command in either document changes this file or the list.
+
+## Asks on purpose
+
+| Command | Why it asks |
+| --- | --- |
+| `git worktree remove` | It deletes the worktree's ignored files, a local data file included, without a word. `AGENTS.md` asks for `git status --porcelain --ignored` in the worktree first, and a rule would run the removal before anyone read that list. |
+| `uv lock` | No document tells the agent to run it: `uv sync --locked` fails when the lockfile disagrees with `pyproject.toml`, and changing the lockfile is the person's call. The approval is also where an index option is seen; see the `uv` rules below. |
+| `git push` | It publishes the branch to the host, where other people can read it, and a project is public by default. The approval is the person seeing what leaves the machine. |
+| `gh pr create` | The same: it publishes a title and a description to the host. |
+| `gh pr merge` | It runs only on the person's word for that pull request, as `AGENTS.md` says; a rule would let a yes for one carry to the next. |
+
+## Named only as what not to do
+
+`AGENTS.md` names these as commands never to run, so no rule allows them. What
+`permissions.deny` stops outright is listed in `AGENTS.md`.
+
+| Command | Why no rule |
+| --- | --- |
+| `gh auth refresh` | A refusal is never answered by more scopes; the person changes a setting instead. |
+| `scripts/with-admin-token.sh` | Typed by the person, in their own terminal, with a credential the session never holds. |
+| `bash -c` | It runs a string as a shell, where a deny rule cannot see the command; only the sandbox stops what it does. |
+
+## Why the allowed rules have the shape they have
+
+- `Bash(git fetch origin)` is the exact command, with no `:*`. A rule without
+  `:*` matches that text and nothing longer: `git fetch origin main` and
+  `git fetch` ask (measured on Claude Code 2.1.307). A `git fetch:*` prefix
+  would also pass `git fetch --upload-pack=<program>`, which runs a program,
+  and a refspec that rewrites local branches.
+- `Bash(git worktree list:*)` and `Bash(git worktree add --no-track -b:*)`
+  are prefixes below the subcommand: neither reaches `git worktree remove`.
+  The `add` rule is the spelling `AGENTS.md` gives, not `git worktree add:*`:
+  that prefix would also pass `git worktree add -B <branch>`, which resets an
+  existing branch's tip, while `-b` refuses when the branch exists and git
+  refuses `-b` together with `-B` or `--detach`. So the allowed form writes
+  only a new branch and a folder in the checkout: the folder goes with
+  `git worktree remove`, the branch with `git branch -D` after it, and
+  nothing else changes. It is the first step of every task.
+- `Bash(uv sync --locked)` and `Bash(uv build)` are the exact spellings the
+  documents and CI use, with no `:*`. A `uv sync:*`, `uv lock:*` or
+  `uv build:*` prefix also passed an index option naming any host:
+  `uv sync --index-url <url>` ran with no prompt and sent its requests to
+  that host. An index option (`--index-url`, `--default-index`, `--index`,
+  `--extra-index-url`, `--find-links`) sends a request to a host chosen by
+  whatever text the agent read, with whatever the URL carries, so every one
+  asks: the person sees the host before anything is fetched. The same holds
+  for an environment assignment in front,
+  `UV_INDEX_URL=<url> uv sync --locked` (measured on Claude Code 2.1.310).
+  `uv lock` has no rule because no document tells the agent to run it.
