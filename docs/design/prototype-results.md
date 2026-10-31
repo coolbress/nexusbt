@@ -1,94 +1,94 @@
-# 버림용 시제품 결과 요약 (2026-10-28)
+# Throwaway prototype results, summary (2026-10-28)
 
-> English summary: a throwaway prototype (not product code, not in this repository) measured the performance budgets P5 and P11, ran 32 hand-computed accounting cases, and checked that "compute decision rows only" equals "compute everything". All gates held. Section 5 lists spec wording to fix; section 6 lists what the synthetic generator must add. The spec cites this file in chapter 7 ([R4H-05]~[R4H-08]).
+> Korean translation: [prototype-results.ko.md](prototype-results.ko.md) (this English file is canonical). In short: a throwaway prototype (not product code, not in this repository) measured the performance budgets P5 and P11, ran 32 hand-computed accounting cases, and checked that "compute decision rows only" equals "compute everything". All gates held. Section 5 lists spec wording to fix; section 6 lists what the synthetic generator must add. The spec cites this file in chapter 7 ([R4H-05]~[R4H-08]).
 
-목적: 명세 "증거 10점" 가운데 성능(P5·P11), 회계 손계산 실행, Pipeline "판단 행만 계산 = 전체 계산"의 실측 증거. 시제품 코드와 측정 원자료(JSON)는 저장소에 넣지 않는다. 여기 숫자는 요약뿐이다.
+Purpose: measured evidence for three of the spec's "10 points of evidence": performance (P5, P11), running the hand-computed accounting cases, and Pipeline "decision rows only = full compute". The prototype code and the raw measurements (JSON) are not in the repository. The numbers here are summaries only.
 
-## 0. 측정 조건
+## 0. Measurement conditions
 
-- 기계 둘: **노트북 M1 8 GB**(측정 중 스왑 6.5 GB 사용 — 나쁘게 나온 쪽으로 읽음)와 **계산 기계 M4 16 GB**(명세 7장의 기준 기계). 관문 판정은 T6.11에서 계산 기계로 다시 한다.
-- 환경: Python 3.12, numpy 2.5.4, numba 0.68.1, pyarrow 26.0.0, polars 2.1.0, psutil 7.2.2.
-- "cold" = 새 프로세스, Numba 캐시와 L0 캐시(.npy 블록)를 지운 상태. "warm" = 둘 다 있는 상태. OS 파일 캐시는 cold에서도 데워져 있다(명세 P1 정의와 같음).
-- 반복: 작업마다 새 프로세스로 5회, p50/p95는 5회에서(p95 ≈ 최댓값). 5회 모두, 그리고 cold와 warm 사이에서 출력 값 해시가 같았다.
-- 메모리: macOS는 다른 프로세스의 USS를 읽지 못한다(psutil AccessDenied). 작업 프로세스 안에서 50 ms마다 자기 USS·RSS를 재고 끝에 `ru_maxrss`를 남겼다 → 명세 P7의 "트리 USS 합"은 작업자마다 안에서 재는 탐침이 필요하다([R4H-07]).
+- Two machines: a **laptop, M1 8 GB** (it used 6.5 GB of swap during the runs; read it as the worse case) and the **compute machine, M4 16 GB** (the reference machine of spec chapter 7). The gate verdict is taken again on the compute machine in T6.11.
+- Environment: Python 3.12, numpy 2.5.4, numba 0.68.1, pyarrow 26.0.0, polars 2.1.0, psutil 7.2.2.
+- "cold" = a new process with the Numba cache and the L0 cache (.npy blocks) deleted. "warm" = both present. The OS file cache is warm even in cold runs (the same as the spec's P1 definition).
+- Repetitions: 5 per workload, each in a new process; p50/p95 are over the 5 (p95 ≈ the maximum). The output value hashes were equal across all 5, and between cold and warm.
+- Memory: macOS does not let one process read another's USS (psutil AccessDenied). Each work process measured its own USS and RSS every 50 ms and recorded `ru_maxrss` at the end → the spec's P7 "sum of USS over the tree" needs a probe inside each worker ([R4H-07]).
 
-## 1. 합성 TDS v1.4 생성기 + 최소 검사기
+## 1. Synthetic TDS v1.4 generator and a minimal checker
 
-- 프리셋 `tiny`: KR 6종목·US 6종목, 2020-01-02 ~ 03-31. 정지 중 분할, 정지 중 배당, 1:3 역분할, D=500 배당 사건.
-- 프리셋 `full`(seed 0): KR 2,700 + US 8,000종목, 1995~2024년, 기간 안 상장·폐지. 생성 245 s, 최대 RSS 1.4 GB, 디스크 7.7 GB.
+- Preset `tiny`: 6 KR and 6 US instruments, 2020-01-02 to 03-31. A split during a halt, a dividend during a halt, a 1:3 reverse split, a dividend event with D=500.
+- Preset `full` (seed 0): 2,700 KR + 8,000 US instruments, 1995–2024, with listings and delistings inside the period. Generation 245 s, peak RSS 1.4 GB, 7.7 GB on disk.
 
-| 데이터셋 | 행 수 | 파일 수 | 크기 |
+| Dataset | Rows | Files | Size |
 |---|---|---|---|
-| bars (1d, raw, dense, market=/year=) | 48,790,452 (하루 평균 약 6,450종목) | 60 | 1.5 GB |
-| feature_panels (팩터 300칼럼) | 2,317,405 | 60 | 6.1 GB |
-| fundamentals_state (구간, 항목 3개) | 2,323,716 | 2 | 24 MB |
-| corporate_actions | 187,616 (수량을 바꾸는 사건 1,848) | 1 | 3 MB |
-| delistings / instruments / calendar_sessions | 5,290 / 10,700 / 15,119 | 1씩 | 작음 |
+| bars (1d, raw, dense, market=/year=) | 48,790,452 (about 6,450 instruments a day on average) | 60 | 1.5 GB |
+| feature_panels (300 factor columns) | 2,317,405 | 60 | 6.1 GB |
+| fundamentals_state (intervals, 3 items) | 2,323,716 | 2 | 24 MB |
+| corporate_actions | 187,616 (1,848 share-changing events) | 1 | 3 MB |
+| delistings / instruments / calendar_sessions | 5,290 / 10,700 / 15,119 | 1 each | small |
 
-- 검사기가 본 것: 매니페스트 필수 칸, 파일 sha256(127개), Parquet `tds.*` 메타, 필수 칼럼·형·null 금지, K001, K002, A010, A005, R001, R008, V001, V004, V040, D002, 닫힌 열거, 파티션 값 일치, T003/T004, 패널 `ts_available > as_of_date`.
-- 결과: `full` 194개 검사 통과·실패 0(19 s), `tiny` 68개 통과. 비율을 일부러 비운 사본에서 A010이 FAIL(검사기가 실제로 잡음).
-- 명세 4.8과 다른 점: 달력은 평일에서 근사 휴일을 뺐다(`exchange_calendars` 안 씀). `tradability_daily`·`share_counts`·`label_panels`·tds-hash-1 값 해시는 만들지 않았다.
+- What the checker looked at: required manifest fields, file sha256 (127 files), Parquet `tds.*` metadata, required columns, types and non-null, K001, K002, A010, A005, R001, R008, V001, V004, V040, D002, closed enumerations, partition values matching, T003/T004, panel `ts_available > as_of_date`.
+- Result: `full` passed 194 checks with 0 failures (19 s), `tiny` passed 68. On a copy with ratios deliberately blanked, A010 FAILED (the checker really catches it).
+- Differences from spec 4.8: the calendar is weekdays minus approximate holidays (`exchange_calendars` not used). `tradability_daily`, `share_counts`, `label_panels` and the tds-hash-1 value hash were not produced.
 
-## 2. 성능 실측 (예산과 비교)
+## 2. Measured performance (against the budgets)
 
-| 작업 | 기계 | cold p50 / p95 | warm p50 / p95 | 최고 USS | 예산 |
+| Workload | Machine | cold p50 / p95 | warm p50 / p95 | Peak USS | Budget |
 |---|---|---|---|---|---|
-| **P5** 월간 top-50/슬리브, 비용, KR+US 30년, 시나리오 5 × 슬리브 2, 저장·해시 | M4 16 GB | **5.8 / 6.8 s** | **1.6 / 3.7 s** | 2.1 GiB | 관문 p95 ≤ 30 s, 목표 10 s, ≤ 4 GB |
-| P5 (같은 작업) | M1 8 GB | 15.9 / 19.6 s | 9.2 / 11.6 s | 1.11 GiB | 같음 |
-| **P11 (a)** 팩터 300개 IC + 5분위, 판단 716번 | M1 | 44.9 / 50.1 s | 30.3 / 31.8 s | 1.09 GiB | ≤ 300 s |
-| **P11 (b)** 300개 합성 점수 → top-50 백테스트 | M1 | 31.0 / 34.2 s | 21.6 / 23.0 s | 1.25 GiB | ≤ 60 s |
-| **P11 (c)** grid n∈{20,50,100} + walk-forward 10y/1y/1y (단순판) | M1 | 28.2 / 29.6 s | 22.6 / 26.6 s | 1.32 GiB | ≤ 180 s |
-| P11 (a) 변형: 기본 칼럼 40개만 읽고 300개를 판단 행에서 만듦 | M1 | – | 28.5 / 32.8 s | 0.41 GiB | 참고 |
+| **P5** monthly top-50 per sleeve, costs, KR+US 30 years, 5 scenarios × 2 sleeves, save and hash | M4 16 GB | **5.8 / 6.8 s** | **1.6 / 3.7 s** | 2.1 GiB | gate p95 ≤ 30 s, target 10 s, ≤ 4 GB |
+| P5 (same workload) | M1 8 GB | 15.9 / 19.6 s | 9.2 / 11.6 s | 1.11 GiB | same |
+| **P11 (a)** IC + quintiles for 300 factors, 716 decisions | M1 | 44.9 / 50.1 s | 30.3 / 31.8 s | 1.09 GiB | ≤ 300 s |
+| **P11 (b)** 300 → composite score → top-50 backtest | M1 | 31.0 / 34.2 s | 21.6 / 23.0 s | 1.25 GiB | ≤ 60 s |
+| **P11 (c)** grid n∈{20,50,100} + walk-forward 10y/1y/1y (simplified) | M1 | 28.2 / 29.6 s | 22.6 / 26.6 s | 1.32 GiB | ≤ 180 s |
+| P11 (a) variant: read only 40 base columns and build the 300 on decision rows | M1 | – | 28.5 / 32.8 s | 0.41 GiB | reference |
 
-- 판정: P5는 두 기계 모두 관문 안, 계산 기계에서는 목표 10 s도 지킴. P11 세 목표는 5배 넘게 여유. 메모리는 모두 2.1 GiB 아래.
-- **P5 단계별(M1 cold, 초)**: 블록 읽기 4.3 + L0 쓰기 1.3 + 사건 0.2 + Pipeline 판단 행만 2.1 + 상태 기계 10회 5.7 + 저장 0.04. warm에서 블록 읽기 0.04 s(L0 적중). 명세 단계 예산 안. 상태 기계 한 번(30년, 슬리브 하나)은 Numba 세션 루프로 약 0.6 s.
-- **P11 (a) 단계별(cold)**: 패널 읽기 14.6 + 조회·판단 행 2.9 + IC·분위 줄이기 19.0 + 블록 읽기·L0 6.4. 판단 행 2,294,161개만 계산(일간 전체면 약 48.8M 행).
-- **행 그룹 통계 가지치기**: `instrument_id` 최소·최대 통계로 다른 시장 파일을 건너뜀 → P11 (a) 122 s → 45 s ([R4H-06], 명세 7장 설계 수단 8).
-- **일간 앞채움(ffill)이었다면 (계산값)**: 300 × 8 B × (KR 7,526세션 × 2,700 + US 7,593 × 8,000) = 194.6 GB, 상장 중인 칸만 117.1 GB. 실측 최고 1.1 GiB(연도 묶음으로 읽고 판단마다 바로 줄임). 구간 조회는 정렬 열쇠 `(종목<<40)+ts`에 `searchsorted`.
-- **재현성**: 10개 출력 값 해시가 M1과 M4에서 비트까지 같았다.
+- Verdict: P5 is inside the gate on both machines and meets the 10 s target on the compute machine. The three P11 targets have more than 5× headroom. Memory stays under 2.1 GiB everywhere.
+- **P5 by stage (M1 cold, seconds)**: block read 4.3 + L0 write 1.3 + events 0.2 + Pipeline on decision rows only 2.1 + state machine ×10 5.7 + save 0.04. Warm, the block read takes 0.04 s (L0 hit). Inside the spec's stage budgets. One state-machine run (30 years, one sleeve) takes about 0.6 s with a Numba session loop.
+- **P11 (a) by stage (cold)**: panel read 14.6 + lookup and decision rows 2.9 + IC and quintile reduction 19.0 + block read and L0 6.4. Only 2,294,161 decision rows were computed (all daily rows would be about 48.8M).
+- **Row-group statistics pruning**: skipping the other market's files by the `instrument_id` min/max statistics → P11 (a) 122 s → 45 s ([R4H-06], spec chapter 7 design means 8).
+- **Had it been a daily forward fill (ffill) (computed)**: 300 × 8 B × (KR 7,526 sessions × 2,700 + US 7,593 × 8,000) = 194.6 GB, 117.1 GB for listed cells only. Measured peak 1.1 GiB (read in year blocks and reduce at each decision). Interval lookup is `searchsorted` on the sort key `(instrument<<40)+ts`.
+- **Reproducibility**: the 10 output value hashes were bit-identical on the M1 and the M4.
 
-## 3. 판단 행만 계산 = 전체 계산
+## 3. Decision rows only = full compute
 
-mom_12_1(분할·배당 조정은 사건 표 구간 조회)을 모든 세션에 계산한 뒤 판단 행만 자른 값이 판단 행에서만 계산한 값과 **비트까지 같았다**(유한 값 KR 543,193개, US 1,644,656개).
+mom_12_1 (split and dividend adjustment by interval lookup in the events table) computed on every session and then cut to the decision rows was **bit-identical** to computing it on the decision rows only (543,193 finite values in KR, 1,644,656 in US).
 
-## 4. 회계 손계산 실행 — 32/32 통과
+## 4. Running the hand-computed accounting cases: 32/32 passed
 
-| golden | 사례 | 결과 |
+| Golden | Case | Result |
 |---|---|---|
-| G-53 | (a)(b)(c)(d)(e)(g)(h)(i)(j) 정수 비율·`floor_shares`·E13·literal | 통과 ((d) 57주, 단순 floor는 56주) |
-| G-53 (f) | 7주 1:3, 직전 종가 1,000 → 2주 + 단주 현금 1,000 (시뮬레이터 커널) | 통과 (현금 8,000, NAV 14,000) |
-| G-54 (i)(ii)(iv) | 정지 중 2:1 분할 → 20×50 = 1,000; 정지 중 배당 → 900 + 미수 100; 판단 V 2,000, T=20, 주문 0 | 통과 |
-| G-68 (a) | −10주, D=500: 배당락 날 의무 −5,000, NAV 변화 0, 지급일 현금 −5,000 | 통과 |
-| G-69 | −7주 1:3 → −2주, 현금 −1,000; −16주 1:8 → −2; 2:1 −10 → −20 | 통과 (손절가 격자 맞춤은 안 함) |
-| G-99 | 130/30 증거금: IM 80,000, 대출 30,000, 3일 이자 1,233센트; 현금 계좌 1.45 > 1 → E16 | 통과 |
-| G-100 | 종가 60: 부족 10,000, f = 2/3, 667주 축소 → 1,333주, E 20,000 ≥ MM 19,995 | 통과 |
-| G-104 | (a) E −10,000 → f 0, 전부 청산, ruined; (b) f 0.6667, 667주 | 통과 |
-| G-81 | vol_target (a)~(d): 0.141421/0.707107/0.353553/0.292893 | 통과 |
+| G-53 | (a)(b)(c)(d)(e)(g)(h)(i)(j) integer ratios, `floor_shares`, E13, literal | passed ((d) 57 shares; a plain floor gives 56) |
+| G-53 (f) | 7 shares 1:3, previous close 1,000 → 2 shares + 1,000 cash in lieu (simulator kernel) | passed (cash 8,000, NAV 14,000) |
+| G-54 (i)(ii)(iv) | 2:1 split during a halt → 20×50 = 1,000; dividend during a halt → 900 + 100 receivable; decision V 2,000, T=20, 0 orders | passed |
+| G-68 (a) | −10 shares, D=500: obligation −5,000 on the ex-date, NAV change 0, cash −5,000 on the pay date | passed |
+| G-69 | −7 shares 1:3 → −2 shares, cash −1,000; −16 shares 1:8 → −2; 2:1 −10 → −20 | passed (stop prices not snapped to the grid) |
+| G-99 | 130/30 margin: IM 80,000, loan 30,000, 3 days' interest 1,233 cents; cash account 1.45 > 1 → E16 | passed |
+| G-100 | close 60: shortfall 10,000, f = 2/3, reduce by 667 shares → 1,333 shares, E 20,000 ≥ MM 19,995 | passed |
+| G-104 | (a) E −10,000 → f 0, full liquidation, ruined; (b) f 0.6667, 667 shares | passed |
+| G-81 | vol_target (a)~(d): 0.141421/0.707107/0.353553/0.292893 | passed |
 
-## 5. 명세 숫자에서 틀리거나 모호했던 곳 (명세에 반영 여부는 명세가 정본)
+## 5. Where the spec's numbers were wrong or ambiguous (whether the spec takes them is up to the spec, which is canonical)
 
-1. G-53 (g) "125/1000"은 약분 안 한 꼴, 5.6.1 literal 예시 "1.000004 → 250001/250000"은 약분한 꼴 → 사건 기록의 비율 표기를 하나로(약분 권장).
-2. G-81 (c) 식에 항이 셋만 적힘. 5.5.1a 식대로면 숏이 없을 때 넷째 항 `1/Σw⁺ = 1.25`도 들어간다(k는 그대로 1).
-3. G-54 (iv) "(i)의 날 보유 10주"는 분할 전 수량 → "분할 뒤 20주"로.
-4. G-104 (b)에 현금(−75,000)이 적혀 있지 않음.
-5. 시제품 단순화(명세 문제 아님): ADV에 원 거래량 사용, KR 늦은 배당 조건을 배당락에 바로 기입, 권리 발행은 가격 계수만, 롱 전용.
+1. G-53 (g) "125/1000" is unreduced while the 5.6.1 literal example "1.000004 → 250001/250000" is reduced → use one notation for ratios in event records (reduced recommended).
+2. G-81 (c) writes only three terms. By the 5.5.1a formula, with no shorts the fourth term `1/Σw⁺ = 1.25` is also included (k stays 1).
+3. G-54 (iv) "10 shares held on the day of (i)" is the pre-split quantity → "20 shares after the split".
+4. G-104 (b) does not state the cash (−75,000).
+5. Prototype simplifications (not spec problems): raw volume for ADV, late KR dividend terms booked straight at the ex-date, rights issues as a price factor only, long only.
 
-## 6. 실자료 모양 비교에서 나온 엔진·합성 생성기 쪽 할 일
+## 6. Engine and synthetic-generator work from comparing real data's shape
 
-참조 생산자의 실제 스냅숏 작업 사본을 읽기 전용으로 훑어 합성 자료·TDS v1.4와 모양을 비교했다(자료 값·행 수는 비공개라 여기 적지 않음). 생산자 쪽 고칠 곳은 생산자가 따로 다룬다. 엔진 저장소에 관한 것만:
+A working copy of the reference producer's real snapshot was skimmed read-only to compare its shape with the synthetic data and TDS v1.4 (data values and row counts are private and are not written here). Fixes on the producer side are the producer's own. Only what concerns the engine repository:
 
-- 합성 생성기(4.8, [R4H-08])가 넣어야 할 모양: `obs_status`의 `no_trade`·`missing`, 사건 종류 `symbol_change`·`other`, 상태 `announced`, 정정판(`revision_of`), 공시 시각이 비어 있는 사건(`ts_announced`·`ts_terms_available` null), 0.0001 격자 밖 가격(float32 흔적), 그리고 종목 수를 2.5배로 늘린 성능 프리셋.
-- 실자료에는 수량을 바꾸는 사건 가운데 정확 비율(`ratio_num/ratio_den`)이 빈 행이 많다 → 엔진은 E13으로 열지 않는다(A010 = 오류, 사용자 결정 R4F-01). 현금 감자는 수량 사건이 아니므로 종류를 나눠야 한다.
-- 실자료 bars의 누적 계수 칼럼이 비어 있어도 엔진은 사건 표로 다시 계산한다(F-04) — 문제 없음.
-- 칼럼이 모두 nullable로 선언된 Parquet가 올 수 있다 → 검사기 S003은 선언이 아니라 값으로 판정한다.
+- Shapes the synthetic generator (4.8, [R4H-08]) must include: `obs_status` `no_trade` and `missing`, event types `symbol_change` and `other`, status `announced`, amendments (`revision_of`), events with empty announcement times (`ts_announced` and `ts_terms_available` null), prices off the 0.0001 grid (float32 traces), and a performance preset with 2.5× the instruments.
+- In the real data, many share-changing events have an empty exact ratio (`ratio_num/ratio_den`) → the engine does not open them, E13 (A010 = error, user decision R4F-01). A cash capital reduction is not a share event, so its type must be split out.
+- Even when the cumulative factor columns of the real bars are empty, the engine recomputes them from the events table (F-04): no problem.
+- Parquet files may declare every column nullable → checker S003 judges by the values, not the declaration.
 
-## 7. "증거 10점" 판정 (시제품 범위)
+## 7. "10 points of evidence" verdict (prototype scope)
 
-| 항목 | 판정 |
+| Item | Verdict |
 |---|---|
-| 성능 P1~P11 측정 | 부분 충족: P5 계산 기계 실측(p95 6.8 s), P11 (a)(b)(c) 노트북 실측. P1~P4, P6은 안 잼 |
-| 재현성 | 일부 충족: P5 출력 해시가 두 기계에서 같음 |
-| 위험/회계 손계산 | 부분 충족: 32/32 통과. "3개월을 사람이 재현"과 숏 실자료 대조는 남음 |
-| 판단 행만 = 전체 | 충족 (mom_12_1, 2.19M 값) |
-| TDS 생산자 둘 `full` 통과·해시 벡터 일치 | 미충족: 합성 생산자 하나가 부분 검사기를 통과했을 뿐, tds-hash-1 미구현 |
-| 실자료 모양 대조 | 충족(1차): 6절 |
+| Performance P1~P11 measured | Partly met: P5 measured on the compute machine (p95 6.8 s), P11 (a)(b)(c) measured on the laptop. P1~P4 and P6 not measured |
+| Reproducibility | Partly met: P5 output hashes equal on two machines |
+| Risk/accounting hand computation | Partly met: 32/32 passed. "A person reproduces three months" and comparing shorts against real data remain |
+| Decision rows only = full | Met (mom_12_1, 2.19M values) |
+| Two TDS producers pass `full` and hash vectors match | Not met: one synthetic producer passed a partial checker only; tds-hash-1 not implemented |
+| Real-data shape comparison | Met (first pass): section 6 |
