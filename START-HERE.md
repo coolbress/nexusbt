@@ -9,7 +9,7 @@ This repository builds **NexusBT**, an open-source (Apache-2.0) backtesting and 
 | What | Where | Notes |
 |---|---|---|
 | Engine spec v3.4 (Korean) | [docs/spec/engine-spec-v3.4.md](docs/spec/engine-spec-v3.4.md) | **The single source of truth.** Public edition. If anything disagrees with it, the spec wins |
-| Spec checker | [tools/spec_lint.py](tools/spec_lint.py) | `python3 tools/spec_lint.py` (stdlib only): § refs, ticket graph, ids. Run it after any spec edit |
+| Spec checker | `tools/spec_lint.py` (not in the repository yet: it was not in the pack) | `python3 tools/spec_lint.py` (stdlib only): § refs, ticket graph, ids. Run it after any spec edit |
 | Ticket index | [SPEC-INDEX.md](SPEC-INDEX.md) | milestone → ticket → spec sections → tests → blocked by. Ticket text lives in spec 10.1 |
 | Data standard TDS v1.4 | [docs/tds/tds-v1.4.md](docs/tds/tds-v1.4.md) (+ [.ko](docs/tds/tds-v1.4.ko.md)), [examples](docs/tds/tds-examples.md) | Spec 2.3 and T0.1 place it at `tds/spec/tds-v1.md`; move it there in T0.1 and fix the links |
 | Glossary | [GLOSSARY.md](GLOSSARY.md) (+ [.ko](GLOSSARY.ko.md)) | The words of this project. `CONTEXT.md` and `CONTEXT.ko.md`, the spec's names, are symbolic links to these |
