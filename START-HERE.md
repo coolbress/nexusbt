@@ -74,7 +74,7 @@ One ticket per session (`/clear` between). Write tests first: the ticket's accep
 From the spec header ("사용자 결정" blocks, 2026-10-27/28):
 - Name NexusBT: distribution `nexusbt`, `import nexusbt as nx`, `nexusbt.toml`, CLI `nexusbt`, env `NEXUSBT_*`; checker `nexusbt-tds` / `nexusbt_tds` / CLI `tds`.
 - One key name `instrument_id`, with no `security_id` alias. Other names are renamed only at import (`rename=`, `mapping.yaml`).
-- The spec is in Korean. Public docs (TDS, README, quickstart, error messages, CONTEXT) are English canonical plus a Korean translation.
+- Public docs (TDS, README, quickstart, error messages, CONTEXT) are English canonical plus a Korean translation. Amended 2026-10-31 (spec OI-45): the spec too. Until its English text is complete, the Korean spec stays canonical; the English text grows in `docs/spec/engine-spec-v3.4.en.md` and takes over the spec's path in one last step.
 - v1 is built on synthetic data. It is released after it passes KR/US real-data verification. PyPI name reserved; publish at v1.
 - zipline parity covers presets only (ADR-0021). The hold band is the last M6 ticket (T7.1).
 - Shorting is in v1, off by default. It uses signed symmetry; with `enabled = false` the result is bit-identical to long-only (P-SHORT-OFF). Borrow costs are user config. There is no borrow-availability data. KR short bans come from the market rules pack.
