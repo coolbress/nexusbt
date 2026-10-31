@@ -393,6 +393,645 @@ contracts ← artifacts ← api
 
 ---
 
+## 3. Public API
+
+### 3.1 The import surface [R-01, R-09]
+
+```python
+import nexusbt as nx
+from nexusbt import Price, Fund, Meta, Panel, Label, Trad, Market   # datasets (autocompletion, .pyi stubs; Trad, Market [V31-30, V31-13])
+from nexusbt.factors import (Returns, DailyReturns, SimpleMovingAverage, SMA,
+    ExponentialWeightedMovingAverage, EWMA, AverageDollarVolume, AverageTradedValue,
+    AnnualizedVolatility, RollingStd, VWAP, RSI, MaxDrawdown)
+```
+
+Every public name under `nexusbt.` (a name outside this list starts with `_`):
+
+| Kind | Names |
+|---|---|
+| Terms | `Factor`, `Filter`, `Classifier`, `Pipeline`, `factor`, `filter`, `classifier`, `ops` (`ops.rolling`, `ops.where`, `ops.coalesce`, `ops.composite` [V31-25]) |
+| Data | `Price`, `Fund`, `Meta`, `Panel`, `Label`, `Trad` [V31-30], `Market` [V31-13], `dataset.from_parquet`, `universe`, `universe.index_members` |
+| Strategy | `Strategy`, `param`, `monthly`, `weekly`, `daily`, `quarterly`, `annually`, `every`, `top`, `bottom`, `long_short` [V31-LS-02], `portfolio` (+ the user block decorator `portfolio` [R4-07]), `size` (5.5.1a), `sizer`, `risk` (all the built-in blocks of 5.5.2 and 5.5.2a), `risk_rule` [R4-02, R4-05, R4-07], `execution`, `exits` (including `exits.time_stop` [R4-10]), `costs`, `ml` (`ml.factor`, 5.3.11), `labels` (`labels.triple_barrier`, 5.8), `splits` (`holdout`, `walk_forward`, `cpcv`, `cscv`, 6.3a) [R4-19, R4-23, R4-24] |
+| Functions | `open` [V31-PUB-03], `evaluate`, `backtest`, `screen`, `live`, `fill`, `reconcile`, `sweep`, `compare`, `run_pipeline`, `explain`, `check`, `describe`, `runs`, `rerun`, `book`, `override`, `record_fills`, `cash_flow` [V31-18, V31-19], `preregister`, `config` |
+| Results | `FactorReport`, `Run`, `Screen`, `Orders`, `BookUpdate`, `ReconcileReport`, `SweepResult`, `Comparison`, `ValidationResult` (`Run.validation`), `Split` [R4-20], `PipelineResult`, `Explanation`, `DecisionExplanation`, `CheckReport`, `RunTable` |
+| Errors | `NexusBTError` and the subclasses of 6.6 |
+| Reserved (E18 when called) | `portfolio.optimize`, `risk.ledoit_wolf`, `ml.importance` (MDA, v1.x), `size.kelly` (v1.x [R4F-02]) [SC-22, R4-28]. v3.2's reserved `splits.*`, `labels.triple_barrier`, `exits.time_stop` and `risk.group_caps` were opened into v1 in v3.3 [R4-28] |
+
+**Identifier** [header "Identifier name", RV-Q01]: public functions, output tables and documents use only `instrument_id` (no alias). Other names in external data are changed explicitly, as in `from_parquet(..., rename={"security_id": "instrument_id"})`.
+
+### 3.2 Datasets and columns
+
+Dataset columns are built from the snapshot's `dictionary/columns` and `dictionary/items` (TDS 4.4). `nexusbt stubs` rebuilds `src/nexusbt/_stubs/*.pyi`, and `nexusbt doctor` reports when the snapshot's columns change [R-04, R-22]. A typo is an `AttributeError` (error E7) that suggests three similar names (`difflib.get_close_matches`, cutoff 0.6).
+
+`Price` (fixed columns, daily on the market axis):
+
+| Column | Type | Unit | Value inside a window (as of the computation day t) [R-18, 11.4.3] |
+|---|---|---|---|
+| `open, high, low, close` | float64 | local currency/share | adjusted to t for splits, consolidations and stock dividends only: `raw[s]·C_split[t]/C_split[s]`. NaN in a package without `open/high/low` (4.5 F-01) |
+| `close_tr` | float64 | local currency/share | adjusted to t for splits + cash dividends (total-return path): `raw[s]·C_total[t]/C_total[s]`. Dividends whose amount is not available at t's decision time are not included (5.3.4) |
+| `close_unadjusted` | float64 | local currency/share | the raw price as it is |
+| `volume` | float64 | shares | `vol[s]·Q[t]/Q[s]`, `Q[x] = Π_{e ≤ x} share_factor_e` (the resolver's cumulative share factor, 5.3.3a). For pure splits it equals `C_split[s]/C_split[t]` [RV-C03] |
+| `volume_unadjusted` | float64 | shares | raw volume |
+| `value_traded` | float64 | local currency | raw value traded (no adjustment needed) |
+| `shares_out` | float64 | shares | point-in-time lookup of TDS `share_counts` (5.3.5a): the last count `n` available as of row s (its `as_of_date` = a), brought to t's basis by `n·Q[t]/Q[a]` [TDS-D9, TDS-Q4, RV-C03] |
+| `market_cap` | float64 | local currency | `close_unadjusted[s] · shares_out_s(s)` (share count as of row s, adjustment-invariant). NaN without `share_counts` (4.5 F-08) |
+
+- Price cells of halted or missing sessions (`obs_status in {"halted","missing"}`) are NaN inside the window. A session without trades (`"no_trade"`) takes `close` when present (the exchange reference price), otherwise NaN, with `volume = 0`.
+- `Fund.<item>`: an item of `dictionary/items` (TDS 4.4). Methods `.latest` (Factor), `.age_days` (Factor: days of `session_date − period_end` at t), `.period_end` (Factor: epoch days), `.is_strict` (Filter: `strict_eligible`). Values are interval lookups of `fundamentals_state` (5.3.5) [R-63]. When the snapshot has no `fundamentals_state`, a graph that uses `Fund.*` is `CapabilityError` (E18, 4.5 F-06) when built.
+- `Panel.<col>`: a column of `feature_panels` with `name = [panels] feature` (default `factor_pit_monthly`). `.latest`, `.age_days` (= `session_date(s) − as_of_date`). The frequency mark `"monthly"` is attached to results [Q10, TDS-D18].
+- `Meta`: `market`, `currency`, `asset_class` (attributes that are fixed for an instrument and do not change over time), `venue_mic`, `category` (Classifier), `sector`, `industry` (Classifier, two-time-axis lookup of `classifications`), `is_financial` (Filter, scheme `is_financial`), and otherwise `Meta.<scheme>(level=)` for each (scheme, level) of `classifications`. **Changeable attributes** (`category`, `venue_mic`) are read on two time axes when `classifications` has a scheme of the same name; otherwise the current value of `instruments` is used, with E30 (`F-14 hindsight_attribute`: "current value used for history") and a manifest record when it reaches a decision input. `instruments.delisted_on`, `last_session` and `name` are not exposed through `Meta` (after-the-fact information) [RV-C08]. Which (scheme, level) `sector` and `industry` are is set by `nexusbt.toml [meta]` (default `"auto"` = what `alias_of` of `dictionary/columns` points to in the form `scheme@level`; when there is none, E16 on use) [chapter 12 OI-07]. v1's `Meta.country` and `Meta.exchange` remain as aliases of `Meta.market` and `Meta.venue_mic`.
+- `Label.<col>`: a column of `label_panels` with `name = [panels] label` (default `label_monthly`) (`dictionary/columns.is_label = true`). Used only in `evaluate(target=…)`. Used anywhere else, it is `LabelLeakError` (error E2) when the graph is built [R-16]. When the three label times (`ts_label_start/end/available`, 5.8) are missing, they are built by the rules of 4.6.
+- `Trad.<col>` [V31-30]: the columns of TDS `tradability_daily` as terms: `Trad.admin_status` (Classifier; the open enum `normal`, `administrative`, `caution`, `warning`, `liquidation_trading`, unknown values `other`), `Trad.halted` (Filter = `halted_full_day`), `Trad.limit_up_close`, `Trad.limit_down_close` (Filter), `Trad.price_limit_ratio` (Factor). Availability times are TDS `availability_by_column` as they are (prior information `session_open`, the day's outcome `session_close`; 4.6). Without the dataset, a graph that uses `Trad.*` is E18.
+- `Market.series(instrument_id: str, column: str = "close") -> Factor` [V31-13]: a term that makes a bar column of one instrument of the snapshot (usually `asset_class = index`, for example `"IDX:KOSPI_TR"`) into a **market-level series** (one value per session). Windows, `shift` and element-wise operations work, and mixed with instrument terms it spreads as the same value to every instrument of that market. It is also used as `inputs=` of built-in factors and user window functions (for example relative strength against the index `Returns(126) - Returns(126, inputs=[Market.series("IDX:KOSPI_TR")])`, the regime filter `Market.series("IDX:KOSPI_TR").latest > SMA(200, inputs=[Market.series("IDX:KOSPI_TR")])`). Its availability rule is the same as `ready_m` (5.1.2) of that instrument's bars. When the series' market differs from the market of the sleeve that uses it, it becomes a term gathered by `row_m(d)` at the decision (5.3.2 (6)) and cannot be the input of a window or `shift` (E17). It does not enter the denominator of cross-section operations (the default domain of 3.3 as it is). A resulting Filter `&`-ed into `universe` becomes a market regime filter (for example "buy only while the index is above its 200-day line" — when false, that decision's universe is empty and the sleeve is in cash). E18 when the instrument is not in the snapshot.
+- `Macro.series(series_id: str, *, vintage: Literal["as_of","first"] = "as_of") -> MacroTerm` [R4F-EV-01]: a macro or alternative series of TDS `series_observations` (5.21) as a **market-level term** (like `Market.series`, it spreads as the same value to every instrument of that market and does not enter the denominator of cross-section operations). The value at decision d = the value of the latest observation period (`obs_period_end`) among the rows with `ts_available ≤ decision_ts` — with `"as_of"`, the last vintage of that period known by the decision time (amendments included); with `"first"`, the first released vintage. Monthly CPI for a daily decision = the last released value (carried; previous observations are not interpolated). Methods: `.latest` (Factor), `.obs(k)` (the value of the k-th previous observation period, same vintage rule — for month-over-month comparisons), `.age_days` (calendar days since that value was released), `.changed()` (Filter: true only on sessions where a new release or amendment became known after the previous session), `.surprise` (`latest − consensus` only when the dataset has a `consensus` column; otherwise E18 when the graph is built). Windows, `shift` and comparisons work (as-of values on the session axis), and the unit is recorded from the `unit` column as it is. 5.3.12.
+- `Events.<kind>` / `Events.of(event_type: str)` [R4F-EV-02]: terms over TDS event datasets. Built-in `kind`: `earnings` (`events.event_type = earnings.announcement`), `filing` (the filing receipt time of `fundamentals_events`), `dividend`, `split`, `merger` (`ts_announced` of `corporate_actions`); anything else is `Events.of("filing.kr_dart")`. Methods: `.days_since()` (sessions since the last event known at decision d, NaN when none), `.latest(field="value")`, `.count(window)` (the number of events whose `ts_event` lies in the last `window` sessions and that are known by the decision time), `.occurred(window=1)` (Filter), `.surprise` (`value − consensus`, only when both exist, otherwise E18). **Not there before availability**: an event is visible only after its `ts_available` (for corporate_actions `ts_announced`, the terms `ts_terms_available`). Events with a `ts_event` before the instrument's first session are ignored, with skips `event_before_listing`. Events with a `series_id` (macro releases) are market-level terms. 5.3.12.
+- External data: `nx.dataset.from_parquet(path, *, known_on: str | None = None, shape: Literal["panel","events","series"] = "panel", key: Sequence[str] | None = None, ts_event: str = "ts_event", period_end: str = "obs_period_end", vintage: str | None = None, value: str = "value", units: Mapping[str,str] | None = None, rename: Mapping[str,str] | None = None, name: str | None = None) -> Dataset` [R4G-04]. `known_on` is optional by its signature, but left empty it is E3 (below). `rename` is applied first, and the other column arguments refer to the names after renaming. With `key=None`, the default per shape. **Required columns and checks per shape** (E47 at open when missing or of the wrong type): `panel` — key default `("instrument_id","date")`, the key columns + `known_on`, no duplicate keys; `events` — no key by default (a row = one event; when there is no `event_id` column, a hash of the row content), a `ts_event` column (a date or a UTC instant) + `known_on` + at least one of `instrument_id`, `issuer_id`, `series_id` (at least one not null in every row), `name` when there is no `event_type`; `series` — key default `("series_id", period_end, known_on)`, a `period_end` column (`date32`) + `known_on` + a `value` column (f64) + an optional `vintage` column; when there is no `series_id` column, every row is the one series `name`; no duplicate keys. For all three, rows whose `ts_event`/`period_end` is later than `known_on` are left only as W (a count; events released in advance can exist), not E47. The file sha256 and the resolved arguments go into the cache key of the nodes that read this dataset (5.3.9) [RV-C10]. `events` and `series_observations` (TDS 5.21) inside a TDS package are read by `Events` and `Macro` from v3.4 [R4F-EV-01, R4F-EV-02]. A `shape="events"` result is read with `Events.of(name)`, a `shape="series"` result with `Macro.series(name)` (or `series_id`); missing columns are E47 (layer data) [R4F-EV-04, R4G-04]. Without `known_on`, `PointInTimeError` (error E3). `known_on="date"` is allowed, with `"<name>: known_on=date"` written in the manifest `assumptions` [R-24]. When the `known_on` column is a date (`date32`), a value is taken as available at the next local session open (5.1.4); when it is a UTC instant (`timestamp[us, UTC]`, for example `known_on="ts_available"`), that instant is used as the availability time as it is.
+- In-memory tables [R5-01, user decision 2026-10-28]: `nx.dataset.from_frame(obj, *, known_on, shape=..., key=..., ts_event=..., period_end=..., vintage=..., value=..., units=..., rename=..., name: str) -> Dataset` — the same arguments, the same per-shape checks (E47) and the same point-in-time rules (E3) as `from_parquet`. `obj` is **any table that gives an Arrow PyCapsule stream** (`__arrow_c_stream__`: a pyarrow Table, a Polars DataFrame, a DuckDB relation, a `DataFrame` of pandas ≥ 3.0 and so on (pandas 2.x is passed after converting with `pyarrow.Table.from_pandas`)), and the engine does not import that library (Arrow standard types are taken without copying; other types are converted to the canonical form). Reproducibility: **`value_sha256` = the value-hash rule of TDS 4.5** applied to this table as it is (schema metadata removed, chunks combined, dictionary encoding undone, strings = utf8, times = timestamp[us, UTC], rows sorted by the key columns and then the remaining columns, then the sha256 of the canonical IPC stream). `from_parquet` also uses **the same `value_sha256`** in the node key and keeps the file sha256 only as a physical stamp — so the same data has the same hash whatever the path (file, Polars, pandas) (G-105). This value goes into the node key and the manifest, and one copy is kept in the run folder as `inputs/<name>.parquet` (deterministic pyarrow write), which `rerun` reads. `name` is required (E16). A **`timestamp` column** without a tz is not taken as UTC but is E47 ("timestamp column {c} has no time zone"); a `date32` (date only) column is taken as it is and follows the date availability rule of 5.1.4 (the next local session open) [checked by Sol].
+
+### 3.3 Terms and operators [R-03, Codex 11.4.4]
+
+Common: every term is a value object, and `hash(term)` and `nx.describe(term)` work on it. Numeric results are float64; a Filter is **three-valued with a value and a validity mask** (true, false, unknown; unknown when an input is missing, unknown = false at the final use, 5.4.1) [V31-21]; a Classifier is int32 codes (missing −1) + a code table.
+
+**Factor methods** (zipline names as they are; result type):
+
+| Signature | Result | Meaning |
+|---|---|---|
+| `+ - * / ** -x`, `abs()`, `log()`, `log1p()`, `exp()`, `sqrt()` | Factor | element-wise operations. NaN propagates; division by 0 → NaN + a count of the diagnostic `DivisionByZero` [C7] |
+| `< <= > >= == !=` (with a Factor or a scalar) | Filter | **unknown** when an input is NaN (false at the final use; still unknown after `~`) [V31-21] |
+| `rank(method="ordinal", ascending=True, mask=None, groupby=None, across_markets=False)` | Factor | cross-sectional rank 1..n. `method ∈ {"ordinal","average","min","max","dense"}`. `ordinal` ties use the key of `[portfolio] tiebreak` (default the fixed-salt hash, 3.7; `"id"`, the zipline preset and comparisons use ascending `instrument_id`) [11.4.4, R3-12] |
+| `zscore(mask=None, groupby=None, across_markets=False)` | Factor | (x−mean)/population standard deviation (ddof=0). Variance 0 → NaN |
+| `demean(mask=None, groupby=None, across_markets=False)` | Factor | x − mean |
+| `winsorize(min_percentile, max_percentile, mask=None, groupby=None, across_markets=False)` | Factor | clipped at the quantile bounds (linearly interpolated quantiles) |
+| `top(N, mask=None, groupby=None, across_markets=False)` / `bottom(...)` | Filter | at most N by descending (ascending) score + the tie key (3.7) [R3-12] |
+| `percentile_between(min_percentile, max_percentile, mask=None, across_markets=False)` | Filter | within percentiles [min, max] (both ends included) |
+| `pct_rank(higher_is_better=True, mask=None, groupby=None, na="drop", across_markets=False)` | Factor | cross-sectional percentile 0~100 (100 = best; ties take the average rank). `na`: `"drop"` (missing is NaN, default), `"bottom"` (missing values are put in as a tie just below the worst value, then computed), `"middle"` (missing cells = 50, the rest from the valid cells only). Other than `drop`, it is an **explicit** fill operation that gives missing cells a value, so it agrees with INV-12 and is left in the manifest and `explain` [V31-25] |
+| `quantiles(bins, mask=None, groupby=None, across_markets=False)`, `quartiles()`, `quintiles()`, `deciles()` | Classifier | tie-preserving quantiles (5.4.3) |
+| `isnan()`, `notnan()`, `isfinite()`, `isnull()`, `notnull()` | Filter | |
+| `fillna(value: float | Factor)` | Factor | the only explicit fill [INV-12] |
+| `clip(lower=None, upper=None)` | Factor | |
+| `shift(k: int)` | Factor | the value k sessions earlier on that instrument's market axis. With `k < 0`, `LookAheadError` (error E1) when the graph is built. `k = 0` is unchanged |
+| `to(ccy: str)` | Factor | only for columns whose unit is a currency. Exchange rates available at the decision (5.6.9). `UnitError` (error E5) when the unit is not a currency |
+| `if_else(...)` | – | a Filter method (below) |
+| `downsample(freq)` | – | not in v1 → `CapabilityError` |
+
+- `mask`: the computation domain of that term. Cells outside the mask give NaN (unknown for a Filter). It does not affect the computation of upstream inputs [11.4.4]. **Default domain** (the cells in a cross-section when there is no mask) = the cells of that market block = `asset_class = equity ∧ is_synthetic = false ∧ listed in that session`. Indices do not enter cross-sections and are read only through the benchmark path and the market-level series `Market.series` (3.2) [V31-13]. The engine does not secretly put the Strategy's `universe` into upstream terms as a mask; when a cross-section operation without a mask is on the Strategy's signal path, the static check gives the notice E34 [RV-Q06].
+- `groupby`: a Classifier. Cells with a missing group (−1) are left out, and their number is counted as the diagnostic `UnknownGroup` [11.4.4].
+- Cross-section operations are computed **separately per market** (market = an implicit group) [A-03]. With `across_markets=True`, the cross-sections of every market of one decision are gathered and computed together, and that term cannot be the input of a window or `shift` (`TermDomainError`, error E17). A cross-section operation with `across_markets=True` on a currency-unit term is `UnitError` (error E5) — after `.to(ccy)` or on a ratio it works [R-19].
+
+**Filter methods**: `& | ~` (Kleene three-valued: false & unknown = false, true | unknown = true, `~`unknown = unknown, otherwise unknown [V31-21]; the results of `isnan()`, `notnan()` and `notnull()` are always true/false), `if_else(if_true: Factor, if_false: Factor) -> Factor` (NaN when the condition is unknown), `all(window: int) -> Filter` (true in all of the last window sessions; Kleene — false if even one is false, otherwise unknown if any is unknown), `any(window: int) -> Filter` (true if even one is true, otherwise unknown if any is unknown), `.as_factor() -> Factor` (true 1.0 / false 0.0 / unknown NaN), `fillna(value: bool) -> Filter` (unknown cells to the given value; the only explicit Filter fill, INV-12) [R3-13].
+
+**Classifier methods**: `eq(value) -> Filter`, `element_of(values) -> Filter`, `isnull()`, `notnull()`, `startswith(prefix) -> Filter` (string code tables only). The result of `eq`, `element_of` and `startswith` on the missing code (−1) is **unknown** (`isnull` and `notnull` are always valid) [R3-13].
+
+**User window functions** [R-05]:
+
+```python
+@nx.factor(window: int, inputs: Sequence[BoundColumn | Factor], *, mask: Filter | None = None,
+           dtype: Literal["float64"] = "float64")
+def f(close: np.ndarray, *, n: int = 21) -> np.ndarray: ...
+# close.shape == (window, n_alive); last row = computation day t; returned shape == (n_alive,)
+```
+
+- The decorated name is a Factor. Binding parameters with keyword arguments, as in `f(n=63)`, makes a new Factor (the values go into the graph hash).
+- Input windows hold values correctly adjusted to t (the table of 3.2). The adjustment shortcut is not used for user functions [C2].
+- `@nx.filter` returns bool `(n_alive,)`, `@nx.classifier` int or str `(n_alive,)`.
+- When a function indexes rows before `window`, numpy raises `IndexError`, and the engine turns it into `WindowError` (error E8) suggesting "`window=<needed value>`" (needed value = the absolute value of the negative index). Other user exceptions show the original exception and the user's file:line as they are [R-42].
+- `nx.ops.rolling(x: Factor, window: int, min_periods: int | None = None).{mean,sum,std,min,max,median}()`: rolling operations that always look backward only (`std` with ddof=1; `min_periods` default = window) [design 3.5].
+- `nx.ops.where(cond: Filter, a, b)`, `nx.ops.coalesce(*factors)`: explicit fills.
+- `nx.ops.composite(terms: Mapping[Factor, float], *, higher_is_better: Mapping[Factor, bool] | None = None, na: Literal["drop","bottom","middle"] = "drop", mask=None, groupby=None) -> Factor` [V31-25]: turns each term into `pct_rank(na=…)`, takes the weighted sum (divided by the sum of weights) → `pct_rank` again (0~100). It can be nested (another `composite` in a term's place). The behaviour that corresponds to "NA Negative/Neutral" of the Portfolio123 ranking system is kept as a named, explicit operation. The number of instruments kept by filling missing values is `n_na_filled` of `coverage.parquet`.
+
+### 3.4 Built-in factors and the conformance table [Codex 11.4.4, R-03]
+
+Names that are the same as in zipline 3.2.1 follow zipline's missing-value rules and **input meaning**. zipline `USEquityPricing.close` is the value with the adjustment DB (splits + dividends) applied, so the default input of return-type factors is `Price.close_tr`; price-level factors (`SMA`, `EWMA`, `VWAP`, `RollingStd`) default to `Price.close` (split-adjusted only), to fit price-level comparisons and limit-price references [RV-I02, A-39 corrected]. When the rules below differ from zipline in the L1 comparison (8.1, with the same inputs), **the hand-calculated golden cases (T-25, `tests/golden/factors/`) decide**: when the hand calculation agrees with zipline, this table and the code are corrected (ADR); when zipline is wrong, it is written in `tests/parity/KNOWN_DIFFERENCES.md`. It is the same rule as 8.1's "zipline's known bugs are not taken as correct" (v3's sentence "zipline's behaviour is correct" conflicted with 8.1 and was corrected; when two engines have the same mistake, comparison alone cannot catch it — qlib#1228, nautilus#4333, Lean#9713) [V31-24]. `W` = the number of window rows, last row = t.
+
+| Name (default input) | Formula | Missing | Minimum observations | ddof | Warm-up | Adjustment class |
+|---|---|---|---|---|---|---|
+| `Returns(W, inputs=[Price.close_tr])` | `x[-1]/x[0] − 1` | either end NaN → NaN | both ends | – | W−1 | homogeneous of degree 0 (ratio) |
+| `DailyReturns()` = `Returns(2)` | | | | | 1 | degree 0 |
+| `SimpleMovingAverage(W, inputs=[Price.close])`, alias `SMA` | `nanmean` | NaN ignored, all NaN → NaN | 1 | – | W−1 | homogeneous of degree 1 |
+| `ExponentialWeightedMovingAverage(W, decay_rate, inputs)`, `EWMA`; `.from_span/.from_halflife/.from_center_of_mass` | `average(x, weights=decay^(W−1−i))` | any NaN → NaN | W | – | W−1 | degree 1 |
+| `AverageDollarVolume(W)` | `nansum(close·volume)/W` (zipline's formula) | NaN counted as 0 | 0 | – | W−1 | invariant (value = price × volume) |
+| `AverageTradedValue(W, ccy=None)` (NexusBT) | `nanmean(value_traded)`; `.to(ccy)` when `ccy` | NaN ignored | 1 | – | W−1 | invariant |
+| `AnnualizedVolatility(W=252, annualization_factor=252, inputs=[Price.close_tr])` | `nanstd(DailyReturns window, ddof=0)·√a` | NaN ignored | 1 | 0 | W | degree 0 |
+| `RollingStd(W, inputs)` (NexusBT) | `nanstd(x, ddof=1)` | NaN ignored | 2 | 1 | W−1 | degree 1 |
+| `VWAP(W)` | `nansum(close·volume)/nansum(volume)` | NaN ignored | 1 | – | W−1 | degree 1 |
+| `RSI(W=15, inputs=[Price.close_tr])` | `d=diff(x)`; `up=nanmean(clip(d,0,∞))`; `dn=abs(nanmean(clip(d,−∞,0)))`; `100−100/(1+up/dn)` | as zipline | | | W−1 | degree 0 |
+| `MaxDrawdown(W, inputs=[Price.close_tr])` | `max((cummax(x)−x)/cummax(x))` | NaN ignored | 1 | – | W−1 | degree 0 |
+| `Latest` (= `col.latest`) | `x[-1]` | | | | 0 | the column table |
+
+Adjustment classes (5.3.3): homogeneous of degree 0 = invariant under multiplication by a per-instrument scalar, degree 1 = scales by the scalar, invariant = the raw value as it is. The class is declared when the kernel is registered and proven by the P-ADJ property test (random scalars).
+
+Every built-in factor is a registered kernel and follows the numeric rules of 5.3.10 (summation order, BLAS and `fastmath` forbidden, the transcendental-function class). The `EWMA` weights `decay^k` are computed once outside the kernel and passed as a constant array; kernels that only divide, such as `Returns` and `RSI`, are of the arithmetic class, and kernels that use logarithms (`log()`, `log1p()`, spread estimates) are of the transcendental class [RV-C11]. The table's `nanmean`, `nanstd` and `nansum` are defined as "the sum of the non-NaN values added from the left in ascending row order" (not numpy's pairwise summation order) [SC-03]. Every built-in factor is a function only of the data inside its own window (no infinite recursion; `EWMA` is a finite-window weighted average) — which is why start-date invariance (INV-14) holds [SC-04].
+
+### 3.5 Pipeline and `run_pipeline` [11.4.4, 11.6]
+
+```python
+nx.Pipeline(columns: Mapping[str, Term], screen: Filter | None = None)   # the default cross-section domain is in 3.3
+nx.run_pipeline(pipeline: Pipeline, *, start: str | date, end: str | date, freq: Literal["daily","weekly","monthly"] = "daily",
+                markets: Sequence[str] | None = None, edition: str | None = None, snapshot: str | None = None,   # markets: keys of the snapshot's markets
+                save: bool = False) -> PipelineResult
+```
+
+- The result `PipelineResult.table`: an Arrow table `(market: str, session_date: date32, decision_ts: timestamp[us,UTC], instrument_id: str, <columns…>)`, sorted by `(session_date, market, instrument_id)`. Rows where `screen` is false or unknown are not there (unknown = false) [R3-13]. `.to_polars()`, `.to_pandas()` (optional dependency).
+- When `start` is not a session, it is moved per market to the next session and `end` to the previous session, with a notice (error E9) [design 3.5 error E9].
+- The decision grid of `freq="daily"` = every session of each market (market_local). With several markets, the per-market rows are stacked.
+
+### 3.6 Universe [design 3.6, R-58]
+
+```python
+nx.universe(spec: str | Sequence[str] = "<toml defaults.universe>", *, investable: bool = True,
+            exclude_microcap: bool | None = None, survivorship_ok: str | None = None,
+            exclude: Sequence[str] = ()) -> Filter                      # [V31-30]
+nx.universe.index_members(universe_id: str) -> Filter      # "index:KOSPI200" or the short "KOSPI200" (→ "index:" prefix)
+```
+
+- `spec`: one key of the snapshot's `markets` (`"KR"`), several joined by `+` (`"KR+US"`), `"all"`, or a list of `instrument_id`. A market name not in the snapshot is E16 (suggesting the list of markets present); a market without a rules pack is E18 (4.4) [RV-I08]. For a list, a survivorship-bias check (error E4 warning): a warning when every instrument of the list is listed in the snapshot's last session and the run period is longer than 3 years. With `survivorship_ok="reason"`, the reason is written in the manifest instead of the warning.
+- `investable=True`: `is_eligible` of the TDS `eligibility_daily` rows with `rule_id = [universe] eligibility_rule` (default `investable-v1`). The row used is **that session's one row**, and its `ts_available <= cutoff(s)` must hold. When that session's row is missing or not yet available, **false** (no carry-over; even if true yesterday, false when there is no row today) [RV-C09]. Without the dataset, the `is_investable` column of `feature_panels` (the last available value; panels are periodic data, so "the last available value" is the definition) is used instead, `universe_source = "feature_panels"` is recorded and E30 is raised (4.5 F-07). Without both, `investable=True` is `CapabilityError` (E18, fix `investable=False` — the `nexusbt new strategy` template and the English quick start keep this line visible) [chapter 12 OI-01, RV-I03].
+- **Exclusion reasons reported** [SC-23]: per decision and market, the universe size, the number excluded per `eligibility_daily.reason`, the number removed by `exclude_microcap`, and the number dropped because the signal is not finite are left in `coverage.parquet` (5.9.1). A liquidity threshold is not hidden in the default universe (examples and the `nexusbt new strategy` template keep a line such as `AverageTradedValue(63, ccy="USD") > 1e6` visible).
+- Listing existence (`listed_on <= session <= last_session`) always applies.
+- `exclude` (default `()` = excludes nothing; the same principle as the decision to include micro-caps by default) [V31-30]: values accept only TDS enum names — `admin_status` values (`administrative`, `caution`, `warning`, `liquidation_trading`; that session's `Trad.admin_status`, available at `session_open`) and `category` values (`preferred`, `spac`, `reit`, `etf`, `fund`, `warrant`, `right`, …; `Meta.category`, the two-time-axis rule of 3.2). An unknown name is E16 (with the list of allowed names). It shows as a leaf Filter in step 1 of `explain`, and the excluded counts go per reason into `n_excluded_by_reason` of `coverage.parquet`. `[universe] exclude` can give a default.
+- `exclude_microcap` (default = `nexusbt.toml [universe] exclude_microcap`, default false): when true, removes the instruments in the bottom `microcap_pct` (default 0.20) of `market_cap` among that session's investable instruments per market. The boundary value is a `percentile` (linear interpolation), and values equal to the boundary stay [Q17, R-58].
+- `index_members`: reads the rows of that `universe_id` in TDS `universe_membership` by the rectangular two-time-axis lookup (5.3.6). When the dataset or that `universe_id` is missing, `CapabilityError` (E18, with the list of `universe_id` present) + the note "a fixed list has survivorship bias (E4)" [TDS-D16, RV-I08].
+
+### 3.7 Strategy parts [R-07, R-08, design 3.3]
+
+```python
+nx.Strategy(*, universe: Filter, signal: Factor, rebalance: Schedule, portfolio: PortfolioRule,
+            sizing: Sizer | Sequence[Sizer] | None = None,                                   # money-management slot [R4-02]
+            risk: RiskRule | Sequence[RiskRule] | None = None,                               # risk-management list slot [R4-04]
+            costs: CostModel | None = None, execution: ExecutionRule | None = None,
+            exits: Sequence[ExitRule] = (), hypothesis: str | None = None, name: str | None = None)
+```
+
+- A value object; `strategy.graph_hash` (a structural hash of the term graph + the parameters of the parts) [R-07, R-12]. On disk it is kept only as source (5.9.3), never stored as a serialised object (2.6). `name` default = the file name of the module that defines it.
+- `sizing` (default `None` = the shorthand `weight=` and `max_weight=` of the construction rule, below): the money-management slot (5.5.1a). For a list, the first is the base sizer and the rest are modifiers (`vol_target`, `cash_floor`), in the order written [R4-02].
+- `risk` (default `None` = no rules = `nx.risk.none()`): the risk-management list slot (5.5.2). One rule or a list, applied one by one **in the order written**; the order goes into `graph_hash` and the manifest [R4-04, SC-01, OQ-2].
+- `strategy.replace(**slots) -> Strategy` [R4-11]: a new value object with one or more slots replaced (the other slots and the name unchanged, with `~{replaced slots}` after the name). It is the basic tool for comparing techniques (`nx.compare`, 3.8). For example: `base.replace(sizing=nx.size.erc())`, `base.replace(risk=[nx.risk.drawdown_brake()])`.
+- A callback that reads holdings (`on_rebalance`) is not in v1 [C6, A-10].
+- The slots are read in the same order as bt and LEAN: `rebalance` (when) → `universe`, `signal` (what) → `portfolio` (which, on which side) → `sizing` (how much) → `risk` (reduce) → `execution`, `exits`, `costs` (how). A stage function takes only the previous stage's output (a table) and the information at the decision; the account state only in risk rules with `reads_account=True` (read-only, 5.5.2a) and in the execution stage [blueprint E-1, R4-01, R4-04].
+
+**The block contract of the nine slots** [R4-01]. The user plugs blocks into slots. Trying to read anything outside the table's "may read" is an error before the run (account access is E41; future slots do not exist by construction).
+
+| Slot (argument) | Input → output | May read | Built-in blocks | User blocks |
+|---|---|---|---|---|
+| schedule (`rebalance=`) | calendar → list of decision sessions (for `on_event`, + the target instruments per decision, + liquidation-only decisions at the end of life [R4G-03]) | the schedule calendar (5.1.3); for `on_event`, the events and releases available by the decision time | `monthly`, `weekly`, `quarterly`, `annually`, `daily`, `every`, `on_event` [R4F-EV-03] | none (v1). Conditional decisions through `risk.regime`, Filters, `on_event` |
+| universe (`universe=`) | Pipeline → Filter (decision × instrument, true/false/unknown) | snapshot data up to the decision (5.1.2) | `nx.universe`, `index_members`, `Trad.*`, operators | `@nx.filter(window=)` |
+| signal (`signal=`) | Pipeline → Factor score | the same | the 12 built-in factors, `ops.*`, `ops.composite`, `ml.factor`, `Macro.series` and `Events.*` terms [R4F-EV-01, R4F-EV-02] | `@nx.factor(window=)`, `nx.ml.factor(...)` (5.3.11) |
+| construction (`portfolio=`) | score, universe, previous canonical target state → selection table (id, side, rank) | term values at the decision, the previous decision's `TargetState` (read-only) | `top`, `bottom`, `long_short` | `@nx.portfolio` (3.8) |
+| sizing (`sizing=`) | selection table + market window → signed weights, `Σ|w| ≤ 1` per side | only the market window at the decision (prices, value traded, market cap), **no account** | `size.equal`, `value`, `inverse_vol`, `score`, `erc`, `vol_parity`, `stop_risk`, modifiers `vol_target`, `cash_floor` (5.5.1a; `kelly` v1.x [R4F-02]) | `@nx.sizer` (3.8) |
+| risk (`risk=[…]`) | weights → weights × m, `m ∈ [0, 1]` (toward zero only) | market information; with `reads_account=True`, the account (up to the decision, read-only) | `risk.group_caps`, `regime`, `vol_cap`, `liquidity_cap`, `drawdown_brake`, `portfolio_stop`, `no_reentry`, fitting to the exposure caps (5.5.2, 5.5.2a) | `@nx.risk_rule(reads_account=…)` (3.8) |
+| execution (`execution=`) | final weights + account → order intents | the account (engine) | `execution.market`, `execution.limit` | none (v1; fill semantics are an accounting contract and are not swappable) |
+| exits (`exits=[…]`) | fill → a non-expiring exit order per holding | the holding's `avg_cost`, entry session, closes after entry | `stop_loss`, `stop_limit_loss`, `take_profit`, `trailing_stop`, `time_stop` | none (v1) |
+| costs (`costs=`) | fill → cost components | the fill, ADV at the decision, user tables | `provisional`, `realistic`, `bps`, `per_share`, `none` | user tables (`provisional(table=)`, `realistic(table=)`) |
+
+**Four block promises** [R4-01]: (1) **No look into the future** — the end of every block's input window is the decision time (INV-01). (2) **Same input, same output** — no randomness or hidden state inside a block; a risk rule that needs state passes it only through the `risk_state` table the engine stores (5.5.2a). (3) **The account from the risk slot on, read-only** — the sizing slot does not take the account, and the risk slot takes a read-only view only with `reads_account=True`. (4) **Effects are visible** — per slot, the change in weight sums, the number of instruments and the reasons go into `waterfall.parquet` and `targets.reason`, and skipped instruments and blocks into `skips.parquet` (6.6 "no silent failures").
+
+**Schedules** (decision dates; the reference calendar is 5.1.3). Every schedule is anchored to the calendar and does not depend on the run's start date (INV-14):
+
+| Function | Decision sessions |
+|---|---|
+| `nx.monthly(day: int = -1)` | the `day`-th session of the month (from 1), counted from the end when negative. The last session when larger than the number of sessions in the month |
+| `nx.weekly(weekday: int = -1)` | the `weekday`-th session of the ISO week (same rule) |
+| `nx.quarterly(day: int = -1)` | `monthly(day)` of March, June, September and December |
+| `nx.annually(month: int = 12, day: int = -1)` | |
+| `nx.daily()` | every session |
+| `nx.on_event(trigger, *, delay: int = 0, universe_scope: Literal["event_instruments","all"] \| None = None, hold: Optional[int] = None)` [R4F-EV-03, R4G-01] | `trigger` = `Events.<kind>` (instrument events) or `Macro.series(...).changed()` and events with only a `series_id` (market events). For each event, the trigger session = the first session of the schedule calendar with `decision_ts ≥ ts_available` + `delay` sessions (calendar-anchored, independent of the run's start date — INV-14). The decision targets of that session: `"event_instruments"` = only the instruments triggered in that session (incremental decisions of 5.3.12), `"all"` = everything, like an ordinary schedule. `None` (default) = `"event_instruments"` for instrument events and **`"all"` for market events** (targets = the whole strategy universe). The reason is an **assumption**: a market-level event (a macro indicator release and the like) is not tied to particular instruments, so the engine assumes its effect reaches the whole universe and makes the whole universe the decision target; a user who thinks the effect reaches only some instruments narrows it with the universe or filters. This assumption is left in the manifest `assumptions` ("market-level trigger {t}: assumed to affect the whole universe") and on the report's header line [R4G-MG-01]; writing `"event_instruments"` explicitly for a market event is E16 before the run ("market-level trigger {t} has no instruments; use universe_scope='all' or leave it unset") [R4G-01]. End-of-life sessions enter the decision grid as liquidation-only decisions (5.3.12) [R4G-03]. Can be combined with other schedules by `|` (`nx.monthly() \| nx.on_event(...)`) |
+| `nx.every(n: int, offset: int = 0)` | the sessions whose absolute session number `session_ord` on the schedule calendar (the one in TDS `calendar_sessions` when present, otherwise the number the engine builds with the calendar's first session = 0) satisfies `(session_ord − offset) mod n == 0`. Independent of the run's start date [RV-C11] |
+
+**Parameters**: `nx.param(default: T, *, grid: Sequence[T] | None = None, name: str | None = None) -> Param[T]`. Usable wherever an integer or a float goes (window lengths, `top(n)`, `max_weight`, ratios). Without a name, the name is taken from the global variable of the module that built the strategy (`ConfigError` when two names point to the same Param). Values are set by `params={"n": 20}`, the CLI `--set n=20` or `nx.sweep`. The resolved values are left in the manifest `params` [R-08].
+
+**Portfolio** [C6, 11.4.4]:
+
+```python
+nx.top(n: int | Param, *, per: Classifier | None = None,
+       weight: Literal["equal","value","inverse_vol"] = "equal",
+       max_weight: float | None = None, vol_lookback: int = 252, redistribute: bool = False,
+       hold: int | Param | None = None, on_missing: Literal["drop","hold"] = "drop",   # [V31-17]
+       tiebreak: Literal["hash","id"] = "<toml [portfolio] tiebreak>") -> PortfolioRule   # [V31-29]
+nx.bottom(n, **same arguments) -> PortfolioRule          # short side: n by ascending score, negative weights [V31-LS-02]
+nx.long_short(long: PortfolioRule, short: PortfolioRule, *, long_weight: float = 0.5, short_weight: float = 0.5,
+                max_gross: float | None = None, max_net: tuple[float, float] | None = None) -> PortfolioRule   # [V31-LS-02]
+```
+
+- `hold` (hold band, default `None` = off): with `hold=m` (m ≥ n), an instrument that was in the previous decision's canonical target stays while it is within rank m. The norm is 5.5.3 (the target-state recursion). **Until T7.1 (the last ticket of M6) is in, a `hold` other than `None` is `CapabilityError` (E18, "available after ticket T7.1"); supported in the v1 release** [SC-02, OQ-1].
+
+- **Short selling and signs** [V31-LS-02]: `top` is the long side (weights ≥ 0), `bottom` the short side (the same rule applied by ascending score, then the weights multiplied by −1 — the mirror image of the long side). `long_short(long, short)` builds the two sides separately (sum ≤ 1 per side, the remainder under the `max_weight` cap in cash) and then **only multiplies** the long-side weights by `long_weight` and the short-side weights by `short_weight` — it does not normalise again, so `top(1, max_weight=0.1)` + `long_weight = 0.5` is 0.05 (v3.1's "the long side sum is fitted to `long_weight`" undid the cap and was removed). When the same instrument is on both sides, only the long side keeps it and it is removed from the short side (`reason = conflict_long_kept`), and the remaining shorts are not refitted (that share is cash) [R3-08]. **Feasible region** [R3-08]: longs have no margin loan and one short sale reduces `buying_power` by `c·|q|·P` (5.6.7, c = `collateral_ratio`), so in the cash account (default) a book that exceeds `long_weight + c·short_weight ≤ 1` per sleeve (long only = L 1·S 0, short only `bottom` = L 0·S 1) is `ConfigError` before the run (E16, "long-short book needs margin: long_weight + collateral_ratio × short_weight = {x} > 1"; 130/30 = 1.3 + 0.5 × 0.3 = 1.45). The risk stage only shrinks toward zero, so targets during the run do not leave this region. The assumption sentence is "longs are fully cash-funded; no margin loan; short proceeds are restricted as collateral". With `[account] type = "margin"`, the feasible region is 5.6.7a (`L + S ≤ min(max_gross, 1/initial_margin)`) [R4G-MG-02]. With `[shorting] enabled = false` (default), using `bottom`, `long_short` or a rule that makes negative weights is `ConfigError` before the run (E16, "short targets need [shorting] enabled = true"). When gross exposure `Σ|w|` exceeds `max_gross` (default = `[shorting] max_gross`, 1.0) or net exposure `Σw` leaves `max_net` (default `[shorting] max_net`, the closed interval `[−1, 1]`; it must contain 0, otherwise E16 [R3-07]), the risk stage scales proportionally toward zero (5.5.2; never up). Leverage goes only up to the gross exposure cap the user sets.
+- Selection: within each sleeve, at most n of the instruments whose `signal` is finite and whose `universe` is true, by descending score (ascending on the short side) + the tie-break key. The tie-break key [V31-29]: `tiebreak = "hash"` (default) = ascending (the first 8 bytes of `sha256("nexusbt-tiebreak-v1" ‖ 0x1F ‖ instrument_id)` as a big-endian unsigned integer, `instrument_id`) — a fixed order per instrument, independent of date, clock, graph, sleeve and snapshot (v3.1's `decision_id` salt reshuffled the order at every decision and made false turnover in strategies with sparse scores) [R3-12], and independent of instrument numbers, so there is no hidden tilt that "always picks the companies with small (old) numbers"; `"id"` = ascending `instrument_id` (the zipline preset, 5.6.15). The number of instruments split by a tie at the cutoff is `n_tied_at_cutoff` of `coverage.parquet`. (The Factor methods `.top()`, `.bottom()` and `.rank("ordinal")` follow the same `[portfolio] tiebreak` — Pipeline selection and portfolio selection pick the same instruments; the zipline comparison (8.1 L1-d) runs with `tiebreak = "id"` [R3-12].) With `per`, n per group (`per=Meta.market` is the same as the sleeve, so it has no effect + a notice).
+- **Shorthand** [R4-02]: `weight=`, `max_weight=`, `vol_lookback=` and `redistribute=` are shorthand for `sizing=nx.size.<weight>(max_weight=…, lookback=…, redistribute=…)`. Giving `sizing=` together with any of these four at a non-default value is E16 before the run ("weight given twice: top(weight=...) and sizing=..."). The definitions in the two lines below are exactly the definitions of `size.equal`, `value` and `inverse_vol`.
+- Weights before weighting `u_i`: equal = 1, value = `market_cap` at the decision (point-in-time lookup of `share_counts` × raw close; when missing, removed from the selection with E30), inverse_vol = 1/`AnnualizedVolatility(vol_lookback)` (removed from the selection when NaN or 0).
+- `on_missing` (meaningful only together with the hold band `hold`): 5.5.3 [V31-17].
+- `w_i = u_i / Σu`. With `max_weight`, `w_i ← min(w_i, max_weight)` and the remaining share is cash (`redistribute=False`; not filled from lower ranks). With `redistribute=True`, it is redistributed repeatedly and proportionally to the instruments not at the cap (at most 50 rounds, convergence 1e-12).
+- Result: long only, sum ≤ 1 (within the sleeve) [11.4.1]; long–short, `Σ|w| ≤ max_gross`, `Σw ∈ max_net` [V31-LS-02].
+
+**Execution rules** [R-56, 9.0 orders]:
+
+```python
+nx.execution.market(at: Literal["open","close"] = "open", *, max_participation: float | None = None,
+                    tif: Literal["gtc","day"] = "gtc", max_age_sessions: int | None = None,
+                    min_trade_value: float | None = None, min_trade_weight: float | None = None,     # [V31-06]
+                    rebalance_band: float | None = None, band_mode: Literal["edge","target"] | None = None) -> ExecutionRule
+nx.execution.limit(offset_bps: float = 0.0, *, ref: Literal["decision_close"] = "decision_close",
+                   tif: Literal["day","gtc"] = "day", max_participation: float | None = None,
+                   max_age_sessions: int | None = None, min_trade_value=None, min_trade_weight=None,
+                   rebalance_band=None, band_mode=None) -> ExecutionRule
+```
+
+- Default = `market(at="open")`: fills at the open of the first session after the decision (design Q5). `at="close"` is the close of the first session after the decision (used by the zipline preset). There is no "fill at the same close" [11.4.1, A-12].
+- `limit`: the buy limit = ref·(1 + offset_bps/1e4) and the sell limit = ref·(1 − offset_bps/1e4) are snapped to that market's price grid on the **conservative side** (buy down, sell up) (5.6.4a). v3's "not rounded to the tick" was removed (fills at prices that do not exist in the Korean tick grid made results slightly better and always broke the comparison with real trades; zipline#2211, freqtrade#13661) [V31-05].
+- `min_trade_value`, `min_trade_weight`, `rebalance_band`, `band_mode` (default = toml `[execution]`, all off): filtering out small rebalancing orders (5.6.7) [V31-06].
+- `max_participation` default = toml `[execution] max_participation` (0.05), `max_age_sessions` default 20 [11.4.2].
+
+**Exit rules** (non-expiring sell orders attached to each holding; the exit orders of one holding are OCO with each other; life cycle in 5.6.2a) [R-56, Q21 → A-11, RV-C05]:
+
+| Function | Order (long holding / short holding [V31-LS-06]) | Price (long / short) |
+|---|---|---|
+| `nx.exits.stop_loss(pct: float)` | sell stop / cover (buy) stop | `avg_cost·(1 − pct)` / `avg_cost·(1 + pct)` |
+| `nx.exits.stop_limit_loss(stop_pct: float, limit_pct: float)` | sell stop-limit / buy stop-limit | long: stop `avg_cost·(1−stop_pct)`, limit `avg_cost·(1−limit_pct)`; short: stop `avg_cost·(1+stop_pct)`, limit `avg_cost·(1+limit_pct)`; `limit_pct >= stop_pct` |
+| `nx.exits.take_profit(pct: float)` | sell limit / buy limit | `avg_cost·(1 + pct)` / `avg_cost·(1 − pct)` |
+| `nx.exits.trailing_stop(pct: float)` | sell stop / buy stop | `max(closes after entry)·(1 − pct)` / `min(closes after entry)·(1 + pct)`, recomputed after every session close |
+| `nx.exits.time_stop(sessions: int)` [R4-10] | market sell / market cover (buy). Created after the close of the session in which the number of holding sessions (first entry fill session = 1, market calendar sessions, halt days included [V31-52]) reaches `sessions`, and placed in the next session's open stage; when halted, carried over as in 5.6.5 | no price (open); OCO with the stop loss and take profit. When the holding grows or shrinks, the entry session stays the first entry (0 → ≠ 0); when the sign changes, the count starts again |
+
+- A stop loss + take profit + `time_stop` tied as the OCO of one holding is the triple barrier. The label `nx.labels.triple_barrier` (v1, 5.8) is built by calling **the same decision function** (5.6.4) and the same session count [SC-20, blueprint E-10, R4-10, R4-24].
+
+- Creation, quantity and price basis are in 5.6.2a: created in the same stage right after the entry fill event, quantity = the sellable quantity of the holding at that moment, price basis = the `avg_cost` at that moment; refitted immediately at every event that changes the holding. No expiry (`max_age_sessions = None`); `CANCELLED(position_closed)` when the holding becomes 0. `avg_cost` is the weighted average purchase price on the raw-price basis (a float before minor-unit booking; quantity and price adjusted at splits). (v2's wording "the sellable quantity at the start of that session" contradicted the same-bar stop G-08 and was removed.)
+- Exit prices are computed and then snapped to the price grid on the conservative side (a long stop-loss sell stop down, a short stop-loss buy stop up, a take-profit sell limit up and buy limit down; 5.6.4a) [V31-05]. The exit orders of a short holding mirror those of a long (price basis = the average short-sale price `avg_cost`), quantity = the size of the short quantity at that moment [V31-LS-06]. They are created right after the short entry (0 → negative) fill, and the trailing reference is `low_water_close = min(closes after entry)` [R3-10].
+- Daily-bar assumption sentence (manifest `assumptions`): "stops fill at the stop price unless the open gaps through it; no further slippage past the stop is modeled".
+
+**Cost models** [R-25, R-61, Q6]:
+
+| Function | Meaning |
+|---|---|
+| `nx.costs.provisional(table: str | None = None)` | default. Fixed bp per market (`provisional_bps` of the market rules pack, overridden by toml `[costs.provisional_bps] <MARKET>`), "provisional costs" in the report. Given `table` (or toml `[costs] provisional_table`), it uses the row of the user's **period and liquidity-band table** (schema of 4.7: `market, side, valid_from, valid_to, adv_from, adv_to, bps, source`) for that fill date and that instrument's ADV at the decision (a currency amount, t−20..t−1). The default is no table = fixed bp (the user decision "commissions and taxes are user settings", R-61 as it is); "cost by liquidity tier" on the report's cost line [V31-27] |
+| `nx.costs.realistic(table: str = "default", *, impact_y: float = 0.5, impact_a2: float = 0.5, impact_a3: float = 1.0)` | commission and tax tables by period and country + a ½-spread estimate + the impact `Y·σ^a3·(q/ADV)^a2` (default = square-root impact, 5.6.8) [SC-11]. When the table coverage check fails, it is blocked with `CostTableError` (error E23), suggesting `provisional()` |
+| `nx.costs.bps(buy: float, sell: float, *, by_market: Mapping[str, tuple[float, float]] | None = None)` | fixed bp. Overridden by market key (the snapshot's `markets`), as in `by_market={"KR": (5, 25)}` [RV-I08] |
+| `nx.costs.per_share(cost: float, min_trade_cost: float = 0.0)` | commission per share (local currency) |
+| `nx.costs.none()` | 0 |
+
+### 3.8 Function signatures and returns
+
+Common keywords ("common" in the table below): `snapshot: str | None = None` (default toml), `edition: Literal["strict","compare"] | None = None`, `segment: str | None = None` (default toml `[split] default_segment`), `start`, `end` (only to narrow further inside the segment; `ConfigError` outside it), `study: str | None = None`, `save: bool = True`. v3.2's reserved argument `splits=` was removed: splitting is a value of `backtest(method=…)` (6.3a; `evaluate` is linear only) [SC-21, R4-20].
+
+```python
+nx.evaluate(term: Factor | Mapping[str, Factor], *, target: str | BoundColumn = "fwd_return",   # "fwd_return" (economic label) | "fwd_return_adj" | Label.*
+            freq: Literal["monthly","weekly","daily"] = "monthly", horizons: Sequence[int | Literal["next"]] = ("next",),
+            quantiles: int = 5, universe: Filter | None = None,
+            by: Sequence[Literal["market","year","segment"]] = ("market",),
+            delisting: Literal["observed_then_policy","observed_only","lo","hi"] | None = None, **common) -> FactorReport
+
+nx.backtest(strategy: Strategy, *, capital: float | None = None, base_ccy: str | None = None,   # ISO 4217; the snapshot must have exchange rates into that currency
+            clock: str | None = None,                                                     # "<MARKET>_close" | "market_local"
+            sleeves: Mapping[str, float] | None = None, costs: CostModel | None = None,
+            delisting: str | None = None, params: Mapping[str, Any] | None = None,
+            preset: Literal["realistic","zipline"] = "realistic",
+            offsets: int | None = None,                                                   # rebalance-date luck [V31-26]
+            scenarios: bool | Sequence[Literal["gross","cost0x","cost2x","delist_lo","delist_hi","capacity"]] = True,   # gross = cost0x (one and the same replay)
+            save_signal: bool = False,
+            method: Literal["linear","walk_forward","cpcv","cscv"] | Split = "linear",      # validation method, 6.3a [R4-20]
+            grid: Mapping[str, Sequence[Any]] | None = None,                                # candidates chosen per fold (method ≠ linear)
+            select: Literal["net_sharpe","cagr","calmar"] = "net_sharpe",
+            preview: bool = False, **common) -> Run                                          # [R4-12]
+
+nx.screen(obj: Strategy | Factor | Pipeline, *, asof: str | date | None = None, top: int | None = None,
+          params: Mapping[str, Any] | None = None, anchor: str | date | None = None,
+          show: Literal["selected","all","held+near"] = "selected", near: int = 10,
+          book: Book | str | None = None,
+          account: Literal["auto","none","book","backtest"] = "auto", **common) -> Screen   # [V31-28, R3-21, R4-08]
+
+nx.live(strategy: Strategy, *, book: Book | str, asof: str | date | None = None,
+        params: Mapping[str, Any] | None = None, snapshot: str | None = None) -> Orders
+nx.fill(book: Book | str, orders: Orders | None = None, *, at: Literal["next_open"] = "next_open",
+        snapshot: str | None = None) -> BookUpdate
+nx.reconcile(book: Book | str, *, restate: bool = False, snapshot: str | None = None) -> ReconcileReport
+                                   # default: replay with the snapshots the ledger recorded. restate=True: restatement comparison with snapshot (default latest)
+
+nx.sweep(strategy: Strategy, *, grid: Mapping[str, Sequence[Any]] | None = None,
+         pbo_blocks: int = 16, **backtest_kwargs) -> SweepResult
+nx.compare(*items: str | Run | Strategy, metrics: Sequence[str] | None = None, **backtest_kwargs) -> Comparison   # variant table [R4-11]
+nx.splits.holdout() | nx.splits.walk_forward(train="5y", test="1y", step="1y", anchored=False, embargo=0)
+    | nx.splits.cpcv(n_groups=6, k_test=2, embargo=5) | nx.splits.cscv(blocks=16) -> Split   # 6.3a [R4-19]
+nx.ml.factor(model, features: Sequence[Factor], label: str | LabelTerm | None = None, *, train: Window | None = None, refit: Schedule | None = None,
+             embargo: int = 0, sample_weight: None = None, cross_section: Literal["pooled"] = "pooled",
+             name: str | None = None) -> Factor                                               # 5.3.11 [R4-23]
+nx.ml.rolling(length: str | int) | nx.ml.expanding(min_length: str | int) -> Window     # training window (not a split) [R4F-31]
+nx.labels.triple_barrier(*, take_profit: float, stop_loss: float, max_sessions: int,
+                         entry: Literal["next_open"] = "next_open") -> LabelTerm               # 5.8 [R4-24]
+@nx.portfolio(side: Literal["long","short"] = "long", window: int = 1, inputs: Sequence[Term] = ())   # [R4-07]; "both" is E16 [R4F-17]
+def f(ctx: nx.PortfolioContext) -> Mapping[str, int]: ...      # instrument_id → +1 (long) / −1 (short); rank = score order
+@nx.sizer(window: int = 252, inputs: Sequence[Term] = (nx.Price.close,), returns: Literal["units","weights"] = "units")
+def f(ctx: nx.SizingContext) -> Mapping[str, float]: ...        # finite u ≥ 0 → the engine normalises per side; for "weights", same sign as the side and Σ|w| ≤ 1 per side, otherwise E41 [R4F-38]
+@nx.risk_rule(reads_account: bool = False, window: int = 1, inputs: Sequence[Term] = ())
+def f(ctx: nx.RiskContext, w: nx.TargetView, state: Mapping[str, Scalar]) -> nx.RiskDecision: ...
+                                                                # RiskDecision(mult=float | Mapping[id, float], state={...}, reason="...")
+nx.explain(obj: Term | Strategy, instrument_id: str, date: str | date, *, snapshot=None, edition=None,
+           params: Mapping[str, Any] | None = None) -> Explanation | DecisionExplanation
+nx.check(obj: Term | Pipeline | Strategy, *, probes: int = 0, seed: int = 0, start_probe: bool = False,
+         verbose: bool = False) -> CheckReport
+nx.describe(obj: object | None = None) -> Description          # None: the list of datasets
+nx.runs(*, study: str | None = None, kind: str | None = None, limit: int = 50) -> RunTable
+nx.rerun(run_id: str, *, new_snapshot: bool = False, trust: bool = False) -> Run
+nx.book(spec: str) -> Book                                       # "paper:<name>" | "manual:<name>" [V31-18]
+nx.override(book: Book | str, instrument_id: str, kind: Literal["no_trade","reduce_only","close"], *,
+              from_: str | date | None = None, until: str | date | None = None, note: str = "") -> BookUpdate   # [V31-18]
+nx.record_fills(book: Book | str, csv: str | Path) -> BookUpdate     # records of real fills and discretionary trades a person made [V31-18]
+nx.cash_flow(book: Book | str, amount: float, *, ccy: str, sleeve: str, session: str | date | None = None,
+               note: str = "") -> BookUpdate                       # deposit (+) / withdrawal (−) [V31-19]
+nx.preregister(strategy: Strategy | Factor, *, metric: Literal["net_sharpe","cagr","ic_mean","dsr"], threshold: float,
+               segment: str = "validation", note: str = "") -> Preregistration
+nx.config() -> Config                                            # the resolved nexusbt.toml
+nx.open(path: str | Path) -> Snapshot   # one package path (or a parent folder with `LATEST` → that snapshot) [V31-PUB-03]; the result can be given to `snapshot=` of every function
+```
+
+| Function | Decision grid | Run record | Attempts and exposure |
+|---|---|---|---|
+| `evaluate` | the last session of `freq` per market (market_local) | `kind="evaluate"` | candidate +1 per factor (for a `Mapping`, a separate candidate and observation per item), segment exposure |
+| `backtest` | the strategy schedule, reference clock (5.1.3) | `kind="backtest"` | strategy candidate (+1 when new) + 1 observation, exposure |
+| `screen` | one `asof` (default = each market's last snapshot session) | `kind="screen"` | exposure record only (no performance computed) |
+| `live` | the ledger's next decision | `kind="live"` + ledger events | none |
+| `sweep` | as `backtest` | parent `kind="sweep"` + `kind="backtest"` per candidate | +1 per candidate |
+| `backtest(method≠linear)` | the strategy schedule, per fold and path | one `kind="backtest"` (`method`, folds and paths are sub-tables under that run's `validation/`) | strategy candidate +1 (+1 per `grid` point) + 1 observation; folds and paths are diagnostics (6.2) [R4-21] |
+| `backtest(preview=True)` | the last year (within the chosen segment), a small universe | `kind="preview"` | +1 when a new candidate, 1 observation (`fidelity="preview"`; not a DSR performance input) [R4-12, R4F-15] |
+| `compare(Strategy…)` | as `backtest` per variant | parent `kind="compare"` + `kind="backtest"` per variant | +1 per variant when it is a new candidate (the base strategy may already be a candidate) + 1 observation [R4-11, R4F-39] |
+| `reconcile` | the decisions of the ledger period | not saved; updates the ledger's `status.json` | none |
+| `override`, `record_fills`, `cash_flow` | – | ledger events (5.9.6) | none [V31-18, V31-19] |
+| `compare`, `explain`, `check`, `describe`, `runs` | – | not saved | none |
+
+- `rerun(run_id)`: runs again with the manifest's snapshot (confirmed by the semantic hash; at least `schema` + the file sha256 stamp), source (a new process, 5.9.3), parameters, config and lock, and compares the value hashes. When the snapshot is missing or its semantic hash differs, `ReplayError` (error E15). `new_snapshot=True` is not a rerun: it runs as a "new run" (`kind` the original one, `derived_from=run_id`) and shows the differences [C9, 11.7].
+- `screen(strategy)` gives a ranking even on a day that is not a decision day and marks it `scheduled=False`. On such a day `live` places no new rebalancing orders, only exit-rule orders [11.4.6].
+- `screen(factor, top=n)`: the top n of one factor per market in the investable universe.
+- **Account rule of screen** [R4-08]: `account="auto"` (default) = `"book"` when `book=` is given, otherwise `"none"`. With `"none"`, risk rules that read the account are not evaluated and are set to `m = 1`, the result header and that rule's line say `drawdown_brake: not evaluated (no account) — use --ledger BOOK or --as-backtest`, and the notice E42 is raised (never skipped silently; one line per rule in `skips.parquet`). `"book"` (CLI `--ledger BOOK`) = gives `final_weight` using the ledger state (valuation NAV history, holdings, entry sessions, exit events) as a read-only account; the ledger state version and the snapshot hash go into the manifest. `"backtest"` (CLI `--as-backtest`) = backtests the same strategy from the anchor (`anchor`) to `asof` (not saved, the same determinism) and evaluates with that account (slow; the time taken is shown). The canonical target (`target_weight`) is the same in all three (INV-08).
+- **`preview=True`** [R4-12] (CLI `--preview`): period = first `I` = the chosen segment (`segment=`, default train) ∩ explicit `start`/`end` ∩ the snapshot period, then one year back from the last decision of `I` (`[preview] years`, default 1; all of `I` when `I` is shorter) — that result is the interval recorded as exposure [R4F-16]; universe = the strategy universe ∩ per market the top `[preview] max_names` (default 200) by 20-session average value traded at the decision; scenarios, probes and capacity off; saved as `kind="preview"`; counted as an attempt (6.2 [R4F-15]). The first line is "PREVIEW — 1y, top 200 by traded value per market; not a research result". Target: within 5 seconds on synthetic `small` (a measurement reported, not a gate).
+- **`compare`** [R4-11]: for run ids and `Run`s, the comparison table as now. Given `Strategy` values, it runs each with `backtest(**backtest_kwargs)` and gives a **variant table**: rows = variants, columns = the names of the slots that differ from the base strategy (the mark of `replace`), metrics (default CAGR, Sharpe, MDD, turnover, average `Σ|w|`, costs), a risk waterfall summary (the average share reduced per slot), DSR (cohort). The same Pipeline values are reused (L1). Variants count as candidates.
+- **User blocks** [R4-07]: an `@nx.portfolio` function gives only the selection (weights belong to the sizing slot). An output id outside the universe or a side value different from `side` is E41. User construction in v1 is **one-sided only** (`side="long"` or `"short"`): two sides are combined with `nx.long_short(my_long, my_short, long_weight=, short_weight=)` and get the L/S budget and the feasible-region check (3.7) as they are; `side="both"` is E16 before the run ("combine two one-sided blocks with nx.long_short") [R4F-17]. The output of `@nx.sizer(returns="weights")` must have the same sign as the side and `Σ|w| ≤ 1` per side, otherwise E41 [R4F-38]. An `@nx.sizer` function takes only `SizingContext` (selected ids, sides, scores, ranks, the `inputs` window arrays `(window, n)` — last row = the decision row, `params`) and has no account attributes. A return that is not finite or is negative is E41. `@nx.risk_rule` takes `RiskContext` (the same windows + `ctx.account` only when `reads_account=True`: the NAV series up to the decision time, holding quantities, `avg_cost`, entry sessions, exit events — all read-only arrays), the view of the current weights `TargetView` and its own state from the previous decision, and gives a `RiskDecision`; `mult` out of range or not finite → E41; touching `ctx.account` with `reads_account=False` → E41 ("this rule reads the account; declare @nx.risk_rule(reads_account=True)"). State values are JSON scalars only, and the engine stores them in `risk_state.parquet`. All three decorators get check 6 of 6.5 (purity, captured constants) and E8 (window) as they are.
+- `scenarios`: `True` = the default (`gross` (= `cost0x`, the zero-cost replay **once**), `cost2x`, `delist_lo`, `delist_hi` — 4 replays), `False` = none, a list = those names (giving both `gross` and `cost0x` still replays once, and the same series is not stored under two names) [RV-Q02]. `"capacity"` is not in the default (P5 budget) [SC-06, OQ-4]; it is turned on in `sweep`'s report of the final candidate. Every scenario reruns only the state machine with the same `TargetFrame` (Pipeline and targets reused). `capacity` is defined in 5.7.
+- `anchor` (screen): the decision date where the target-state recursion (5.5.3) starts. Default = toml `[portfolio] anchor_date`. Ignored for strategies that do not use the recursion. The anchor of `backtest` is that run's first decision; for `live`, the decision that created the ledger.
+- `explain(strategy, id, date)`: shows that instrument's path at that decision (5.9.9): true/false of each universe Filter → score and rank → selection / caps / risk overlays → order intent → (when the snapshot has the execution session) the fill or `blocked(reason)`. It recomputes, so no saved run is needed. On a saved run, `Run.why(id, date)` gives the same shape without recomputing [SC-13].
+- `reconcile(book)`: 5.9.7 [SC-14]. The default is the deterministic replay (the snapshots the ledger recorded at each decision and fill); `restate=True` is a "restatement" comparison recomputed with new data, and the report names it so [RV-C13].
+- `check(..., start_probe=True)`: also runs the start-date probe (6.5) [SC-04].
+- `offsets=k` (default None) [V31-26]: shifts the schedule k ways (monthly, quarterly, annual: the `day=1..k`-th session; `every(n)`: `offset=0..k−1`; weekly: `weekday=1..k`), reruns only the targets and the state machine on **the same Pipeline values** (L1 reuse), and shows the minimum, median and maximum of CAGR, Sharpe and MDD on one "rebalance-date luck" line. This is not a new candidate but a **diagnostic** of one candidate (not counted in attempts or cohorts, 6.2). The result is `offsets.parquet`. Like the truncation probe, the extra time is only reported.
+- `screen(..., show=…)` [V31-28]: `"selected"` (only the selected instruments, as now), `"held+near"` (target and held instruments + the "just missed" instruments of ranks n+1..n+`near`), `"all"` (the whole universe). `Screen.xray()` gives a table with steps 1~4 of `explain` (5.9.9) spread as vectors on the same rows: a true/false/unknown column per universe leaf Filter, the value and percentile per signal node, a status column (`held` / `buy` / `hold_band` / `sell(reason)` / `near_miss` / `excluded(reason)`). It reuses the Pipeline node values without new computation. CLI `nexusbt screen --show held+near --html`. The columns that show holdings (`held`, `sell(reason)`, whether `hold_band` is held) are filled only when `book=` (a ledger) is given; otherwise those columns are "holdings unavailable" and holdings are never made up (the same for `Screen.xray(book=None)`) [R3-21].
+
+### 3.9 Result objects and output shapes [R-10, R-11]
+
+Every result object gives **the same lines** from `__str__` (terminal) and `_repr_html_` (notebook); table attributes are Arrow tables with `.to_polars()` and `.to_pandas()`. Format rules: ratios `12.3%` (1 decimal), IC and correlations 3 decimals, t, Sharpe and DSR 2 decimals, counts `1,612`, a count next to a ratio `1,612/1,705 (94.5%)`, dates ISO, KRW amounts integers + commas, USD 2 decimals. Work longer than 2 seconds prints a progress line on standard error (`stage · date · time left`) [R-41].
+
+**FactorReport** (attributes: `summary`, `ic`, `quantile_returns`, `coverage`, `turnover`, `by_year`, `delisting`, `hygiene` (`bhy_p`, `m`, `cohort_sha256`, `breadth_naive`, `implied_ir`), `label` (`fwd_return` | `fwd_return_adj` | `Label.*`, a definition sentence), `warnings`, `run_id`; methods `decay(horizons)`, `quantiles()`, `report()`, `to_strategy(path)`, `to_alphalens()` (5.9.8)):
+
+```
+{expr}        study: {study}   factor trial #{k} in study ({n_candidates} candidates)
+data {snapshot_id} · {edition} · {freq} · {start} → {end} · segment {segment}
+label {fwd_return: holding return, dividends reinvested at ex-date close, pre-withholding | …}
+
+                              KR                     US
+decisions                    {n}                    {n}
+names / decision (median)    {n}                    {n}
+coverage                     {a}/{b} ({p}%)         …
+IC mean ({h})                {ic:.3f}               …
+IC t (Newey-West, L={L})     {t:.2f}                …
+Q{q}-Q1 / period             {x:.2%}                …
+  t                          {t:.2f}                …
+monotonic (Q1<…<Q{q})        {k}/{q-1} steps        …
+turnover Q{q} / period       {p}%                   …
+worst year IC                {year}  {ic:.3f}       …
+exits in Q1 (obs/policy/unobs) {a}/{b}/{c} of {n}   …
+naive breadth / yr · IR     {br:,} · {ir:.2f}      …   (naive opportunity count, not independent bets)
+BHY-adjusted p (m={m})       {p:.3f}                …   (m = candidates recorded in this cohort)
+
+gates (display only)  KR: IC t {t} {≥|<} {gate}   US: …
+next   nx.evaluate(f, by=["year"]) · .quantiles() · .decay() · .to_strategy("strategies/x.py")
+saved  runs/{run_id}/report.html
+```
+
+**Run** (attributes: `run_id`, `path`, `manifest`, `metrics`, `daily`, `targets`, `orders`, `fills`, `events`, `positions`, `scenarios`, `attribution`, `exposures`, `warnings`; methods `report()`, `why(instrument_id, date)`, `returns(ccy=None)`, `to_pyfolio()`):
+
+```
+{name}   run {run_id}   study: {study}  candidate #{k} ({N} candidates in study)
+data {snapshot_id} · {edition} · code {graph_hash6} (git {sha}, {clean|dirty}) · params {k=v, …}
+period {start} → {end} · segment {segment} · base {base_ccy} · clock {clock} · sleeves KR {w}/US {w}
+execution {order} at next {open|close} · costs {profile}{ (provisional) } · markets {KR: rules KR@1 | ZZ: untested market rules}
+benchmark {index} ({TR|PR}, {cap|equal|…}-weighted) · portfolio weighting {equal|value|inverse_vol}   [V31-15]
+{shorting: on · borrow {bp}/yr KR {a} US {b} · collateral {m} · no borrow-availability data; uptick rule not modeled}   (only when shorting is on) [V31-LS-07]
+assumptions  cash earns {r}% · dividends pre-withholding · immediate settlement · fill qty capped by realized session volume (ex-post) · gross = zero-cost replay (includes path effects)   [R3-25, R3-03]
+{ruined: {sleeve} on {date} — new orders stopped; obligations booked as negative cash}   (only when there is a ruined sleeve) [R3-09]
+
+                      net        gross      KR net(KRW)  US net(USD)  benchmark
+CAGR                  …          …          …            …            {… | n/a: not in snapshot}
+vol                   …
+Sharpe                …
+max drawdown          …
+turnover / year       {x:.1f}x
+cost drag / year      {p}%  (direct {d}% · path {p2}%; commission · tax · spread · impact)
+cost sensitivity      0x {cagr} · 1x {cagr} · 2x {cagr}
+holdings (median)     {n} (KR {a} / US {b}) · sleeve weight now KR {p}% / US {p}% (start 50/50)
+{exposure (median)    long {l}% · short {s}% · gross {g}% · net {n}%   borrow cost {c}%/yr · short dividends paid {d}}   (only when there are shorts) [V31-LS-10]
+vs benchmark          excess {x}%/yr (arith) · {y}%/yr (geom) · tracking error {te}% · IR {ir:.2f} · excess MDD {m}%   [V31-15]
+target gap (median)   {g}% (blocked {a} · cash {b} · cap {c} · lot rounding {d} · small/band {e}) · slip vs decision {s} bp   [V31-14]
+fx contribution       US sleeve {p}%/yr (local {a}%/yr · fx {b}%/yr · cross {c}%/yr)
+signal-weight corr   median {tc:.2f} over {n} decisions   (not risk-adjusted)
+{capacity: participation cap binds at ≈ {K} {ccy} (x10 CAGR {a}, x100 CAGR {b})}   (only with the "capacity" scenario)
+
+exits while held      {n}: observed {a}, policy {b}, unobserved {c} · scenario lo/hi CAGR {x}/{y}
+orders                filled {a} · partial {b} · expired {c} · cancelled {d} (insufficient cash {k}, {amt} {ccy}) · blocked-days: halt {e}, limit {f}, capacity {g} (bar volume {g2}; ψ-bound fills {b}/{n}), unknown-tradability {h}{, short ban {sb}} · suppressed: small {m}, band {n}   [V31-03, V31-06, V31-LS-07]
+{rebalance-date luck  {k} offsets · CAGR min {a} / median {b} / max {c}}   (only with offsets) [V31-26]
+dividends             paid {n} · pay date estimated {m}/{n}
+PSR(0) {x:.2f} · DSR {x:.2f} (N={N} candidates in cohort {cohort6}, V[SR] from cohort) | DSR n/a ({reason}) · MinTRL(95%) {y:.1f}y
+{Sharpe (Lo, ρ1={r:.2f}, lags ≤ 10) {x:.2f}}   (only when |ρ1| > 0.1)
+segments seen in study  train {a} · validation {b} · test {c}
+warnings {n} (run.warnings) · data fallbacks {k} · reconciled: {yes|NO}
+```
+
+The exposure table, risk metrics (drawdown duration, recovery time, worst month), the attribution table, BHY and N_eff (v1.x) are not on the first screen; they go in the "hygiene", "attribution" and "exposures" sections of the `report()` HTML [blueprint chapter 10 risk (1)]. HTML sections added in v3.1: "monthly" (a calendar month × year return table, with the excess over the benchmark at the end of each row [V31-15]), "rolling" (quantile tables of excess returns over 1-year and 3-year windows [V31-26]), "trades" (counts, win rates, average holding periods and MAE/MFE per exit reason [V31-20]), "execution" (the decomposition of target-gap causes, fill price against decision price and arrival price in bp, the count of effective prices outside the bar range [V31-14]), "cost tiers" (costs per liquidity band [V31-27]).
+
+**Screen** (attributes `table`, `scheduled`, `asof`):
+
+```
+{name}  screen as of KR {date} close · US {date} close   data {snapshot_id} · {edition}   {scheduled|not a rebalance day (preview)}
+rank  instrument_id   name            mkt  score   {signal terms…}  target_w  flags
+…
+universe {n} KR / {n} US · selected {a}/{n_KR} KR, {b}/{n_US} US · run {run_id}
+```
+
+`flags`: `vendor` (vendor input), `fund {d}d old`, `halted`, `limit-up`, `panel {d}d old`, `admin` (administrative issue, caution), `short-ban` (a short target during a short-sale ban period).
+
+With `show = "held+near"|"all"`, the column `status` (`held`/`buy`/`hold_band`/`sell(reason)`/`near_miss`/`excluded(reason)`) is added, and `Screen.xray()` is the Arrow table spread out to the leaf Filter and signal node columns [V31-28].
+
+**Orders** (attribute `table`: `idempotency_key, sleeve, action, instrument_id, name, order_type, qty, limit_price, stop_price, tif, est_price, est_value, reason, check`; `action` ∈ buy / sell / sell_short / buy_to_cover [V31-LS-06], `check` = the result of the pre-checks [V31-10]):
+
+```
+{name} live · decision {decision_id} · as of KR {date} close · book {book} (value {v} {ccy})
+action  instrument_id  name   type    qty    est_price   est_value   reason
+…
+orders {n} (risk-reducing first: sells, covers) · est cost {c} · next rebalance {date} · checks: {ok|n flagged (E36)}
+write: orders.to_csv("orders/{date}.csv")   apply to paper book: nx.fill(book, orders)
+```
+
+**DecisionExplanation** (`nx.explain(strategy, …)`, `Run.why`): gives the stage table of 5.9.9 as lines, as it is (`universe  Filter a: True · Filter b: False ← dropped here` → `score {x} · rank {r}/{n}` → `selected | not_selected | capped | risk_capped` → `order {side} {qty}` → `fill {qty} @ {px} ({fill_rule}) | blocked({reason})`).
+
+**ReconcileReport** (`nx.reconcile`): `book {name} · decisions {n} · sessions {a}→{b} · mode {replay (recorded snapshots) | restate (snapshot {id})}`, then the lines `targets {match|first diff}`, `orders …`, `fills …`, `nav …`, and a last line `reconciled: yes` or `first divergence {date} {instrument_id} {stage}: book {x} vs replay {y}`.
+
+**SweepResult**, **Comparison**, **RunTable** and **Explanation** follow the shapes of design 3.3, but the DSR line follows the Run rule above and the PBO line is written `PBO (CSCV, {S} blocks, {C} splits) {p:.2f}`. `Explanation` shows the `fundamentals_state` interval (`ts_known_from → ts_known_to`, `selected_fact_id`, `lineage_id`, `resolution_policy`) together with the `fundamentals_events` original source (`fact_id`, `doc_id`, `value_how`, `known_on`, `ts_available`) (for a snapshot without the event table = without `tds:pit-fundamentals`, only the interval, with "lineage not in snapshot") [R-23, 4.5 F-11]. In v1.x, `Comparison` gains `first_divergence()` (the date, instrument and cause where daily returns first differ: target / fill / cost).
+
+### 3.10 CLI [R-09]
+
+`nexusbt <command>` calls the API of the same name and prints the same text. Exit codes: 0 success, 1 user error (`NexusBTError`), 2 internal error, 3 waiting for data (`DataAvailabilityError`, live only), 4 reconciliation mismatch (`reconciled: NO` of `reconcile`).
+
+| Command | Arguments |
+|---|---|
+| `nexusbt init [--data-root PATH] [--demo] [--lang en\|ko]` | writes a commented `nexusbt.toml` template (part 1 "check these" and part 2 "advanced", the two tiers of 3.11; the default English comments are canonical, `--lang ko` is a variant with the same keys and values and only the comments in Korean; the templates are `nexusbt/templates/nexusbt.toml.{en,ko}`, and a test matches their key set with the table of 3.11) [R4G-CFG-02]. With `--demo`, it unpacks the small synthetic KR+US snapshot shipped in the wheel (the `demo` preset of `nx.testing.synth`, a few MB) and writes its path — step 0 of data preparation [R4-13]. Creates `nexusbt.toml`. Without `--data-root`, it uses the environment variable `NEXUSBT_DATA_ROOT`, and without that it explains how to make a synthetic snapshot (no personal paths go into the repository, 2.7) |
+| `nexusbt config check [--file PATH]` | checks only the config file and runs nothing: unknown keys, types and ranges (E16) and **contradictions** (margin keys in a cash account, short keys with `[shorting] enabled = false`, groups with `[taxes] profile = "none"`, a `max_net` that does not contain 0, and so on), in plain words in the format of 6.6 as it is (`layer  config`, a fix line). With no problem, one line "config ok: {n} keys set, {m} defaults", exit code 0/1 [R4G-CFG-03] |
+| `nexusbt config show [--all] [--file PATH]` | a table of the values in effect now and their **source** (`default` / `file` / `CLI` / `code` — a value overridden by an argument in the strategy code). By default only the part 1 keys and the keys not at their default; `--all` is the whole table of 3.11. It is the same function as the resolver `load_config` the run uses (the 2.x module table), so the values equal the config written in the manifest [R4G-CFG-04] |
+| `nexusbt doctor [--full]` | snapshot id, semantic hash, the three profile results (declared / check level / supported), items not checked, counts per TDS code, **the list of fallbacks (4.5)**, the rules pack per market (present / untested), column count, instruments per market, free disk, L0/L1 cache sizes, whether the stubs are current. When the data root has the publishing mark `<root>/.publishing` (a general distribution convention, outside TDS), it shows only "publishing in progress" and says to wait for the new snapshot [blueprint 12.5, RV-I09] |
+| `nexusbt new factor NAME` / `nexusbt new strategy NAME [--template T]` / `nexusbt new --list` | creates a file that runs as it is (default template `monthly-topn`). 22 templates (each a runnable example + an output test, 8.5; a template not yet usable is marked in `--list`, for example "(available after T7.1)" [R4F-14]): `monthly-topn`, `value-quality-composite`, `momentum-12-1`, `low-vol`, `dividend-yield`, `sector-neutral`, `kr-us-sleeves`, `long-short`, `inverse-vol-weight`, `erc-vol-target`, `drawdown-brake`, `exits-stop-trail`, `buffer-hold`, `custom-factor`, `custom-sizer`, `custom-risk-rule`, `factor-evaluate-only`, `walk-forward-cpcv`, `ml-factor`, `zipline-port` [R4-13], `event-driven-earnings` (`on_event` after earnings announcements + `time_stop`), `macro-regime` (a `Macro.series` regime filter) [R4F-EV-05] |
+| `nexusbt evaluate FILE[:VAR]` | `--segment --start --end --freq --quantiles --set k=v` |
+| `nexusbt backtest FILE[:VAR]` | `--segment --start --end --set k=v --preset --no-scenarios --scenarios a,b --offsets K --preview --method linear|walk_forward|cpcv|cscv --method-opt k=v --grid k=v1,v2` [R4-12, R4-20] |
+| `nexusbt screen FILE[:VAR]` | `--asof --top --anchor --show selected|held+near|all --near K --html --ledger BOOK --as-backtest` [V31-28, R4-08] |
+| `nexusbt explain FILE[:VAR] ID DATE` | for a term, the value explanation; for a strategy, the decision path (5.9.9) |
+| `nexusbt sweep FILE[:VAR]` | `--grid k=v1,v2` (= `backtest --method cscv --grid`) [R4-21] |
+| `nexusbt compare FILE[:VAR]... | RUN_ID...` | variant table (backtests each file) [R4-11] |
+| `nexusbt live FILE[:VAR] --book paper:NAME [--fill next_open]` | first fills pending orders (when the data is there), then today's decision. Updates `status.json` at the end |
+| `nexusbt reconcile --book paper:NAME` | 5.9.7. Exit code 4 on a mismatch |
+| `nexusbt book override BOOK ID KIND [--from D] [--until D] [--note T]` | manual instruction [V31-18] |
+| `nexusbt book record-fills BOOK CSV` | records of fills a person made (`manual:` ledger) [V31-18] |
+| `nexusbt book flow BOOK AMOUNT --ccy C --sleeve M [--session D]` | deposits and withdrawals [V31-19] |
+| `nexusbt runs [--study S] [--html] [--prune]` | `--prune` deletes only run folders and keeps the index records and attempt counts [R-34] |
+| `nexusbt rerun RUN_ID [--new-snapshot] [--trust]` | a run folder made on another machine is refused without `--trust` (E31) |
+| `nexusbt stubs` | regenerates `.pyi` |
+| `nexusbt check FILE[:VAR] [--probes K] [--start-probe]` | |
+
+The data-standard tools are separate — `tds check PATH [--level manifest|schema|full] [--profile P] [--format json]`, `tds hash`, `tds describe`, `tds import csv MAPPING --out PKG`, `tds manifest build PKG` (TDS 8.1, package `nexusbt-tds`; the commands implemented in v1 and the "planned" commands are in the table of TDS 8.1) — and are not mixed into the engine CLI. `nexusbt doctor --full` calls the same checker as a library.
+
+The default VAR of `FILE[:VAR]`: `strategy` for a strategy file; for a factor file, the last Factor defined (when there are several, `ConfigError` asks for the name).
+
+### 3.11 `nexusbt.toml` schema
+
+**Two tiers** [user request 2026-10-28, R4G-CFG-01]: every value the user sets goes in this one file (strategy code holds only the strategy itself). **Part 1 "check these"** (values that change results a lot from person to person) = `[data] path`, `root`, `edition`, `[defaults] capital`, `base_ccy`, `start`, `end`, `[sleeves] weights`, `[universe] exclude_microcap`, `exclude`, `[account] type`, `cash_rate_bps` (+ `initial_margin`, `maintenance_margin`, `debit_rate_bps` with `type = "margin"`), `[shorting] enabled` (+ `max_gross`, `borrow_bps`, `collateral_ratio` when on), `[costs] profile`, `sensitivity`, `provisional_bps`, `[dividends] withholding`, `[taxes] profile` (+ `currency`, `pay`, `pay_month`, `groups` with `custom`), `[execution] at`, `max_participation`, `max_bar_participation`, `min_trade_weight`, `[split] segments`, `default_segment`. **Part 2 "advanced"** = everything else (left empty, the defaults). The tiers are only a display; the validation rules are the same. `nexusbt init` writes a template commented in these two tiers (3.10), and the report header block "settings (tier 1)" prints every part 1 value actually used by the run with its source (`default`/`file`/`CLI`/`code`) (for part 2, only keys not at their default) [R4G-CFG-05]. Every key of the example file `nexusbt.toml.example` (working folder) is in this table (test `tests/docs/test_config_template.py`).
+
+Validation: an unknown key → `ConfigError` (suggesting similar keys). A key whose name contains `key`, `secret`, `token` or `password` → `ConfigError` (2.6). Reserved keys ("reserved" below) accept only the one value allowed in v1; other values are E18. Dates are `"YYYY-MM-DD"` or `"latest"`/`"start"`. "Default" below is the value when the key is not in the file.
+
+| Key | Type | Default | Validation | Basis |
+|---|---|---|---|---|
+| `[project] name` | str | the folder name | `[A-Za-z0-9_-]+` | |
+| `[data] root` | path | (written by init; otherwise `$NEXUSBT_DATA_ROOT`) | the folder exists and has at least one snapshot folder with `LATEST` or `tds.json` | R-20, 2.7 |
+| `[data] snapshot` | str | `"latest"` | `"latest"` or an existing id. `latest` is resolved once per call | 11.7 |
+| `[data] path` | path | none | points directly at one package folder (where `tds.json` is). When present, it comes before `root` and `snapshot`. A parent folder is resolved through `LATEST` [V31-PUB-03] | V31-PUB-03 |
+| `[data] edition` | str | `"strict"` | strict/compare | user decision (strict edition the only default) |
+| `[data] verify` | str | `"manifest"` | manifest / schema / full (TDS check levels, 4.4). `rerun`, `reconcile`, `live` and `fill` use at least `schema` + the file sha256 whatever this value (a package checked once gets the stamp `runs/.cache/verified/<physical_sha256>`; the stamp records `(dev, inode, size, mtime_ns)` per file, and when they differ the sha256 is computed again and the stamp discarded [R3-16]) | C9, TDS 8.2, RV-I04 |
+| `[data] require_profiles` | list[str] | `[]` | TDS profile names (`@version` allowed). When empty, **the requirement is computed from the features the graph uses** (4.3); when a list is given, its profiles are required in addition | 4.3, RV-I01 |
+| `[data] pins` | str | `"index+root"` | index (canonical pins = `runs/index.sqlite` only) / index+root (default: also written to the data root `PINS/`, with a warning + `retention: unmanaged` when that fails) | 4.2, RV-I04, R3-17 |
+| `[data] fallbacks` | str | `"warn"` | warn (uses the fallbacks of 4.5, with E30) / fail (E14 when a fallback is needed) | R-67 |
+| `[data] share_count_kinds` | list[str] | `["listed", "outstanding"]` | TDS `count_kind` values; the first one present, from the front | TDS-Q4 |
+| `[data] history_mode` | str | `"economic"` | v1 economic only. `"system"` is `CapabilityError` (after `tds:bitemporal` + the engine implementation) | 11.5, OI-08 |
+| `[defaults] universe` | str | `"all"` | snapshot `markets` keys joined by `+`, or `"all"` (every market of the snapshot that has a rules pack) | RV-I08 |
+| `[defaults] base_ccy` | str | the currency of the first market (first of the `markets` keys in UTF-8 byte order [R3-18]) (`"KRW"` for a KR+US package) | ISO 4217; there must be an exchange-rate series from the other markets' currencies into this currency | Q1, RV-I08 |
+| `[defaults] capital` | float | `1_000_000_000` | > 0, in base_ccy units | |
+| `[defaults] start` | date | `"1995-01-01"` | | |
+| `[defaults] end` | date | `"latest"` | ≥ start | |
+| `[defaults] clock` | str | `"<first market>_close"` (first market = first of the `markets` keys in UTF-8 byte order; `"KR_close"` for a KR+US package; the resolved value is fixed in the manifest [R3-18]) | `"<MARKET>_close"` (MARKET a key of the snapshot's `markets`) / market_local (`utc:HH:MM` reserved, E18) | 9.0 Q23, Q1, SC-25, RV-I08 |
+| `[defaults] preset` | str | `"realistic"` | realistic (zipline is for tests only, forbidden in toml) | R-55 |
+| `[split] segments` | table name→[start,end] | `{train=["start","2021-12-31"], validation=["2022-01-01","latest"]}` | names `[a-z0-9_]+`, no overlapping intervals, in order | 9.0 Q26, R-57 |
+| `[split] default_segment` | str | `"train"` | a name of segments, or `"all"` | R-57 |
+| `[split] embargo_sessions` | int | 0 | ≥ 0; drops decisions **before** the end of a segment (5.8). Different from the splitters' `embargo=` (the AFML meaning: drops training samples **after** the test block) (6.3a) | 11.4.5, R4-19 |
+| `[validate] max_fits` | int | 200 | ≥ 1; when the number of ML fits of `method` exceeds it, the notice E40 before the run (does not block) | R4-22 |
+| `[validate] min_samples` | int | 100 | ≥ 1; E40 when a fold has fewer training samples (6.3a) | R4F-30 |
+| `[ml] threads` | int | 1 | ≥ 1; the thread count fixed during training (5.3.11). When not 1, manifest `nondeterministic_threads` | R4-23 |
+| `[preview] years`, `max_names` | int | 1, 200 | ≥ 1 | R4-12 |
+| `[sleeves] weights` | {MARKET: float} | equal weights over the universe's markets ({KR = 0.5, US = 0.5} for KR+US) | keys are the snapshot's `markets` keys, sum 1 ± 1e-9, each ≥ 0. Markets not in the universe are ignored and the rest is rescaled to 1 | 11.4.1, RV-I08 |
+| `[markets] allow_untested` | bool | false | when true, runs a market without a rules pack on the generic pack (`_generic.toml`: no price limits, `provisional_bps` must be given by `[costs.provisional_bps] <MARKET>`), with "untested market rules" in the report and manifest | RV-I08 |
+| `[universe] investable` | bool | true | | |
+| `[universe] exclude_microcap` | bool | false | | 9.0 Q31 |
+| `[universe] microcap_pct` | float | 0.20 | (0, 0.5] | Q17 |
+| `[universe] eligibility_rule` | str | `"investable-v1"` | a value of `eligibility_daily.rule_id` | TDS-D16 |
+| `[universe] exclude` | list[str] | `[]` | the `exclude` names of 3.6 | V31-30 |
+| `[panels] feature`, `label` | str | `"factor_pit_monthly"`, `"label_monthly"` | the `name` of `feature_panels`/`label_panels` | TDS-D18 |
+| `[portfolio] anchor_date` | date | `"start"` (= `[defaults] start`) | the screen anchor of the target-state recursion (5.5.3) | SC-02 |
+| `[portfolio] tiebreak` | str | `"hash"` | hash / id (5.4.2, 3.7; the zipline preset fixes id) | V31-29 |
+| `[portfolio] band_entries` | str | `"skip"` | skip / buy — whether to newly buy an instrument kept by the hold band but never bought (5.6.7) | V31-17 |
+| `[portfolio] max_missing_decisions` | int | 1 | ≥ 1; the cap on consecutive missing decisions for `on_missing = "hold"` | V31-17 |
+| `[shorting] enabled` | bool | false | when false, negative target weights are E16, and results are bit-identical to the long-only path (INV-22) | V31-LS-01 |
+| `[shorting] max_gross` | float | 1.0 | (0, 3]; cap on gross exposure Σ|w| (within the sleeve). No leverage beyond this value the user sets | V31-LS-02 |
+| `[shorting] max_net` | [float, float] | [−1.0, 1.0] | the closed interval of net exposure Σw; must contain 0 (otherwise E16) | V31-LS-02, R3-07 |
+| `[shorting] borrow_bps` | {MARKET: float} | 0 in every market | [0, 5000]; the annual borrow cost (bp) charged on the short value. Accrues at session start as the previous session's closing short quantity × the previous session's valuation price × calendar days/`day_count` (a pack key, seed 365) (5.6.3(1)) | V31-LS-04, R3-09 |
+| `[shorting] collateral_ratio` | {MARKET: float} | 0.5 in every market | [0, 2]; short value × (1 + this value) is held as collateral (5.6.7) | V31-LS-04 |
+| `[shorting] short_rebate_bps` | {MARKET: float} | 0 in every market | [0, 2000]; the annual rebate on the valued short position (the same accrual as the borrow cost). v3.1's name `proceeds_rate_bps` was changed because its meaning (proceeds basis) and its formula (valuation basis) differed | V31-LS-04, R3-09 |
+| `[account] cash_rate_bps` | float or {MARKET: float} | 0 | [0, 2000]; annual interest (bp) on positive cash balances. The same session-start accrual as the borrow cost (only on the previous session's closing `cash_minor > 0`; no interest on negative cash). With 0, results are bit-identical to before this key existed. Report header "cash earns {r}%" | user decision 2026-10-28, R3-25 |
+| `[account] type` | `"cash"` \| `"margin"` | `"cash"` | `"cash"` = as now (fills never make cash negative, no long margin loan); `"margin"` = the margin account of 5.6.7a. Writing the margin-only keys below with `"cash"` is E16 ("margin settings need [account] type = \"margin\"") | user decision 2026-10-28, R4G-MG-02 |
+| `[account] initial_margin` | {MARKET: float} | rules pack seed (US 0.50, **unverified**); no KR seed | (0, 1]; the initial margin ratio. With `"margin"`, E16 when a run market has no value. For KR the user writes the credit deposit ratio | R4G-MG-03 |
+| `[account] maintenance_margin` | {MARKET: float} | rules pack seed (US 0.25, **unverified**); no KR seed | (0, `initial_margin`]; the maintenance margin ratio (for KR the user converts it from the collateral ratio, for example collateral ratio 140% → 1 − 1/1.4 ≈ 0.286). E16 when missing | R4G-MG-03 |
+| `[account] debit_rate_bps` | float or {MARKET: float} | 0 | [0, 5000]; annual interest (bp) on the margin loan (the long share of negative cash). The same session-start accrual as the borrow cost (calendar days/`day_count`), event `margin_interest`, bridge `financing` | R4G-MG-04 |
+| `[execution] order` | str | `"market"` | market / limit | R-56 |
+| `[execution] at` | str | `"open"` | open / close | Q5 |
+| `[execution] limit_offset_bps` | float | 0.0 | ≥ −500, ≤ 500 | |
+| `[execution] max_participation` | float | 0.05 | (0, 1] | design 3.6 |
+| `[execution] max_bar_participation` | float | 0.10 | (0, 1]; cap relative to that session's actual volume (5.6.6) | V31-03 |
+| `[execution] min_trade_value` | float or {MARKET: float} | 0 | ≥ 0, local currency | V31-06 |
+| `[execution] min_trade_weight` | float | 0.0 | [0, 0.1] | V31-06 |
+| `[execution] rebalance_band` | float | off (none) | (0, 1]; a band relative to the target weight | V31-06 |
+| `[execution] band_mode` | str | `"edge"` | edge / target | V31-06 |
+| `[execution] adv_window` | int | 20 | ≥ 5 | 11.4.2 |
+| `[execution] adv_min_obs` | int | 10 | 1..adv_window | |
+| `[execution] max_order_age_sessions` | int | 20 | ≥ 1 | 11.4.2 |
+| `[execution] limit_fill` | str | `"through"` | through (the price must go past the limit) / touch (touching is enough) | 5.6.4 |
+| `[execution] kr_limit_tolerance` | float | 0.005 | [0, 0.05] | 5.6.5 |
+| `[execution] unknown_tradability` | str | `"assume_tradable"` | assume_tradable / block (both report counts) | 11.4.2 |
+| `[execution] cost_reserve_bps` | float | 0.0 | [0, 500]. Shrinks the executable weight in decision sizing by `(1 − reserve)` to leave room for buy costs (5.6.7). Recorded in the manifest | RV-Q07 |
+| `[execution] intraday_proceeds` | str | `"next_phase"` | fixed (the one value allowed in v1): proceeds of intraday-stage sales are usable from the close stage (5.6.3) | RV-C06 |
+| `[costs] profile` | str | `"provisional"` | provisional / realistic / none | 9.0, R-61 |
+| `[costs] table` | str | `"default"` | default or a CSV path (schema of 4.7) | R-25 |
+| `[costs] sensitivity` | list[float] | `[0, 1, 2]` | contains 1 | Q6, R-38 |
+| `[costs.provisional_bps] <MARKET>` | {buy, sell} | the market rules pack value (KR pack {buy=5, sell=25}, US pack {buy=5, sell=5}) | ≥ 0. Required for a market without a pack (`allow_untested`) | 9.0, R-61, RV-I08 |
+| `[costs] provisional_table` | path | none | a provisional cost table by period and liquidity band (written by the user, schema of 4.7). Fixed bp when absent | V31-27 |
+| `[costs] impact_y` | float | 0.5 | ≥ 0 | research 2.4 |
+| `[costs] impact_a2`, `impact_a3` | float | 0.5, 1.0 | (0, 2] | SC-11, Kissell |
+| `[costs] min_half_spread_bps` | {MARKET: float} | the market rules pack value (KR 5, US 1) | ≥ 0 | RV-I08 |
+| `[costs] max_half_spread_bps` | float | 200 | ≥ min | |
+| `[dividends] missing_pay_date` | str | `"estimate"` | estimate / fail | 9.0 Q29, R-60 |
+| `[dividends] fallback_pay_lag_days` | {MARKET: int} | the market rules pack value (KR 120, US 21) | 1..400 | R-60 [est.], RV-I08 |
+| `[dividends] estimate_window_years` | int | 5 | ≥ 1 | |
+| `[dividends] estimate_min_obs` | int | 20 | ≥ 1 | |
+| `[dividends] withholding` | {MARKET: float} | 0.0 in every market | [0, 0.5]. Not applied to events with `corporate_actions.gross_or_net = "net"`. With 0, "dividends pre-withholding" in the report header | A-14, RV-Q02 |
+| `[corporate_actions] rights` | str | `"lapse"` | lapse / fail | A-15 |
+| `[corporate_actions] unsupported` | str | `"fail"` | fail / cash_at_adjustment | 11.4.3 |
+| `[corporate_actions] bonus_shares_tradable` | str | `"at_pay_date"` | at_ex / at_pay_date | 11.4.3 |
+| `[corporate_actions] decimal_ratio` | str | `"exclude_instrument"` | exclude_instrument / require_exact / literal. **exclude_instrument** (default, user decision 2026-10-29 [R7-01]) = only the instruments with an event lacking an exact ratio are excluded, from that event on (5.6.1 "events without an exact ratio"). require_exact = E13 when even one such event is in the run's scope. literal = the f64 decimal notation as an exact decimal fraction (no inference, E30 and a count on the header line, manifest `policies.corporate_actions`) | R4F-01, R7-01 |
+| `[delisting] unknown_inclusion` | str | `"conservative"` | conservative / error. When it is unknown whether delisting distributions are included (5.6.13): conservative = the reading that makes the sleeve value smaller + E30, error = E13 | R4F-05 |
+| `[delisting] policy` | str | `"observed_then_policy"` | observed_then_policy / observed_only / lo / hi | Q18 |
+| `[delisting] scenarios` | bool | true | | |
+| `[settlement] model` | str | `"immediate"` | reserved: v1 immediate only | SC-18, OQ-13 |
+| `[taxes] profile` | str | `"none"` | none / custom. With custom, the user writes the `[taxes.groups.<name>]` below (in the config file, like commissions; the engine has no built-in tax rates). 5.6.11a | SC-17, OI-18 |
+| `[taxes] currency` | str | the base currency | the currency taxes are computed and shown in (for example `"KRW"`). Gains and losses in other currencies are converted at that day's valuation exchange rate (5.6.9) | OI-18 |
+| `[taxes] pay` | str | `"report"` | report = NAV unchanged, after-tax NAV and tax lines reported separately / cash = deducted from cash on the payment date | OI-18 |
+| `[taxes] pay_month` | int | 5 | 1~12. With `pay = "cash"`, paid on the first session of this month of the next year | OI-18 |
+| `[taxes.groups.<name>] markets` | [str] | — | the markets in this group (for example `["US"]`). A market belongs to one group only | OI-18 |
+| `[taxes.groups.<name>] gains_rate` | float | 0.0 | [0, 0.6]. Multiplied by each year's sum of realised gains and losses (losses offset) − the exemption, when > 0 | OI-18 |
+| `[taxes.groups.<name>] annual_exemption` | int | 0 | ≥ 0, in integer minor units of `[taxes] currency` (for example 2,500,000 won) | OI-18 |
+| `[taxes.groups.<name>] basis` | str | `"average"` | average (moving-average cost) / fifo | OI-18 |
+| `[fx] max_stale_days_decision` | int | 10 | ≥ 0 | 11.5 |
+| `[fx] max_stale_days_valuation` | int | 10 | ≥ 0 | |
+| `[fx] series` | str or {"<BASE><QUOTE>": "<rate_kind>@<source>"} | `"auto"` | auto = that one when the currency pair has a single `(rate_kind, source)` series; with several, `rate_kind` priority fixing → close → mid; if still several, `ConfigError` shows the list and asks for a choice | TDS-D17 |
+| `[benchmarks] <MARKET>` | str | `"auto"` | `"auto"` = that market's `asset_class = index`, `index_kind = TR` instrument when there is exactly one (with several, the one whose `name` equals the market rules pack's `benchmark_hint`; if still several, E16 with the list), or an instrument id, or `"none"`. When none, "n/a: not in snapshot" | 9.0 Q30, R-59, TDS-D15, OI-02, RV-I08 |
+| `[fund] max_age_days` | int | 550 | 0 = off | the reference producer's panel rule |
+| `[evaluate] freq`, `quantiles`, `min_pairs`, `label_entry` | | monthly, 5, 20, `"next_open"` | quantiles 2..20, min_pairs ≥ 3, label_entry next_open / close | 11.4.5 |
+| `[evaluate] target` | str | `"fwd_return"` | fwd_return (economic: reinvested at the ex-date close) / fwd_return_adj (adjusted-price ratio, for comparison with zipline and alphalens) | RV-C04 |
+| `[meta] sector`, `industry` | str or {MARKET: str} | `"auto"` | `"<scheme>@<level>"` (level omitted = the top level of that scheme) | OI-07, RV-C08 |
+| `[gates] ic_t`, `dsr` | float | 3.0, 0.95 | display only | Q7 |
+| `[checks] auto_truncation_probe` | bool | true | | 6.5 |
+| `[checks] probes`, `seed` | int | 4, 0 | probes 0..64 | |
+| `[checks] start_probe` | bool | false | runs the start-date probe automatically in evaluate/backtest (off by default; an argument in `nx.check`) | SC-04 |
+| `[checks] start_probe_shift` | int | 21 | 1..252 sessions | SC-04 |
+| `[runs] dir` | path | `"runs"` | | |
+| `[runs] cache_max_gb` | float | 20 | ≥ 0, L0 + L1 together. L0 is not deleted right away when a snapshot is deleted; the LRU of this limit deletes it (starting with what no remaining snapshot refers to) | risk 24, SC-15, R3-04 |
+| `[compute] workers` | int | 1 | 1..8 | 11.7 |
+| `[compute] threads` | int | 4 | 1..16 | |
+| `[compute] memory_budget_gb` | float | 4.0 | ≥ 0.5. One budget for **the whole process tree** (main process + workers); a batch can be smaller than a year (5.3.8) | P7, RV-I05 |
+| `[compute] precision` | str | `"float64"` | v1 float64 only | 9.3 Q25 |
+| `[live] book_dir`, `orders_dir` | path | `"runs/books"`, `"orders"` | | |
+| `[live] max_price_jump` | {MARKET: float} | the rules pack's price limit (KR 0.30), otherwise 0.5 | (0, 5] | V31-10 |
+| `[live] spike_sigma` | float | 8.0 | > 0 | V31-10 |
+| `[live] max_order_weight_mult` | float | 2.0 | ≥ 1; flagged when one order's amount > sleeve value × maximum target weight × this value | V31-10 |
+| `[live] liquidity_floor_pct` | float | 0.10 | [0, 0.5]; flagged when it picks instruments in this bottom share of universe ADV | V31-10 |
+| `[rounding.<MARKET>] <component>` | {mode, unit} | the market rules pack's `[rounding]` | mode half_up / half_even / down, unit = a multiple of the minor unit. User override (like commissions and taxes) | V31-05 |
+| `[report] rolling_windows_years` | list[int] | `[1, 3]` | 1..10 | V31-26 |
+
+---
+
 ## 4. Input data: TDS v1.4 references and the engine-side reading rules
 
 ### 4.1 The canonical source and the scope of this chapter [SC-24, R-66]
