@@ -25,7 +25,7 @@ not here yet because nothing runs them.
 | Read | For |
 | --- | --- |
 | [START-HERE.md](START-HERE.md) | Where to begin, the order of work, the decisions not to reopen |
-| [docs/spec/engine-spec-v3.4.md](docs/spec/engine-spec-v3.4.md) | The engine spec (Korean). **The single source of truth**: if anything disagrees with it, the spec wins |
+| [docs/spec/engine-spec-v3.4.md](docs/spec/engine-spec-v3.4.md) | The engine spec, with a [Korean translation](docs/spec/engine-spec-v3.4.ko.md). **The single source of truth**: if anything disagrees with it, the spec wins |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | The map of the system: layers, planned code layout, invariants |
 | [GLOSSARY.md](GLOSSARY.md) | The words of this project (`CONTEXT.md`, the spec's name for it, links here) |
 | [SPEC-INDEX.md](SPEC-INDEX.md) | Milestones and tickets, with the spec sections and tests for each |
@@ -33,9 +33,8 @@ not here yet because nothing runs them.
 | [docs/tds/tds-v1.4.md](docs/tds/tds-v1.4.md) | The input data standard, with [examples](docs/tds/tds-examples.md) |
 | [docs/design/prototype-results.md](docs/design/prototype-results.md) | Measured prototype evidence |
 
-Public documents are English canonical with a Korean translation (`*.ko.md`).
-The spec is still in Korean: its English text is being made, and the Korean
-text stays canonical until it is complete (spec OI-45, amended 2026-10-31).
+Public documents are English canonical with a Korean translation (`*.ko.md`),
+the spec included (spec OI-45, amended 2026-10-31).
 
 ## Public and private
 

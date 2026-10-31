@@ -3,7 +3,7 @@
 **Event-driven where it matters, vectorized where it scales. You just snap the blocks together.**
 (매매는 이벤트처럼 정확하게, 계산은 벡터처럼 빠르게. 사용자는 블록만 끼운다.)
 
-이 문서는 NexusBT의 큰 구조를 설명한다. 코드에서 길을 찾고, 어디서나 지켜지는 규칙을 알기 위해 읽는다. 이 문서는 지도이고 규칙은 아니다. 규칙은 [엔진 명세](docs/spec/engine-spec-v3.4.md)(한국어, 유일한 정본)에 있다. 아래 절 번호(§)는 명세를 가리킨다. 영어 정본: [ARCHITECTURE.md](ARCHITECTURE.md).
+이 문서는 NexusBT의 큰 구조를 설명한다. 코드에서 길을 찾고, 어디서나 지켜지는 규칙을 알기 위해 읽는다. 이 문서는 지도이고 규칙은 아니다. 규칙은 [엔진 명세](docs/spec/engine-spec-v3.4.md)(영어, 유일한 정본; 한국어 번역 [engine-spec-v3.4.ko.md](docs/spec/engine-spec-v3.4.ko.md))에 있다. 아래 절 번호(§)는 명세를 가리킨다. 영어 정본: [ARCHITECTURE.md](ARCHITECTURE.md).
 
 > 상태: 설계는 끝났고 코드는 아직 없다. 여기 나오는 패키지·모듈은 모두 **예정**이다(명세 §2.3, 티켓 T0.2a).
 

@@ -167,25 +167,15 @@ def test_the_command_exits_1_and_prints_each_difference(
 SPEC = Path(__file__).resolve().parents[2] / "docs" / "spec"
 
 
-def spec_arguments() -> list[str] | None:
-    """The command's arguments for the stage the translation is at, or None before it starts.
-
-    While it is made, the Korean text is canonical at the spec's path and the
-    English grows beside it; the last pull request of #6 swaps the two, and
-    from then on every chapter must be there.
-    """
-    canonical = str(SPEC / "engine-spec-v3.4.md")
-    if (SPEC / "engine-spec-v3.4.ko.md").exists():
-        return [str(SPEC / "engine-spec-v3.4.ko.md"), canonical, "--complete"]
-    if (SPEC / "engine-spec-v3.4.en.md").exists():
-        return [canonical, str(SPEC / "engine-spec-v3.4.en.md")]
-    return None
-
-
 def test_the_english_spec_keeps_every_id_of_the_korean_spec(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    arguments = spec_arguments()
-    if arguments is None:
-        pytest.skip("no English translation of the spec yet (#6)")
-    assert main(arguments) == 0, capsys.readouterr().out
+    """The canonical English spec and its Korean translation keep the same ids in every chapter.
+
+    The English text took over the spec's path in the last pull request of #6;
+    from then on every chapter must be in both, and a missing translation fails.
+    """
+    korean = SPEC / "engine-spec-v3.4.ko.md"
+    canonical = SPEC / "engine-spec-v3.4.md"
+    assert korean.exists(), f"the Korean translation {korean.name} is missing"
+    assert main([str(korean), str(canonical), "--complete"]) == 0, capsys.readouterr().out
