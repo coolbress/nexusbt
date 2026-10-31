@@ -33,8 +33,9 @@ not here yet because nothing runs them.
 | [docs/tds/tds-v1.4.md](docs/tds/tds-v1.4.md) | The input data standard, with [examples](docs/tds/tds-examples.md) |
 | [docs/design/prototype-results.md](docs/design/prototype-results.md) | Measured prototype evidence |
 
-Public documents are English canonical with a Korean translation (`*.ko.md`);
-the spec is in Korean.
+Public documents are English canonical with a Korean translation (`*.ko.md`).
+The spec is still in Korean: its English text is being made, and the Korean
+text stays canonical until it is complete (spec OI-45, amended 2026-10-31).
 
 ## Public and private
 

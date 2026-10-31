@@ -29,7 +29,9 @@ NexusBT는 일봉으로 주식 팩터를 연구하는 오픈소스(Apache-2.0) �
 | [docs/tds/tds-v1.4.ko.md](docs/tds/tds-v1.4.ko.md) | 입력 자료 표준과 [예시](docs/tds/tds-examples.ko.md) |
 | [docs/design/prototype-results.md](docs/design/prototype-results.md) | 시제품 실측 증거 |
 
-공개 문서는 영어가 정본이고 한국어 번역(`*.ko.md`)이 붙는다. 명세는 한국어다.
+공개 문서는 영어가 정본이고 한국어 번역(`*.ko.md`)이 붙는다. 명세는 아직
+한국어다: 영어 판을 만드는 중이고, 다 될 때까지는 한국어 판이 정본이다(명세
+OI-45, 2026-10-31 개정).
 
 ## 공개와 비공개
 
