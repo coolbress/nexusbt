@@ -2677,3 +2677,1114 @@ In this repository the words below mean exactly this. Code names are in English,
 - Before stopping: the remaining work in the description of the PR in progress, the checklist of the milestone tracking issue updated, decisions in ADRs, `/handoff`.
 - Sources for the answer to "Where is this project, and what's next?" when coming back: the milestone tracking issue, the "Blocked by" of open tickets, `docs/requirements.md` (implemented/deferred/replaced + PR number per R), `bench/results/`, `tests/parity/evidence/`.
 - Health: numpy, numba, pyarrow and polars are tied to each other, so one per PR (check the numpy range numba supports). The pinned zipline is the comparison reference, so it is not upgraded (if it is: an ADR + the comparison evidence again). After a plinth template update, `/plinth:floor-check`.
+
+---
+
+## 10. Milestones and tickets
+
+### 10.0 Milestone table [Codex 11.8, design 6, R-44, RV-I05]
+
+Following the three-reviewer consensus (RV-I05), v3 **cut M0 down to contracts only**, and moved the checker's full level, the synthetic small/full presets and the hand calculations to **just before** the milestone that uses them. M3 is split into **M3a (a thin market-order end-to-end slice)** and **M3b (all the order types of 9.0)** (RV-D9). The release definition stays as in 9.0 (end of M6, every order type). The performance measurement harness moved up to M1.
+
+| M | Stage (E) | What the user can use right away [R-44] | End conditions (all required) | Command to show (`/run`) |
+|---|---|---|---|---|
+| M0 normative contracts | E1 (engine side) | Nothing (foundation) — `tds check --level manifest|schema`, `tds hash` | spec v3.4·TDS v1.4 public edition·CONTEXT·ADR 0001~0040 [R6-03]·LICENSE merged; every R·SC·TDS-D·RV mapped in `docs/requirements.md`; ticket graph test passes; TDS checker manifest·schema levels + three results + path safety + hash test vectors; hand-authored `tiny` synthetic passes `schema`; golden format + G-01 | `uv run python -m nexusbt.testing.synth --preset tiny --out .scratch/snap --validate` → row count per dataset, `value_sha256`·`semantic_sha256`, the profile's three results (what was not checked is `not_checked`); `uv run tds check .scratch/snap --level schema` → exit code 0 |
+| M1 snapshot + Pipeline slice + first public path | E2 | `run_pipeline`, factor screening, run records·rerun, `tds import csv`, English quick start (analysis) | checker full (K·R·T·D·A·V·H) + resolver; synthetic small (with events·revisions) and core `degrade` pass `full`; T-07, T-09~T-12, T-15, T-20, T-23; P-CHUNK (including sub-year chunks)·P-PERM·P-FUT·P-DET·P-KERNEL (reference)·P-START·M-SCALE·M-DUMMY·M-SPLIT-NEUTRAL (with preconditions·counterexamples); L1-a (default inputs on both sides)·L1-b·L1-d; F-02~F-04 tests; first per-stage measurements (open·block·adjustment·window kernel·cross-section) in `bench/results` | `uv run python examples/m1_screen.py` → top 10 momentum per market on the reference date; `uv run nexusbt rerun <id>` → "outputs identical"; `uv run nexusbt doctor` → the profile's three results·fallback list·rules packs; `uv run python bench/run.py --stages m1 --snapshot synth-small` |
+| M2 PIT + factor evaluation | E2 | `evaluate` (economic label·label time set·naive breadth·cohort BHY), `explain` (values), segments, `preregister` | T-01~T-06, T-08, T-13, T-14, T-16~T-19, T-21, T-22; strict-edition lineage; labels crossing a segment excluded (`ts_label_available`); candidates·observations·cohorts; L1-c; F-06~F-08·F-11·F-14 tests; (if a real export exists) agrees with the monthly panel; P3 measurement; English quick start test | `uv run nexusbt evaluate examples/factors/momentum.py` → FactorReport (label definition line·naive breadth·BHY(cohort) line) |
+| M3a single-market market-order end-to-end | E3 | `backtest` (one market, market orders), strategy `screen`, integer accounting·NAV bridge | G-01, G-10~G-26, G-30, G-31, G-34, G-35, G-41~G-49; P-NAV, P-BRIDGE, P-QTY, P-RESUME, P-STATE, P-PARITY13, P-DERIVED; L2-a·b·c; F-01·F-05·F-09·F-13 tests; state machine stage measurement (`full_ci`, `full` on the compute machine) | `uv run nexusbt backtest examples/strategies/mom_kr.py` → Run summary (assumption line·direct cost/path effect·reconciled: yes) |
+| M3b order types | E3 | limit·stop·stop-limit·exit orders, `explain(strategy)`, MinTRL·signal-weight correlation | G-02~G-09, G-32, G-33, G-37~G-40; P-STATE (no expiry of exit orders)·P-QTY; L2-d (preset meaning); (optional) summary evidence that the user reproduced 3 months of one strategy by hand [RV-D10] | `uv run nexusbt explain examples/strategies/mom_kr_exits.py KR:T00007 2019-06-28` → decision path and exit order events |
+| M4 multi-market | E3 | multi-sleeve backtests·screening, currency attribution, market rules packs | G-27~G-29, G-36, G-50~G-52; M-CCY·M-SLEEVE (preconditions·counterexamples); a Korean decision cannot use a later US close; FX direction·silence; rule boundaries; the `ZZ` market gives E18 / runs once a pack is added; two-sleeve stage measurement | `uv run nexusbt backtest examples/strategies/value_mom.py` → Run summary with per-market columns and an `fx contribution` line |
+| M5 paper trading | after E3 (live) | `live`, paper book (transactional), `reconcile` (replay/restatement), `status.json`, `compare`, `Run.why`, adapters, the full CLI | same decision·book → same idempotency key; one order in `live → fill → live`; recovery from a forced kill at a commit boundary (P-BOOK); concurrent writer E35; no future open fill before the data; P-RECON | `uv run nexusbt live examples/strategies/value_mom.py --book paper:demo --fill next_open` twice → the second is IdempotencyNotice; `uv run nexusbt reconcile --book paper:demo` → `reconciled: yes (replay)` |
+| M6 performance·research tools·release gate | E3 performance | `sweep`, DSR·PBO (cohort), probes, start-date probe, L0·L1 caches, capacity scenarios, clean install | fast kernel = reference (same-environment bits); P-CACHE (L0·L1, semantic hash·captured constants); process-tree RSS·USS ≤ 4 GB; P-STAT; chapter 7 gate measurement JSON; `engine / release` passes (clean wheel + independent producer) | `uv run nexusbt sweep examples/strategies/value_mom.py` → candidate table + PBO + DSR(cohort) + capacity line for the final candidate |
+| v1.x | right after v1 | N_eff, Brinson·`first_divergence` (v3.3: group caps → T3.29, `time_stop` → T3.33, moved to v1 [R4-27]) | the tests of each T7.x ticket | per ticket |
+| (M7) event bridge | E4 | – | chapter 11 design only, no v1 tickets | – |
+| (M8) options | E5 | – | chapter 11 design only | – |
+
+**v3.1 end conditions added** [V31, V31-LS]: M1 — T-24·T-25, P-DET (two fresh processes), TDS-A010·A011·V011·V012·H004 pass/fail, F-15·F-16; M2 — T-26~T-28; M3a — G-53~G-56, G-58~G-60, G-66, P-FILLCAUSAL, P-QTY (integer ratios), P-BRIDGE (halt-day events); M3b — G-57, G-61, P-GRID; M4 — G-62, G-67~G-75, P-SLEEVE-ISO, P-SHORT-OFF, L2-e, short-sale ban period test pack; M5 — G-64, G-65, P-TRADES, pre-trade check E36, override·human book replay; M6 — P-CACHE-INCR, task P2b, G-63 (T7.1). Commands to show added: M4 `uv run nexusbt backtest examples/strategies/long_short_kr.py --set shorting.enabled=true` → exposure line·borrow cost·`reconciled: yes`; M5 `uv run nexusbt screen examples/strategies/value_mom.py --show held+near --html`.
+
+**v3.2 end conditions added** [R3]: M0 — resolved defaults fixed (codepoint-first market), pack `base_unit`·`day_count`·KR rounding `down`·ETF/fractional-era seeds·ban table grammar (T0.5a·T0.5b); M1 — resolver existence/terms time (`test_late_terms_revision_visible_at_ex_date`), the four three-valued operations, fixed-salt ties (new T-27 values), malformed exact ratio E13, stamp file identity·pin default `index+root`; M2 — E39·unknown counts per leaf (T2.22); M3a — G-20 variant, G-53 (e)(g)~(j), G-55 (a)~(f), the two P-FILLCAUSAL properties, the two `daily` bridge columns; M3b — minor-unit integer comparison G-57 (f)~(h); M4 — short accounting·lifecycle (G-67 rewritten, G-68 (b)~(d), G-70 (b), G-72 (b)(c), G-73 variant, G-75 (b), G-76, G-77), P-SHORT-OFF differential + baseline, cash interest; M5 — book TWR CAGR (G-65 (b)), manual event protocol, `book=` X-Ray, `TargetState` plumbing (T5.16); M6 — new P-CACHE-INCR cases, shared L0 retention, PBO common period, G-63 (c)(d), T7.V release re-verification.
+
+**v3.3 end conditions added** [R4]: M0 — error layer table·layer case format·internal-term ban test (T0.4b), E40~E46 classes; M3a — money-management slots·built-in sizers·ERC fallback (G-78~G-83), risk rule list·order (G-82·G-85·G-86), account layer·`final_weight`·`risk_state`·drawdown brake round trip (G-84·G-87), P-RISK-OFF·P-SIZE-PURE·P-RISK-SHRINK·P-SKIP, `waterfall.parquet`·`skips.parquet`, `strategy.replace`·`--preview`; M3b — `exits.time_stop` OCO, `risk.no_reentry`; M5 — screen account set (`--ledger`·`--as-backtest`·not evaluated), 20 templates·`init --demo`·30-minute path test, zipline mapping table document, `compare` variant table; M6 — splitters·purging (G-88·G-89, P-SPLIT-DET), `backtest(method=…)` account rules (G-90·G-91, P-WF-STITCH), CPCV·CSCV·hygiene first screen, `ml.factor` (G-92, P-ML-REPRO), triple barrier (G-93), P11 measurement JSON. Commands to show added: M3a `uv run nexusbt backtest examples/strategies/erc_brake.py --preview` → "PREVIEW" line + risk waterfall line; M6 `uv run nexusbt backtest examples/strategies/value_mom.py --method cpcv` → linear result and distribution over 5 paths·PBO·DSR lines.
+
+**v3.4 end conditions added** [R4F]: M1 — TDS A010 error (exact ratio required, T0.15c), no exact ratio E13·literal setting (T1.1a); M2 — shared `terminal_value` (T2.7), `Macro.series`·`Events`·`from_parquet(shape=)`·E47 (T2.Ge, T2.23; G-96·G-98); M3a — `vol_target` fourth term (G-81 (c)(d)), sizer hand calculation (G-95), INV-23 exclusion list·−0.0, shadow index removal reflected (G-84 (b)), account rule order E16, preview calculation·period (T3.34), conservative side when inclusion is unknown (G-55 (g)(h)); M3b — `on_event` (T3.35; G-97, two templates); M4 — exit order `blocked(cash)` (G-94); M5 — 30-minute path first line `uv init` (T5.18, 16 templates); M6 — forward-only ML training (T6.24), grid IS trimming·`backtest(start=t_1)` comparison (T6.20), G-90 numbers, P11 fixture·stage budget·output hash (T1.24, T6.26), `[ml]` install check (T6.15), `buffer-hold` template test (T7.1). Tickets 210 → **213** (new T2.Ge·T2.23·T3.35), golden 93 → **98** (G-94~G-98), error E47.
+
+**v3.4 final-revision end conditions added** [R4G]: M2 — `from_parquet` per-shape signatures·running the E47 fix line (T2.23); M3b — market event target = all (assumption recorded)·explicit `event_instruments` E16, per-side budget + combined-book `k` shrink, end-of-life liquidation-only decision·screen "scheduled exit", end of life·`time_stop` one order (T3.35; G-97 (c)~(e)); M4 — margin account (T4.Gm, T4.20; G-99~G-102, P-MARGIN-OFF); M5 — two-part config format·`config check`·`config show`·report part 1 values (T5.21). Tickets 213 → **216** (T4.Gm·T4.20·T5.21), golden 98 → **102** (G-99~G-102), property test + P-MARGIN-OFF.
+
+**When spec changes are reflected**: v3 put blueprint SC-01~SC-27 and the P0·P1 (and cheap P2) of the three-reviewer consensus into the body (appendix E). When a spec gap appears during implementation, it is fixed through the "spec deviation" procedure of 9.5 and this document is revised — v2's "there will be no further spec changes before a milestone starts" was removed because the three-reviewer review refuted it [RV-I07]. The ticket where each SC is first implemented·tested is in appendix B.2, RV items in appendix B.4.
+
+**Ticket rules**: one ticket = one session = one PR, changed lines ≤ 400 (excluding docs·lockfiles; plinth `ci / diff-size`). Size S ≤ 150 lines, M ≤ 400 lines. The title is a Conventional Commits title also used as the PR title. "Context" is the work, "Done means" is what a person looks at and confirms, "Acceptance" is the names of the tests to write (made to fail first with tdd), "Blocked by" is ticket numbers (replaced by issue numbers once made into issues). Tickets changed from v1 carry *(v2: …)*, tickets changed in v3 carry *(v3: …)*, new tickets in v2 carry **[new]**, and new·split tickets in v3 carry **[v3]**. **Golden tickets** (`T<m>.G…`) are hand-written per-session arithmetic (8.2) and are merged before the implementation tickets that use them, in a different session. New·split tickets of v3.1 carry **[v3.1]**, changed ones *(v3.1: …)*. New·split tickets of v3.2 carry **[v3.2]**, changed ones *(v3.2: …)*. New·split tickets of v3.3 carry **[v3.3]**, changed ones *(v3.3: …)*. **Engine ticket count (current = v3.4 final + R5, counted by `tools/spec_lint.py`) [R6-04]: M0 16, M1 40, M2 30, M3a 36, M3b 11, M4 28, M5 24, M6 31 (including T7.G·T7.1·T7.V), v1.x 2 (T7.2·T7.5) = 218.** Test·decision ids by the same count: hand-calculation answers G-01~G-106 (106), property tests 34 (table 8.3), errors E1~E49 (49, 6.6), ADR 0001~0040 (40, 9.3). The other numbers in this paragraph and below are records from their version. **Engine ticket count (v3.3): M0 16, M1 40, M2 28, M3a 36, M3b 10, M4 26, M5 22, M6 27, v1.x section: 5 (T7.G·T7.1 at the end of M6, T7.V a check step after T7.1, T7.2·T7.5 in v1.x) = 210** (24 new from v3.2's 188; T7.3·T7.4, moved from v1.x to v1, are absorbed into new tickets T3.29·T3.33 [R4-27]). The numbers in the v3.2 sentence below are records from v3.2. Engine ticket count (v3.2): M0 15, M1 40, M2 28, M3a 28, M3b 9, M4 26, M5 18, M6 17, v1.x section: 7 (T7.G·T7.1 at the end of M6, T7.V a check step after T7.1, T7.2~T7.5 in v1.x) = 188 (from v3.1's 176, 8 by splitting·4 new, mapping table below) [R3-23]. The numbers in the v3.1 sentence below are records from v3.1. Engine ticket count (v3.1): M0 13, M1 39, M2 27, M3a 28, M3b 9, M4 21, M5 16, M6 17, v1.x section: 6 (T7.G·T7.1 go at the end of M6 and T7.2~T7.5 in v1.x) = **176** (34 new from v3's 142 = 141 + tax T4.5b) [V31, V31-LS]. The numbers in the v3 sentence below are records from v3: M0 13, M1 34, M2 23, M3a 22, M3b 7, M4 12, M5 9, M6 16, v1.x 5 = **141** (grown from v2's 112 by splits·new tickets·golden tickets; v2's T0.11·T0.17 were scattered into golden tickets and are gone, and T6.1 moved to T1.24). The dependency graph is acyclic and every "Blocked by" is in the same or an earlier milestone (checked by script when v3 was written; in the repository, T0.12's `test_ticket_graph`).
+
+**v2 → v3 ticket mapping** (check against this table when creating issues):
+
+| v2 | v3 | Reason |
+|---|---|---|
+| T0.2 | T0.2a (skeleton·ban rules), T0.2b (hygiene·public-name tests) | size |
+| T0.7 | T0.7 (to M1) | M0 cut down |
+| T0.8 | T0.8a (financials·classifications, M2), T0.8b (FX·indexes·panels, M2), T0.8c (`full`·`full_ci` presets, M3a) | size, moved to just before the consuming milestone |
+| T0.9, T0.11, T0.17 | T0.9 (golden format + G-01, M0) + T1.G, T2.G, T3.Ga, T3.Gb, T3.Gc, T4.G | no second engine, moved to just before the consuming tickets |
+| T0.13 | T0.13a (manifest·three results·path safety·CLI), T0.13b (schema level·schema files) | size |
+| T0.14 | T0.14a (K·R, M1), T0.14b (T·D, M1), T0.14c (value·semantic hash + test vectors, M0) | size, hash before 1.0 |
+| T0.15 | T0.15a (corporate-action resolver, `nexusbt_tds.actions`, M1), T0.15b (A·V checks, M1) | one resolver (RV-C03), size |
+| T0.16 | T0.16a (core `degrade`, M1), T0.16b (research `degrade`, M2) | so M1 does not wait for all of M0 |
+| T1.1 | T1.1a (open·check·E14·rules packs), T1.1b (capabilities·three results·fallbacks F-02~F-04·pins) | size |
+| T1.7 | T1.7a (plan·windows·shift propagation), T1.7b (reference executor·fixed summation order·chunk size) | size |
+| T1.14 | T1.14a (sealed folders·recovery·source capture), T1.14b (index: candidates·observations·cohorts·pins, numerics environment) | size |
+| T2.10 | T2.10a (evaluate API·FactorReport), T2.10b (report.html structure tests) | size, eye check turned into structure tests |
+| T3.5 | T3.5a (market orders at the open·tradability), T3.5b (caps·cash allocation by the real cost function) | size, cost function dependency |
+| T3.13 | T3.13a (backtest API·metrics), T3.13b (scenarios: gross once) | size |
+| T6.1 | T1.24 (to M1) | early measurement |
+| (none) | T1.22 `tds import csv`, T1.23 `tds manifest build`, T2.17 English quick start, T2.18 `preregister`, T3.21 E6·E25 warnings, T4.11 `ZZ` market, T6.15 release gate, T6.16 release workflow, T6.17 `bridge` capability test | missing tickets (RV-I03, Q03, I07, I08, Q05) |
+
+**v3.1 → v3.2 ticket mapping** [R3-23] (split by the 400-line rule and meaning boundaries):
+
+| v3.1 | v3.2 | Reason |
+|---|---|---|
+| T0.5 | T0.5a (config keys·resolved defaults), T0.5b (market rules packs·seed tables) | size; pack seeds grew (R3-14, R3-15, R3-27) |
+| T0.13b | T0.13b (schema files·verification), T0.13c (schema-level checks) | size |
+| T0.15c | T0.15c (A010·A011), T0.15d (V011·V012·H004·`market_rules`) | size |
+| T-27 of T2.Gb | moved to T1.Gb | T1.11 (M1) uses T-27 (R3-12) |
+| T4.Gs | T4.Gs (short accounting·accrual·bankruptcy·cash interest), T4.Gt (long-short targets·short orders·bans) | size (new cases G-76·G-77, variants) |
+| T4.15 | T4.15a (state·collateral·accrual·obligations·bankruptcy), T4.15b (dividends·corporate actions·delisting·estimated replacement), T4.15c (short tax) | size (R3-09) |
+| T4.16 | T4.16a (order·reversal·mirror·capacity), T4.16b (exits·bans) | size (R3-10) |
+| T5.11 | T5.11a (manual event protocol·import), T5.11b (manual book reconciliation) | size (R3-21) |
+| (none) | T2.22 `Filter.fillna`·E39, T4.19 cash interest, T5.16 `TargetState` plumbing, T7.V release re-verification after T7.1 | R3-13, R3-25, R3-22, R3-23 |
+
+**v3.2 → v3.3 ticket mapping** [R4-27]:
+
+| v3.2 | v3.3 | Reason |
+|---|---|---|
+| T7.3 `risk.group_caps` (v1.x) | T3.29 (M3a) | group caps into v1 (R4-05) |
+| T7.4 `exits.time_stop` (v1.x) | T3.33 (M3b, + `risk.no_reentry`) | time stop into v1 (R4-10) |
+| T0.4 | T0.4 + T0.4b (layer line·E40~E46) | size |
+| (none) | T3.Gr, T3.27, T3.28, T3.30, T3.31, T3.32, T3.34, T5.17, T5.18, T5.19, T5.20, T6.Gv, T6.19~T6.27 | R4-01~R4-26 |
+
+### 10.1 Engine tickets (ready to paste as GitHub issues)
+
+#### M0 — Normative contracts
+
+**T0.1 `docs: add spec v3.4, TDS v1.4, CONTEXT.md, ADRs, license and contributor files`** · `M0` `docs` · S (docs) · Blocked by: none · §2.1, §9.1~9.3 *(v3.3: 39 ADRs (0038·0039 new, 0020 revised) [R4-01, R4-19])* *(v3.2: spec v3.4·TDS v1.4, 37 ADRs (0016 revised, 0037 new), chapter 0 design story [R3-16, R3-26])* *(v3.1: spec v3.1·TDS v1.2, 36 ADRs, no copying from PyBroker [V31-33])* *(v3: spec v3·TDS v1.1 public edition, 33 ADRs, CONTRIBUTING·SECURITY·CODE_OF_CONDUCT templates, English README template)*
+- Context: this spec as `docs/spec/engine-spec-v3.4.md`, TDS v1.4 as `tds/spec/tds-v1.md` (both the 2.7 public edition: private notes·TDS chapter 11·personal paths·hosts removed), 9.2 as `CONTEXT.md`, the ADRs 0001~0040 of 9.3 one file each in `docs/adr/` (English canonical drafts = `CONTEXT.md`·`CONTEXT.ko.md`·`docs/adr/*.md`·`README.md`·`README.ko.md`·`SPEC-INDEX.md` in the engine folder's `handoff/`, copied as they are [R6-11]), `LICENSE` (full Apache-2.0 text)·`NOTICE`, `CONTRIBUTING.md`·`SECURITY.md`·`CODE_OF_CONDUCT.md` (short templates), English `README.md` template (public document language is chapter 12 OI-45).
+- Done means: on GitHub, `CONTEXT.md`, the 40 files of `docs/adr/` [R6-03], `tds/spec/tds-v1.md`, `LICENSE` and `CONTRIBUTING.md` are visible, and each ADR has the three sections "Status: accepted, Date, Context/Decision/Consequences" (ADR-0021 is accepted too — OI-20 user decision 2026-10-28 [R6-03]). No producer name from the banned-word list (`.hygiene-private.txt`) is in the public-edition documents.
+- Acceptance: (docs PR) `ls docs/adr | wc -l` = 40 [R6-03]; `grep -c "Apache License" LICENSE` ≥ 1; `grep -riFf .hygiene-private.txt docs/spec tds/spec docs/adr CONTEXT.md CONTEXT.ko.md README.md README.ko.md | wc -l` = 0 [R6-10].
+
+**T0.2a `chore: workspace skeleton with layer and ban rules`** **[v3]** · `M0` `infra` · M · Blocked by: T0.1 · §2.3–2.6 *(v3: T0.2 split; `nexusbt_tds` import name)*
+- Context: the empty packages of the 2.3 tree (`src/nexusbt/*`, `tds/src/nexusbt_tds`), the 2.4 public names in each `__init__` (body `NotImplementedError`), ruff banned-api (the 2.5 list), pytest markers·hypothesis profiles (`ci`, `deep`), `[project.scripts] nexusbt`, `tds`.
+- Done means: `uv run nexusbt --help` and `uv run tds --help` print their subcommand lists, and `uv run pytest` passes the import tests.
+- Acceptance: `tests/unit/test_import_rules.py::test_layer_graph_respected`, `::test_banned_imports_absent_in_src` (including pickle·duckdb·zipline), `::test_tds_does_not_import_nexusbt`.
+
+**T0.2b `test(repo): public hygiene and public-name tests`** **[v3]** · `M0` `repo` · S · Blocked by: T0.2a · §2.7, §3.1 *(v3: IP regex, no producer-internal references, public TDS hygiene)*
+- Context: all the 2.7 tests in `tests/repo/test_public_hygiene.py`, `test_public_names_match_spec_3_1`.
+- Done means: creating a file that deliberately contains a `/Users` home path, or a sentence with a producer name from the banned-word list + a ticket number, makes the tests fail, and a document containing "section 10.2" passes.
+- Acceptance: `tests/repo/test_public_hygiene.py::test_no_private_paths`, `::test_section_numbers_not_ip`, `::test_no_producer_internal_refs`, `::test_no_data_files`, `::test_license_headers`, `::test_tds_public_has_no_producer_names`; `tests/unit/test_import_rules.py::test_public_names_match_spec_3_1`.
+
+**T0.3 `feat(contracts): id constant, engine column sets, phases and artifact schema versions`** · `M0` `contracts` · M · Blocked by: T0.2a · §2.4, §4.6, §5.6.3, header "Identifier name" *(v3: aliases removed, `Phase`, schema version constants)*
+- Context: `ID_COLUMN`, `ENGINE_COLUMNS` (the per-dataset columns·TDS types of the 4.6 table), `Unit`, `Currency`, `Phase` (5.6.3 order), `Policy*`, `RUN_SCHEMA`·`EVENTS_SCHEMA`·`CHECKPOINT_SCHEMA`.
+- Done means: `uv run python -c "from nexusbt.contracts import ENGINE_COLUMNS, Phase; print(sorted(ENGINE_COLUMNS)); print(list(Phase))"` prints the dataset names of the 4.6 table and the seven phases in order.
+- Acceptance: `tests/unit/contracts/test_contracts.py::test_engine_columns_subset_of_tds_schemas`, `::test_no_id_alias_public`, `::test_phase_order_matches_5_6_3`.
+
+**T0.4 `feat(contracts): teaching error classes E1..E39 and message format`** · `M0` `contracts` · M · Blocked by: T0.2a · §6.6 *(v3.2: E39 `UnknownFilterNotice`, E13·E30·E38 conditions widened [R3-13, R3-06, R3-09])* *(v3.1: E36 `OrderSanityWarning`, E37 `LotRoundingWarning`, E38 `CollateralWarning` [V31-10, V31-14, V31-LS-04])* *(v3: E34·E35, producer-neutral sentences)*
+- Context: `NexusBTError` and the E1~E39 classes, the five-part message formatter, the blocking/failure/warning/notice classification, the format in which E14 carries the TDS code list and `producer.hints`.
+- Done means: `uv run python -c "import nexusbt as nx; raise nx.ColumnNameError.example()"` prints in the 6.6 shape (what/where/why/fix/more).
+- Acceptance: `tests/unit/contracts/test_errors.py::test_all_codes_present_E1_to_E39`, `::test_message_has_five_parts`, `::test_blocking_classification_matches_table`, `::test_snapshot_error_carries_tds_codes_and_hints`, `::test_messages_have_no_producer_tickets`.
+
+**T0.4b `feat(contracts): error layer line, layer table, internal-term ban and engine-bug report`** **[v3.3]** · `M0` `contracts` · M · Blocked by: T0.4 · §6.6, §8.4b [R4-15, R4-16, R4-25]
+- Context: a second `layer` line and per-layer tails in the 6.6 format, `tests/errors/layers.toml` (code·condition → layer), the E40~E49 classes (E47 `DatasetShapeError` v3.4 [R4F-EV-04]; E48 `PretrainedLeakError`·E49 `PretrainedOverlapWarning` R5 [R6-05]), `EngineBugError` (exit code 2) and `nexusbt bugreport RUN_ID` (reproduction command·manifest·version bundle), a helper that attaches layer·fix lines to user-function exceptions with `add_note`, and `errors/hints.toml`.
+- Done means: `uv run python -c "import nexusbt as nx; raise nx.ColumnNameError.example()"` prints six parts including a `layer  your code — …` line, and `nexusbt bugreport demo` prints the bundle file path.
+- Acceptance: `tests/errors/test_layers.py::test_every_code_has_layer_case`, `::test_layer_line_matches_table`, `::test_layer_tail_fields`, `::test_fix_line_present`, `tests/errors/test_no_internal_terms.py::test_public_layers_have_no_internal_names`, `tests/errors/test_user_exception_note.py::test_original_class_and_traceback_kept`, `tests/unit/contracts/test_errors.py::test_codes_E40_to_E49_present` [R6-05].
+
+**T0.5a `feat(config): load and validate nexusbt.toml keys with resolved defaults`** **[v3.2]** · `M0` `config` · M · Blocked by: T0.3 · §3.11, §2.6, §5.1.3 *(v3.2: T0.5 split — config keys and resolved defaults; first market = codepoint order, `[account] cash_rate_bps`, `[shorting] short_rebate_bps`·closed `max_net`, `[data] pins` default `index+root` [R3-18, R3-25, R3-09, R3-07, R3-17, R3-23])* *(v3.1: new keys `[shorting]`·`[execution]` small orders·`max_bar_participation`·`[portfolio] tiebreak/band_entries/max_missing_decisions`·`[live]` checks·`[rounding.<M>]`·`[costs] provisional_table`·`[universe] exclude`·`[report]` [V31-05, V31-06, V31-LS-04])* *(v3: market-name keys)*
+- Context: every key·default·validation of 3.11, `nx.config()`, suggestions for unknown keys, a ban on secret key names, reserved keys, validating keys that contain a market name against the snapshot's `markets` (`load_config(markets=)`), returning the resolved defaults (first market = first by UTF-8 byte order of the `markets` keys → `clock`·`base_ccy`·`sleeves`) for the manifest, a check that the closed interval `max_net` ∋ 0, a long-short feasible-region check function (3.7; called by T4.14).
+- Done means: with an empty `nexusbt.toml` + markets `KR`,`US`, `nx.config()` prints the 3.11 defaults, and reordering the `markets` object to `US, KR` leaves the resolved `clock = KR_close`·`base_ccy = KRW` the same; `[sleeves] weights = {JP = 1}` gives E16 "unknown market JP; snapshot markets: KR, US"; `[broker] api_key = "x"` gives E16 "secrets do not belong in nexusbt.toml"; `[shorting] max_net = [0.2, 0.8]` gives E16.
+- Acceptance: `tests/unit/config/test_config.py::test_defaults_match_spec_table`, `::test_unknown_key_suggests`, `::test_sleeve_weights_must_sum_to_one`, `::test_markets_from_manifest`, `::test_segments_must_not_overlap`, `::test_preset_zipline_forbidden_in_toml`, `::test_secret_like_keys_rejected`, `::test_reserved_keys_accept_only_v1_value`, `::test_data_root_from_env`, `::test_shorting_disabled_by_default`, `::test_market_object_reordering_preserves_resolved_defaults`, `::test_net_interval_must_contain_zero`, `::test_pins_default_index_root`, `::test_cash_rate_default_zero`.
+
+**T0.5b `feat(config): market rules packs, grid units and seed tables with verification flags`** **[v3.2]** · `M0` `config` · M · Blocked by: T0.5a · §4.7 *(v3.2: T0.5 split — packs·seeds; `[grid] base_unit`, `[shorting] day_count`, KR rounding `down`, KR ETF group·US fractional-era tick rows, ban table grammar·financial-stock rows, rule listing function [R3-02, R3-09, R3-14, R3-15, R3-27, R3-23])* *(v3.1: pack `[grid]`·`[rounding]`·`[shorting]` sections and the `ticks/`·`shorting/` seed CSVs [V31-05, V31-LS-07])* *(v3: rules packs `KR`·`US`·`_generic`, `allow_untested`)*
+- Context: `resources/markets/{KR,US,_generic}.toml` and their schema check (`[grid]`·`[rounding]`·`[shorting]` sections), `ticks/{kr,us}_tick_table_v1.csv` (with `venue_group`), `shorting/kr_short_bans_v1.csv` (half-open intervals, `scope` grammar, `except_universe_ids`), the `limits/`·`costs/` seeds, `source`·`verified` on every seed row, a rule listing function for release evidence (source·bounds·`verified` of the rows applied).
+- Done means: `uv run python -m nexusbt.config.packs --describe KR` prints the pack version·`base_unit`·rounding rule·`day_count`·seed table row counts and the number of `verified = false` rows (numerator/denominator).
+- Acceptance: `tests/unit/config/test_rules_packs.py::test_kr_us_generic_packs_valid`, `::test_grid_rounding_shorting_sections`, `::test_seed_tables_marked_unverified`, `::test_base_unit_per_market`, `::test_kr_rounding_default_down`, `::test_etf_venue_group_tick`, `::test_us_pre_decimal_rows`, `::test_ban_table_scope_grammar`, `::test_ban_intervals_half_open`, `::test_rule_listing_has_source_and_verified`.
+
+**T0.10 `ci: add engine and tds check jobs`** · `M0` `infra` · S · Blocked by: T0.2a · §9.1 — **pushed by the user** (workflow permission) *(v3: `engine / golden-guard`, `engine / release` slots)*
+- Context: the `engine / parity`, `engine / property-deep`, `engine / perf-smoke`, `engine / docs-examples`, `engine / golden-guard`, `engine / release`, `tds / conformance`, `tds / schemas` jobs. A job with no tests yet passes with "no tests yet", but **the end conditions of the milestone where each job joins the required list (9.1 table) include "that job actually runs ≥ 1 test"**.
+- Done means: the eight jobs show green in the PR's Checks tab. Adding them to the required list is done by the user at the end of each milestone (`tds / *`·`engine / golden-guard` at the end of M0).
+- Acceptance: each job log shows the command it runs (9.1 table).
+
+**T0.12 `docs: requirement status map and ticket graph check`** · `M0` `docs` · S · Blocked by: T0.1 · appendix B, §10 *(v3: RV items, ticket graph test)*
+- Context: appendix B as `docs/requirements.md` (status = planned/deferred/replaced, ticket number), `tests/repo/test_ticket_graph.py` (reads the ticket lines of spec chapter 10 and checks that the "Blocked by" graph is acyclic and that each dependency is in the same or an earlier milestone).
+- Done means: the table has one line each for all of R-01~R-70, P1~P10, SC-01~SC-27, TDS-D1~D24, the RV items (C01~C13, I01~I10, Q01~Q11), the v3.1 items (the applied V31-01~V31-30·V31-33, V31-LS-01~V31-LS-11; appendix B.5) and the v3.2 items (R3-01~R3-28; appendix B.6), and the graph test passes.
+- Acceptance: `tests/docs/test_requirements_map.py::test_every_requirement_listed`, `::test_every_sc_tds_d_and_rv_listed`, `::test_every_applied_v31_listed`, `::test_every_r3_listed`, `tests/repo/test_ticket_graph.py::test_acyclic_and_milestone_order` (v3.2 numbering [R3-23]).
+
+**T0.13a `feat(tds): manifest-level checker, profile results, path safety and CLI`** **[v3]** · `M0` `tds` · M · Blocked by: T0.2a · §2.6, §4.3, §4.4, §8.4a, TDS 4·7·8·10 *(v3: T0.13 split; three results, M012~M014)*
+- Context: `read_manifest`, `check(level="manifest")` (M001~M014: including path safety M012·duplicate path M013·unknown required resolution rule M014), `PROFILES` (TDS chapter 7, `@version`), the profile's **three results** (`ProfileStatus`: declared / verified_level / result; rules that level cannot see are `not_checked`), reading `producer.hints`, CLI `tds check/describe`, JSON Lines output, exit codes, M-code pass/fail packages in `tds/conformance/build.py`.
+- Done means: `uv run tds check tds/conformance/TDS-M012/fail --format json` gives one `TDS-M012` line and a summary line (the profile's three results) with exit code 1; checking a package that only declares a profile at `manifest` reports its row rules as `not_checked`.
+- Acceptance: `tds/tests/test_conformance.py::test_M_codes`, `::test_M012_path_escape`, `::test_M013_duplicate_path`, `::test_M014_unknown_required_rule`; `tds/tests/test_profiles.py::test_profile_three_results`, `::test_manifest_level_never_reports_unchecked_as_pass`; `tds/tests/test_cli.py::test_exit_codes`, `::test_jsonl_output_schema`.
+
+**T0.13b `feat(tds): schema files with stability status and table verification`** **[v3]** · `M0` `tds` · S · Blocked by: T0.13a · TDS 5·10 *(v3.2: split — schema files·`verify` only, the check level is T0.13c [R3-23])* *(v3: T0.13 split; `stable`/`experimental`)*
+- Context: `tds/schemas/<kind>/1.0.json` (the TDS chapter 5 datasets, each file with `status: stable|experimental`; only the daily equity datasets are stable), `tds.schemas.verify` (document tables = schema files).
+- Done means: `uv run python -m nexusbt_tds.schemas.verify` prints the stable/experimental lists and "doc tables match schema files".
+- Acceptance: `tds/tests/test_schemas.py::test_schema_files_cover_stable_datasets`, `::test_experimental_schemas_flagged`, `::test_doc_tables_match_schema_files`.
+
+**T0.13c `feat(tds): schema-level checks with S-code conformance packages`** **[v3.2]** · `M0` `tds` · M · Blocked by: T0.13b · TDS 8 *(v3.2: split from T0.13b [R3-23])*
+- Context: `check(level="schema")` (S001~S010: Parquet footer·statistics·partition paths·types), S-code pass/fail packages (`tds/conformance/build.py`).
+- Done means: `uv run tds check tds/conformance/TDS-S002/fail --format json` gives `TDS-S002` and exit code 1; the row rules of a profile checked at the `schema` level are `not_checked`.
+- Acceptance: `tds/tests/test_conformance.py::test_S_codes`, `::test_schema_level_reports_rows_not_checked`.
+
+**T0.14c `feat(tds): canonical value hash, semantic hash and published test vectors`** **[v3]** · `M0` `tds` · M · Blocked by: T0.13b · TDS 4.5, §4.2, §5.9.4 *(v3: hash definition settled before 1.0, RV-C10)*
+- Context: the canonical value serialisation of TDS 4.5 (per-type byte rules, null tag, −0.0 normalisation, key sorting, partition columns included) → `value_hash`, package `value_sha256`, canonical JSON of resolved metadata + value hash → `semantic_sha256`, `physical_sha256`, `tds hash [--write]`, `tds/conformance/hash-vectors.json` (10 small hand-written tables with expected byte strings·sha256; cross-checked with `tds/tests/ref_encoder.py`, a pure-Python reference encoder that does not use pyarrow), H001~H003.
+- Done means: `uv run tds hash PKG` gives the same value·semantic hashes for two packages with the same content written with only compression·row groups changed, and a package with only one `availability` rule changed has the same value hash and a different semantic hash.
+- Acceptance (v3.1: `tds hash --write` writes the optional `files[].value_sha256` [V31-12]; v3.2: this value is advisory and the engine cache identity is the file sha256 [R3-04]): `tds/tests/test_hash.py::test_file_value_hash_written`, `::test_vectors_match_published`, `::test_reference_encoder_matches_pyarrow_path`, `::test_value_hash_ignores_physical_choices`, `::test_recompress_same_semantic`, `::test_availability_change_changes_semantic`, `::test_partition_columns_from_path`; `tds/tests/test_conformance.py::test_H_codes`.
+
+**T0.6 `feat(testing): synthetic TDS package part 1 - hand-authored tiny and small calendars, instruments, symbols, bars`** · `M0` `testing` · M · Blocked by: T0.3, T0.13c, T0.14c · §4.8 (1)(2)(3) *(v3: `tiny` = a table set by hand, `markets=` argument, set of hashes)*
+- Context: the `make_snapshot` skeleton, `tiny` (a table set by hand in which the case yaml becomes the rows as it is, no randomness) and `small`'s `calendar_sessions` (with `session_ord`)·`instruments`·`instrument_symbols` (with `ts_known_to`)·dense `bars` (cum factor 1.0), the `markets=("KR","US","ZZ")` choice, `tds.json` (hashes from `tds.hash`, a few lines of `producer.hints`).
+- Done means: `uv run python -m nexusbt.testing.synth --preset tiny --out .scratch/snap --validate` prints row counts per dataset and `value_sha256`·`semantic_sha256`, identical on two runs; `tds check --level schema` passes.
+- Acceptance: `tests/unit/testing/test_synth.py::test_deterministic_bytes`, `::test_tiny_is_hand_authored_no_rng`, `::test_bars_dense_per_listing`, `::test_sessions_have_utc_open_close_with_dst`, `::test_symbol_reuse_present`, `::test_zz_market_generated`.
+
+**T0.9 `test(golden): golden case format, literal-arithmetic checks, guard and G-01`** · `M0` `golden` · S · Blocked by: T0.6 · §8.2 *(v3: per-case arithmetic instead of an \"independent hand-calculation engine\", the remaining cases go to golden tickets just before the consuming tickets)*
+- Context: the `tests/golden/cases/<id>.yaml` format (expected numbers per session·phase), `tests/golden/check/<id>.py` check rules (arithmetic·rounding only), `test_handcalc_self.py` (AST: no loops·classes·engine imports), `tests/repo/test_golden_guard.py`, `.github/CODEOWNERS` (`tests/golden/**` = the user), case G-01 (market buy at the open, provisional costs, integer minor units).
+- Done means: `uv run python tests/golden/check/G-01.py` prints a per-session cash (minor units)·fill quantity table that equals the hand-checked numbers in the yaml comments; editing `cases/G-01.yaml` on an implementation branch makes the guard test fail.
+- Acceptance: `tests/golden/test_handcalc_self.py::test_no_general_loops`, `::test_checks_import_no_engine`, `::test_case_G01_expected_present`; `tests/repo/test_golden_guard.py::test_impl_pr_cannot_edit_expected`.
+
+#### M1 — Snapshot + Pipeline slice + first public path
+
+**T0.7 `feat(testing): synthetic TDS package part 2 - corporate actions with revisions, delistings, tradability, eligibility, share counts`** · `M1` `testing` · M · Blocked by: T0.6 · §4.8 (4)~(7), (10) *(v3: to M1, revision·cancellation events, late publication of delisting proceeds, eligibility published at `session_close`)*
+- Context: event generation and `EventSpec` injection, revisions (`revision_of`)·cancellations, `price_factor`·`share_factor`·`factor_method`, `cum_factor_*` agrees with the resolver's latest revision, `delistings` (some with late `ts_value_available`), `tradability_daily` (`availability_by_column`), `eligibility_daily` (published at `session_close`), `share_counts`.
+- Done means: the `--preset small --validate` output has "TDS-A001: 0" and a line with the counts of revision·cancellation events.
+- Acceptance: `test_synth.py::test_factor_event_reconciliation`, `::test_reverse_split_makes_factor_non_monotonic`, `::test_revisions_and_cancellations_present`, `::test_injected_event_overrides_random`, `::test_delisted_on_matches_delistings`, `::test_eligibility_no_lookahead`.
+
+**T0.14a `feat(tds): full-level key and reference checks`** **[v3]** · `M1` `tds` · M · Blocked by: T0.13c · TDS 8.3 *(v3: T0.14 split; level·edition in the `classifications` key)*
+- Context: K001~K011 and R001~R009 (including edition keys) of `level="full"`, pass/fail packages per code.
+- Done means: in hand-made conformance packages each code appears exactly once; GICS level 1·3 rows with the same effective·known periods do not raise K001.
+- Acceptance: `tds/tests/test_conformance.py::test_K_codes`, `::test_R_codes`, `::test_classification_levels_not_duplicate`.
+
+**T0.14b `feat(tds): full-level time and density checks with rectangle lookup`** **[v3]** · `M1` `tds` · M · Blocked by: T0.14a · TDS 6.3, 8.3 *(v3: T0.14 split; T012 is a rectangle lookup)*
+- Context: T001~T013 (T012 = uniqueness of the rectangle lookup on two time axes, level·edition cases), D001~D004, the reference implementation `nexusbt_tds.pit.rect_lookup` (the engine uses the same function, 5.3.6).
+- Done means: in a package with rows announced in advance with a future effective date, T012 is not raised; it is raised only for two rows that truly overlap.
+- Acceptance: `tds/tests/test_conformance.py::test_T_codes`, `::test_D_codes`, `::test_T012_rectangle_examples_1_to_5`.
+
+**T0.15a `feat(tds): corporate action resolver parameterized by knowledge cutoff`** **[v3]** · `M1` `tds` · M · Blocked by: T0.14a · §5.3.3a, TDS 5.11 *(v3.2: existence time and terms time separated, late-discovered events, chain hash helper [R3-01, R3-04])* *(v3: new ticket, RV-C03)*
+- Context: `nexusbt_tds.actions.resolve(events: pa.Table, cutoff) -> ResolvedActions` (chains, the revision chosen by existence time `ts_known`, status, waiting on terms time `ts_terms`, the four effects, a helper computing revision differences, marking late-discovered events, the canonical chain hash for the L0 key `chain_digest(market, year_end)`). pyarrow only, a pure function. The engine (`Snapshot.actions`) and the checker (A001) use the same function.
+- Done means: an example prints as a table the result of resolving one instrument's revision chain at three reference times (chosen revision·price factor·share factor·entitlement).
+- Acceptance: `tds/tests/test_actions.py::test_resolver_at_cutoffs` (amended split·cancelled dividend·amendment after payment·split + dividend on the same day·lapsed entitlement·no factor × 3 reference times), `::test_share_factor_explicit_not_inferred`, `::test_revision_cycle_A007`, `::test_late_terms_revision_visible_at_ex_date`, `::test_existence_time_ignores_effective_when_announced`, `::test_late_discovered_event_flagged`, `::test_chain_digest_includes_all_revisions_and_times`.
+
+**T0.15b `feat(tds): adjustment and value checks via the resolver`** **[v3]** · `M1` `tds` · M · Blocked by: T0.15a · TDS 5.11, 8.3 *(v3: T0.15 split, size S → M; A008·A009)*
+- Context: A001~A009 (A001 multiplies only the one latest revision per amendment chain with the resolver at `c = +∞`; A008 share-event terms published after the effective date; A009 spin-off factor publication time < effective session close), V001~V050.
+- Done means: in a package with a reverse split, A001 is not raised even though the factor is not monotonic, and a factor that multiplies both the old and the new revision of an amendment chain is caught by A001.
+- Acceptance: `tds/tests/test_conformance.py::test_A_codes`, `::test_V_codes`, `::test_reverse_split_not_flagged`, `::test_A001_multiplies_latest_revision_once`.
+
+**T0.16a `feat(testing): degraded synthetic packages for core fallbacks`** **[v3]** · `M1` `testing` · M · Blocked by: T0.7, T0.15b · §4.5, §4.8 *(v3: T0.16 split)*
+- Context: the core data values of `degrade=`: `no_ohlc`, `no_sessions`, `sparse_bars`, `no_cum_factors`, `kr_ex_is_record`, `us_div_split_adjusted_no_dates`, `no_delistings`; each value removes from the declaration the profiles it cannot keep (checks still pass).
+- Done means: `--preset small --degrade no_ohlc,kr_ex_is_record --validate` prints the declared profiles (no core) and the three results.
+- Acceptance: `test_synth.py::test_synth_conforms_degraded_core[<each value>]` (7), `::test_degrade_drops_declared_profiles`.
+
+**T1.G `test(golden): time and pipeline cases for M1 (T-07, T-09..T-12, T-15, T-20, T-23)`** **[v3]** · `M1` `golden` · M · Blocked by: T0.9, T0.7 · §8.2 *(v3: the M1 share of v2's T0.11·T0.17, per-session arithmetic)*
+- Context: windows before and after a split·reverse split, symbol reuse, a start date on a holiday, ties, the three forms of 12-1 momentum, a window with a null factor, late bar `ready_delay`, `every(n)` calendar anchor. For each case, yaml numbers + a check file. Written in a different session and merged before the consuming tickets (T1.3, T1.8, T1.9, T1.11).
+- Done means: `uv run python tests/golden/check/T-12.py` prints the same value for the three forms, and `T-20.py` a table in which the decision uses a late bar from the next row on.
+- Acceptance: `test_handcalc_self.py::test_time_cases_M1_expected_present`.
+
+**T1.1a `feat(data): open TDS snapshots with checker, producer-neutral errors and market rules packs`** **[v3]** · `M1` `data` · M · Blocked by: T0.3, T0.4, T0.5b, T0.13c, T0.14c, T0.6 · §4.1–4.4, §4.7 *(v3.2: malformed exact ratio E13, reading cloned·hard-linked partitions [R3-06, R3-16])* *(v3: T1.1 split; rules pack check, `producer.hints`, semantic hash)*
+- Context: `open_snapshot`, resolving `LATEST`, check level, path safety, E14 (TDS code + `producer.hints`), version rules (M011 warning·M014 E14), a rules pack check per market (E18 if missing, `allow_untested` recorded), `Snapshot.semantic_hash/value_hash/physical_hash`, `.markets`.
+- Done means: on synthetic small, prints `s.id, s.semantic_hash, s.markets`; on a `markets=("KR","ZZ")` snapshot, `nx.universe("ZZ")` gives E18 ("no market rules pack for ZZ"); the E14 of a broken package with `producer.hints` carries the hint sentence.
+- Acceptance: `tests/unit/data/test_open_snapshot.py::test_latest_resolved_once`, `::test_E14_carries_tds_code_and_hint_not_ticket`, `::test_unknown_required_rule_E14`, `::test_market_without_pack_E18`, `::test_allow_untested_recorded`, `::test_semantic_hash_exposed`, `::test_open_path_and_latest_parent` (v3.1 `nx.open`·`[data] path` [V31-PUB-03]), `::test_cloned_and_hardlinked_partitions_ok`, `::test_malformed_exact_ratio_E13`, `::test_missing_exact_ratio_E13_unless_literal` (v3.4 [R4F-01]).
+
+**T1.1b `feat(data): capabilities, profile results, core fallbacks and pins`** **[v3]** · `M1` `data` · M · Blocked by: T1.1a, T0.16a · §4.3–4.5, §4.2 *(v3.2: pin default `index+root`·`retention: unmanaged`, stamp file identity [R3-16, R3-17])* *(v3: T1.1 split; graph-dependent requirements, three results, canonical pin = index)*
+- Context: `CapabilityRequest` (features the graph uses → required data, 4.3 table), the profile's three results, `capabilities`·`fallbacks`, F-02 (session table fallback)·F-03 (densifying)·F-04 (factors from the resolver), E14 for packages violating their declaration (no fallback), pins (index + root by default, failure is a warning + `retention: unmanaged`), the `verify` stamp (`runs/.cache/verified/`, `(dev, inode, size, mtime_ns)` per file).
+- Done means: a graph using only `Price` runs on a package with only core datasets; on a `degrade=["no_sessions"]` snapshot, one E30 line and F-02 in `s.fallbacks`; a run works on a read-only data root and the pin is in the index; changing one file gives E14 (`TDS-H001`) under `verify="full"`; editing one file in place after the stamp makes the next open see a different identity, recompute sha256 and give E14.
+- Acceptance: `test_open_snapshot.py::test_three_status_distinct`, `::test_price_only_graph_needs_core_only`, `::test_declared_but_broken_is_E14_not_fallback`, `::test_full_verify_detects_tamper`, `::test_readonly_root_runs`, `::test_pin_in_index`, `::test_fallback_F02_sessions`, `::test_fallback_F03_densify`, `::test_fallback_F04_factors_from_resolver`, `::test_fallbacks_fail_mode_raises_E14`, `::test_volume_unit_warning_lifted_E30` [V31-16], `::test_fallback_F15_grid_minor_unit` [V31-05], `::test_verified_stamp_detects_later_tamper`, `::test_inplace_edit_invalidates_stamp_and_l0`, `::test_readonly_package_all_consumption_paths`, `::test_default_pins_written_to_root_or_warn`, `::test_default_pin_survives_three_publications` [R3-16, R3-17].
+
+**T1.2 `feat(cli): nexusbt init and doctor`** · `M1` `cli` · S · Blocked by: T1.1b · §3.10 *(v3: three results·rules packs·`.publishing` marker)*
+- Done means: `uv run nexusbt init --data-root .scratch/snap && uv run nexusbt doctor` prints the snapshot id, semantic hash, edition, the profile's three results, unchecked items, the fallback list, per-market rules pack·period·instrument count·daily row count, column count and free disk space; with `.publishing` in the root, "publishing in progress"; a line with the number of runs whose root pin could not be written, "pins not visible to producer" [R3-17].
+- Acceptance: `tests/unit/cli/test_doctor.py::test_doctor_lists_markets_packs_and_counts`, `::test_doctor_lists_fallbacks_and_unchecked`, `::test_init_uses_env_root`, `::test_publishing_marker`, `::test_pins_not_visible_line`.
+
+**T1.3 `feat(data): calendars, session rounding, ready times, phases and decision grids`** · `M1` `data` · M · Blocked by: T1.1b, T1.G · §5.1.2, §5.1.3, §5.1.6, §5.6.3, §3.7 schedule *(v3: `ready(s)`, phase order, `every` calendar anchor, `<M>_close`)*
+- Done means: `examples/dev/show_grid.py`, made by this ticket (monthly schedule, KR, 2019), prints 12 month-end sessions and `decision_ts` (UTC); an E9 notice for a start date on a holiday; the decision dates of `every(5)` stay the same when the start date moves by one day.
+- Acceptance: `tests/unit/data/test_calendar.py::test_monthly_last_session`, `::test_start_rounds_forward_end_backward` (T-10), `::test_weekly_quarterly`, `::test_T23_every_anchor_independent_of_start`, `::test_ready_delay_from_availability_rule`, `::test_default_clock_codepoint_first_market` (v3.2 [R3-18]), `tests/golden/test_time.py::test_T20_late_bar_ready_delay`.
+
+**T1.4 `feat(data): dense market blocks from daily bars`** · `M1` `data` · M · Blocked by: T1.3 · §5.3.1, §4.6, §5.3.9 L0 key *(v3: default domain = equity ∧ not synthetic, share factor `Q`, the L0 key is the semantic hash)*
+- Context: `market_block`, dictionary index → column number, `obs_status`, existence mask, tail overlap, choosing files by manifest statistics, excluding index·synthetic instruments, the `l0_key(...)` function (the cache implementation is T6.12).
+- Done means: an example printing the shape·existence mask of `Snapshot.market_block("KR", ["close"], sessions)` shows NaN on halted sessions, False before listing, and no index instruments.
+- Acceptance: `tests/unit/data/test_market_block.py::test_obs_status_halted_is_nan`, `::test_existence_mask`, `::test_index_and_synthetic_not_in_block`, `::test_dictionary_index_mapping_matches_instrument_ids`, `::test_tail_overlap_rows`, `::test_partition_values_from_path`, `::test_l0_key_partition_scoped` (v3.2: file sha256·every revision of the chain·axis datasets·stable `markets` [R3-04]), `::test_l0_key_ignores_watermark`, `::test_l0_key_ignores_advisory_value_hash`.
+
+**T1.5 `feat(pipeline): term value objects, operators, graph hash and captured constants`** · `M1` `pipeline` · M · Blocked by: T0.2a · §3.3, §5.3.9, §6.5(6) *(v3: constant global values in the node hash, RV-C10)*
+- Done means: `print(nx.describe(Returns(232).shift(21) + 1))` prints the node tree and the structural hash; the same expression twice → the same hash; changing `THRESHOLD = 10`, read by a user function, to 20 changes the hash.
+- Acceptance: `tests/unit/pipeline/test_terms.py::test_operator_result_types`, `::test_negative_shift_raises_E1`, `::test_graph_hash_stable_and_order_sensitive`, `::test_pipeline_object_columns_screen`, `::test_captured_scalar_changes_hash`.
+
+**T1.6 `feat(pipeline): datasets from TDS dictionaries and type stubs`** · `M1` `pipeline` · M · Blocked by: T1.1b, T1.5 · §3.2 *(v3: `Meta.<scheme>(level=)`, after-the-fact attributes F-14, `delisted_on` not exposed, schema registry)*
+- Done means: after `uv run nexusbt stubs`, `Price.`·`Meta.` autocomplete in the editor; `Price.clsoe` → E7 "Did you mean: close"; `Meta.country` works as an alias of `Meta.market`; `Meta.delisted_on` does not exist (E7).
+- Acceptance: `tests/unit/pipeline/test_datasets.py::test_price_columns_fixed`, `::test_typo_suggestions`, `::test_stub_file_generated`, `::test_meta_aliases`, `::test_meta_has_no_hindsight_columns`, `::test_is_label_columns_only_in_Label`, `::test_schema_registry_injected_at_binding`.
+
+**T1.7a `feat(compute): planner with window and shift row propagation`** **[v3]** · `M1` `compute` · M · Blocked by: T1.4, T1.5 · §5.3.2 *(v3: T1.7 split)*
+- Done means: the debug log of `nx.run_pipeline(..., freq="monthly")` shows "rows computed: X of Y", confirming that monthly computes only some rows; nested windows + shift get the needed rows right even across chunk boundaries.
+- Acceptance: `tests/unit/compute/test_planner.py::test_window_rows_propagate`, `::test_shift_rows_propagate`, `::test_nested_windows_across_chunks`, `::test_shared_node_computed_once`, `::test_daily_cross_section_feeding_window_computed`.
+
+**T1.7b `feat(compute): reference executor with fixed summation order and budgeted chunking`** **[v3]** · `M1` `compute` · M · Blocked by: T1.7a · §5.3.8, §5.3.10 *(v3: T1.7 split; sub-year chunks, ADR-0019 definition A, transcendental-class elementwise functions)*
+- Done means: the reference sum function gives the left-fold value in a case where its order differs from `np.sum`; when `memory_budget_gb` is small, the result stays the same even though chunks split into quarters·months.
+- Acceptance: `tests/unit/compute/test_reference_numerics.py::test_left_fold_order_defined`, `::test_no_numpy_pairwise_in_reference`, `::test_transcendental_uses_compiled_elementwise`; `tests/unit/compute/test_chunking.py::test_sub_year_chunks_when_budget_small`; `tests/unit/test_import_rules.py::test_kernel_seam_signatures_arrow_only` (v3.2 `nx.compute._kernels` seam [R3-26]).
+
+**T1.8 `feat(compute): as-of adjustment reference and registered kernel classes`** · `M1` `compute` · M · Blocked by: T1.7b, T0.15a, T1.G · §5.3.3, §5.3.3a, §5.3.4, §4.6 (null factors) *(v3: uses the resolver's result, share factor `Q`, late-terms events generalised)*
+- Done means: an example printing the windows before and after split·reverse split events gives the same numbers as the T-07 case; rows before a `price_factor` null event are NaN and the `AdjustmentUnavailable` count is printed; an amended split ratio gives different windows depending on the reference time.
+- Acceptance: `tests/golden/test_time.py::test_T07_split_reverse_split_windows`, `::test_T15_unavailable_factor_masks_window`, `tests/unit/compute/test_adjust.py::test_revision_changes_window_by_cutoff`, `tests/property/test_adjust.py::test_P_ADJ_kernel_classes`.
+
+**T1.9 `feat(factors): returns, moving averages, volatility and traded value`** · `M1` `factors` · M · Blocked by: T1.8, T1.Gb · §3.4, §5.3.10 *(v3: default input of the return family `close_tr`, RV-I02)*
+- Context: Returns, DailyReturns, SMA, AverageDollarVolume, AverageTradedValue, AnnualizedVolatility, RollingStd (reference implementation, left-fold definition).
+- Done means: unit tests showing the default input·missing values·minimum observations·ready rule of each row of the 3.4 table pass; T-12 passes.
+- Acceptance: `tests/unit/factors/test_conformance.py::test_<name>_nan_rule` (7), `::test_returns_default_is_close_tr`, `tests/golden/test_time.py::test_T12_momentum_forms_equal`, `tests/golden/test_factors.py::test_T25_<name>` (7, v3.1 [V31-24]).
+
+**T1.10 `feat(factors): ewma, vwap, rsi, max drawdown and ops`** · `M1` `factors` · M · Blocked by: T1.9, T1.Gb · §3.3, §3.4 *(v3: `RSI`·`MaxDrawdown` default `close_tr`, EWMA weights a constant array)*
+- Done means: `nx.describe(nx.factors)` prints a table of the 12 built-in factors with default input·adjustment class·numerics class.
+- Acceptance: `test_conformance.py::test_ewma/vwap/rsi/maxdd_*`, `::test_ewma_weights_precomputed`, `tests/unit/pipeline/test_ops.py::test_rolling_min_periods`, `::test_coalesce_explicit_fill`, `tests/golden/test_factors.py::test_T25_<name>` (5, v3.1 [V31-24]).
+
+**T1.11 `feat(compute): cross-sectional operators with mask and groupby, sorted-index reductions`** · `M1` `compute` · M · Blocked by: T1.7b, T1.Gb · §5.4, §5.3.10, ADR-0019 *(v3.2: `rank("ordinal")`·`top`·`bottom` ties = `[portfolio] tiebreak` [R3-12])* *(v2: sorted-index reductions)*
+- Done means: output from a ties example in which `rank(method="ordinal")` gives 1,2,3 in `instrument_id` order (T-11) with `tiebreak="id"` and in T-27 order with the default hash; output showing that `zscore` is bit-identical when the in-memory column order is shuffled.
+- Acceptance: `tests/unit/compute/test_crosssection.py::test_zscore_ddof0_zero_var_nan`, `::test_top_stable_ties`, `::test_unknown_group_counted`, `::test_quantiles_preserve_ties`, `::test_reduction_in_instrument_id_order`, `::test_rank_ordinal_uses_tiebreak_key`, `tests/golden/test_time.py::test_T11_ties`.
+
+**T1.12 `feat(pipeline): window-style user functions`** · `M1` `pipeline` · M · Blocked by: T1.8, T1.11 · §3.3, §5.3.7, §6.5 (5)(6) *(v3: non-constant globals → E24 + L1 off)*
+- Done means: the chapter 3 example `mom_12_1_custom` (253 rows) runs, and using `close[-273]` gives an E8 suggestion "window=273"; reading a global array gives E24 and "L1 cache disabled for node".
+- Acceptance: `tests/unit/pipeline/test_user_functions.py::test_window_is_asof_adjusted`, `::test_out_of_window_index_E8`, `::test_global_array_read_E24_disables_l1`, `::test_source_hash_includes_helpers`, `::test_user_exception_keeps_user_frame`.
+
+**T1.14a `feat(artifacts): sealed run folders with crash recovery and source capture`** **[v3]** · `M1` `artifacts` · M · Blocked by: T0.5a · §5.9.1–5.9.3, §2.6 *(v3: T1.14 split; seal recovery)*
+- Done means: after a run, `ls runs/<id>` has `manifest.json`·`SEALED`·`source/` and the files are read-only; a failed run is aborted in the index with no folder; reopening a run killed between the rename and the seal recovers it or moves it to aborted.
+- Acceptance: `tests/unit/artifacts/test_runstore.py::test_seal_only_on_success`, `::test_interrupted_seal_recovers`, `::test_sources_captured_with_helpers`, `::test_value_hash_ignores_created_at`, `::test_no_pickle_files_written`.
+
+**T1.14b `feat(artifacts): run index with candidates, observations, cohorts, pins and environment numerics`** **[v3]** · `M1` `artifacts` · M · Blocked by: T1.14a · §5.9.2, §5.9.5 *(v3: T1.14 split; candidate·observation·cohort tables, canonical pins)*
+- Done means: `sqlite3 runs/index.sqlite '.tables'` shows `studies runs candidates observations cohorts exposures preregistrations pins books`; `manifest.json` has `environment.numerics` and `machine_id`.
+- Acceptance: `tests/unit/artifacts/test_index.py::test_append_only_triggers`, `::test_tables_match_spec`, `::test_pins_canonical_in_index`, `tests/unit/artifacts/test_runstore.py::test_environment_numerics_recorded`.
+
+**T1.13 `feat(api): run_pipeline and factor screen`** · `M1` `api` · M · Blocked by: T1.12, T1.14b · §3.5, §3.8 screen *(v3: alias output test removed)*
+- Done means: `uv run python examples/m1_screen.py` prints the top 10 momentum per market on the reference date and the `run_id`.
+- Acceptance: `tests/unit/api/test_run_pipeline.py::test_output_schema_and_sort`, `::test_screen_rows_filtered`, `::test_markets_from_snapshot`, `tests/unit/api/test_screen_factor.py::test_top_per_market`.
+
+**T1.15 `feat(api): rerun in a fresh process with input stamp, replay failure and trust gate`** · `M1` `api` · S · Blocked by: T1.13 · §3.8 rerun, §5.9.3, §2.6 *(v3: fresh process, captured helpers take precedence, changed Parquet detected)*
+- Done means: `uv run nexusbt rerun <id>` gives "outputs identical (value, physical)"; renaming the snapshot folder gives E15; changing Parquet bytes gives E15 (semantic·physical mismatch); editing a helper module in the working folder still lets rerun give the same values from the captured source; a run folder whose manifest `machine_id` was changed gives E31, and runs with `--trust`.
+- Acceptance: `tests/unit/api/test_rerun.py::test_rerun_identical`, `::test_missing_snapshot_E15`, `::test_tampered_parquet_detected`, `::test_archived_helpers_override_local`, `::test_new_snapshot_is_new_run`, `::test_foreign_run_requires_trust_E31`.
+
+**T1.16 `feat(compat): zipline CustomFactor and USEquityPricing shim`** · `M1` `compat` · S · Blocked by: T1.12 · §3.4, design 3.4
+- Done means: the zipline `Mom(CustomFactor)` code of design 3.4 runs with only its import changed to `from nexusbt.compat.zipline import ...`.
+- Acceptance: `tests/unit/compat/test_zipline_shim.py::test_compute_signature`, `::test_usequitypricing_close_is_close_tr`.
+
+**T1.17 `test(parity): isolated zipline env, bundle writer from TDS, L1-a and L1-b`** · `M1` `parity` · M · Blocked by: T1.10, T1.16, T0.10 · §8.1 *(v3: comparison between default inputs, price scaling for instruments beyond uint32)*
+- Done means: the `engine / parity` job log shows the per-case `max_rel` of L1-a·L1-b below tolerance (including windows spanning a dividend), and an evidence JSON (summary only, "parity does not imply realism", the number of scaled instruments) is produced.
+- Acceptance: `tests/parity_compare/test_L1.py::test_L1a_price_terms_default_inputs`, `::test_L1b_adjustment_windows`, `::test_price_scale_for_uint32_overflow`.
+
+**T1.18 `test(parity): L1-d masks and classifiers, known differences`** · `M1` `parity` · S · Blocked by: T1.17 · §8.1
+- Done means: `tests/parity/KNOWN_DIFFERENCES.md` exists and the L1-d cases are exactly equal.
+- Acceptance: `test_L1.py::test_L1d_top_rank_zscore_percentile_quantiles`, `::test_L1d_known_differences_listed` (v3.1: Filter `~` missing values, `nx.top` hash ties [V31-21, V31-29]).
+
+**T1.19 `test(property): chunk, permutation, future-data, determinism and kernel invariants for pipelines`** · `M1` `property` · M · Blocked by: T1.13 · §8.3 *(v3: sub-year chunks, same-environment bits)*
+- Done means: `uv run pytest -m property -k "CHUNK or PERM or FUT or DET or KERNEL"` passes and prints the case counts.
+- Acceptance: `tests/property/test_pipeline_invariants.py::test_P_CHUNK`, `::test_P_PERM`, `::test_P_FUT_pipeline`, `::test_P_DET_pipeline`, `tests/property/test_kernels.py::test_P_KERNEL_reference_is_left_fold`.
+
+**T1.21 `test(property): start-date and metamorphic invariants with preconditions`** **[new]** · `M1` `property` · M · Blocked by: T1.19 · §8.3, INV-14, INV-15 [SC-04, RV-C11] *(v3: preconditions and counterexamples)*
+- Context: P-START (1·21·252 sessions, including `every(n)`), M-SCALE, M-DUMMY, M-SPLIT-NEUTRAL — each with holding cases (random graphs satisfying the precondition) and counterexamples (price threshold, zscore without a mask) (M-CCY·M-SLEEVE are T4.8).
+- Done means: `uv run pytest -m property -k "START or SCALE or DUMMY or SPLIT_NEUTRAL"` passes and prints the case and counterexample counts.
+- Acceptance: `tests/property/test_metamorphic.py::test_P_START`, `::test_M_SCALE`, `::test_M_SCALE_counterexample_threshold`, `::test_M_DUMMY`, `::test_M_DUMMY_counterexample_unmasked`, `::test_M_SPLIT_NEUTRAL`.
+
+**T1.22 `feat(tds): import csv with mapping.yaml and minimal-daily packages`** **[v3]** · `M1` `tds` · M · Blocked by: T0.14c, T0.13c · TDS 7·9.5, §4.3 [RV-I03]
+- Context: `tds import csv MAPPING.yaml --out PKG` (TDS 9.5: column mapping, `template`, date formats, `missing_values`, market declaration, `price_basis`), package writing (sorting·partitions·hashes·`pit_quality = backfilled` by default), the `tds:minimal-daily@1.0` declaration, a conversion report (`import_report.json`: kept·assumed·dropped rows).
+- Done means: `tds import csv` on the two CSVs of TDS chapter 7 → `tds check --level full` passes and prints the profile's three results.
+- Acceptance: `tds/tests/test_import_csv.py::test_minimal_two_csv`, `::test_mapping_template_and_format`, `::test_offsetless_time_requires_timezone`, `::test_import_report_written`.
+
+**T1.23 `feat(tds): manifest build for an existing folder`** **[v3]** · `M1` `tds` · S · Blocked by: T1.22 · TDS 8.1 [RV-I03]
+- Context: `tds manifest build PKG` (scans the folder into a `tds.json` draft: datasets·files·statistics·hashes; publication rules·descriptions are left marked `TODO` and `tds check` reports them as M003).
+- Done means: in a folder with a few Parquet files, `tds manifest build` writes a draft, and after the `TODO`s are filled in `tds check` passes.
+- Acceptance: `tds/tests/test_manifest_build.py::test_draft_lists_files_and_stats`, `::test_todo_fields_flagged`.
+
+**T1.24 `feat(bench): benchmark harness and early stage measurements`** **[v3: v2 T6.1 moved to M1]** · `M1` `bench` · M · Blocked by: T1.13 · §7 [RV-I05]
+- Context: `bench/run.py` (workloads·repetitions·p50/p95/max·summed process-tree RSS·USS·JIT first latency·cache state), `--stages m1` measurements (open·block read·adjustment·`SMA(252)` over all daily rows (ADR-0019 definition A)·cross-section), result JSON (summary only).
+- Done means: `uv run python bench/run.py --stages m1 --reps 3 --snapshot synth-small` prints JSON with per-stage p50/p95 and RSS/USS, and the PR description has one line of grounds for the decision to keep ADR-0019 A or switch to B.
+- Acceptance: `tests/unit/bench/test_harness.py::test_result_schema`, `::test_no_paths_in_results`, `::test_process_tree_memory_summed`, `::test_output_value_hash_in_results` (v3.4 [R4F-18]).
+
+**T1.20 `docs(examples): m1 walkthrough`** · `M1` `docs` · S · Blocked by: T1.15, T1.22 · §8.5 *(v3: includes the CSV import line)*
+- Done means: pasting the commands of the README "first 5 minutes" section as they are does: build a synthetic snapshot (or import CSV) → `tds check` → doctor → screening → rerun.
+- Acceptance: `tests/docs/test_examples.py::test_readme_m1`.
+
+**T1.Gb `test(golden): v3.1 filter, builtin-factor and tie-break cases (T-24, T-25, T-27)`** **[v3.1]** · `M1` `golden` · S · Blocked by: T0.9 · §5.4.1, §3.4, §3.7, §8.2 [V31-21, V31-24, V31-29] *(v3.2: T-24 extended (the four three-valued operations), T-27 moved from T2.Gb and given fixed salt values [R3-13, R3-12])*
+- Context: T-24 (three-valued Filter table), T-25 (for each of the 12 built-in factors, a 5-row hand-calculation case with NaN positions placed in it, `tests/golden/factors/<name>.yaml` + a check file), T-27 (fixed-salt hash ties). Merged before the consuming tickets T1.9·T1.10·T1.11·T1.25.
+- Done means: `uv run python tests/golden/check/T-25.py` prints the expected values of the 12 as a table, and `check/T-27.py` prints the hash keys and order of three instruments (T00002, T00001, T00003).
+- Acceptance: `test_handcalc_self.py::test_cases_v31_M1_expected_present`.
+
+**T1.25 `feat(pipeline): three-valued filters with validity masks`** **[v3.1]** · `M1` `pipeline` · M · Blocked by: T1.11, T1.Gb · §3.3, §5.4.1, §5.9.9 [V31-21] *(v3.2: `all/any` Kleene, `as_factor` unknown → NaN, Classifier missing = unknown, `Pipeline(screen=)` unknown = false [R3-13])*
+- Context: a Filter node carries a value and a validity mask; a comparison's missing value = unknown, `~` keeps validity as it is, `&`·`|` Kleene, `if_else` unknown → NaN, unknown = false at the final uses (`universe`, selection, `mask`, `screen`); `explain`'s "unknown (input NaN: …)".
+- Done means: the T-24 table is printed as it is, and a `~(Price.close.latest > 10_000)` universe has no halted instruments.
+- Acceptance: `tests/golden/test_time.py::test_T24_filter_unknown`, `tests/unit/pipeline/test_filters.py::test_kleene_and_or`, `::test_not_keeps_unknown`, `::test_isnan_always_valid`, `::test_final_use_unknown_is_false`, `::test_all_any_kleene`, `::test_as_factor_unknown_nan`, `::test_classifier_missing_is_unknown`, `::test_pipeline_screen_unknown_false`.
+
+**T1.27 `test(repo): determinism source bans and cross-process hash-seed runs`** **[v3.1]** · `M1` `repo` · S · Blocked by: T1.19 · §2.5, INV-09 [V31-08]
+- Context: add wall clock·random numbers·`uuid4`·`os.urandom` in decision-path modules to ruff `banned-api`, an AST test (detecting places where iteration over an unsorted `set`/`frozenset` sets event·output order), P-DET with two fresh processes with different `PYTHONHASHSEED`.
+- Done means: the tests fail on a branch that deliberately puts `datetime.now()` into `accounting`, and a line says the output hashes of the two process runs are equal.
+- Acceptance: `tests/unit/test_determinism_rules.py::test_no_wallclock_or_rng_in_decision_modules`, `::test_no_unsorted_set_iteration_in_event_paths`, `tests/property/test_pipeline_invariants.py::test_P_DET_cross_process_hashseed`.
+
+**T0.15c `feat(tds): v1.2 checks - exact ratios and delisting distributions`** **[v3.1]** · `M1` `tds` · S · Blocked by: T0.15b, T0.14c · TDS 5.11·5.13·8.3 [V31-01, V31-04] *(v3.2: split — ratios·delisting distributions only; A010 cases with zero·negative·one side only [R3-06, R3-23])*
+- Context: TDS error A010 (v1.4 E: a share-changing event without `ratio_num/ratio_den`·with one side only·≤ 0·disagreeing with the f64 ratio) [R4F-01], warning A011 (unknown whether a distribution is included), pass/fail packages per code.
+- Done means: `uv run tds check tds/conformance/TDS-A010/fail --format json` reports four lines as errors (E) — the missing row·the one-sided row·the zero row·the disagreeing row — and prints a profile failure.
+- Acceptance: `tds/tests/test_conformance.py::test_A010`, `::test_A011`.
+
+**T0.15d `feat(tds): v1.2 checks - volume unit, price grid and advisory file value hashes`** **[v3.2]** · `M1` `tds` · S · Blocked by: T0.15b, T0.14c · TDS 4.2·5.5·5.27·8.3 [V31-05, V31-12, V31-16] *(v3.2: split from T0.15c; V012 on a minor-unit integer basis [R3-02, R3-23])*
+- Context: V011 (suspected volume unit), V012 (price deviates from the declared grid·minor-unit integer by more than 1e-9 relative), H004 (`files[].value_sha256` mismatch — an advisory field), `market_rules` schema·key checks (including the `verified` column), pass/fail packages per code.
+- Done means: `uv run tds check tds/conformance/TDS-V011/fail --format json` gives one `TDS-V011` line (instrument·year, R = 100), and the pass package (R = 1) gives 0 warnings.
+- Acceptance: `tds/tests/test_conformance.py::test_V011`, `::test_V012`, `::test_H004`, `tds/tests/test_schemas.py::test_market_rules_schema_stable_optional`.
+
+**T0.16c `feat(testing): v1.2 synthetic fields and degrades`** **[v3.1]** · `M1` `testing` · S · Blocked by: T0.7, T0.15c, T0.15d · §4.8 [V31-01, V31-04, V31-05, V31-16]
+- Context: `ratio_num/ratio_den` and their f64 quotient (including 1:3·1:7·0.29), distributions just before delisting + flag, splits·dividends inside a halt period, raw prices fitted to the pack grid with some jittered by 1 ULP, `market_rules` seeds, `degrade=["no_tick_info", "volume_in_lots"]`.
+- Done means: `--preset small --validate` prints "exact ratios: n, distributions before delisting: k, off-grid rows: 0", and `--degrade volume_in_lots` shows the number of V011 warnings.
+- Acceptance: `test_synth.py::test_exact_ratios_present`, `::test_prices_on_grid_with_ulp_noise`, `::test_volume_in_lots_triggers_V011`, `::test_synth_conforms_degraded_core[no_tick_info]`.
+
+#### M2 — PIT + factor evaluation
+
+**T0.8a `feat(testing): synthetic TDS package part 3a - fundamentals and classifications`** **[v3]** · `M2` `testing` · M · Blocked by: T0.7, T0.14b · §4.8 (8)(9) *(v3: splits T0.8; classification levels and editions, effects announced in advance)*
+- Context: `fundamentals_events`+`fundamentals_state` (with amendments, strict/compare), `classifications` (scheme, level, edition, classifications known late, future effects announced in advance, row-level `pit_quality`), `universe_membership`, `dictionary/items`.
+- Done means: `--preset small --validate` prints the three results of the research profile and T012 0.
+- Acceptance: `test_synth.py::test_fundamentals_state_intervals_non_overlapping`, `::test_classification_known_after_effective`, `::test_classification_levels_and_editions`, `::test_advance_announced_effective_rows`.
+
+**T0.8b `feat(testing): synthetic TDS package part 3b - fx, indices and panels`** **[v3]** · `M2` `testing` · M · Blocked by: T0.8a · §4.8 (11)~(13) *(v3: splits T0.8)*
+- Context: `fx_rates` (publication lag, per market currency pair), `feature_panels` and `label_panels` (choice of label-time columns), index instruments, `dictionary/columns`.
+- Done means: `--preset small --validate` prints pass for the three results of the four profiles.
+- Acceptance: `test_synth.py::test_synth_conforms[tiny]`, `::test_synth_conforms[small]`, `::test_panel_available_next_session_open`, `::test_fx_publication_lag`.
+
+**T0.16b `feat(testing): degraded synthetic packages for research fallbacks`** **[v3]** · `M2` `testing` · S · Blocked by: T0.8b, T0.16a · §4.5, §4.8 *(v3: splits T0.16)*
+- Context: the research values of `degrade=`: `no_fundamentals_state`, `no_eligibility`, `no_share_counts`, `no_fundamentals_events`, `no_benchmarks`, `no_panels`, and `no_dated_category` (F-14).
+- Done means: `--preset small --degrade no_eligibility --validate` prints the declared profiles and the three results.
+- Acceptance: `test_synth.py::test_synth_conforms_degraded_research[<each value>]` (7 of them).
+
+**T2.G `test(golden): PIT, label and lookup cases for M2 (T-01..T-06, T-08, T-13, T-14, T-16..T-19, T-21, T-22)`** **[v3]** · `M2` `golden` · M · Blocked by: T0.9, T0.8a · §8.2 *(v3: the M2 share of v2 T0.11 and T0.17)*
+- Context: amendment of an old period, future amendment, strict-edition lineage, month-end panel, classification known late, universe fallback, late dividend `close_tr`, share counts and splits, two time axes, label times, missing eligibility = false, rectangle lookup examples 1~5, economic label 10%, late-recovery purging. Merged before the consuming tickets (T2.1~T2.7).
+- Done means: `uv run python tests/golden/check/T-21.py` prints the economic label 10% and the adjusted-price ratio 11.1% side by side.
+- Acceptance: `test_handcalc_self.py::test_time_cases_M2_expected_present`.
+
+**T2.1 `feat(data): point-in-time intervals and rectangle two-time-axis lookup`** · `M2` `data` · M · Blocked by: T1.4, T0.14b, T2.G · §5.3.5, §5.3.6, §5.1.5 *(v3: rectangle lookup (`nexusbt_tds.pit.rect_lookup`), strict excludes backfilled rows row by row)*
+- Done means: an example prints the `fundamentals_state` intervals of one instrument and the lookup result per session side by side; a classification line shows the old code on a day when the effect has passed but is not yet known, and a row announced in advance with a future effect does not hide the current row.
+- Acceptance: `tests/unit/data/test_intervals.py::test_half_open_lookup`, `::test_two_axis_known_after_effective`, `::test_T18_future_effective_does_not_hide_current`, `::test_T19_levels_and_editions_coexist`, `::test_strict_skips_backfilled_rows`, `::test_no_daily_expansion_memory`, `::test_history_mode_system_E18`.
+
+**T2.2 `feat(pipeline): Fund dataset over fundamentals_state`** · `M2` `pipeline` · M · Blocked by: T2.1, T1.6 · §3.2, §5.3.5, §4.5 F-06 *(v3: E18 sentence producer-neutral)*
+- Done means: `nx.describe(Fund.equity.latest)` shows the interval, `ts_known_from` and `period_end`; in a `degrade=["no_fundamentals_state"]` snapshot, `Fund.equity.latest` is E18 (without a producer name).
+- Acceptance: `tests/golden/test_time.py::test_T01_old_restatement_keeps_new_period`, `::test_T02_future_correction_keeps_past`, `::test_T03_strict_excludes_vendor`, `tests/unit/pipeline/test_fund.py::test_max_age_days`, `::test_missing_state_E18`.
+
+**T2.3 `feat(pipeline): Panel and Meta classifiers with availability, levels, editions and index members`** · `M2` `pipeline` · M · Blocked by: T2.1, T0.8b · §3.2, §3.6, §4.6 *(v3: `scheme@level`, F-14, `index_members(universe_id)`)*
+- Done means: an example showing that at a month-end decision `Panel.bm.latest` is the previous month's value (T-04), the `Meta.sector` code table (`gics@1`), the number of members per date of `index_members("KOSPI200")`; using the current `category` of `instruments` is E30 (F-14).
+- Acceptance: `test_time.py::test_T04_month_end_uses_previous_panel`, `::test_T05_classification_known_at`, `::test_T14_two_time_axes`, `tests/unit/pipeline/test_meta.py::test_index_members_rectangle`, `::test_missing_membership_E18`, `::test_scheme_level_selection`, `::test_hindsight_attribute_warned`.
+
+**T2.15 `feat(data): share counts point-in-time lookup, shares_out and market_cap`** **[new]** · `M2` `data` · S · Blocked by: T2.1, T0.15a · §5.3.5a, §4.5 F-08 [TDS-D9, TDS-Q4] *(v3: share factor `Q`)*
+- Done means: an example printing `Price.shares_out` and `market_cap` before and after a split matches case T-13; with `degrade=["no_share_counts"]`, `weight="value"` is E18.
+- Acceptance: `tests/golden/test_time.py::test_T13_share_counts_and_split`, `tests/unit/data/test_share_counts.py::test_kind_preference_order`, `::test_uses_share_factor_not_price_factor`, `::test_missing_share_counts_E18`.
+
+**T2.4 `feat(pipeline): universes with eligibility, fallback, microcap switch and exclusion reasons`** · `M2` `pipeline` · M · Blocked by: T2.3, T2.15, T0.16b · §3.6, §4.5 F-07 [SC-23] *(v3: missing = false, no carry-forward, market names from the snapshot)*
+- Done means: prints that the per-session instrument count of `nx.universe("KR", exclude_microcap=True)` is about 80%; the `coverage` table has exclusion counts per reason; a fixed list → E4; with `degrade=["no_eligibility"]`, `universe_source = feature_panels` and E30; an instrument that was true yesterday and has no row today drops out today.
+- Acceptance: `tests/unit/pipeline/test_universe.py::test_eligibility_daily`, `::test_T17_missing_row_is_false`, `::test_T06_panel_fallback_recorded`, `::test_microcap_bottom_20pct`, `::test_survivorship_warning`, `::test_exclusion_reason_counts`, `::test_unknown_market_E16`.
+
+**T2.5 `feat(pipeline): units, currency conversion and cross-market terms`** · `M2` `pipeline` · M · Blocked by: T2.1, T1.11, T0.8b · §3.3, §5.3.2 (6), §5.1.5 fx, §3.11 `[fx] series` *(v2: choosing a series)*
+- Done means: `Price.market_cap.latest.rank(across_markets=True)` → E5; after `.to("USD")` it works and prints a value reflecting the FX publication lag; with two series, `[fx] series = "auto"` shows the list with E16.
+- Acceptance: `tests/unit/pipeline/test_units.py::test_E5_cross_market_currency`, `::test_to_uses_available_fx`, `::test_E17_cross_market_into_window`, `::test_fx_series_auto_selection`.
+
+**T2.6 `feat(pipeline): label taint and external datasets`** · `M2` `pipeline` · S · Blocked by: T1.6 · §3.2, §6.5 *(v3: `from_parquet(rename=)`, the file sha256 in the node key)*
+- Done means: using `Label.ret_fwd_1m_dl.latest.rank()` as a signal is E2, `from_parquet` without `known_on` → E3, `known_on="ts_available"` (an instant) uses that instant, `rename={"security_id": "instrument_id"}` works.
+- Acceptance: `tests/unit/test_leaks.py::test_label_taint_E2`, `::test_missing_known_on_E3`, `::test_known_on_date_recorded_assumption`, `::test_known_on_timestamp_used_as_is`, `tests/unit/pipeline/test_external.py::test_rename_and_file_hash_in_key`.
+
+**T2.9 `feat(research): segments, exposures and trial registry with candidates, observations and cohorts`** · `M2` `research` · M · Blocked by: T1.14b · §6.1, §6.2, §6.3 reserved [SC-19, SC-21, RV-C12] *(v3: candidates, observations, cohorts)*
+- Done means: computing the validation segment for the first time gives the E10 notice, `nx.runs(study=...)` shows the exposure, candidate and observation counts; rerunning the same candidate with another snapshot adds one more observation and leaves the earlier observation as it is; giving a `splits=` value is E18.
+- Acceptance: `tests/unit/research/test_segments.py::test_no_blocking`, `::test_exposure_logged`, `::test_splits_reserved_E18`, `tests/unit/research/test_trials.py::test_candidate_key_excludes_snapshot`, `::test_rerun_adds_observation_not_overwrite`, `::test_cohort_frozen_with_digest`, `::test_study_id_stable_on_rerun`.
+
+**T2.7 `feat(research): economic and adjusted forward labels, three label times and purging`** · `M2` `research` · M · Blocked by: T1.13, T2.9, T0.15a, T2.G · §5.8, §5.6.13 [SC-20, RV-C04] *(v3: economic label by default, `fwd_return_adj`, `ts_label_available`)* *(v3.4: the shared terminal-value function `terminal_value` (5.6.13) is first made here and is used by labels, accounting and the shadow index alike [R4F-04])*
+- Done means: an example printing the label computation of one instrument for one month (entry and exit prices, dividend reinvestment factor, share factor, terminal value, the three label times); on synthetic small, the IC difference of the two labels reported in one line (RV-D2 measurement).
+- Acceptance: `tests/unit/research/test_labels.py::test_econ_reinvest_at_ex_close`, `::test_adj_ratio_label`, `::test_delisting_terminal_policies`, `::test_terminal_uses_shared_resolver`, `::test_purge_uses_label_available`, `::test_no_entry_counted`, `tests/golden/test_time.py::test_T16_label_times`, `::test_T21_economic_label_10pct`, `::test_T22_purge_uses_label_available`.
+
+**T2.8 `feat(research): IC, Newey-West, quantiles, turnover and coverage`** · `M2` `research` · M · Blocked by: T2.7 · §5.8
+- Done means: on a hand-made IC series, NW t and L print equal to the test's expected values.
+- Acceptance: `tests/unit/research/test_factor_stats.py::test_spearman_min_pairs`, `::test_newey_west_known_value`, `::test_quantile_ties`, `::test_turnover`, `::test_coverage_counts`.
+
+**T2.16 `feat(research): naive breadth, implied IR and cohort BHY-adjusted p`** **[new]** · `M2` `research` · S · Blocked by: T2.8, T2.9 · §5.8 [SC-08, SC-09, RV-C12] *(v3: cohort, the name \"naive\")*
+- Done means: on 5 hand-made candidates (NW t given), prints the BHY-adjusted p, equal to the expected values; a candidate with a different horizon does not enter the same cohort; prints naive breadth and expected IR.
+- Acceptance: `tests/unit/research/test_hygiene_stats.py::test_bhy_known_values`, `::test_bhy_cohort_excludes_other_horizon`, `::test_breadth_naive_definition`, `::test_implied_ir`, `::test_bhy_limit_sentence_present`.
+
+**T2.10a `feat(api): evaluate and FactorReport`** **[v3]** · `M2` `api` · M · Blocked by: T2.8, T2.9, T2.4, T2.16 · §3.8, §3.9 *(v3: splits T2.10; label definition line, a candidate per `Mapping` item, `save_signal`)*
+- Done means: `uv run nexusbt evaluate examples/factors/momentum.py` prints a FactorReport in the shape of 3.9 (with the label definition, naive breadth and BHY(cohort) lines) and the `report.html` path.
+- Acceptance: `tests/unit/api/test_evaluate.py::test_report_lines_match_template`, `::test_counts_next_to_rates`, `::test_saved_run_folder`, `::test_hygiene_block`, `::test_mapping_terms_are_separate_candidates`, `::test_minimal_daily_adj_label_only`.
+
+**T2.10b `feat(artifacts): report.html template with structural test`** **[v3]** · `M2` `artifacts` · S · Blocked by: T2.10a · §3.9 *(v3: splits T2.10; a structural test instead of an eye check, the eye check in the end-of-milestone checklist)*
+- Context: a one-page jinja2 template (no external files), section ids (`summary`, `ic`, `quantiles`, `coverage`, `hygiene`, `assumptions`).
+- Done means: the generated HTML has all the required section ids and makes no external resource requests.
+- Acceptance: `tests/unit/artifacts/test_report_html.py::test_required_sections_present`, `::test_no_external_resources`.
+
+**T2.11 `feat(api): explain values down to source facts`** · `M2` `api` · S · Blocked by: T2.2 · §3.9 Explanation, §4.5 F-11
+- Done means: `nx.explain(Fund.equity.latest, "KR:T00003", "2020-02-28")` prints the `fundamentals_state` interval and the `fundamentals_events` `fact_id`/`doc_id`; without the events table, "lineage not in snapshot".
+- Acceptance: `tests/unit/api/test_explain.py::test_lineage_rows`, `::test_not_usable_yet_message`, `::test_lineage_missing_F11`.
+
+**T2.12 `feat(api): static checks before heavy compute`** · `M2` `api` · M · Blocked by: T2.6, T2.5 · §6.5 static checks, P8 *(v3: check 10 (E34), capability computation)*
+- Done means: `nx.check(strategy)` prints the result table of the 10 checks within 1 second (time shown); a narrow universe over an unmasked `zscore` is E34.
+- Acceptance: `tests/unit/api/test_check.py::test_static_checks_list`, `::test_runs_before_compute`, `::test_capability_check_E18`, `::test_unmasked_cross_section_notice_E34`, `tests/perf/test_P8.py::test_static_under_1s` (`perf_smoke`).
+
+**T2.18 `feat(api): preregister`** **[v3]** · `M2` `api` · S · Blocked by: T2.9 · §6.4 [RV-Q03]
+- Done means: after `nx.preregister(f, metric="ic_mean", threshold=0.02, segment="validation")`, the evaluation report of that segment has "preregistered ic_mean ≥ 0.02: pass/fail · registered before first validation exposure: yes/no".
+- Acceptance: `tests/unit/research/test_preregister.py::test_record_and_report_line`, `::test_registered_after_exposure_flagged`.
+
+**T2.13 `test(parity): L1-c fundamentals and producer panel agreement script`** · `M2` `parity` · S · Blocked by: T2.2, T1.17 · §8.1
+- Done means: L1-c evidence JSON; `bench/panel_agreement.py --snapshot <id> --panel <name>` (when a producer monthly panel exists, on the compute machine) prints the agreement ratio per cell as numerator/denominator (only the summary is committed).
+- Acceptance: `tests/parity_compare/test_L1.py::test_L1c_fund_latest`.
+
+**T2.17 `docs: English quickstart from CSV to rerun`** **[v3]** · `M2` `docs` · S · Blocked by: T1.22, T2.10a, T1.15 · §8.5 [RV-I03]
+- Context: `docs/quickstart.md` (English): two hand-written CSVs → `tds import csv` → `tds check` → `nx.evaluate(Returns(252).shift(21), target="fwd_return_adj")` → the saved run → `nexusbt rerun`; the E18 sentence given when `backtest` is called on a minimal package, and how to fix it (raw prices + events).
+- Done means: pasting the document's commands as they are into a clean folder runs to the end.
+- Acceptance: `tests/docs/test_examples.py::test_quickstart_csv_to_rerun_en`.
+
+**T2.14 `docs(examples): m2 factor research walkthrough`** · `M2` `docs` · S · Blocked by: T2.10a, T2.11 · §8.5
+- Done means: the commands of the README section "Evaluate one factor" run as they are.
+- Acceptance: `tests/docs/test_examples.py::test_readme_m2`.
+
+**T2.Gb `test(golden): v3.1 ranking and market-series cases (T-26, T-28)`** **[v3.1]** · `M2` `golden` · S · Blocked by: T0.9 · §5.4.2, §3.2 [V31-25, V31-13] *(v3.2: T-27 moved to T1.Gb [R3-12])*
+- Context: T-26 percentile composite, T-28 row selection of a market-level series. Merged before the consuming tickets T2.19 and T2.20.
+- Done means: `uv run python tests/golden/check/T-26.py` prints the percentile composite table.
+- Acceptance: `test_handcalc_self.py::test_cases_v31_M2_expected_present`.
+
+**T2.19 `feat(pipeline): market-level series terms`** **[v3.1]** · `M2` `pipeline` · M · Blocked by: T2.3, T1.8, T2.Gb · §3.2, §5.1.5, §5.3.2 (6) [V31-13]
+- Context: `Market.series(id, column)` market-level terms (on the market axis of that instrument, `ready` as it is), column-wise broadcast when mixed with instrument terms, a series of another market gathered at the decision and E17 when it is a window input, built-in factors and user functions `inputs=`, a missing id E18, `explain` display.
+- Done means: the example `examples/dev/regime_filter.py` prints, per decision, true/false of the Filter "KOSPI TR above its 200-day line", and that the sleeve is cash at the decisions where it is false.
+- Acceptance: `tests/golden/test_time.py::test_T28_market_series_rows`, `tests/unit/pipeline/test_market_series.py::test_broadcast_to_instruments`, `::test_not_in_cross_section_denominator`, `::test_cross_market_series_window_E17`, `::test_missing_instrument_E18`.
+
+**T2.20 `feat(pipeline): percentile rank with explicit missing policy and weighted composites`** **[v3.1]** · `M2` `pipeline` · M · Blocked by: T1.11, T2.Gb · §3.3, §5.4.2 [V31-25]
+- Context: `pct_rank(higher_is_better, na=drop|bottom|middle)`, `nx.ops.composite` (nested), the `na` policy recorded in the manifest, `coverage.n_na_filled`, `explain` percentile and whether filled, per node.
+- Done means: the T-26 table prints as it is and `explain` shows "C: na=middle → 50 (filled)".
+- Acceptance: `tests/golden/test_time.py::test_T26_pct_rank_and_composite`, `tests/unit/compute/test_pct_rank.py::test_ties_average`, `::test_na_policies`, `::test_composite_nested`, `::test_na_filled_counted`.
+
+**T2.21 `feat(pipeline): Trad dataset and universe exclusion toggles`** **[v3.1]** · `M2` `pipeline` · M · Blocked by: T2.4 · §3.2, §3.6, §4.3, §5.1.5 [V31-30]
+- Context: `Trad.admin_status/halted/limit_up_close/limit_down_close/price_limit_ratio` (publication time per column group), `universe(exclude=[…])` and `[universe] exclude`, validation of allowed names (E16), `coverage.n_excluded_by_reason`, `explain` leaves.
+- Done means: the per-decision exclusion counts of `nx.universe("KR", exclude=["administrative", "spac"])` print by reason, and `exclude=["foo"]` gives the list of allowed names and E16.
+- Acceptance: `tests/unit/pipeline/test_trad.py::test_column_availability_by_group`, `::test_missing_dataset_E18`, `tests/unit/pipeline/test_universe.py::test_exclude_admin_and_category`, `::test_exclude_unknown_name_E16`, `::test_default_excludes_nothing`.
+
+**T2.22 `feat(pipeline): explicit Filter.fillna, unknown counts per leaf and the unknown-universe notice (E39)`** **[v3.2]** · `M2` `pipeline` · S · Blocked by: T2.4, T1.25 · §3.3, §5.4.1, §6.6 E39, §5.9.1 [R3-13]
+- Context: `Filter.fillna(bool)` (explicit replacement, recorded in the manifest and `explain`), universe unknown share > 50% during a run → E39 (number of decisions, leaf names, input columns), `coverage.n_unknown_by_leaf` (json).
+- Done means: on synthetic small, using `nx.universe("US") & ~Trad.halted` at US decisions before 2019-08-23 gives one E39 line and a fix sentence (`.fillna(True)`), and changing it to `(~Trad.halted).fillna(True)` brings the universe size back.
+- Acceptance: `tests/unit/pipeline/test_filters.py::test_fillna_bool_explicit`, `tests/unit/pipeline/test_universe.py::test_unknown_universe_notice_E39`, `::test_unknown_by_leaf_counted`.
+
+**T2.Ge `test(golden): macro series vintage and event timing cases (G-96..G-98)`** **[v3.4]** · `M2` `golden` · S · Blocked by: T0.9 · §5.3.12, §8.2 [R4F-EV-05]
+- Context: (including G-97 (c)~(e): market events, combined book and end-of-life only [R4G-01~03]) hand-calculated cases of a CPI release on the 15th not visible to a decision on the 14th, the amended vintage (`as_of`/`first`), `.age_days`, `.changed()`, `.surprise` (G-96), an after-hours earnings release + `delay=1` trigger, `days_since`, budget shrink (G-97), and events before listing ignored (G-98). Merged in another session before the implementation PR.
+- Done means: `uv run python tests/golden/check/G-96.py` prints a table of the visible value, vintage and age per decision.
+- Acceptance: `tests/golden/test_handcalc_self.py::test_case_G96_to_G98_expected_present`.
+
+**T2.23 `feat(pipeline): Macro.series and Events terms over series_observations and events, and from_parquet shapes`** **[v3.4]** · `M2` `pipeline` · M · Blocked by: T2.19, T2.6, T2.Ge · §3.2, §5.1.5, §5.3.12, §6.6 E47 [R4F-EV-01, R4F-EV-02, R4F-EV-04]
+- Context: `Macro.series(id, vintage=)` (vintage choice, market-level broadcast, `.latest`, `.obs(k)`, `.age_days`, `.changed()`, `.surprise`), `Events.<kind>` and `Events.of()` (publication times of events, corporate_actions and fundamentals_events, `.days_since()`, `.count()`, `.latest()`, `.occurred()`, `.surprise`, `issuer_id` fan-out, skips for events before listing), the `from_parquet(shape="events"|"series")` signature (defaults and required columns per shape, 3.2 [R4G-04]) and E47, two rows of the capability table (4.3), the truncation probe also running on both terms.
+- Done means: the example `examples/dev/macro_events.py` prints, per decision, CPI `latest` and `age_days` and one instrument's `Events.earnings.days_since()`, and shows that there is no value at decisions before the release.
+- Acceptance: `tests/golden/test_time.py::test_G96_macro_vintage_release_time`, `::test_G98_event_before_listing`, `tests/unit/pipeline/test_macro.py::test_monthly_on_daily_last_released`, `::test_first_vs_as_of_vintage`, `::test_surprise_needs_consensus_E18`, `tests/unit/pipeline/test_events.py::test_unknown_before_announcement`, `::test_issuer_events_fan_out`, `tests/unit/data/test_from_parquet_shapes.py::test_missing_ts_event_E47`, `::test_signature_defaults_per_shape`, `::test_events_need_one_id_column_E47`, `::test_series_duplicate_key_E47`, `tests/errors/test_fix_lines.py::test_E47_fix_example_is_callable`, `::test_series_without_vintage_assumption_recorded`, `tests/property/test_pit.py::test_P_FUT_macro_events_truncation`.
+
+#### M3a — single-market market orders end to end (thin slice)
+
+**T0.8c `feat(testing): full and full_ci synthetic presets`** **[v3]** · `M3a` `testing` · S · Blocked by: T0.8b · §4.8 *(v3: splits T0.8; `full` run by a person on the compute machine, CI uses `full_ci`)*
+- Done means: `--preset full_ci --validate` prints time and size in CI and passes; `--preset full` records time and size in the compute-machine manual checklist (the milestone tracking issue).
+- Acceptance: `test_synth.py::test_full_ci_conforms`, `::test_full_ci_is_fraction_of_full_rules`.
+
+**T3.Ga `test(golden): market execution and cash cases (G-10..G-15, G-31, G-41)`** **[v3]** · `M3a` `golden` · M · Blocked by: T0.9 · §5.6.3–5.6.7, §8.2 *(v3: the share of v2 T0.9 + G-41)*
+- Context: volume cap carried over 3 sessions, unknown ADV for a new listing, pro-rata scaling for a cash shortfall + quantity cancellation (the new scaling order), Korean upper and lower limit blocks, halt carry-over and 20-session expiry, replacement by a new decision, null open, minimum commission + affordable quantity with impact. Merged before the consuming tickets T3.4, T3.5a and T3.5b.
+- Done means: `uv run python tests/golden/check/G-12.py` prints cash (minimum units), fills and `cancelled_qty` per session.
+- Acceptance: `test_handcalc_self.py::test_cases_market_execution_expected_present`.
+
+**T3.Gc `test(golden): accounting cases (G-16..G-26, G-30, G-34, G-35, G-42..G-49)`** **[v3]** · `M3a` `golden` · M · Blocked by: T0.9, T0.15a · §5.3.3a, §5.6.9–5.6.14, §8.2 *(v3.2: G-20 variant (sold after the ex-date, before the terms are published) [R3-01])* *(v3: resolver amendments and cancellations, late recovery, bridge)*
+- Context: split, reverse split, stock dividend, cash dividend, undisclosed amount, pay-date estimation, delisting, merger, unsupported, lapse of rights, end of run, bonus issue, return of capital, late recovery (G-42), amendments and cancellations (G-43~G-45), split + dividend on the same day (G-46), entitlement quantity unchanged (G-47), bridge (G-48, G-49). Merged before the consuming tickets T3.3 and T3.9~T3.11.
+- Done means: `uv run python tests/golden/check/G-42.py` prints the `decision_value` of months 10 and 11 (recovery excluded) and the conversion to a receivable in month 12.
+- Acceptance: `test_handcalc_self.py::test_cases_accounting_expected_present`.
+
+**T3.1 `feat(portfolio): pure target construction with stages and risk slot`** · `M3a` `portfolio` · M · Blocked by: T1.11, T1.9, T2.15, T1.Gb · §3.7 portfolio, §5.5 [SC-01, SC-02 wording] *(v3.2: ties by a fixed salt, the same rule as `Factor.top` [R3-12])* *(v3: dependencies fixed — `value` needs `share_counts`, `inverse_vol` the volatility kernel)*
+- Done means: an example prints the TargetFrame of one decision (selection rank, weights of the two stages, capped reason) with sum ≤ 1; `nx.top(10, hold=20)` → before T7.1, E18 "available after ticket T7.1".
+- Acceptance: `tests/unit/portfolio/test_targets.py::test_equal_cap_residual_cash`, `::test_value_weights`, `::test_inverse_vol_excludes_nan`, `::test_redistribute_converges`, `::test_per_group`, `::test_risk_none_identity_stage_columns`, `::test_hold_reserved_E18`, `::test_prior_state_returned_empty_in_v1`, `tests/golden/test_time.py::test_T27_hash_tiebreak` (v3.2 new values [R3-12]), `::test_n_tied_at_cutoff_counted`, `tests/unit/portfolio/test_targets.py::test_tiebreak_stable_across_decisions`, `::test_factor_top_matches_portfolio_top`, `::test_unrelated_output_does_not_reshuffle`.
+
+**T3.2 `feat(api): Strategy, schedules, params and strategy screen`** · `M3a` `api` · M · Blocked by: T3.1, T1.13 · §3.7, §3.8 screen *(v2: `risk=`, `anchor=`)*
+- Done means: `uv run nexusbt screen examples/strategies/mom_kr.py --asof 2019-06-28` prints the 3.9 Screen shape, "(preview)" when it is not a decision date.
+- Acceptance: `tests/unit/api/test_strategy.py::test_param_name_inference`, `::test_strategy_hash_includes_risk`, `::test_screen_scheduled_flag`, `::test_decision_context_anchor_field`.
+
+**T3.3 `feat(accounting): columnar account state, integer money, valuation and NAV bridge`** · `M3a` `accounting` · M · Blocked by: T0.3, T3.Gc · §5.6.1, §5.6.9, INV-06 [RV-C07, RV-I10, RV-C01] *(v3: column arrays, integer minimum units, bridge, value at the decision)*
+- Done means: the G-01 state written as an Arrow IPC checkpoint → restored → the same valuation; prints that the bridge row closes in G-48 (valuation gain without trades).
+- Acceptance: `tests/unit/accounting/test_state.py::test_columnar_state_checkpoint_arrow`, `::test_money_is_integer_minor_units`, `::test_minor_unit_rounding_half_up`, `::test_decision_value_excludes_unknown_entitlements`, `::test_decision_value_uses_only_known_values`, `tests/golden/test_accounting.py::test_G48_appreciation_without_trades`, `tests/unit/test_import_rules.py::test_state_seam_signatures_arrow_only` (v3.2 `nx.accounting._state` seam, `ruined` and `shortfall` fields [R3-26, R3-09]).
+
+**T3.4 `feat(execution): order table, lifecycle, trigger state, quantity conservation, sizing and session loop skeleton`** · `M3a` `execution` · M · Blocked by: T3.3, T3.Ga · §5.6.2, §5.6.3, §5.6.7, appendix C [SC-11, RV-C05, RV-I05] *(v3: columnar order table, the three-way split, phase-order skeleton (market orders, zero cost))*
+- Context: the order table (5.6.1), lifecycle state, trigger state and the four quantities (INV-18), quantity events, `SimConfig`, quantity frozen at the decision, the `step_session` skeleton (the 7 phases in order, market orders only, zero cost) — so that the following tickets can use multi-session cases (G-10, G-14) right away.
+- Done means: `nx.describe(nx.execution)` printing the state transition table and the `SimConfig` knob table (in the same order as appendix C); G-15 passes; quantities are conserved after random quantity events.
+- Acceptance: `tests/unit/execution/test_orders.py::test_allowed_transitions_only`, `::test_quantity_conservation`, `::test_partial_cancel_is_qty_event_not_status`, `::test_frozen_shares_from_decision_value`, `::test_decision_price_recorded`, `tests/unit/execution/test_simconfig.py::test_knobs_match_appendix_C`, `tests/unit/execution/test_loop.py::test_phase_order_skeleton`, `tests/golden/test_execution.py::test_G15`, `tests/unit/test_import_rules.py::test_step_seam_signatures_arrow_only` (v3.2 `nx.execution._step` seam [R3-26]).
+
+**T3.8 `feat(execution): cost models, general impact form and cost table coverage`** · `M3a` `execution` · M · Blocked by: T3.4 · §5.6.8, §4.7 [SC-11] *(v3: booked in integer minimum units, market rules pack bp; before T3.5b)*
+- Done means: choosing `nx.costs.realistic()` with unverified tables gives E23 listing the empty (market, period, component); provisional is E22; at a2=0.5, a3=1 the same value as the square-root formula; cost components booked as minimum-unit integers.
+- Acceptance: `tests/unit/execution/test_costs.py::test_provisional_bps_from_pack`, `::test_per_share_min`, `::test_abdi_ranaldo_known_value`, `::test_general_impact_equals_sqrt_default`, `::test_spread_floor_without_high_low`, `::test_coverage_E23`, `::test_components_rounded_to_minor_units`.
+
+**T3.5a `feat(execution): market fills at open with tradability rules`** **[v3]** · `M3a` `execution` · M · Blocked by: T3.4, T3.Ga · §5.6.3–5.6.5 *(v3: splits T3.5; price limits only when they are in the rules pack)*
+- Done means: per-session tables equal to cases G-01, G-11, G-13, G-14, G-31.
+- Acceptance: `test_execution.py::test_G01`, `::test_G11`, `::test_G13`, `::test_G14`, `::test_G31`, `tests/unit/execution/test_tradability.py::test_price_limits_only_with_pack`.
+
+**T3.5b `feat(execution): volume cap and affordable cash allocation with the actual cost function`** **[v3]** · `M3a` `execution` · M · Blocked by: T3.5a, T3.8, T3.Gd · §5.6.6, §5.6.7 [RV-C06, RV-Q07] *(v3: splits T3.5; the actual cost function, an unbiased scaling order, `cost_reserve_bps`)*
+- Done means: tables equal to cases G-10, G-12, G-41; cash never becomes negative; the `insufficient_cash` count and amount in the orders line.
+- Acceptance: `test_execution.py::test_G10`, `::test_G12`, `tests/unit/execution/test_costs.py::test_G41_affordable_lots_never_negative_cash`, `::test_trim_order_highest_fill_ratio_first`, `::test_cost_reserve_default_zero_recorded`, `test_execution.py::test_G56_bar_volume_cap` (v3.1 [V31-03]), `tests/unit/execution/test_capacity.py::test_bar_volume_bound_counted` (v3.2 ψ-bound ratio [R3-03]), `tests/unit/execution/test_sizing.py::test_floor_shares_no_lost_share` (G-53 (d) [V31-01]).
+
+**T3.9 `feat(accounting): splits, reverse splits, stock dividends, bonus issues and capital reductions via the resolver`** · `M3a` `accounting` · M · Blocked by: T3.4, T0.15a, T3.Gc, T3.Gd · §5.6.10, §5.3.3a, §4.6 kind table *(v3: resolver share factor, `order_rebased`, amended split ratios)*
+- Done means: G-16~G-18, G-34, G-45, G-46 pass.
+- Acceptance: `tests/golden/test_accounting.py::test_G16`, `::test_G17`, `::test_G18`, `::test_G34`, `::test_G45_split_ratio_revised`, `::test_G46_split_and_dividend_same_day`, `::test_G53_exact_share_arithmetic` (v3.1: rational ratios and `floor_shares` [V31-01]; v3.4: exact ratio required, literal setting (e)(g)(h)(i) [R4F-01]), `tests/unit/accounting/test_ratios.py::test_ratio_rule_examples`, `::test_ratio_product_overflow_checked`, `::test_invalid_exact_ratio_rejected_E13`.
+
+**T3.9b `feat(accounting): exclude instruments with share events lacking exact ratios (default policy)`** **[v3.4 R7]** · `M3a` `accounting` · S · Blocked by: T3.9, T1.1a, T3.Gd · §5.6.1, §3.11, §6.6 E13·E30 [R7-01]
+- Context: default `decimal_ratio = "exclude_instrument"` — removed from the universe from the visible time v(e) (not removed before it), holdings target 0, if unfilled before `ts_effective` closed at the last valid close (`ca_unverified_exit`), windows crossing the event NaN, no re-entry, header line, E30, skips, manifest; `require_exact` is E13, `literal` kept.
+- Done means: an example printing the numbers of G-107; with the same snapshot, the screen and backtest universes are the same.
+- Acceptance: `tests/golden/test_ca.py::test_G107`, `tests/unit/accounting/test_ca_exclude.py::test_not_before_visible`, `::test_exit_before_effective`, `::test_unverified_exit_close`, `::test_window_nan_across_event`, `::test_require_exact_E13`, `tests/property/test_screen_backtest.py::test_same_universe_with_exclusions`.
+
+**T3.10 `feat(accounting): cash dividends with entitlements, late amounts, corrections, pay-date estimation and data warnings`** · `M3a` `accounting` · M · Blocked by: T3.9 · §5.6.11, §5.3.3a(4)(7)(10), §4.5 F-05·F-09 *(v3.2: the entitlement quantity is fixed at the holding of the effective session, an event learned late is booked as an addition [R3-01])* *(v3: amendment booking and cancellation)*
+- Done means: G-19~G-21, G-35, G-43, G-44 pass, the E28 count in the run warnings; with `degrade=["kr_ex_is_record"]`, the E30 count; with `degrade=["us_div_split_adjusted_no_dates"]`, the "amounts unverified" assumption line.
+- Acceptance: `test_accounting.py::test_G19`, `::test_G20`, `::test_G21`, `::test_G35`, `::test_G43_dividend_revised_after_payment`, `::test_G44_dividend_cancelled`, `::test_G20_entitlement_survives_exit_before_terms`, `tests/unit/accounting/test_actions_late.py::test_late_discovered_event_uses_effective_holding`, `tests/unit/accounting/test_dividend_data_warnings.py::test_F05_counted`, `::test_F09_assumption`.
+
+**T3.11 `feat(accounting): delisting with knowledge-time proceeds, mergers, rights and unsupported actions`** · `M3a` `accounting` · M · Blocked by: T3.10 · §5.6.12, §5.6.13, §4.5 F-13 [RV-C01] *(v3: an entitlement of unknown amount before the recovery amount is published, entitlement quantity unchanged)*
+- Done means: G-22~G-26, G-42, G-47 pass (G-25 with the E12 message); with `degrade=["no_delistings"]`, an exit while holding is E13 (fix sentence, no producer name).
+- Acceptance: `test_accounting.py::test_G22` … `::test_G26`, `::test_G42_recovery_known_later`, `::test_G47_rights_lapse_quantity_unchanged`, `tests/unit/accounting/test_delisting_fallback.py::test_F13_unobserved_synthesized`, `::test_mixed_merger_cash_and_shares`, `::test_merger_exact_ratio` (v3.1 [V31-01]).
+
+**T3.12 `feat(execution): single-sleeve simulation loop and session step`** · `M3a` `execution` · M · Blocked by: T3.5b, T3.11, T3.22 · §5.6.3, §5.6.14 *(v3.2: after the terminal-value fix (T3.22) [R3-23])* *(v3: does not rely on exit orders (T3.7); phase order completed)*
+- Done means: G-30 passes, `simulate` and repeated `step_session` give the same result, and cutting a checkpoint at any phase boundary and resuming gives the same.
+- Acceptance: `test_execution.py::test_G30`, `tests/unit/execution/test_loop.py::test_simulate_equals_stepwise`, `::test_resume_at_phase_boundary`.
+
+**T3.13a `feat(api): single-market backtest and metrics`** **[v3]** · `M3a` `api` · M · Blocked by: T3.12, T3.2, T2.9, T3.Ge · §5.7, §3.8, §3.9 Run *(v3: splits T3.13; assumption lines, direct/path cost effects, cohort observation record)*
+- Done means: `uv run nexusbt backtest examples/strategies/mom_kr.py` prints the 3.9 Run shape (net/gross, assumption lines, costs direct/path, delisting lo/hi, PSR).
+- Acceptance: `tests/unit/api/test_backtest.py::test_run_summary_template`, `::test_assumption_lines_present`, `::test_observation_recorded`, `tests/unit/research/test_metrics.py::test_cagr_sharpe_mdd_turnover_known_values`, `::test_cost_drag_direct_vs_path`, `tests/golden/test_metrics.py::test_G60_metrics_and_month_compounding` (v3.1 [V31-07]), `::test_mdd_includes_inception_nav` (G-61 (a) [V31-23]), `tests/unit/api/test_backtest.py::test_assumption_ex_post_volume_cap`, `tests/unit/research/test_metrics.py::test_cagr_from_twr_index_equals_nav_ratio_without_flows`, `::test_turnover_long_only_unchanged` (v3.2 [R3-03, R3-19, R3-20]).
+
+**T3.13b `feat(api): named scenarios with a single zero-cost replay`** **[v3]** · `M3a` `api` · S · Blocked by: T3.13a · §3.8, §5.7 [SC-06 argument shape, RV-Q02] *(v3: splits T3.13; gross = cost0x once)*
+- Done means: `--scenarios gross,cost0x,cost2x` replays only twice (gross, cost2x) and in the result table cost0x appears as the same series as gross; `capacity` is E18 before T6.14.
+- Acceptance: `tests/unit/api/test_backtest.py::test_gross_replayed_once`, `::test_cost_sensitivity_rows`, `::test_scenarios_named_list`, `::test_capacity_not_yet_E18`.
+
+**T3.14 `feat(artifacts): backtest outputs, event schemas, derived tables, NAV bridge and cost attribution`** · `M3a` `artifacts` · M · Blocked by: T3.13a · §5.9.1, INV-06, INV-16 [SC-07 costs, SC-23, RV-C07, RV-I04] *(v3.2: `bridge_financing` and `bridge_external_flows` in `daily` (always, even when the value is 0), `coverage.rounding_gap` and `n_unknown_by_leaf`, `account_events.shortfall` [R3-11, R3-20, R3-13, R3-09])* *(v3: `nexusbt-events/1`, bridge columns, the cost attribution basis changed)*
+- Done means: opening `runs/<id>/orders.parquet` and `account_events.parquet` with polars gives the canonical columns of 5.9.1; the sum of the bridge rows of `daily.parquet` = the NAV change; the sum of the cost rows of `attribution.parquet` = the sum of the order cost columns (gross − net shown as \"direct + path\"); `report.html` has the cost breakdown, scenario and order status tables.
+- Acceptance: `tests/unit/artifacts/test_backtest_outputs.py::test_orders_schema`, `::test_account_events_schema_v1`, `::test_pnl_bridge_closes`, `::test_costs_equal_order_costs`, `::test_G49_fee_reduces_quantity`, `::test_coverage_columns`, `::test_daily_has_financing_and_flow_bridge_columns`, `tests/property/test_execution_invariants.py::test_P_DERIVED`.
+
+**T3.15a `feat(execution): zipline parity preset (market orders, costs, sizing)`** **[v3]** · `M3a` `execution` · S · Blocked by: T3.12 · §5.6.15 [SC-12] *(v3: splits T3.15; trigger rules in T3.15b)*
+- Done means: the header of a `preset="zipline"` run report has "parity preset (not a realistic model)".
+- Acceptance: `tests/unit/execution/test_preset_zipline.py::test_knobs_table`, `::test_forbidden_in_toml`.
+
+**T3.16 `test(property): accounting and state-machine invariants`** · `M3a` `property` · M · Blocked by: T3.13a · §8.3 *(v3: P-BRIDGE, P-QTY)*
+- Done means: `uv run pytest -m property -k "NAV or BRIDGE or QTY or RESUME or STATE or PARITY13"` passes.
+- Acceptance: `tests/property/test_execution_invariants.py::test_P_NAV`, `::test_P_BRIDGE`, `::test_P_QTY`, `::test_P_RESUME`, `::test_P_STATE`, `::test_P_PARITY13_single_market`, `tests/property/test_fillcausal.py::test_P_FILLCAUSAL_open_independent_of_later_hlc`, `::test_bar_volume_cap_monotone_for_isolated_order` (v3.2 two properties [R3-03]), `tests/property/test_execution_invariants.py::test_P_QTY_integer_ratios` (v3.1 [V31-01]).
+
+**T3.17a `test(parity): L2-a, L2-b, L2-c backtests against the zipline preset`** **[v3]** · `M3a` `parity` · M · Blocked by: T3.15a, T1.17 · §8.1 [SC-12] *(v3: splits T3.17)*
+- Done means: the L2-a, b and c evidence JSON is committed.
+- Acceptance: `tests/parity_compare/test_L2.py::test_L2a_zero_cost`, `::test_L2b_costs_and_volume_cap`, `::test_L2c_corporate_actions`.
+
+**T3.21 `feat(api): coverage and stale-mark warnings (E6, E25)`** **[v3]** · `M3a` `api` · S · Blocked by: T3.13a · §6.6 [RV-Q03]
+- Done means: in a synthetic run where decisions with valid/universe < 50% exceed 5%, one E6 line (NaN count per causing column); E25 for a holding whose mark is stale for more than 20 sessions.
+- Acceptance: `tests/unit/api/test_warnings.py::test_E6_coverage`, `::test_E25_stale_mark`.
+
+**T3.18 `docs(examples): m3a strategy walkthrough, perf smoke and stage measurement`** · `M3a` `docs` · S · Blocked by: T3.14, T1.24, T0.8c · §7, §8.5 *(v3: state-machine stage measurement)*
+- Done means: the README section "Backtest one strategy" runs, `uv run pytest -m perf_smoke` prints the P5-small time, and `bench/run.py --stages m3a --snapshot synth-full_ci` prints the state-machine stage times (the compute-machine `full` figures go into the milestone tracking issue).
+- Acceptance: `tests/docs/test_examples.py::test_readme_m3a`, `tests/perf/test_smoke.py::test_P5_small`.
+
+**T3.Gd `test(golden): v3.1 quantity, stale-mark, delisting-distribution, volume-cap, rounding, small-trade and target-gap cases (G-53..G-56, G-58, G-59, G-66)`** **[v3.1]** · `M3a` `golden` · M · Blocked by: T0.9, T0.15a · §5.6.1, §5.6.3, §5.6.6, §5.6.7, §5.6.13, §8.2 [V31-01~V31-06, V31-14] *(v3.2: G-53 (e) changed and (g)~(j), G-55 (a)~(f), G-58 default `down` [R3-06, R3-05, R3-27])*
+- Context: the cases of the 8.2 table. Merged before the consuming tickets T3.5b, T3.9, T3.22, T3.23, T3.25 and T3.26.
+- Done means: `uv run python tests/golden/check/G-54.py` prints the per-session valuation, bridge and orders of cases (i)(ii)(iv).
+- Acceptance: `test_handcalc_self.py::test_cases_v31_M3a_expected_present`.
+
+**T3.Ge `test(golden): v3.1 metrics, drawdown and benchmark cases (G-60..G-62)`** **[v3.1]** · `M3a` `golden` · S · Blocked by: T0.9 · §5.7, §8.2 [V31-07, V31-23, V31-15]
+- Context: hand calculation of metrics (including the kurtosis convention), drawdown edges, benchmark alignment and relative metrics. Merged before the consuming tickets T3.13a, T3.20, T4.6 and T4.12.
+- Done means: `uv run python tests/golden/check/G-60.py` prints PSR 0.759233 and the line "excess-kurtosis value 0.915240 is wrong".
+- Acceptance: `test_handcalc_self.py::test_cases_v31_metrics_expected_present`.
+
+**T3.22 `feat(accounting): stale marks adjusted for corporate actions and distributions before delisting counted once`** **[v3.1]** · `M3a` `accounting` · M · Blocked by: T3.11, T3.Gd, T2.7 · *(v3.4: accounting calls the shared `terminal_value`, inclusion unknown = the conservative side [R4F-04, R4F-05])* · §5.6.3(6), §5.6.7, §5.6.9, §5.6.13 [V31-02, V31-04] *(v3.2: three terminal-value bases (`ref_units`, `ref*`), the late inclusion flag only appended [R3-05])*
+- Context: stale mark = last valid close × Π price factors (`stale_adjusted`), the same value used by `decision_value`, `P_i` and `ref*`, the distribution just before delisting and `ret_observed_includes_distributions`, `distribution_in_terminal`, when null (d) the conservative side + E30, or E13 when `unknown_inclusion = "error"` [R4F-05], the terminal amount only through the shared `terminal_value` of T2.7 [R4F-04].
+- Done means: the G-54 and G-55 (a)~(f) case tables print as they are, shown side by side with the values the v3 formula would have given (2,000 / 1,100 / 302.30).
+- Acceptance: `tests/golden/test_accounting.py::test_G54_stale_mark_after_action`, `::test_G55_distribution_counted_once`, `::test_G55_late_inclusion_flag_preserves_prior_orders`, `::test_G55h_unknown_inclusion_conservative`, `::test_G55g_label_equals_accounting_terminal` (v3.4 [R4F-04, R4F-05]), `tests/unit/accounting/test_marks.py::test_exclusive_observed_has_no_distribution_factor`, `::test_stale_adjusted_status`, `::test_decision_value_uses_adjusted_mark`, `tests/property/test_execution_invariants.py::test_P_BRIDGE_events_on_no_trade_days`.
+
+**T3.23 `feat(accounting): per-component money rounding from market rules packs`** **[v3.1]** · `M3a` `accounting` · S · Blocked by: T3.8, T3.Gd · §5.6.1, §5.6.8, §4.7 [V31-05]
+- Context: pack `[rounding]` (mode and unit per component), user `[rounding.<MARKET>]` overrides, default KR commission, tax and withholding `down` and the rest half_up, US half_up (v3.2 [R3-27]), the pack edition in `settings_hash`.
+- Done means: G-58 prints 23 won for the default KR pack and 24 won for the test pack (half_up), and the bridge `rounding` row closes.
+- Acceptance: `tests/golden/test_execution.py::test_G58_component_rounding`, `tests/unit/accounting/test_rounding.py::test_kr_default_down_us_half_up`, `::test_user_override_recorded_in_settings_hash`.
+
+**T3.25 `feat(execution): minimum trade threshold and rebalance band at the order-intent stage`** **[v3.1]** · `M3a` `execution` · S · Blocked by: T3.5b, T3.Gd · §3.7, §5.6.7, §3.11 [V31-06]
+- Context: `min_trade_value`, `min_trade_weight`, `rebalance_band`, `band_mode` (arguments and toml), new entries, full exits and sign changes exempt, `order_suppressed(small|band)`, the report line, off in the preset.
+- Done means: the tables of the three G-59 cases print, and a run with the knobs off is byte-identical to v3.
+- Acceptance: `tests/golden/test_execution.py::test_G59_small_trades_and_band`, `tests/unit/execution/test_small_trades.py::test_entries_and_exits_exempt`, `::test_default_off_identical`, `::test_targets_unchanged`.
+
+**T3.26 `feat(research): target gap, lot rounding drag and execution quality metrics`** **[v3.1]** · `M3a` `research` · M · Blocked by: T3.14, T3.Gd · §5.6.7, §5.6.8, §5.7, §5.9.1 [V31-14]
+- Context: `target_gap` and its breakdown by cause, `rounding_gap` (v3.2 [R3-20]) and `n_zero_lot_targets` (E37), per fill `slip_vs_decision_bps`, `slip_vs_arrival_bps`, `effective_price` and `outside_range`, the first-screen "target gap" line, the HTML "execution" section, derived from the canonical events.
+- Done means: G-66 prints 3.33%, 1 instrument, 1.67% and the E37 case, and the target gap line appears on the Run first screen.
+- Acceptance: `tests/golden/test_execution.py::test_G66_target_gap_and_lot_rounding`, `tests/unit/research/test_exec_quality.py::test_slip_bps_sign`, `::test_outside_range_count`, `::test_gap_by_cause_sums`, `::test_intended_cash_not_reported_as_rounding_gap`, `tests/property/test_execution_invariants.py::test_P_DERIVED_quality_columns`.
+
+**T3.Gr `test(golden): sizing and risk cases (G-78..G-87, G-95)`** **[v3.3]** · `M3a` `golden` · M · Blocked by: T0.9 · §5.5.1a, §5.5.2, §5.5.2a, §8.2 [R4-26] *(v3.4: G-81 (c) numbers and (d) long–short bound, G-84 (b) delisting, G-95 sizers [R4F-07, R4F-09, R4F-24])*
+- Context: case yaml moving G-R1~G-R10 of teardown F to G-78~G-87, writing per-decision weights, multipliers and states literally, plus a check (arithmetic and square roots only). Merged in another session before the implementation PR.
+- Done means: `uv run python tests/golden/check/G-84.py` prints a table of NAV, shadow index, DD, state and m per decision.
+- Acceptance: `tests/golden/test_handcalc_self.py::test_case_G78_to_G87_expected_present`, `::test_case_G95_expected_present`.
+
+**T3.27 `feat(portfolio): sizing slot with built-in sizers and @nx.sizer`** **[v3.3]** · `M3a` `portfolio` · M · Blocked by: T3.1, T3.Gr · §3.7, §3.8, §5.5.1a [R4-02, R4-07]
+- Context: `Strategy(sizing=)`, the `top(weight=…)` shorthand and E16 when given twice, `size.equal`, `value`, `inverse_vol`, `score`, `vol_parity`, `stop_risk`, the modifier `cash_floor` (`size.kelly` reserved E18, v1.x [R4F-02]), list order, `SizingContext` (no account), `@nx.sizer` (units/weights, E41), skips for instruments without inputs, `TargetFrame.stage = sizing` and `pre_risk_weight`.
+- Done means: at one decision of `examples/strategies/inverse_vol_kr.py`, `explain` shows the construction → sizing weights and prints that the shorthand and the explicit sizer give the same result.
+- Acceptance: `tests/golden/test_sizing.py::test_G78`, `::test_G83`, `::test_G95_score_vol_parity_cash_floor` (v3.4 [R4F-24]), `tests/unit/portfolio/test_sizing.py::test_shorthand_equals_explicit_bit`, `::test_weight_given_twice_E16`, `::test_kelly_reserved_E18`, `::test_stop_risk_reads_exit_pct`, `::test_user_sizer_negative_E41`, `tests/property/test_risk_invariants.py::test_P_SIZE_PURE`.
+
+**T3.28 `feat(portfolio): ERC by fixed-order coordinate descent with defined fallback, and vol_target`** **[v3.3]** · `M3a` `portfolio` · M · Blocked by: T3.27 · §5.5.1a [R4-03]
+- Context: listwise-deletion covariance (left fold in `instrument_id` order, no BLAS), shrinkage `shrink`, coordinate descent (start 1/σ, 500 sweeps, 1e-14), fallbacks a/b/c → `inverse_vol` + E43 + skips, the modifier `vol_target` (minimum of four terms — the fourth = the long–short feasible region [R4F-07], cap on scaling up).
+- Done means: in a synthetic strategy where the fallback happens, the report prints "erc did not converge on k of m decisions; inverse_vol used" and the counts per reason.
+- Acceptance: `tests/golden/test_sizing.py::test_G79`, `::test_G80`, `::test_G81`, `::test_G81d_long_short_bound`, `tests/unit/portfolio/test_erc.py::test_fixed_order_bit_stable`, `::test_fallback_reasons_counted`, `::test_no_blas_calls`.
+
+**T3.29 `feat(risk): ordered risk rule list with market-only built-ins, user rules and waterfall`** **[v3.3]** · `M3a` `risk` · M · Blocked by: T3.27, T3.Gr · §5.5.2, §5.5.2a waterfall [R4-04, R4-05, R4-09] *(v3.3: absorbs the T7.3 group caps of v3.2)*
+- Context: the `risk=[…]` list (written order, `graph_hash`), applying the multiplier `m ∈ [0,1]` and E41, `group_caps` (gross/net, `<unknown>`), `regime` (three-valued), `vol_cap`, `liquidity_cap(capital="notional")`, exposure-cap fitting after the list, `@nx.risk_rule(reads_account=False)`, `reason = risk:{rule}`, `waterfall.parquet`, the report lines "risk waterfall" and "risk order".
+- Done means: the report of a `risk=[nx.risk.group_caps(Meta.sector, max=0.3), nx.risk.vol_cap(0.15)]` strategy prints the mean `Σ|w|` per section and the number of decisions where it triggered (numerator/denominator).
+- Acceptance: `tests/golden/test_risk.py::test_G82`, `::test_G85`, `::test_G86`, `tests/unit/risk/test_group_caps.py::test_caps_and_cash`, `::test_no_account_state_input`, `tests/unit/risk/test_rules.py::test_mult_out_of_range_E41`, `::test_order_in_graph_hash`, `::test_account_rule_before_market_rule_E16` (v3.4 [R4F-26]), `tests/unit/risk/test_liquidity_cap.py::test_adv_needs_half_lookback` (v3.4 [R4F-40]), `tests/property/test_risk_invariants.py::test_P_RISK_SHRINK`.
+
+**T3.30 `feat(risk): account layer with final targets, risk state, drawdown brake and portfolio stop`** **[v3.3]** · `M3a` `risk` · M · Blocked by: T3.29, T3.12, T3.14 · §1.3 INV-23, §5.5.2a, §5.6.7 [R4-04, R4-06]
+- Context: the `final_weight` column and the account layer (without rules, copied without being called), a read-only account view, `risk_state.parquet` (included in checkpoints), `drawdown_brake` (brake/linear, shadow index, peak reset at re-entry), `portfolio_stop`, `liquidity_cap(capital="nav")`, user rules with `reads_account=True`, a ruined sleeve skips the layer, 5.6.7 uses `final_weight`.
+- Done means: the run summary of `examples/strategies/erc_brake.py` shows "drawdown brake: 2 of 120 decisions braked, 1 round trip" and the brake intervals.
+- Acceptance: `tests/golden/test_risk.py::test_G84`, `::test_G87_account_part`, `tests/property/test_risk_invariants.py::test_P_RISK_OFF`, `tests/unit/risk/test_account_layer.py::test_not_called_without_account_rules`, `::test_state_roundtrip_resume`, `::test_shadow_includes_delisting_loss`, `::test_ruined_writes_suspended_row`, `::test_negative_zero_normalized` (v3.4 [R4F-09, R4F-06, R4F-08]), `::test_band_prior_uses_canonical`, `tests/property/test_execution_invariants.py::test_P_RESUME_with_risk_state`.
+
+**T3.31 `feat(portfolio): @nx.portfolio user construction block`** **[v3.3]** · `M3a` `portfolio` · S · Blocked by: T3.1, T0.4b · §3.7 block contract, §3.8 [R4-07]
+- Context: `PortfolioContext` (scores, ranks, universe, the previous `TargetState`, read only), output = id → ±1, rank = score order + tie key, out-of-universe and side value errors E41, −1 with shorting off is E16.
+- Done means: the `custom-portfolio` example (1 per industry among the top scores) prints screen targets.
+- Acceptance: `tests/unit/portfolio/test_user_portfolio.py::test_selection_only`, `::test_out_of_universe_E41`, `::test_short_needs_shorting_E16`, `::test_side_both_E16_use_long_short` (v3.4 [R4F-17]).
+
+**T3.32 `feat(artifacts): skip ledger and no-silent-failure summary`** **[v3.3]** · `M3a` `artifacts` · S · Blocked by: T3.14, T0.4b · §6.6 no silent failure, §5.9.1 [R4-17]
+- Context: `skips.parquet`, the reason code list `skips.toml` (an E code for every reason), E45, the "skipped:" line on the report and CLI first screen (none when 0).
+- Done means: the backtest first screen of a synthetic strategy with many missing values shows "skipped: n rows in k reasons (top: …)".
+- Acceptance: `tests/property/test_skips.py::test_P_SKIP`, `tests/unit/artifacts/test_skips.py::test_every_reason_has_code`, `::test_summary_line_always_present`.
+
+**T3.34 `feat(api): strategy.replace and backtest preview`** **[v3.3]** · `M3a` `api` · S · Blocked by: T3.13a, T3.27 · §3.7, §3.8 preview, §3.10 [R4-11, R4-12]
+- Context: `Strategy.replace(**slots)` (name shown as `~slot`), `backtest(preview=True)` and CLI `--preview` (last 1 year inside the chosen segment, top 200 by value traded, scenarios off, `kind="preview"`, for a new strategy candidate +1 and an observation `fidelity="preview"`, the hygiene `preview runs` line) [R4F-15, R4F-16], the `[preview]` keys.
+- Done means: `uv run nexusbt backtest examples/strategies/mom_kr.py --preview` prints the line "PREVIEW — 1y (train segment), top 200 …" and the time taken, and for a strategy seen for the first time the study candidate count goes up by 1 and the `preview runs` line appears in hygiene [R4F-15].
+- Acceptance: `tests/unit/api/test_replace.py::test_replace_changes_only_named_slots`, `tests/unit/api/test_preview.py::test_preview_new_strategy_counts_as_candidate`, `::test_preview_period_inside_segment` (v3.4 [R4F-15, R4F-16]).
+
+#### M3b — order types (the limit, stop, stop-limit and exits of 9.0)
+
+**T3.15b `feat(execution): confirm zipline 3.2.1 trigger semantics for the parity preset`** **[v3]** · `M3b` `execution` · S · Blocked by: T3.15a · §5.6.15 [SC-12, OQ-9] *(v3: ahead of T3.6, a research ticket)*
+- Context: read zipline 3.2.1 `finance/execution.py`, `finance/order.py` (trigger state) and `finance/slippage.py` at the pinned version, confirm the daily-bar trigger and fill price rules, and settle or fix the "[est.]" lines of the 5.6.15 table (a spec fix = "spec deviation" in the PR description + an ADR-0021 update).
+- Done means: quotes of source lines of the pinned zipline version and the settled rules in the PR description.
+- Acceptance: `tests/unit/execution/test_preset_zipline.py::test_trigger_on_close_only`.
+
+**T3.Gb `test(golden): order-type cases (G-02..G-09, G-32, G-33, G-37..G-40)`** **[v3]** · `M3b` `golden` · M · Blocked by: T0.9 · §5.6.2a, §5.6.4, §8.2 *(v3: persistent triggers, exit lifecycle, intraday funds)*
+- Context: limit at the open and through/touch, stop gaps and intraday, stop-limit (including the `Lp = Sp` boundary), OCO, a stop on the same bar as an entry at the open, no take-profit on the same bar as an intraday entry, H/L null, fill record columns, persistent triggers (G-37), partial OCO protection (G-38), no exit expiry (G-39), intraday sale proceeds (G-40). Merged before T3.6 and T3.7.
+- Done means: `uv run python tests/golden/check/G-37.py` prints the trigger state and `remaining_qty` per session.
+- Acceptance: `test_handcalc_self.py::test_cases_order_types_expected_present`.
+
+**T3.6 `feat(execution): limit, stop and stop-limit daily fill rules with persistent triggers and fill records`** · `M3b` `execution` · M · Blocked by: T3.5b, T3.15b, T3.Gb · §5.6.4, §5.6.3 [SC-11, RV-C05, RV-C06] *(v3: persistent triggers, intraday sale proceeds not used)*
+- Done means: G-02~G-06, G-32, G-33, G-37, G-40 pass, one E11 line and "x/n fills judged on daily bars" in the run warnings, the assumption sentence line.
+- Acceptance: `test_execution.py::test_G02` … `::test_G06`, `::test_G32`, `::test_G33`, `::test_G37_stop_stays_triggered_after_partial`, `::test_G40_intraday_sale_cannot_fund_same_bar_buy`, `tests/unit/execution/test_fill_rules.py::test_through_vs_touch_table`, `::test_stop_limit_equal_boundary`, `::test_fill_rule_names`.
+
+**T3.7 `feat(execution): exit order lifecycle, resizing and OCO`** · `M3b` `execution` · M · Blocked by: T3.6 · §3.7 exits, §5.6.2a, §5.6.4 [RV-C05] *(v3: created right after the entry fill, resized on every holding change, no expiry, OCO partial fills)*
+- Done means: G-07~G-09, G-38, G-39 pass; prints a table with the trailing stop price rising day by day; (v3.3: `time_stop` is T3.33 [R4-10]).
+- Acceptance: `test_execution.py::test_G07`, `::test_G08`, `::test_G09`, `::test_G38_partial_oco_keeps_protection`, `::test_G39_exit_never_expires`, `tests/unit/execution/test_exits.py::test_created_after_entry_fill`, `::test_resized_on_position_change`, `::test_trailing_updates_at_close`, `::test_time_stop_reserved`, `::test_partial_adverse_oco_keeps_remaining_protection` (v3.2: siblings cancelled only when the remaining holding is 0 [R3-10]).
+
+**T3.17b `test(parity): L2-d order types against zipline semantics`** **[v3]** · `M3b` `parity` · S · Blocked by: T3.15b, T3.17a · §8.1 [SC-12] *(v3: splits T3.17)*
+- Done means: the L2-d evidence JSON is committed and `engine / parity` is added as a required check (by the user).
+- Acceptance: `tests/parity_compare/test_L2.py::test_L2d_order_types_preset`.
+
+**T3.19 `feat(api): explain strategy decisions`** **[new]** · `M3b` `api` · M · Blocked by: T3.13a, T3.7 · §3.8, §5.9.9 [SC-13]
+- Done means: `uv run nexusbt explain examples/strategies/mom_kr_exits.py KR:T00007 2019-06-28` prints stages 1~4 and the execution-session judgement (stage 6, including exit order events) in the shape of 5.9.9; an instrument dropped by the universe Filter gets a "dropped here" line.
+- Acceptance: `tests/unit/api/test_explain_strategy.py::test_filter_tree_drop_point`, `::test_rank_and_selection`, `::test_stage_weights`, `::test_execution_session_blocked_reason`, `::test_needs_account_state_marked`.
+
+**T3.20 `feat(research): MinTRL, Lo-adjusted Sharpe, drawdown durations and signal-weight correlation`** **[new]** · `M3b` `research` · M · Blocked by: T3.13a, T3.Ge · §5.7 [SC-08, SC-09, RV-Q02] *(v3: TC renamed, Lo truncation shown)*
+- Done means: on a hand-made return series, MinTRL, ρ1, Lo Sharpe (lags ≤ 10), drawdown duration, recovery duration and worst month print equal to the expected values; MinTRL and signal-weight corr lines on the Run first screen.
+- Acceptance: `tests/unit/research/test_risk_stats.py::test_min_trl_known_value`, `::test_lo_sharpe_only_when_rho_large`, `::test_drawdown_and_recovery_durations`, `::test_worst_month`, `tests/golden/test_metrics.py::test_G61_drawdown_edges` (v3.1 [V31-23]), `::test_worst_month_compounds` (v3.1 [V31-07]), `::test_signal_weight_corr_definition`, `::test_stat_unavailable_cases`.
+
+**T3.Gf `test(golden): price grid cases (G-57)`** **[v3.1]** · `M3b` `golden` · S · Blocked by: T0.9 · §5.6.4a, §8.2 [V31-05]
+- Context: G-57 (a)~(h) (US 1 ULP, KR stop rounded down, limit buy rounded down, computed upper and lower limits, short-cover stop rounded up; v3.2: comparisons across price bands, the fractional era and off-grid bars, snapping across a boundary and GTC re-snapping [R3-02, R3-14]). Merged before T3.24.
+- Done means: `uv run python tests/golden/check/G-57.py` prints the raw values, grid values and fills of the five cases.
+- Acceptance: `test_handcalc_self.py::test_case_G57_expected_present`.
+
+**T3.24 `feat(execution): market price grid for order prices and minimum-unit integer comparisons`** **[v3.1]** · `M3b` `execution` · M · Blocked by: T3.6, T3.Gf, T0.16c, T0.5b · §5.6.4a, §4.7, §4.5 F-15 [V31-05] *(v3.2: market minimum-unit integer comparisons, snapping across a boundary, GTC re-snapping on rule dates, off-grid bars kept [R3-02, R3-14])*
+- Context: grid source order (instrument → `market_rules` → pack → minimum unit), conservative snapping of order prices (limit, stop, exit, resizing, after a split; snapping across a price band boundary), GTC re-snapping on rule dates (`order_rebased(grid)`), the `price_rounded` event and `price_unrounded`, conversion of bar and order prices to `base_unit` integers and their comparison, off-grid bars `off_grid_bar`, F-15, off in the preset.
+- Done means: the G-57 (a)~(h) case tables come out as they are, and with `degrade=["no_tick_info"]`, E30 "price grid = currency minor unit".
+- Acceptance: `tests/golden/test_execution.py::test_G57_price_grid`, `tests/unit/execution/test_grid.py::test_source_order`, `::test_conservative_direction_table`, `::test_ulp_noise_compares_equal`, `::test_price_order_preserved_across_tick_bands`, `::test_snap_crosses_band_to_valid_price`, `::test_gtc_regridded_at_rule_date_boundary`, `::test_off_grid_bar_kept_and_counted`, `tests/property/test_execution_invariants.py::test_P_GRID`.
+
+**T3.33 `feat(execution): time stop exit in the OCO group and no-reentry rule`** **[v3.3]** · `M3b` `execution` · S · Blocked by: T3.7, T3.30 · §3.7 exits, §5.5.2a [R4-10] *(v3.3: absorbs T7.4 of v3.2)*
+- Context: `exits.time_stop(n)` (first entry session = 1, market calendar sessions including halt days [V31-52], created after the close, next open), OCO with stops and take-profits, counting restarts when the sign changes; `risk.no_reentry(sessions, after)` (reads exit events).
+- Done means: `explain` shows that `nx.exits.time_stop(5)` sells at the next open 5 sessions after entry and that at the following decisions `no_reentry(21)` keeps that instrument at 0.
+- Acceptance: `tests/unit/execution/test_exits.py::test_time_stop_oco`, `::test_time_stop_counts_sessions`, `::test_time_stop_resets_on_sign_flip`, `tests/unit/risk/test_no_reentry.py::test_blocks_after_stop_exit`.
+
+**T3.35 `feat(schedule): nx.on_event trigger schedule with incremental decisions and event templates`** **[v3.4]** · `M3b` `schedule` · M · Blocked by: T2.23, T3.27, T3.33, T3.34 · §3.7 schedule, §5.3.12, §3.10 [R4F-EV-03, R4F-EV-05]
+- Context: `nx.on_event(trigger, delay=, universe_scope=, hold=)` (trigger sessions anchored to the calendar, `|` with other schedules), incremental decisions (construction, sizing and risk for `E_d` only, the previous canonical targets kept, pro-rata scaling to the remaining budget per side `event_budget`, scaling only the new targets by `k` through a combined-book check `event_book_cap` [R4G-02], E16 without `max_weight`), market-event scope = all, and an explicit `event_instruments` is E16 [R4G-01], target life (`hold` → `time_stop` n → next event) and liquidation-only decisions at end of life [R4G-03], one order when end of life and `time_stop` coincide [R4G-07], trigger decisions and "scheduled exit" in screen, the report line "event decisions", the templates `event-driven-earnings` and `macro-regime`.
+- Done means: `uv run nexusbt backtest examples/strategies/earnings_drift_us.py` prints the number of event decisions, the number of liquidation-only decisions, the average holding sessions and the "event book cap" line, and at both trigger sessions and end-of-life sessions the `screen` targets for the same asof equal the backtest targets; G-97 (c)~(e) pass.
+- Acceptance: `tests/golden/test_schedule.py::test_G97_earnings_trigger_delay`, `::test_G97b_event_budget`, `tests/unit/schedule/test_on_event.py::test_trigger_anchored_to_calendar_not_start`, `::test_screen_equals_backtest_on_trigger`, `::test_event_scope_requires_max_weight_E16`, `::test_target_life_from_time_stop`, `tests/golden/test_schedule.py::test_G97c_market_trigger_scope_all`, `::test_G97d_whole_book_scales_new_targets_only`, `::test_G97e_expiry_only_exit_decision`, `tests/unit/schedule/test_on_event.py::test_market_trigger_event_scope_E16`, `::test_long_short_event_budget_per_side`, `::test_screen_scheduled_exit_equals_backtest`, `::test_expiry_and_time_stop_single_order`, `::test_existing_targets_never_resized`, `tests/docs/test_templates.py::test_template_runs[event-driven-earnings]`, `::test_template_runs[macro-regime]`.
+
+#### M4 — Multiple markets (KR/US synthetic, market rules packs) + short selling and long–short [V31-LS]
+
+**T4.G `test(golden): sleeve, timing, currency and tax cases (G-27..G-29, G-36, G-50..G-52)`** **[v3]** · `M4` `golden` · S · Blocked by: T0.9 · §5.1.3, §5.6.3, §5.6.9, §5.6.11a, §8.2 *(v3: the M4 share of v2 T0.11 and T0.17 + G-50, taxes G-51 and G-52)*
+- Context: sleeve funding wait, DST and holiday mismatches, silent FX, currency attribution, a close fill at the same instant as `KR_close` → decision, tax scenarios. Merged before T4.1, T4.2, T4.5b and T4.10.
+- Done means: `uv run python tests/golden/check/G-50.py` prints the order quantities in which the close-fill `q_i` is reflected in the decision.
+- Acceptance: `test_handcalc_self.py::test_cases_sleeves_expected_present`.
+
+**T4.1 `feat(execution): multi-sleeve event queue, phase order and clock modes`** · `M4` `execution` · M · Blocked by: T3.12, T4.G · §5.1.3, §5.6.3 [RV-C02, RV-I08] *(v3: a total order of the phases, the general form `"<M>_close"`)*
+- Done means: an example showing that the US fill dates and prices of a `KR_close` run and a `market_local` run are the same (no cross-market terms, part of G-27); an event-order table showing that a close fill at the same instant is processed before the decision.
+- Acceptance: `tests/unit/execution/test_clock.py::test_kr_close_us_uses_previous_close`, `::test_us_close_kr_same_day`, `::test_single_market_forces_local`, `::test_utc_clock_reserved_E18`, `::test_equal_time_close_fill_before_decision`, `::test_clock_name_from_snapshot_markets`, `tests/golden/test_sleeves.py::test_G50`.
+
+**T4.2 `feat(accounting): sleeve funding, fx valuation and drift`** · `M4` `accounting` · M · Blocked by: T4.1, T2.5 · §5.6.9 *(v3: market keys of `[sleeves] weights`, conversion in integer minor units)*
+- Done means: G-27 and G-29 pass; the sleeve_weight path in daily.parquet.
+- Acceptance: `tests/golden/test_sleeves.py::test_G27`, `::test_G29`, `tests/unit/accounting/test_fx.py::test_direction_and_inverse`.
+
+**T4.3 `feat(compute): cross-market terms gathered at decisions`** · `M4` `compute` · S · Blocked by: T4.1, T2.5 · §5.3.2 (6)
+- Done means: the result of `.to("USD").rank(across_markets=True)` is one ranking table per decision.
+- Acceptance: `tests/unit/compute/test_cross_market.py::test_gather_uses_row_m_of_d`.
+
+**T4.4 `feat(execution): price-limit history from market rules packs and unknown tradability policy`** · `M4` `execution` · S · Blocked by: T3.5a, T3.24 · §5.6.5, §4.7 [RV-I08] *(v3: price limits come from the rules pack's `price_limits`; the `market == KR` condition removed)*
+- Done means: the limit widths 0.15/0.30 of the sessions before and after 2015-06-15 are printed; with the US pack (no price limits) there are no upper or lower limit locks; E27 in the `unknown_tradability="block"` sensitivity run.
+- Acceptance: `tests/unit/execution/test_limits.py::test_resolution_order`, `::test_rule_boundary_2015_06_15`, `::test_limits_only_where_pack_defines`, `::test_unknown_tradability_block`, `::test_missing_tradability_dataset_E30`, `::test_computed_limits_on_grid` (v3.1 G-57 (d) [V31-05]), `::test_market_rules_limit_source_order`.
+
+**T4.5 `feat(execution): realistic dated cost profile end to end`** · `M4` `execution` · M · Blocked by: T3.8 · §5.6.8, §4.7
+- Done means: with the verification table (a `verified=true` copy for tests), the KR 2014 and 2016 sell taxes are recorded as the table's different values.
+- Acceptance: `tests/unit/execution/test_costs_dated.py::test_tax_by_date`, `::test_us_other_fees`, `::test_venue_group_mapping`.
+
+**T4.5b `feat(accounting): user-configured tax scenario`** · `M4` `accounting` · M · Blocked by: T4.G, T4.2, T3.13a · §5.6.11a, §3.11 *(v3 user decision 2026-10-28: the user writes taxes in the config file)*
+- Done means: running the `[taxes] profile = "custom"` example config (US group 22%, deduction 2,500,000 won, average) gives yearly taxes in `tax.parquet` equal to the G-51 hand calculation, and with `pay = "cash"` the cash of the first session of May of the next year drops by that amount (G-52). With `profile = "none"` the result is bit-identical to before this ticket.
+- Acceptance: `tests/golden/test_taxes.py::test_G51`, `::test_G52`, `tests/unit/accounting/test_tax_basis.py::test_average_vs_fifo`, `::test_fx_conversion_at_valuation_rate`, `::test_none_profile_unchanged`.
+
+**T4.6 `feat(api): benchmarks from index instruments`** · `M4` `api` · S · Blocked by: T3.13a, T3.Ge · §5.7, §4.6, §4.5 F-12 *(v3: `[benchmarks] <MARKET> = "auto"`)*
+- Done means: a benchmark column on the synthetic snapshot (`auto` picks one TR index per market); "n/a: not in snapshot" with `degrade=["no_benchmarks"]`; an E16 list when there are two TR indexes.
+- Acceptance: `tests/unit/api/test_benchmarks.py::test_combined_benchmark_sleeve_weighted`, `::test_missing_is_na`, `::test_auto_picks_single_tr_index`, `::test_auto_ambiguous_E16`, `tests/golden/test_metrics.py::test_G62_benchmark_alignment` (v3.1 [V31-15]), `::test_weighting_label_in_header`.
+
+**T4.7 `feat(api): combined multi-market backtest and screen reports`** · `M4` `api` · M · Blocked by: T4.2, T4.3, T4.6, T4.10 · §3.9 *(v3: market columns from the snapshot's markets, a rules pack header line, two-sleeve stage measurement)*
+- Done means: `uv run nexusbt backtest examples/strategies/value_mom.py` prints KR/US columns, the sleeve weight path, cost sensitivity and the `fx contribution` line; `nexusbt screen` prints "KR {date} close · US {date} close".
+- Acceptance: `tests/unit/api/test_combined.py::test_combined_equals_sum_of_sleeves`, `::test_screen_two_markets_asof`, `::test_fx_contribution_line`, `::test_markets_header_line`.
+
+**T4.8 `test(property): DST, holiday mismatch, timing and currency metamorphic cases with preconditions`** · `M4` `property` · S · Blocked by: T4.2, T4.10 · §8.2, §8.3 [RV-C11] *(v3: preconditions and counterexamples of M-SLEEVE and M-CCY)*
+- Done means: G-28 passes; M-CCY and M-SLEEVE pass (within their preconditions), and the `KR_close` + cross-market rank counterexample confirms that the relation breaks.
+- Acceptance: `tests/golden/test_sleeves.py::test_G28`, `tests/property/test_execution_invariants.py::test_P_FUT_two_markets`, `tests/property/test_metamorphic.py::test_M_CCY`, `::test_M_SLEEVE`, `::test_M_SLEEVE_counterexample_cross_market`, `tests/property/test_execution_invariants.py::test_P_SLEEVE_ISO` (v3.1 [V31-11]).
+
+**T4.9 `docs(examples): m4 multi-market walkthrough`** · `M4` `docs` · S · Blocked by: T4.7 · §8.5
+- Done means: the README section "Korea + US together" runs.
+- Acceptance: `tests/docs/test_examples.py::test_readme_m4`.
+
+**T4.10 `feat(artifacts): currency attribution and exposure tables`** **[new]** · `M4` `artifacts` · M · Blocked by: T4.2, T3.14 · §5.6.9, §5.9.1 [SC-07, OQ-3]
+- Done means: G-36 passes; in `runs/<id>/attribution.parquet`, local + FX + cross = the base-currency sleeve return (per date); `exposures.parquet` has currency, sector (per sleeve), size, top 10 and cash weight.
+- Acceptance: `tests/golden/test_sleeves.py::test_G36`, `tests/unit/artifacts/test_attribution.py::test_fx_attribution_sums`, `::test_annual_linking_exact`, `::test_annual_fx_components_sum_G36` (v3.2 cross = `R − L − F` [R3-20]), `::test_exposures_columns`, `::test_sector_exposure_per_sleeve_only`.
+
+**T4.11 `test(markets): market names from data with a synthetic third market ZZ`** **[v3]** · `M4` `markets` · S · Blocked by: T4.7, T0.5b · §4.7, §4.8, §3.11 [RV-I08]
+- Context: a synthetic `markets=("KR","ZZ")` snapshot (calendar `XZZZ`, currency `XTS`), a test rules pack `tests/fixtures/ZZ.toml`.
+- Done means: without a pack, an `nx.universe("ZZ")` backtest gives the E18 sentence; with `allow_untested = true` it runs with the header line "untested market rules: ZZ"; with the test pack added the same strategy runs without code changes; `grep -rn '"KR"\|"US"\|XKRX\|XNYS' src/nexusbt` finds 0 hits outside `resources/markets/` and documentation strings.
+- Acceptance: `tests/unit/markets/test_markets.py::test_zz_without_pack_E18`, `::test_allow_untested_stamped`, `::test_zz_with_pack_runs`, `tests/repo/test_no_hardcoded_markets.py::test_no_market_literals_in_src`.
+
+**T4.12 `feat(research): benchmark-relative metrics and monthly return table`** **[v3.1]** · `M4` `research` · S · Blocked by: T4.6, T3.Ge · §5.7, §3.9 [V31-15]
+- Context: excess return (arithmetic and geometric named separately), tracking error, IR, excess MDD, a calendar-month compounded table (HTML "monthly"), the first-screen "vs benchmark" line, the weighting method shown in the header.
+- Done means: the G-62 numbers (tracking error 0.112250, IR 11.224972) are printed and the HTML has the monthly table.
+- Acceptance: `tests/golden/test_metrics.py::test_G62_relative_metrics`, `tests/unit/research/test_benchmark_relative.py::test_arith_vs_geom_named`, `::test_monthly_compounds`, `::test_na_without_benchmark`.
+
+**T4.13 `feat(execution): optional dated and liquidity-tiered provisional cost tables`** **[v3.1]** · `M4` `execution` · S · Blocked by: T3.8 · §3.7, §5.6.8, §4.7 [V31-27]
+- Context: `provisional(table=)` and `[costs] provisional_table` (a user-written CSV: market, side, period, ADV amount band, bp), row lookup by the ADV at the decision, E23 for gaps, HTML "cost tiers". The default (no table) is the same as v3.
+- Done means: with the test table, KR 2014 and 2024 sells and low- and high-ADV instruments are recorded with different bp, and a run without a table is byte-identical.
+- Acceptance: `tests/unit/execution/test_provisional_table.py::test_dated_rows`, `::test_adv_tiers_use_lagged_adv`, `::test_gap_E23`, `::test_default_unchanged`.
+
+**T4.Gs `test(golden): short accounting, financing, ruin and cash-interest cases (G-67..G-70, G-74..G-77, G-94)`** **[v3.1]** *(v3.4: G-94 exit orders and negative cash [R4F-06])* · `M4` `golden` · M · Blocked by: T0.9 · §5.6, §8.2 [V31-LS-04, V31-LS-05, V31-LS-08] *(v3.2: split — accounting, accrual, ruin; G-67 rewritten, G-68 (b)~(d), G-70 (b), G-75 (b), G-76, G-77 [R3-09, R3-25, R3-23])*
+- Context: short basics and borrow accrual (weekends, before entry, 0 intraday), short dividend payment, estimate replacement, late terms, net restoration, short splits, short delisting gain and rule estimate, short mergers, short realised-gain tax (entry cost once), short ruin, cash interest. Merged before T4.15a~c and T4.19.
+- Done means: `uv run python tests/golden/check/G-67.py` prints the per-session borrow accrual days and amounts and the bridge rows.
+- Acceptance: `test_handcalc_self.py::test_cases_short_accounting_expected_present`.
+
+**T4.Gt `test(golden): long-short targets, short orders and ban cases (G-71..G-73)`** **[v3.2]** · `M4` `golden` · S · Blocked by: T0.9 · §3.7, §5.5, §5.6.2a~5.6.7, §8.2 [V31-LS-02, V31-LS-06, V31-LS-07] *(v3.2: split from T4.Gs; G-72 (b)(c), G-73 three-phase variants [R3-08, R3-10, R3-23])*
+- Context: short-sale ban periods (half-open, range syntax), the long–short book bridge, exposure caps, side budgets, the feasible region, the short exit mirror (three phases), reversal wait. Merged before T4.14, T4.16a and T4.16b.
+- Done means: `uv run python tests/golden/check/G-72.py` prints the long and short bridge rows and the exposure (gross 1.0, net 0), (b) 0.05, and the (c) E16 sentence.
+- Acceptance: `test_handcalc_self.py::test_cases_short_orders_expected_present`.
+
+**T4.17 `test(regression): long-only core-table value-hash baseline and the P-SHORT-OFF harness`** **[v3.1]** · `M4` `property` · S · Blocked by: T4.7, T4.5b, T4.13 · INV-22, §8.3 [V31-LS-09] *(v3.2: instead of a fixed output-hash file, a same-build differential test + a value-hash baseline of the four core tables, updated only with an approval label [R3-11])*
+- Context: a script that runs the example strategies (M3a, M3b and M4 examples) and a few random long strategies on synthetic small and records the **value hashes** of the four core tables (`targets`, `orders`, `account_events`, `daily`) in `tests/regression/longonly_core_value_hashes.json`; the same-build differential test harness (`enabled=false` vs `enabled=true` + no negatives + default exposure); a test of 0 short events in a run with shorting off. The baseline file is a golden-protected path, and only a ticket that changes a schema edits it, with the reason in the PR description + the user approval label `baseline-update` (the guard rejects a change without the label).
+- Done means: `uv run pytest -k P_SHORT_OFF` prints "core tables n/n match baseline · differential runs identical", and a PR changing the baseline without the label fails in the guard.
+- Acceptance: `tests/property/test_shorting.py::test_P_SHORT_OFF_differential`, `::test_P_SHORT_OFF_no_short_events_when_disabled`, `::test_P_SHORT_OFF_core_tables_baseline`, `tests/repo/test_golden_guard.py::test_baseline_update_needs_label`.
+
+**T4.14 `feat(portfolio): signed targets, bottom(), long-short books and exposure limits`** **[v3.1]** · `M4` `portfolio` · M · Blocked by: T4.17, T3.1, T4.Gt · §3.7, §5.5.1, §5.5.2, §3.11 `[shorting]` [V31-LS-02, V31-LS-03] *(v3.2: side budgets only multiply, no renormalisation after overlap, E16 for the feasible region before the run, the exposure step not called when off, `fsum`, closed `max_net` [R3-07, R3-08])*
+- Context: signed `target_weight` and `side`, `bottom`, `long_short` (side budgets multiply, the conflict rule for the same instrument), the feasible region `long_weight + c·short_weight ≤ 1` with E16 before the run, fitting to the gross and net exposure caps (only when on, `math.fsum`, scaling toward 0 only), E16 when shorting is off, exposure columns.
+- Done means: the G-72 target table (long +0.25 × 2, short −0.25 × 2) and the scaling under `max_gross = 0.8`, (b) 0.05 on the `top(1, max_weight=0.1)` side, and (c) the 130/30 E16 sentence are printed, and `bottom` is E16 with the setting off.
+- Acceptance: `tests/golden/test_portfolio.py::test_G72_targets_and_caps`, `tests/unit/portfolio/test_long_short.py::test_bottom_mirrors_top`, `::test_conflict_long_kept`, `::test_scale_toward_zero_only`, `::test_disabled_E16`, `::test_side_budget_preserves_cap_residual`, `::test_empty_and_overlapping_sides`, `::test_infeasible_book_E16`, `tests/unit/portfolio/test_risk.py::test_exposure_cap_skipped_when_disabled`, `::test_equal_weight_ninths_not_rescaled`, `::test_net_interval_must_contain_zero`, `tests/property/test_shorting.py::test_P_SHORT_OFF_differential`, `::test_P_SHORT_OFF_core_tables_baseline`.
+
+**T4.15a `feat(accounting): short positions - signed state, collateral, financing accrual, mandatory debits and ruin`** **[v3.1]** · `M4` `accounting` · M · Blocked by: T4.14, T3.22, T4.5b, T4.Gs · §5.6.1, §5.6.3(1)(6), §5.6.7, §5.6.9 [V31-LS-04, V31-LS-08] *(v3.2: T4.15 split; accrual at session start (`day_count`), `short_rebate_bps`, mandatory obligations = negative cash (`shortfall`), short sleeve ruin `ruined`, short-sale `need_i` = change in `buying_power` [R3-09, R3-23])*
+- Context: signed `qty`, average short-sale price, collateral `reserved` and `buying_power` (the short-sale allocation cost function), borrow cost and rebate accrual at session start, the bridge `financing` row, booking mandatory obligations as negative cash, the ruin check (before `T_i`), the `ruined` state, order stop, metrics n/a, header line, E38 (collateral shortfall, negative cash, ruin).
+- Done means: G-67 (a)~(c) and the G-76 table are printed and a run holding shorts shows `reconciled: yes`; the Run header of a ruined run shows "ruined KR on {date}".
+- Acceptance: `tests/golden/test_short.py::test_G67`, `::test_G76_ruin`, `tests/unit/accounting/test_short.py::test_collateral_buying_power`, `::test_no_forced_buy_in_E38`, `::test_borrow_fee_weekend_cover`, `::test_new_short_not_charged_before_entry`, `::test_unfunded_short_obligation_books_negative_cash`, `::test_negative_V_never_flips_sides`, `::test_ruined_sleeve_stops_new_orders`, `tests/golden/test_short.py::test_G94_exit_blocked_cash_carried` (v3.4 [R4F-06]), `tests/property/test_execution_invariants.py::test_P_BRIDGE_with_shorts`.
+
+**T4.15b `feat(accounting): short dividends, corporate actions and delistings on negative quantities with estimate replacement`** **[v3.2]** · `M4` `accounting` · M · Blocked by: T4.15a · §5.3.3a, §5.6.9~5.6.13 [V31-LS-05] *(v3.2: split from T4.15; short dividends gross, net restored or E13, obligation quantity fixed, replacement of the rule estimate `short_exit_estimate` [R3-01, R3-05, R3-09])*
+- Context: short dividend obligation (gross; if net, restored or E13; withholding only for q > 0), the obligation quantity fixed at the holding on the effective session, negative quantities in splits, stock dividends, mergers and spin-offs (integer arithmetic), the short delisting terminal obligation (three bases, 5.6.13) and the rule estimate in `decision_value`, the `nav_economic` estimate replacement.
+- Done means: the G-68 (a)~(d), G-69, G-70 (a)(b) and G-74 tables are printed.
+- Acceptance: `tests/golden/test_short.py::test_G68`, `::test_G68c_short_obligation_survives_cover_before_terms`, `::test_G69`, `::test_G70`, `::test_G74`, `tests/unit/accounting/test_short.py::test_unknown_short_estimate_replaced_once`, `::test_short_net_dividend_gross_up_or_E13`, `tests/property/test_execution_invariants.py::test_P_QTY_with_shorts`.
+
+**T4.15c `feat(accounting): short realized gains in the tax scenario`** **[v3.2]** · `M4` `accounting` · S · Blocked by: T4.15b · §5.6.11a [V31-LS-05] *(v3.2: split from T4.15; the short-sale cost in the cost basis once [R3-20, R3-23])*
+- Context: realised P&L of a short cover (short-sale proceeds − short-sale cost (once, by the ratio) − cover amount − cover cost), sums and loss offset within the same group.
+- Done means: G-75 (a)(b) is printed.
+- Acceptance: `tests/golden/test_short.py::test_G75`, `::test_G75b_short_entry_cost_allocated_once`.
+
+**T4.16a `feat(execution): short-sale and cover orders - four-action priority in every phase, reversal gating and mirrored daily fills`** **[v3.1]** · `M4` `execution` · M · Blocked by: T4.15a, T3.7, T3.24, T4.Gt · §5.6.2, §5.6.3, §5.6.4, §5.6.6, §5.6.7 [V31-LS-06] *(v3.2: T4.16 split; order of the four groups in three phases and `buying_power` per phase, physical-direction capacity, the opening side of a reversal waits, the cover cap, collateral valuation time [R3-10, R3-23])*
+- Context: `sell_short` and `buy_to_cover`, two orders for a Δ crossing the sign and `blocked(closing_leg_pending)`, the risk-reducing order and allocation in the three fill phases (an intraday increasing order does not use the same phase's proceeds or released collateral), capacity shared by physical direction, the mirrored fill rule, cover ≤ `|q|` (`qty_cancelled(over_cover)`), collateral valuation time per phase.
+- Done means: the G-73 three-phase variant table is printed, and with an intent of long 10 shares → short 5 shares, on a day when the long sell fills only 6 shares because of a cap, the short sale does not fill.
+- Acceptance: `tests/unit/execution/test_short_orders.py::test_split_crossing_zero`, `::test_four_action_priority_each_phase[open]`, `::test_four_action_priority_each_phase[intraday]`, `::test_four_action_priority_each_phase[close_fill]`, `::test_short_leg_waits_for_close_leg`, `::test_cover_capped_at_short_size`, `::test_capacity_shared_by_physical_direction`, `::test_collateral_mark_per_phase`, `tests/property/test_shorting.py::test_P_SHORT_OFF_differential`.
+
+**T4.16b `feat(execution): short exits and ban periods from rules packs`** **[v3.2]** · `M4` `execution` · M · Blocked by: T4.16a, T4.4 · §3.7 exits, §5.6.2a, §5.6.4, §5.6.5, §4.7 [V31-LS-06, V31-LS-07] *(v3.2: split from T4.16; exits right after a short entry, same bar `H ≥ Sp`, `low_water_close = min`, OCO protection, ban range syntax, half-open, financial-stock rows [R3-10, R3-15, R3-23])*
+- Context: short exit orders (stop loss, take profit, trailing) and their life (entry = 0 → negative, the adverse side within the same bar, trailing minimum, an OCO sibling cancelled only when the remaining holding is 0), the pack's `[shorting] ban_table` (half-open intervals, `scope` = `all`/`index:`/`classification:`, union of `except_universe_ids`), `blocked(short_ban)`, assumption sentences (no borrowable quantity, no uptick rule).
+- Done means: the G-71 and G-73 tables are printed, and in the KR test pack's ban period the Run line shows 0 new short sales and n cover fills.
+- Acceptance: `tests/golden/test_short.py::test_G71_ban_period`, `::test_G73_short_exit_mirror`, `tests/unit/execution/test_short_orders.py::test_short_entry_creates_exit_immediately`, `::test_short_intraday_entry_adverse_exit`, `::test_short_trailing_low_water`, `::test_partial_adverse_oco_keeps_remaining_protection`, `::test_ban_allows_cover`, `::test_partial_reopening_union_membership`, `::test_ban_interval_endpoints`, `::test_ban_classification_scope`, `::test_assumption_lines`.
+
+**T4.18 `test(parity): L2-e long-short against the zipline preset`** **[v3.1]** · `M4` `parity` · S · Blocked by: T4.16b, T3.17a · §8.1, §5.6.15 [V31-LS-11]
+- Context: with the zipline preset's negative holdings (no collateral constraint, borrow 0, short dividends paid), month-end top-N long + bottom-N short is compared with zipline.
+- Done means: the L2-e evidence JSON is committed.
+- Acceptance: `tests/parity_compare/test_L2.py::test_L2e_long_short_preset`.
+
+**T4.19 `feat(accounting): cash interest on positive cash balances`** **[v3.2]** · `M4` `accounting` · S · Blocked by: T4.15a, T4.Gs · §3.11 `[account]`, §5.6.3(1), §5.6.9, §5.7 [R3-25, user decision 2026-10-28]
+- Context: `[account] cash_rate_bps` (float or {MARKET: float}, default 0), accrual at session start (only `cash_minor > 0` at the end of the previous session; 0 for negative cash), event `cash_interest`, bridge `financing`, report header "cash earns {r}%", included in the financing-cost reconciliation.
+- Done means: G-77 is printed and the core-table value hashes of a `cash_rate_bps = 0` run are the same as before this ticket.
+- Acceptance: `tests/golden/test_accounting.py::test_G77_cash_interest`, `tests/unit/accounting/test_cash_interest.py::test_default_zero_identical`, `::test_no_interest_on_negative_cash`, `tests/property/test_execution_invariants.py::test_P_BRIDGE_with_cash_interest`.
+
+**T4.Gm `test(golden): margin account cases (G-99..G-104)`** [R6-04] **[v3.4 final]** · `M4` `golden` · S · Blocked by: T0.9 · §5.6.7a, §8.2 [R4G-MG-02~08]
+- Context: hand-calculated cases of 130/30 margin and loan interest (G-99), proportional reduction at the next open after a margin call (G-100), `vol_target` 1.5× (G-101), cash account rejection E16 (G-102), the margin version of the event combined book (G-103), forced liquidation on negative equity and the holding-quantity cap (G-104) [R4H]. Merged in another session before T4.20.
+- Done means: `uv run python tests/golden/check/G-100.py` prints a table of the call session, the shortfall, the forced reduction quantity and E/MM after the reduction.
+- Acceptance: `test_handcalc_self.py::test_cases_margin_expected_present`.
+
+**T4.20 `feat(accounting): margin account type - buying power, debit interest, margin call and forced reduction`** **[v3.4 final]** · `M4` `accounting` · M · Blocked by: T4.19, T4.16a, T4.17, T4.Gm · §3.11 `[account]`, §5.6.7a, §5.5.1a, §5.6.3(1) [user decision 2026-10-28, R4G-MG-02~09]
+- Context: `[account] type` (`"cash"` default), `initial_margin`, `maintenance_margin`, `debit_rate_bps` (rules pack seeds US 0.50/0.25 unverified, none for KR), one requirement formula `R(ρ)`, allocation within `excess`, E16 for the margin feasible region, loan interest `margin_interest` and bridge `financing`, close `margin_call` → next open `forced_liquidation` (risk-reducing groups first), the ruin check as it is, the margin `G_max` of `vol_target`, E16 for margin keys on a cash account, manifest `policies.account`, report header line; the P-MARGIN-OFF baseline is recorded in this ticket's first commit.
+- Done means: `uv run nexusbt backtest examples/strategies/long_short_130_30_margin.py` prints the total loan interest, the number of margin call sessions and the forced reduction amount, and running the same strategy with `type = "cash"` gives E16; the core-table value hashes of a run with the default settings are the same as before this ticket.
+- Acceptance: `tests/golden/test_accounting.py::test_G99_margin_130_30_interest`, `::test_G100_margin_call_next_open`, `::test_G101_vol_target_margin`, `::test_G102_cash_rejects_margin_keys`, `tests/unit/accounting/test_margin.py::test_single_requirement_formula`, `::test_debit_excludes_short_proceeds`, `::test_forced_reduction_order_risk_reducing_first`, `::test_ruin_check_with_debit`, `tests/property/test_margin.py::test_P_MARGIN_OFF_baseline`, `::test_P_MARGIN_OFF_differential`, `tests/property/test_execution_invariants.py::test_P_BRIDGE_with_margin_interest`.
+
+#### M5 — Paper trading
+
+**T5.1 `feat(artifacts): paper book store with locked transactions, state versions and recovery`** · `M5` `artifacts` · M · Blocked by: T3.3, T1.14b · §5.9.6 [RV-C13, INV-19] *(v3: locking, state versions, commit order, recovery, an immutable ledger definition, snapshot records)*
+- Done means: after `nx.book("paper:demo")`, `runs/books/demo/HEAD`, `book.json` (definition_sha256) and the checkpoint folder exist; reopening after a write killed at each commit boundary gives exactly one of the previous or next state, with leftovers in `orphans/`; a second writer is E35.
+- Acceptance: `tests/unit/artifacts/test_books.py::test_atomic_head`, `::test_events_append_only`, `::test_book_json_definition`, `::test_P_BOOK_crash_at_each_boundary_recovers`, `::test_concurrent_writer_rejected_E35`, `::test_definition_change_E35`, `::test_snapshot_history_recorded`, `::test_book_pin_held_while_book_exists` (v3.2 [R3-17]).
+
+**T5.2 `feat(api): live order preview with decision-level idempotency`** · `M5` `api` · M · Blocked by: T5.1, T4.7 · §3.8 live, §5.9.6 [RV-C13] *(v3: key = (book, decision, graph, params), `decisions_emitted`)*
+- Done means: a second call of `nexusbt live ... --book paper:demo` gives an E26 notice and the same order table; `live → fill → live` (same decision) also produces no new orders.
+- Acceptance: `tests/unit/api/test_live.py::test_same_key_same_orders`, `::test_key_excludes_checkpoint_seq`, `::test_live_fill_live_same_decision_once`, `::test_non_rebalance_day_exits_only`, `::test_orders_csv_columns`.
+
+**T5.3 `feat(api): advance paper books with the backtest state machine`** · `M5` `api` · M · Blocked by: T5.2 · §5.9.6
+- Done means: `nx.fill(book)` is E19 (exit code 3) beyond the watermark and a fill table within it; restart after a crash = the same ledger.
+- Acceptance: `tests/unit/api/test_fill.py::test_watermark_E19`, `::test_crash_recovery_same_book`, `::test_foreign_order_bundle_rejected_E35`, `tests/property/test_live.py::test_P_LIVE`.
+
+**T5.7 `feat(api): reconcile paper books by recorded-snapshot replay or explicit restatement, and write status.json`** **[new]** · `M5` `api` · M · Blocked by: T5.3 · §5.9.6, §5.9.7 [SC-14, RV-C13] *(v3: default = replay of the recorded snapshots, `restate=True`)*
+- Done means: `uv run nexusbt reconcile --book paper:demo` gives `reconciled: yes (replay)` (exit code 0); with a correction event put in a new snapshot and `--restate`, a "restatement" mark and the first difference; on a copy with one ledger event file changed by hand, the first difference (date, instrument, phase) and exit code 4; `status.json` updated after every `live`, `fill` and `reconcile`.
+- Acceptance: `tests/unit/api/test_reconcile.py::test_match_yes`, `::test_restate_distinct_from_replay`, `::test_first_divergence_reported`, `::test_exit_code_4`, `tests/unit/artifacts/test_status_json.py::test_atomic_and_fields`, `tests/property/test_live.py::test_P_RECON`.
+
+**T5.4 `feat(cli): complete command set and exit codes`** · `M5` `cli` · M · Blocked by: T5.7 · §3.10 *(v2: `explain`, `reconcile`, code 4)*
+- Done means: the command list of `uv run nexusbt --help` equals the 3.10 table, and `nexusbt new strategy x` makes a file that runs as is (with the liquidity threshold line visible).
+- Acceptance: `tests/unit/cli/test_cli.py::test_commands_match_spec`, `::test_exit_codes`, `::test_new_strategy_runs`, `::test_new_strategy_has_visible_liquidity_filter`.
+
+**T5.5 `feat(api): compare, runs table and html index`** · `M5` `api` · M · Blocked by: T3.14 · §3.8, §3.9
+- Done means: `nx.compare(a, b)` gives same/different (data, code lines, parameters) and metric changes; `nexusbt runs --html` creates `runs/index.html`.
+- Acceptance: `tests/unit/api/test_compare.py::test_code_diff_lines`, `::test_data_vs_code_vs_params`, `tests/unit/cli/test_runs.py::test_prune_keeps_counts`.
+
+**T5.8 `feat(compat): pyfolio and alphalens adapters, evaluate signal output`** **[new]** · `M5` `compat` · S · Blocked by: T3.14, T2.10a · §5.9.8, §5.8 [SC-16] *(v3: the alphalens adapter uses the `fwd_return_adj` label)*
+- Done means: an example in which `run.to_pyfolio()` returns three pandas objects and `report.to_alphalens()` a MultiIndex table; `evaluate(..., save_signal=True)` leaves `signal.parquet`; E18 in an environment without pandas.
+- Acceptance: `tests/unit/compat/test_adapters.py::test_returns_series_shape`, `::test_pyfolio_triplet_shape`, `::test_alphalens_factor_data_shape`, `::test_no_pandas_E18`, `tests/unit/api/test_evaluate.py::test_signal_parquet_same_schema`.
+
+**T5.22 `feat(api): Arrow PyCapsule in and out (from_frame, zero-copy result tables)`** **[v3.4 R5]** · `M5` `api` · S · Blocked by: T2.6, T5.8, T5.G · §3.2, §5.9.8 [R5-01, R5-02, R6-13]
+- Context: `nx.dataset.from_frame` (any table that yields a PyCapsule stream; the engine does not import that library; canonical Arrow IPC hash, one copy in the run folder's `inputs/`, tz check), `__arrow_c_stream__` on the result table objects.
+- Done means: an example puts Polars, pandas and pyarrow tables in with `from_frame` and prints the same result hash; `pl.from_arrow(run.trades)` and `pd.DataFrame.from_arrow(run.trades)` (pandas ≥ 3.0) build tables, and columns of Arrow standard types pass without copying (a buffer address comparison test); the `value_sha256` of the three paths is the same.
+- Acceptance: `tests/golden/test_frames.py::test_G105`, `tests/unit/api/test_pycapsule.py::test_results_export_stream`, `::test_no_import_of_frame_libs`, `::test_tz_naive_E47`.
+
+**T5.9 `feat(api): Run.why from run artifacts`** **[new]** · `M5` `api` · S · Blocked by: T3.19, T3.14 · §5.9.9 [SC-13]
+- Done means: on a saved run, `run.why("KR:T00007", "2019-06-28")` prints the 5.9.9 shape without recomputation (computation time near 0, shown); a `save_signal=False` run gives steps 1 and 2 as a guidance sentence.
+- Acceptance: `tests/unit/api/test_why.py::test_matches_explain_strategy_steps_3_to_6`, `::test_no_recompute`, `::test_signal_missing_message`.
+
+**T5.6 `docs(examples): m5 daily paper runbook`** · `M5` `docs` · S · Blocked by: T5.4 · §8.5
+- Done means: the launchd plist example in `docs/runbook-paper.md` (not installed; uses `status.json` and the exit codes) and the manual commands run as written on two synthetic snapshots (yesterday and today).
+- Acceptance: `tests/docs/test_examples.py::test_runbook_paper`.
+
+**T5.G `test(golden): trades table, book cash-flow and frame-hash cases (G-64, G-65, G-105)`** **[v3.1]** *(R6: the G-105 in-memory table hash first here — golden protection rule 8.2 [R6-13])* · `M5` `golden` · S · Blocked by: T0.9 · §5.9.1, §5.7, §8.2 [V31-20, V31-19]
+- Context: round-trip trades (long, short, open trades), TWR with ledger deposits and withdrawals. Merged before T5.13 and T5.14.
+- Done means: `uv run python tests/golden/check/G-64.py` prints three lines of the trades table and the total reconciliation.
+- Acceptance: `test_handcalc_self.py::test_cases_v31_M5_expected_present`.
+
+**T5.10 `feat(api): manual overrides as book events`** **[v3.1]** · `M5` `api` · M · Blocked by: T5.3 · §3.8, §5.6.5, §5.6.7, §5.9.6 [V31-18]
+- Context: `nx.override` and `nexusbt book override`, events `override_set/cleared` (inside the transaction, definition hash unchanged), cut at the order intent step (`no_trade`/`reduce_only`/`close`), an input of the `reconcile` replay, report "manual overrides {n}".
+- Done means: after `override(book, id, "no_trade")`, `live` places no orders for that instrument and `reconcile` is `yes`; a copy with the instruction removed shows the first difference at that date.
+- Acceptance: `tests/unit/api/test_override.py::test_no_trade_suppresses`, `::test_reduce_only`, `::test_close_reduces_only`, `::test_definition_hash_unchanged`, `::test_reconcile_replays_overrides`, `::test_override_existing_orders_policy` (v3.2 rule for pending and exit orders [R3-21]).
+
+**T5.11a `feat(api): manual books - user event schema, CSV import and idempotent transactions`** **[v3.1]** · `M5` `api` · M · Blocked by: T5.3, T5.7 · §3.8, §5.9.6 [V31-18] *(v3.2: T5.11 split; event kinds fill/reject/correct, order reference, idempotency namespace, conflicting duplicate E35 [R3-21, R3-23])*
+- Context: `nx.book("manual:<name>")`, `nx.record_fills` (validating the CSV columns `event_kind, idempotency_key, order_ref, instrument_id, side, qty, price, fees, ts, note`), events `user_fill`/`user_reject`/`user_correct`/`user_trade`, one transaction, the same account accounting code.
+- Done means: a CSV in which 2 of 3 order-table lines fill at different prices (one line filled in two parts), 1 line is rejected, one fill is corrected and 1 trade not in the recommendation is added creates its events only once even when put in twice, and a different quantity under the same key is E35.
+- Acceptance: `tests/unit/api/test_manual_book.py::test_record_fills_idempotent`, `::test_manual_partial_fill_and_rejection`, `::test_user_correct_appends`, `::test_duplicate_fill_key_conflict_rejected_E35`, `::test_user_trade_outside_recommendation`, `::test_csv_column_validation`.
+
+**T5.11b `feat(api): manual-book reconcile report`** **[v3.2]** · `M5` `api` · S · Blocked by: T5.11a, T5.10 · §5.9.7 [V31-18] *(v3.2: split from T5.11 [R3-23])*
+- Context: the `reconcile` report of a `manual:` ledger (model targets vs actual holdings, model fill prices vs actual fill prices in bp, list of discretionary trades, instruction replay); exit code 4 not used.
+- Done means: with the CSV of T5.11a, `reconcile` prints the three columns.
+- Acceptance: `tests/unit/api/test_manual_book.py::test_reconcile_manual_report`, `::test_manual_reconcile_exit_code_0`.
+
+**T5.12 `feat(api): live pre-trade sanity checks (E36)`** **[v3.1]** · `M5` `api` · M · Blocked by: T5.2 · §5.9.6, §3.9 Orders, §3.11 `[live]` [V31-10]
+- Context: five checks (price jump and spike, maximum amount per order, selling beyond the holding and covering beyond the short, a value change that does not match the event factors, no liquidity threshold), the order table's `check` column, `status.json` `warnings`, E36, non-blocking.
+- Done means: on a synthetic snapshot with the close cut to 1/100, `nexusbt live` places the orders but prints `check = price_jump` on that line and one E36 line.
+- Acceptance: `tests/unit/api/test_live_checks.py::test_price_jump_flagged`, `::test_order_value_cap`, `::test_oversell_flagged`, `::test_event_value_mismatch`, `::test_liquidity_floor`, `::test_not_blocking_exit_code_0`.
+
+**T5.13 `feat(accounting): external cash flows and time-weighted returns in books`** **[v3.1]** · `M5` `accounting` · M · Blocked by: T5.1, T5.G · §5.6.9, §5.7, §5.9.6, INV-06 [V31-19]
+- Context: `nx.cash_flow` and `nexusbt book flow`, event `external_flow` (session start), bridge `external_flows` row, TWR returns, E16 for a withdrawal beyond cash, `reconcile` replay.
+- Done means: the G-65 `r_1` 0.6667% and the bridge rows are printed, and a ledger with deposits only has CAGR 0 and `account_growth` 50% (G-65 (b), v3.2 [R3-19]).
+- Acceptance: `tests/golden/test_books.py::test_G65_twr`, `tests/unit/accounting/test_flows.py::test_withdrawal_over_cash_E16`, `::test_flow_only_book_has_zero_cagr`, `::test_flow_boundary_replay_is_idempotent`, `tests/property/test_execution_invariants.py::test_P_BRIDGE_with_flows`.
+
+**T5.14 `feat(artifacts): round-trip trades table derived from events`** **[v3.1]** · `M5` `artifacts` · M · Blocked by: T3.14, T4.15c, T5.G · §5.9.1, §3.9 [V31-20] *(v3.2: MAE/MFE exclude the extremes of the entry and exit bars, financing-cost reconciliation [R3-20])*
+- Context: `trades.parquet` (average-price basis; opened at 0 → non-0 and closed at 0, partial sells are legs, a flip is the closing part + the opening part, short trades, open trades `status = open`), exit reason, MAE and MFE (H/L after entry excluding the extremes of the entry and exit bars, "daily-bar approximation"), included in `derive_tables`, HTML "trades" column.
+- Done means: the three G-64 trades come out as they are, and the HTML has the count, win rate and average holding period per exit reason.
+- Acceptance: `tests/golden/test_trades.py::test_G64`, `tests/property/test_execution_invariants.py::test_P_TRADES`, `::test_P_DERIVED_includes_trades`, `tests/unit/artifacts/test_trades.py::test_flip_splits_legs`, `::test_intraday_entry_mae_excludes_entry_bar`.
+
+**T5.15 `feat(api): screen x-ray over the whole universe`** **[v3.1]** · `M5` `api` · M · Blocked by: T3.19, T2.20, T2.21, T2.22, T5.1 · §3.8, §3.9 Screen, §5.9.9 [V31-28] *(v3.2: `book=` argument; without it "holdings unavailable" [R3-21])*
+- Context: `screen(show=…, near=)`, `Screen.xray()` (leaf Filter true/false/unknown, signal node values and percentiles, status column), CLI `--show --html`, reuse of node values without new computation.
+- Done means: `uv run nexusbt screen examples/strategies/value_mom.py --show held+near --html` writes HTML with the held, buy, hold band, sell and just-missed instrument statuses and true/false per rule.
+- Acceptance: `tests/unit/api/test_xray.py::test_statuses`, `::test_leaf_filters_three_valued`, `::test_no_recompute`, `::test_matches_explain_rows`, `::test_xray_without_book_does_not_invent_holdings`.
+
+**T5.16 `feat(portfolio): target-state plumbing for checkpoints, books and screens`** **[v3.2]** · `M5` `portfolio` · S · Blocked by: T5.1, T3.12 · §5.5.3, §5.6.1, §5.9.6 [R3-22]
+- Context: the `TargetState = (S_long, S_short, missing_streak)` value object and its serialisation (checkpoint Arrow IPC, ledger manifest, carrying over `targets.parquet`), the plumbing by which `build_targets(..., prior=)` receives and returns a state that is always empty in v1. The recursive feature is not switched on (T7.1).
+- Done means: writing a checkpoint and reopening it gives a bit-identical `TargetState`, and the ledger manifest shows the anchor and the empty state.
+- Acceptance: `tests/unit/portfolio/test_target_state.py::test_missing_counter_survives_checkpoint`, `::test_short_band_state_roundtrip`, `::test_book_manifest_records_state`.
+
+**T5.17 `feat(api): screen account modes for account-reading risk rules`** **[v3.3]** · `M5` `api` · M · Blocked by: T3.30, T5.1, T5.4 · §3.8 screen, §3.10 [R4-08]
+- Context: `screen(account="auto"|"none"|"book"|"backtest")`, CLI `--ledger BOOK` and `--as-backtest`, the not evaluated line, E42 and skips, the ledger state version and snapshot hash in the manifest, the elapsed time of `--as-backtest`.
+- Done means: three screens of the same strategy, without a ledger, with `--ledger paper:demo` and with `--as-backtest`, print the same canonical targets and different (or the same) `final_weight` columns.
+- Acceptance: `tests/golden/test_risk.py::test_G87_screen_part`, `tests/unit/api/test_screen_account.py::test_not_evaluated_line_and_E42`, `::test_ledger_reads_book_state`, `::test_as_backtest_equals_backtest_account`.
+
+**T5.18 `feat(cli): strategy templates, demo snapshot and the 30-minute path`** **[v3.3]** · `M5` `cli` · M · Blocked by: T5.4, T3.34, T3.33, T5.17 · §3.10, §8.5 [R4-13]
+- Context: `nexusbt init --demo` (the synthetic `demo` snapshot shipped in the wheel), `nexusbt new strategy NAME --template T` and `--list`, 16 of the 22 templates (3.10) (the other 6 in their feature tickets [R6-04]: validation and ML two in T6.27, zipline in T5.19, `buffer-hold` in T7.1, the two event ones in T3.35 — `--list` marks the ones not yet usable "(available after T…)") [R4F-14], an output comparison test per template, `test_first_30_minutes.py` (first line `uv init quant && cd quant && uv add nexusbt`, CI uses `--find-links dist/`) [R4F-13].
+- Done means: in a clean environment the five commands (8.5, first line `uv init quant && cd quant && uv add nexusbt`) run in turn, and the PR has a record of one first-time user (chosen by the user) finishing a first backtest and a first screen within 30 minutes.
+- Acceptance: `tests/docs/test_templates.py::test_template_runs`, `tests/docs/test_first_30_minutes.py::test_five_commands`, `tests/unit/cli/test_new.py::test_list_templates`.
+
+**T5.19 `docs: zipline to NexusBT mapping page and zipline-port template`** **[v3.3]** · `M5` `docs` · S · Blocked by: T5.18 · §8.5 [R4-14]
+- Context: `docs/migrate-from-zipline.md` (English + Korean): what bundle, `initialize`, `handle_data`, `context`, `schedule_function`, `order_target_percent`, `attach_pipeline`, `pipeline_output`, `run_algorithm` and `CustomFactor` each become and what changes (the table of part 3 of teardown G), every code snippet `<!-- test -->` and `<!-- output -->`, the `zipline-port` template.
+- Done means: the documentation page renders and the code in every NexusBT column of the table runs in tests.
+- Acceptance: `tests/docs/test_examples.py::test_migrate_from_zipline`, `tests/docs/test_templates.py::test_template_runs[zipline-port]`.
+
+**T5.20 `feat(api): compare strategy variants in one table`** **[v3.3]** · `M5` `api` · S · Blocked by: T5.5, T3.34 · §3.8 compare [R4-11]
+- Context: `nx.compare(Strategy…)` backtests each (reusing the Pipeline) and then gives a variant table (names of the changed slots, metrics, waterfall summary, DSR (cohort)), CLI `nexusbt compare`.
+- Done means: `nx.compare(base, base.replace(sizing=nx.size.erc()), base.replace(risk=[nx.risk.drawdown_brake()]))` prints a three-line table and three candidates are recorded.
+- Acceptance: `tests/unit/api/test_compare.py::test_variant_table_columns`, `::test_variants_counted_as_candidates`, `::test_pipeline_values_reused`.
+
+**T5.21 `feat(cli): commented two-tier nexusbt.toml template, config check and config show`** **[v3.4 final]** · `M5` `cli` · S · Blocked by: T1.2, T0.4b, T0.5a · §3.10, §3.11 [user request 2026-10-28, R4G-CFG-01~05]
+- Context: `nexusbt init` writes a template commented with part 1 "check these" and part 2 "advanced" (English canonical + `--lang ko`), `nexusbt config check` (type, range and contradictions in the `layer config` format), `nexusbt config show [--all]` (resolved values + source default/file/CLI/code, the same resolver as `load_config`), the report header block "settings (tier 1)".
+- Done means: `uv run nexusbt init --lang ko && uv run nexusbt config check` prints "config ok", and with `debit_rate_bps = 300` added under `[account] type = "cash"`, `config check` gives a `layer  config` line and a fix line with exit code 1; `config show` shows the source of `capital` as `file` and `start` overridden by strategy code as `code`.
+- Acceptance: `tests/docs/test_config_template.py::test_template_keys_match_3_11`, `::test_en_ko_same_keys_and_values`, `::test_example_file_keys_exist`, `tests/unit/cli/test_config_check.py::test_margin_keys_on_cash_account_E16`, `::test_contradictions_listed_with_layer_config`, `tests/unit/cli/test_config_show.py::test_source_default_file_cli_code`, `::test_show_matches_manifest_config`, `tests/golden/test_report.py::test_header_lists_tier1_values`.
+
+#### M6 — Performance, research tools, release gate
+
+**T6.1** → moved in v3 to **T1.24** (M1) (early measurement, RV-I05). The measurements of M6 use the T1.24 harness.
+
+**T6.2 `perf(compute): numba rolling kernels bit-equal to reference`** · `M6` `compute` · M · Blocked by: T1.24, T4.7 · §5.3.3, §5.3.10, ADR-0016, ADR-0019 *(v3: bits in the same environment, transcendental-class element functions, definition A/B)*
+- Done means: a PR description with the P3 measurement recorded before and after; fast kernel = reference (bits).
+- Acceptance: `tests/property/test_kernels.py::test_P_KERNEL_rolling_bit_equal`, `::test_transcendental_same_function_both_paths`, `::test_py_func_covered`, `::test_no_fastmath_no_parallel`, `::test_kernel_swap_bit_equal` (v3.2 swapped only inside the seam [R3-26]).
+
+**T6.3 `perf(compute): numba cross-sectional kernels`** · `M6` `compute` · M · Blocked by: T6.2 · §5.4, §5.3.10
+- Done means: P2 and P3 measurements before and after.
+- Acceptance: `tests/property/test_kernels.py::test_P_KERNEL_crosssection_bit_equal`.
+
+**T6.12 `feat(data): L0 raw block cache with memory mapping`** **[new]** · `M6` `data` · M · Blocked by: T1.24, T1.4 · §5.3.9 L0, §7 P7 [SC-15] *(v3: semantic-hash key)*
+- Done means: prints that block read time dropped on the second run of the same screen (L0 hit); deleting the L0 folder leaves the result bit-identical; `nexusbt doctor` shows the L0 size.
+- Acceptance: `tests/property/test_cache.py::test_P_CACHE_L0`, `::test_P_CACHE_INCR` (v3.1: on a new snapshot where only the last year changed, past partitions hit and an old correction misses [V31-12]), `tests/unit/data/test_l0.py::test_readonly_mmap`, `::test_key_changes_with_partition_file_sha256`, `::test_intermediate_action_revision_invalidates`, `::test_terms_availability_only_change_invalidates`, `::test_master_and_calendar_changes_invalidate_l0`, `::test_watermark_change_keeps_l0_hits`, `::test_bad_advisory_value_hash_never_reuses_wrong_block`, `::test_l0_shared_entry_survives_old_snapshot_removal`, `::test_l0_identity_mismatch_rehashes` (v3.2: key, lifetime, file identity [R3-04, R3-16]).
+
+**T6.4 `feat(compute): semantic term cache (L1)`** · `M6` `compute` · M · Blocked by: T6.2 · §5.3.9 [RV-C10] *(v3: semantic hash, external inputs, query policy, captured constant globals; a non-constant global turns L1 off)*
+- Done means: the second run of the same evaluate is within the P3 cache target (time printed); deleting the cache folder leaves the result the same; a snapshot with only `availability` changed and a function with only `THRESHOLD` changed do not use the cache.
+- Acceptance: `tests/property/test_cache.py::test_P_CACHE`, `::test_key_changes_with_semantic_hash`, `::test_key_changes_with_policy_and_calendar`, `::test_captured_scalar_changes_key`, `::test_nonconst_global_disables_l1`, `::test_external_input_hash_in_key`, `::test_atomic_write`, `::test_budget_counts_L0_and_L1`, `::test_l1_key_from_input_l0_keys` (v3.1 [V31-12]), `::test_january_nested_window_depends_on_prior_year`, `::test_partial_l1_coverage_cannot_satisfy_missing_rows`, `::test_validity_mask_cache_roundtrip` (v3.2 [R3-04, R3-13]).
+
+**T6.5 `feat(compute): process-tree memory budget, bounded workers and parallel scenarios`** · `M6` `compute` · M · Blocked by: T6.4 · §5.3.8 *(v3: sub-year chunks are T1.7b; here, the worker and process-tree budget)*
+- Done means: with `memory_budget_gb=1`, `workers=2`, the P5-small process-tree RSS total is printed near 1 GB and the result is the same; scenario result order and values are the same.
+- Acceptance: `tests/property/test_pipeline_invariants.py::test_P_CHUNK_budget`, `tests/perf/test_smoke.py::test_rss_bounded`, `tests/unit/compute/test_workers.py::test_parallel_scenarios_identical`.
+
+**T6.6 `perf(execution): numba session step over the columnar state (conditional)`** · `M6` `execution` · M · Blocked by: T1.24, T3.18, T4.7 · §5.6, §7 [RV-I10] *(v3.2: only inside the `nx.execution._step` seam; a Rust replacement after this measurement and profile, ADR-0016 [R3-26])* *(v3: conditional — only when the M3a and M4 measurements cannot keep the P5 gate; if they can, this ticket is closed as "not needed by measurement")*
+- Done means: P5 measurement before and after, every golden unchanged (`@njit` over the column-array state, data structures not changed).
+- Acceptance: `tests/property/test_kernels.py::test_fast_step_equals_reference`.
+
+**T6.7 `feat(api): sweep with shared graph and candidate matrix`** · `M6` `api` · M · Blocked by: T6.4 · §3.8 sweep, §6.3
+- Done means: `uv run nexusbt sweep examples/strategies/value_mom.py` prints the candidate table and `candidates.parquet` is created.
+- Acceptance: `tests/unit/api/test_sweep.py::test_shared_nodes_computed_once`, `::test_candidates_registered`.
+
+**T6.14 `feat(api): capacity scenario`** **[new]** · `M6` `api` · S · Blocked by: T6.7, T6.5 · §3.8, §5.7 [SC-06, OQ-4]
+- Done means: `backtest(..., scenarios=[..., "capacity"])` prints ×10 and ×100 CAGR, the share capped, the average participation rate and a "cap binds at ≈ K" line; switched on automatically in the `sweep` final candidate report.
+- Acceptance: `tests/unit/api/test_capacity.py::test_capacity_rows`, `::test_binds_at_definition`, `::test_sweep_final_candidates_have_capacity`.
+
+**T6.8 `feat(research): PSR, DSR and PBO via CSCV over cohorts`** · `M6` `research` · M · Blocked by: T6.7, T2.9 · §5.7, §6.3 [RV-C12] *(v3: cohorts, rules for when it cannot be computed)*
+- Done means: a PBO line in the sweep output, a DSR line in backtest (N, V[SR] source = cohort, `cohort_sha256`); "n/a (reason)" when inputs are insufficient (the 6.3 list).
+- Acceptance: `tests/property/test_stats.py::test_P_STAT_psr_dsr_known`, `::test_pbo_hand_matrix`, `::test_invalid_population_na`, `::test_dsr_uses_frozen_cohort`, `::test_pbo_zero_variance_rule`, `::test_psr_raw_kurtosis_convention` (v3.1 G-60 [V31-07]), `::test_pbo_common_dates_with_unequal_lookbacks`, `::test_purge_keeps_max_end_available` (v3.2 [R3-24]).
+
+**T6.9 `feat(research): truncation probes with prioritized dates and coverage report`** · `M6` `research` · M · Blocked by: T6.4 · §6.5 [SC-05, RV-C11] *(v3: tested with an injected future-reading source; a roll inside the window is not a false positive)*
+- Done means: for a function that takes the whole-period array of the snapshot through a closure, `nx.check(f, probes=4)` prints E1 and the limits paragraph, "nodes compared x/y", "finite cells a/b" and the date reasons; a function that uses `np.roll` only inside the window has no E1.
+- Acceptance: `tests/unit/test_leaks.py::test_probe_catches_injected_future_reader`, `::test_bounded_roll_not_flagged`, `::test_probe_clean_function_passes`, `::test_probe_cached_per_graph`, `::test_probe_date_priority`, `::test_probe_coverage_report`.
+
+**T6.13 `feat(research): start-date probe in nx.check`** **[new]** · `M6` `research` · S · Blocked by: T6.9 · §6.5 start-date probe [SC-04]
+- Done means: for a user function that uses a global cumulative value, `nx.check(f, start_probe=True)` prints E32 and the lowest node; a clean function passes.
+- Acceptance: `tests/unit/test_leaks.py::test_start_probe_catches_global_state_E32`, `::test_start_probe_clean_passes`, `::test_start_probe_skips_targets_with_recursion`.
+
+**T6.10 `feat(api): progress display for long work`** · `M6` `api` · S · Blocked by: T6.5 · R-41
+- Done means: in a backtest longer than 2 seconds, a line on standard error with phase, date and remaining time (probes, scenarios and capacity separately, by phase name).
+- Acceptance: `tests/unit/api/test_progress.py::test_progress_after_2s`.
+
+**T6.11 `perf: compute-host gate run and evidence`** · `M6` `bench` · S · Blocked by: T6.3, T6.5, T6.8, T6.12, T6.26 (and T6.6 if it was done) · §7 *(v3.3: includes the P11 target measurement [R4-18])* — **run by the user on the compute machine**
+- Done means: `bench/results/<date>-<sha>-m4.json` (summary only) is committed and the PR has a table of pass/fail for the P1~P8 gates. v3.1: together with the time and hit rate of workload P2b (yesterday's cache + screen on today's snapshot) and the two values with column chunking on/off [V31-11, V31-12]. P2b hit rate > 0 (the watermark is not in the key, v3.2 [R3-04]). A failed item gets a bottleneck profile + ADR.
+- Acceptance: `tests/unit/bench/test_results_present.py::test_gate_file_for_release`.
+
+**T6.15 `chore(release): clean-install gate, independent producer acceptance, changelog and contributor docs`** **[v3]** · `M6` `release` · M · Blocked by: T2.17, T4.11, T5.4 · §2.3, §9.1 `engine / release`, R-70 [RV-I07, RV-Q05]
+- Context: `tests/repo/release_check.py` (installs only the two wheels in a clean virtual environment outside the working folder → runs the English quick start and the public examples), the independent producer test package `tds/conformance/producers/csv-minimal` (made in T1.22) and a hand-written second producer package passing `full` + the consumption test, `CHANGELOG.md` (engine and TDS separate), the bodies of `CONTRIBUTING.md` and `SECURITY.md`, the compatibility policy paragraph (TDS chapter 10 and the engine version rules), the condition sentence for the "KR/US verified" claim (only when a summary of real-data evidence exists). v3.2: in the release evidence `release_evidence.json`, the list of applied rules (source, boundary, `verified`), the number of `verified = false` rows and the `off_grid_bar` numerator/denominator; the independent producer example ids in the TDS K1 recommended format `XNAS:AAPL_19801212` [R3-15, R3-14, R3-28].
+- Done means: `uv run python -m tests.repo.release_check` prints "clean install ok · quickstart ok · producers 2/2 full pass".
+- Acceptance: `tests/repo/test_release.py::test_clean_wheel_runs_example`, `::test_ml_extra_runs_ml_example` (v3.4 [R4F-23]), `::test_independent_producer_package_passes`, `::test_changelogs_present`, `::test_release_market_rules_have_verified_coverage`, `::test_k1_example_ids_valid`.
+
+**T6.16 `ci(release): trusted-publishing workflow (dry run until the user decides)`** **[v3]** · `M6` `infra` · S · Blocked by: T6.15 · §2.1 [RV-Q05] — **pushed by the user** (workflow permission)
+- Context: builds wheels and sdists on tags `v*` and `tds-v*` and does a dry run to TestPyPI; real PyPI publishing is switched on by the user after the chapter 12 OI-44 decision.
+- Done means: the tag dry-run log shows a simulated upload of the two distributions.
+- Acceptance: the workflow log (manual verification checklist).
+
+**T6.17 `test(bridge): capability errors for reserved extension points`** **[v3]** · `M6` `bridge` · S · Blocked by: T0.4 · §11 [RV-Q03]
+- Done means: `nx.backtest(..., engine="nautilus")` and a strategy that, by the `Capabilities` comparison, requires a missing feature (intraday sequence, etc.) are E18 before the run.
+- Acceptance: `tests/unit/bridge/test_capabilities.py::test_reserved_backends_E18`, `::test_capability_mismatch_E18`, `::test_backend_protocol_emits_fill_events_only` (v3.1: no account state or `AccountState` in the backend signature [V31-09]).
+
+**T6.18 `feat(api): rebalance-date luck offsets and rolling-window table`** **[v3.1]** · `M6` `api` · M · Blocked by: T6.4, T4.12 · §3.8, §5.7, §6.2, §3.11 `[report]` [V31-26]
+- Context: `backtest(offsets=k)` (the same Pipeline values; only the targets and the state machine again), `offsets.parquet`, a first-screen line, outside the attempt count and the cohort, HTML "rolling" (excess return quantiles over 1-year and 3-year windows).
+- Done means: `uv run nexusbt backtest examples/strategies/mom_kr.py --offsets 5` prints "rebalance-date luck 5 offsets · CAGR min/median/max" and the elapsed time, and the study's candidate count is unchanged.
+- Acceptance: `tests/unit/api/test_offsets.py::test_reuses_pipeline_values`, `::test_not_counted_as_candidates`, `::test_schedule_offsets_per_kind`, `tests/unit/research/test_rolling.py::test_rolling_excess_quantiles`.
+
+**T6.Gv `test(golden): validation, ML window, triple-barrier and pretrained-cutoff cases (G-88..G-93, G-106)`** **[v3.3]** *(R6: the G-106 pretrained cutoff first here [R6-13])* · `M6` `golden` · M · Blocked by: T0.9 · §5.3.11, §5.8, §6.3a, §8.2 [R4-26] *(v3.4: G-90 K = 1,001,000 won [R4F-12])*
+- Context: hand-calculated cases of split counting, purge and embargo (the label of a late-published delisting), chained account / fresh capital, the ML training window, and the four triple-barrier cases. Merged before the implementation PR.
+- Done means: `uv run python tests/golden/check/G-89.py` prints the purged and embargoed samples per fold.
+- Acceptance: `tests/golden/test_handcalc_self.py::test_case_G88_to_G93_expected_present`.
+
+**T6.19 `feat(research): split value objects with label-availability purge and AFML embargo`** **[v3.3]** · `M6` `research` · M · Blocked by: T2.9, T6.Gv · §6.3a, §5.8 [R4-19]
+- Context: `nx.splits.holdout`, `walk_forward`, `cpcv`, `cscv`, `Split` (folds, paths, `split_hash`, `plot()`, `summary()`), purge (label interval = up to the availability time) and embargo, `n_purged` and `n_embargoed`, parsing of length strings.
+- Done means: `nx.splits.cpcv(6, 2).summary()` prints 15 splits, 5 paths and the group table.
+- Acceptance: `tests/golden/test_validation.py::test_G88`, `::test_G89`, `tests/property/test_validation.py::test_P_SPLIT_DET`, `tests/unit/research/test_splits.py::test_wf_step_less_than_test_E16`, `::test_embargo_differs_from_embargo_sessions`.
+
+**T6.20 `feat(api): backtest(method="walk_forward") with a chained account, fold selection and linear side by side`** **[v3.3]** · `M6` `api` · M · Blocked by: T6.19, T6.7, T3.13a · §3.8, §6.3a, §6.2 [R4-20, R4-21]
+- Context: `backtest(method=…, grid=, select=)`, CLI `--method`, `--method-opt` and `--grid`, IS selection on the fold's training data (for each grid point, the daily returns of one linear run over all of D are sliced to the training holding periods, purged and embargoed; sample counts in `selection.parquet` [R4F-11]), `step == test` when chained (E16) [R4F-36], comparison baseline `backtest(start=t_1)` (P-WF-STITCH [R4F-10]), period shown on the linear line [R4F-35], one chained account (holdings, pending orders, exits, `risk_state`), diagnostic `account="per_fold"`, a linear run alongside, `Run.validation` and the `validation/` folder, counting (fold diagnostics, grid points as candidates).
+- Done means: `uv run nexusbt backtest examples/strategies/value_mom.py --method walk_forward --grid n=10,20,30` prints the linear line and the fold table (chosen n, IS/OOS Sharpe), and the candidate count grows by the number of grid points.
+- Acceptance: `tests/golden/test_validation.py::test_G90`, `tests/property/test_validation.py::test_P_WF_STITCH`, `tests/unit/api/test_method.py::test_folds_not_counted`, `::test_is_returns_sliced_from_full_run`, `::test_step_not_equal_test_E16` (v3.4 [R4F-11, R4F-36]), `::test_linear_run_alongside`, `::test_scenarios_only_on_linear`.
+
+**T6.21 `feat(research): CPCV paths with fresh capital per path, CSCV and sweep as a shorthand`** **[v3.3]** · `M6` `research` · M · Blocked by: T6.20, T6.8 · §6.3a, §6.3 [R4-20, R4-21, R4-22]
+- Context: per path, `TargetFrame` concatenation and a fresh-capital state machine, the path distribution, CPCV PBO (OOS rank of the IS best), `method="cscv"` = the 6.3 procedure, `sweep` = shorthand for `backtest(method="cscv", grid=)` (`SweepResult` compatible), E40 for a CPCV with nothing to select, the `[validate] max_fits` advance notice.
+- Done means: `--method cpcv` prints the Sharpe distribution of 5 paths, the worst MDD and PBO (numerator/denominator) beside linear.
+- Acceptance: `tests/golden/test_validation.py::test_G91`, `tests/unit/research/test_cpcv.py::test_path_count_and_fresh_capital`, `::test_nothing_to_select_E40_one_path`, `::test_path_interpretation_line` (v3.4 [R4F-29]), `tests/unit/api/test_sweep.py::test_sweep_equals_cscv_method`.
+
+**T6.22 `feat(report): hygiene panel on the first screen and ValidationResult report`** **[v3.3]** · `M6` `report` · S · Blocked by: T6.21, T2.10b · §6.3a report, §3.9 [R4-22]
+- Context: seven lines in the first-screen hygiene panel (attempt line, DSR/PSR/MinTRL, path band, PBO and slope, selection stability, leak ledger, pre-registration), the numerator/denominator rule, `ValidationResult.report()`.
+- Done means: the first screen of report.html has the seven lines and no badges (structure test).
+- Acceptance: `tests/unit/artifacts/test_report.py::test_hygiene_panel_lines`, `::test_ratios_have_counts`, `::test_no_pass_badges`.
+
+**T6.23 `feat(ml): ml.factor node with engine-enforced training window and fit/predict records`** **[v3.3]** · `M6` `ml` · M · Blocked by: T6.19, T2.10a, T1.12 · §5.3.11, §6.5 check 8 [R4-23]
+- Context: the `MLFactor` node, sample construction, `train=rolling|expanding`, the `refit` schedule, the training window rule (availability time + embargo ≤ τ), the E2 port, training a new object, fixed seed and threads, `fit_id` reuse, `predictions.parquet`, `fits.parquet` and manifest `ml`, sklearn as an optional dependency (no engine import).
+- Done means: evaluate of the `ml-factor` example prints the IC table and "fits 24 · samples min 1,830", and there is no model file.
+- Acceptance: `tests/golden/test_ml.py::test_G92`, `tests/property/test_ml.py::test_P_ML_REPRO`, `tests/unit/ml/test_factor.py::test_label_port_only_E2`, `::test_no_pickle_files`, `::test_engine_does_not_import_sklearn`, `::test_seed_from_run_seed_and_fit_id`.
+
+**T6.24 `feat(ml): ml.factor inside method folds, rerun refit hash check and determinism warnings`** **[v3.3]** · `M6` `ml` · S · Blocked by: T6.23, T6.21, T1.15 · §5.3.11, §6.3a [R4-23]
+- Context: forward-only training in every method (no samples after τ; CPCV excludes that split's test blocks, purge and embargo; walk-forward does not cut to the fold range) [R4F-03], the leak ledger line `ml fits: forward-only`, E29 for a setting that can overlap, `rerun` refit `pred_sha256` comparison (E15/tolerance), E44, reuse of the same `fit_id` (WF overlap, the same CPCV combination).
+- Done means: running an ML strategy with `--method cpcv` prints the number of fits and of reuses, and `rerun` prints "predictions identical (n fits)".
+- Acceptance: `tests/unit/ml/test_folds.py::test_forward_only_in_every_method`, `::test_cpcv_excludes_test_groups`, `::test_overlap_setting_E29`, `tests/unit/api/test_rerun.py::test_ml_refit_hash_equal`, `::test_threads_warning_E44`.
+
+**T6.24b `feat(ml): pretrained predict-only models with training cutoff leak guard`** **[v3.4 R5]** · `M6` `ml` · S · Blocked by: T6.24, T6.Gv · §5.3.11, §6.2, §6.6 [R5-03, R6-13]
+- Context: `nx.ml.pretrained(model, training_cutoff=, corpus=, allow_overlap=)`, `predict` only, decisions before cutoff + embargo E48 (failure), `allow_overlap` marked E49, report line, manifest assumption, validation path marking, model identity in `fit_id`, counted as a candidate.
+- Done means: with a fake pretrained model (a fixed prediction function) the G-106 numbers (24 blocked, denominator 84) are printed, and the report header of an `allow_overlap=True` run shows the overlap line.
+- Acceptance: `tests/golden/test_ml.py::test_G106`, `tests/unit/ml/test_pretrained.py::test_cutoff_required_E16`, `::test_leak_E48`, `::test_overlap_marked_E49`, `::test_counted_as_candidate`.
+
+**T6.25 `feat(research): triple-barrier label sharing the exit fill rule`** **[v3.3]** · `M6` `research` · S · Blocked by: T3.33, T2.10a, T6.Gv · §5.8, §3.7 exits [R4-24]
+- Context: `labels.triple_barrier(take_profit, stop_loss, max_sessions)`, reuse of the 5.6.4 decision function and the `time_stop` session count, `tb_ret` and `tb_side`, a different end time per label and purge, delisting terminal value.
+- Done means: `nx.evaluate(f, target=nx.labels.triple_barrier(take_profit=0.05, stop_loss=0.03, max_sessions=10))` prints the IC and counts per barrier (upper/lower/time).
+- Acceptance: `tests/golden/test_labels.py::test_G93`, `tests/unit/research/test_triple_barrier.py::test_same_fill_function_as_exits`, `::test_label_end_varies_and_purges`.
+
+**T6.26 `perf: P11 high-dimensional workload with decision-date-only evaluation, column pruning and batched reductions`** **[v3.3]** · `M6` `bench` · M · Blocked by: T1.24, T6.4, T6.5 · §7 P11, §5.3.2, §5.3.8 [R4-18]
+- Context: a synthetic 300-factor graph generator, computing decision rows only (row mask propagated backwards), column pruning, `evaluate` reduced per decision (the full value matrix is not held), one matrix per decision for the composite score, parallel by (market, year, node group); measurement JSON (time, USS, bytes read, decision rows, shared nodes).
+- Done means: `uv run python bench/run.py --workload P11 --fixture bench/fixtures/p11.json --snapshot synth-full-0001` prints the (a)(b)(c) times, per-stage times, USS, `fixture_sha256` and the output value hash (both cold and warm, same hash), and a gate proposal is written in ADR-0038 (a measurement prototype; by the user on the compute machine) [R4F-18].
+- Acceptance: `tests/perf/test_p11_smoke.py::test_small_p11_runs_and_reports`, `tests/property/test_pipeline_invariants.py::test_decision_rows_only_equals_full`, `tests/unit/compute/test_memory.py::test_evaluate_does_not_hold_full_matrix`, `tests/perf/test_p11_smoke.py::test_cold_warm_output_hash_equal`, `::test_fixture_hash_recorded`.
+
+**T6.27 `docs(examples): walk-forward/CPCV and ML factor templates`** **[v3.3]** · `M6` `docs` · S · Blocked by: T6.24, T5.18 · §3.10 templates, §8.5 [R4-13]
+- Context: the templates `walk-forward-cpcv` and `ml-factor` (a linear model for tests when the optional sklearn dependency is absent), output comparison.
+- Done means: both templates run under `init --demo` and their output blocks are the same.
+- Acceptance: `tests/docs/test_templates.py::test_template_runs[walk-forward-cpcv]`, `::test_template_runs[ml-factor]`.
+
+#### v1.x — right after v1 (after M6)
+
+**T7.G `test(golden): hold-band edge cases (G-63)`** **[v3.1]** · `M6 (before T7.1)` `golden` · S · Blocked by: T0.9 · §5.5.3, §8.2 [V31-17]
+- Context: keeping on a missing score and the consecutive cap, skipping the buy of a hold band instrument with zero holding (v3.2: an instrument that left on a stop (c), `hold = n` and median weighting (d) [R3-22]), one mirror case on the short side (`bottom(hold=)`). Merged before T7.1.
+- Done means: `uv run python tests/golden/check/G-63.py` prints the target set, reasons and orders per decision.
+- Acceptance: `test_handcalc_self.py::test_case_G63_expected_present`.
+
+**T7.1 `feat(portfolio): target-state recursion and hold band`** **[new]** · `M6 (last ticket, included in v1 — user 2026-10-28)` `portfolio` · M · Blocked by: T6.11, T6.18, T7.G, T4.14, T5.16, T6.22, T6.24, T6.25, T6.27 · §5.5.3 [SC-02, OQ-1, V31-17] *(v3.2: the state plumbing is T5.16; this ticket switches the feature on and compares; median weighting, the `hold = n` boundary, the name "zero holding" [R3-22])* *(v3.1: missing score `on_missing`, never-bought hold band instruments `band_entries`, the `bottom(hold=)` mirror; still the last ticket of M6 — the new M6 tickets T6.18 and T7.G both come before it)*
+- Context: implementation of `top(n, hold=m)` and `bottom(n, hold=m)`, `on_missing` and `max_missing_decisions`, `band_entries` at the execution step (`order_suppressed(band_entry)`), anchor (backtest, screen `anchor`, live ledger), passing `prior`/`target_state`, screen carrying over from the `targets.parquet` of a run on the same snapshot, the report anchor line, "count of differences between target set and holding set".
+- Done means: the turnover of a `hold=20, n=10` strategy is printed lower than with `hold=None`, and with the same anchor, screen targets = backtest targets.
+- Acceptance: `tests/unit/portfolio/test_hold_band.py::test_keep_within_m`, `::test_fill_to_n_by_rank`, `::test_anchor_screen_equals_backtest`, `::test_missing_score_drop_default`, `::test_missing_score_hold`, `::test_bottom_hold_mirrors`, `tests/golden/test_portfolio.py::test_G63_band_edges`, `tests/property/test_execution_invariants.py::test_P_PARITY13_with_hold`, `tests/unit/portfolio/test_hold_band.py::test_held_missing_weight_uses_median_u`, `::test_hold_equals_n_keeps_missing_score`, `tests/docs/test_templates.py::test_template_runs[buffer-hold]` (v3.4: template test moved from T5.18 [R4F-14]).
+
+**T7.V `verify: post-T7.1 release re-verification (no features)`** **[v3.2]** · `M6 (verification step after T7.1, not a feature)` `release` · S · Blocked by: T7.1 · §7, §8, §9.1 `engine / release`, R-70 [R3-23]
+- Context: after T7.1 changes the target path, the release gates are run again: `engine / release` (clean install, quick start, independent producers), all of comparison L1 and L2, P-SHORT-OFF (differential + baseline), the property `deep` profile, the chapter 7 performance gates (by the user on the compute machine), rule verification evidence. No new features or spec changes (on failure, the ticket that caused it is reopened).
+- Done means: `uv run python -m tests.repo.release_check --all` prints "release gate after T7.1: pass" and the pass count of each block, and the performance JSON is committed.
+- Acceptance: `tests/repo/test_release.py::test_release_rerun_after_last_feature`.
+
+**T7.2 `feat(research): effective number of trials and DSR(N_eff)`** **[new]** · `v1.x` `research` · S · Blocked by: T6.8 · §5.7 [SC-10, OQ-6]
+- Done means: in a study of 6 highly correlated candidates + 2 independent candidates, prints N = 8, N_eff ≈ 3 and records the method name.
+- Acceptance: `tests/unit/research/test_neff.py::test_clustered_candidates`, `::test_method_recorded`, `::test_dsr_default_still_uses_N`.
+
+**T7.3** → moved in v3.3 to **T3.29** (M3a) (group caps into v1, R4-05).
+
+**T7.4** → moved in v3.3 to **T3.33** (M3b) (`time_stop` into v1, R4-10).
+
+**T7.5 `feat(artifacts): Brinson sector attribution and first divergence`** **[new]** · `v1.x` `artifacts` · M · Blocked by: T4.10, T5.5 · blueprint chapter 11 items 2 and 5 [SC-07]
+- Done means: a per-sleeve allocation, selection and interaction table (comparison baseline `universe_ew`); `Comparison.first_divergence()` gives the first date, instrument and cause of divergence.
+- Acceptance: `tests/unit/artifacts/test_brinson.py::test_effects_sum_to_active_return`, `tests/unit/api/test_compare.py::test_first_divergence_cause`.
+
+**Later (P3; tickets are made once a semantic contract and fixed cases exist)** [RV 2.4]: linking the `rates` interest-rate data for cash interest (the fixed annual rate `[account] cash_rate_bps` went into v1 in v3.2 [R3-25]), a T+n settlement model, benchmark regression metrics (α, β; tracking error and IR are v3.1 T4.12, the round-trip trades table is v3.1 T5.14), everything in 12.1 deferred in v3.1, MDA feature importance, clustered MDA, sample-uniqueness weighting, Hansen SPA, meta-labels (v1.x [R4-23, R4-24]), correlation-shock and VaR overlays [R4-05], the optional model `stop_limit_fill = close_confirmed`, an economic label variant holding cash (no reinvestment), a fast approximate mode (`fidelity="vector"`), Sharpe bootstrap intervals, widening the built-in factors (`Beta`, `Correlation`, `BollingerBands`), a separate `adjustment_factors` dataset (after measurement), more markets in the market rules packs, importing zipline, LEAN, Nautilus and DBN (TDS chapter 9), migrating ledger definitions (`nexusbt book migrate`).
+
+### 10.2 Producer-side tickets (left out of the public edition)
+
+This section is a private producer's work plan and was left out of the public edition. It has nothing to do with engine behaviour, and the engine's M0~M6 can be finished with the synthetic package (4.8). What the engine does with columns and datasets the producer has not filled is set by the fallback behaviour of 4.5.
