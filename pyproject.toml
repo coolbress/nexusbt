@@ -7,6 +7,8 @@ requires-python = ">=3.12"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 authors = [{ name = "coolbress" }]
+# The package ships `py.typed`: a type checker reads its annotations.
+classifiers = ["Typing :: Typed"]
 dependencies = []
 
 # Distribution metadata. Read by `pip show`, GitHub and the dependency graph

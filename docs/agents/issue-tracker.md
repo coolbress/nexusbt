@@ -67,6 +67,8 @@ read by tooling. Precision there is not style.
 ## Conventions
 
 - **Create an issue**: `gh issue create --title "..." --body "..."`. Multi-line bodies via heredoc.
+- **Title**: one sentence saying what the issue does, such as "Make the engine spec English canonical with a Korean translation". Not a pull request's `type(scope):` form: nothing reads an issue title but people scanning a list. A record may start with its kind, such as `Research:`.
+- **A ticket from a spec or plan**: keep its id (such as `T6.16`) and its original title in `## Parent`, beside the parent's `#N`, so a search for the id still finds it.
 - **Read an issue**: `gh issue view <number> --comments`
 - **List issues**: `gh issue list --state open --json number,title,body,labels,comments --jq '[.[] | {number, title, body, labels: [.labels[].name], comments: [.comments[].body]}]'` (filter with `--label`, `--state`)
 - **Comment**: `gh issue comment <number> --body "..."`
