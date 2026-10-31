@@ -23,6 +23,10 @@ staticfiles/
 # OS
 .DS_Store
 
+# The private words the hygiene check reads (START-HERE, ticket T0.2b); one
+# machine's list, never committed.
+.hygiene-private.txt
+
 # Claude Code's personal settings. Only .claude/settings.json is committed:
 # Claude Code adds this file to the global git excludes of one machine, which
 # protects that machine and not the repository.

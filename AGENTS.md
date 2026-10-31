@@ -19,6 +19,12 @@ CI runs each of these as a separate check. Pass them locally, then open the pull
 - Adding to what exists: read the issue, then `/implement #N`.
 - Something is broken: read the failing check's log first, then `/mattpocock-skills:diagnosing-bugs`.
 - Coming back: issues and their unticked acceptance criteria, open pull requests, the current branch and uncommitted changes, before anything else. Claude Code's automatic memory stays on this machine, so a decision, an unverified item or a next step the next person needs goes into the issue or pull request, not only into memory.
+- First time here: [START-HERE.md](START-HERE.md).
+
+## This project
+
+- The spec `docs/spec/engine-spec-v3.4.md` is the single source of truth; do not invent rules it does not have (use chapter 12 defaults, else stop and ask).
+- Public: engine code, the spec, TDS, docs, tests. Never in this repository: a producer's data, snapshots or any part of them, fixtures made from vendor data, producer paths, host names, IP addresses, account names, the producer's name or its internal ticket ids. Test data comes from the synthetic generator (spec §4.8); private words to check against are in the git-ignored `.hygiene-private.txt`.
 
 ## Always
 
