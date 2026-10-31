@@ -4003,3 +4003,765 @@ These are what the teardown of existing engines (`teardown/MATRIX.md` chapter 2)
 | V31-LS Borrow availability and borrow fee data | No public data; an assumption sentence instead | next TDS MINOR (a candidate optional dataset) |
 | A forced-liquidation model for margin shortfall | No model at v3.1 | **solved in v1** ⚑ — the margin account (5.6.7a, T4.20, G-104); the cash account is not simulated (dropped) |
 | Simulating the US uptick rule (Rule 201) | Needs the intraday price path | E4 |
+
+---
+
+## Appendix A. Conflict resolution record
+
+Priority: user decisions (9.0, 9.1, the 2026-10-27 publication decision) > spec v2 > TDS v1 (input format) > blueprint > rules fixed by Codex (11.4) > body of the design > sources. "Applied" says at which step of that order the conflict was settled. A-01~A-45 are as in v1 (only the name changed to TDS); from A-46 on are v2 changes. Where a v2 item replaces a v1 item on the same topic, this is written in the v2 item.
+
+| id | Conflict | Source | Resolution | Applied |
+|---|---|---|---|---|
+| A-01 | R-43 "only E1·E2·E3·E10 block" vs E5·E7·E8 also stop | design 9.2-3 | Future information that cannot be passed by judgement (E1~E3) is blocked, errors whose result is undefined (E5, E7, E8, E12~E20, E23) fail, the rest warn. E10 is not blocked, per 9.0 | body (3.5 interpretation) + 9.0 |
+| A-02 | reference clock setting (user) vs per-market decisions (Codex) | 9.3 Q23, C1 | User decision kept (`KR_close` default, `US_close`, `market_local` added). Codex's `decision_ts` record, availability rule and sleeves adopted. Market-axis values are computed at the session close and gathered by the decision (conservative) | user > Codex |
+| A-03 | cross-section ranks mixing countries (UX) vs market-combined ranks later (Codex) | design 4.4.1, C1 | Cross-section operations per market by default, `across_markets=True` allowed only at the final stage (E5 on currency units) | Codex + body compromise |
+| A-04 | study = file name (user Q19) vs a study_id unrelated to the file (Codex) | 9.3 Q27 | Name default is the file name, the storage key is a UUID made on first use. Renaming makes a new study (continued with `study=`) | user > Codex (compatible) |
+| A-05 | integer sid·session_idx in exports (E0) vs hard links and immutable pieces (Codex) | 9.2-13, C9, design 7(1)(3) | Files hold only `instrument_id`·`session_date`. The integer index lives in engine memory (speed recovered by a dictionary-index mapping) | Codex > body |
+| A-06 | financials `fundamentals_events` ASOF + `.lag()`·`.ttm()` (sources) vs `fundamentals_state` (Codex) | 9.3 Q24, C3 | User decision (9.0) settled the Codex proposal. No `.lag/.ttm` in the engine; reference producer resolved items instead | user |
+| A-07 | holdout 2022-01-01 + `HoldoutError` blocking (sources) vs prospective lock (Codex) | 9.3 Q26, R-36 | User decision 9.0: no lock. Segment (train/validation/test) settings + exposure record + DSR. Validation start 2022-01-01 is the default. E10 is a notice | user |
+| A-08 | missing pay date: the day after the confirmed filing (sources) vs stop (Codex) | 9.3 Q29 | User decision 9.0: estimate by the usual interval per country + "estimated" mark, `fail` selectable | user |
+| A-09 | cash shortfall "proportional scaling" (design 3.6) vs "reduce in a fixed order, no redistribution" (Codex) | 11.4.2 | After proportional scaling (deterministic), only the rounding remainder is reduced in a fixed order, leftover cash not redistributed — satisfies both. **v3**: amounts by the actual cost function, reduction order from the candidate with the highest fill ratio (A-108) | body within the Codex wording |
+| A-10 | `on_rebalance` callback and hold band (UX, Q6 "portfolio option") vs excluded from v1 (Codex) | 9.3 Q32, C6 | Dropped from v1 (R-13 pure-target guarantee). Hold band after v1 as `top(..., band=)` — the core of the Q6 decision (cost table, 0·1·2×) is in v1 | Codex (no conflict with user decisions) |
+| A-11 | exit stop loss as a daily rule only (design Q21 recommendation) vs order types implemented in v1 (user 9.0) | 9.1 Q21, 9.0 | User decision: stop, limit, stop-limit, TIF and partial fills implemented in the v1 state machine, the daily-bar adverse-side rule, intraday sequence is E4 | user > Codex |
+| A-12 | `fill="same_close"` (UX E11) vs no same close in operation (Codex) | 11.4.1 | No same-close fills. E11 rewritten as the daily-bar limit and stop approximation warning | Codex |
+| A-13 | whether an open fill is possible, from the close limit-up/down flag (sources) vs a different time window (Codex) | C4 | The open phase decides by the open and the limit-up/down prices (tolerance 0.5%), intraday by the whole-day lock (`locked_*`) | Codex |
+| A-14 | dividend withholding tax: neither sources nor Codex mention it | new | Default 0 (pre-tax), configurable, open item O6 | spec decision |
+| A-15 | rights offerings and spin-off foundations: not supported (Codex) vs common in Korean data | 11.4.3 (9) | Rights get the explicit policy `lapse` (recorded, counted, estimated value reported), only spinoffs with information are processed, the rest `fail` (remeasured in O9) | explicit policy within Codex |
+| A-16 | timing of new shares from stock dividends | 11.4.3 | Quantity on the ex-date, sellable from the pay (listing) date (`at_pay_date`), configurable | Codex "no fake holdings" |
+| A-17 | where notebooks run: the laptop (user) vs the Mac mini (Codex) | 9.3 Q33, Q9 | Computation on the Mac mini (where the data is), the laptop attaches through an SSH Jupyter kernel. The engine makes no remote calls | user (both satisfied) |
+| A-18 | default numeric type float32 (R-33) vs float64 (Codex) | 9.3 Q25, C7 | float64 only. `precision="float32"` is E18 | Codex (no user decision) |
+| A-19 | benchmark: cap-weighted investable universe (sources) vs none (Codex) | 9.3 Q30 | User decision 9.0: KOSPI and S&P 500 total-return indices, n/a when not in the snapshot (not built) | user |
+| A-20 | `realistic` costs at once (sources Q6) vs after the tables are complete (Codex) | 9.3 Q28 | User decision 9.0: simple bp + a "provisional cost" mark before the tables are complete → `provisional` default, `realistic` needs verified coverage (E23) | user |
+| A-21 | automatic DSR (sources) vs not computable before the trial population exists, M6 (Codex) | 9.3 Q27, C10 | DSR shown on every backtest (user 9.0 "show DSR"), N = number of distinct candidates, V[SR] = variance of candidate Sharpe, shown as PSR(0) when N=1, n/a without inputs. PBO only from sweep candidates. Full implementation M6, PSR from M3 | user + Codex conditions |
+| A-22 | whether the bottom 20% microcaps are excluded by default | 9.3 Q31 | User 9.0: included by default, one line `exclude_microcap = true` | user |
+| A-23 | the R-36 holdout blocks today's screening | 11.4.5 | Segments do not block (A-07). screen and live only record exposure | user + Codex |
+| A-24 | P10 "1e-6/1e-9" vs "relative error" | 9.2-4 | `|a−b| ≤ atol + rtol·|b|`; float64 only, so atol = rtol = 1e-9 (L1); selections and ranks exact | Codex |
+| A-25 | when to run the truncation test: on save (research) vs on first run (UX R-54) vs diagnostic, after v1 (Codex) | 9.2-5, C8 | Static checks always; the truncation probe automatic per graph and snapshot when there are user functions (diagnostic, limits shown), implemented in M6 | Codex + UX |
+| A-26 | fork commit count 73 vs 102 | 9.2-1 | Unrelated to the norms (different reference points). Not written in the spec | – |
+| A-27 | daily rows 59,800,000 vs 60,700,000 | 9.2-2 | The producer export check reports numerator (investable universe) / denominator (all) | body |
+| A-28 | microcap and value-weighted options of `evaluate` | 9.2-7 | Through `evaluate(universe=nx.universe(..., exclude_microcap=True))`; value-weighted quantile returns after v1 (`quantile_weight="value"` reserved) | spec decision |
+| A-29 | unused numbers R-28·R-29 | 9.2-10 | Not used. New requirements from R-56 (1.4) | body recommendation |
+| A-30 | Nautilus 1.231.0 vs v2 rc | 9.2-11 | Pinned at the start of E4 (not an O item, 11.2) | body |
+| A-31 | memory note "backtests with zipline-reloaded" | 9.2-12 | 9.0 Q35: NexusBT for everyday work, zipline as the comparison reference (ADR-0011) | user |
+| A-32 | two inconsistent forms of 12-1 momentum, W1 "replace with momentum" | 9.2-13, C7 | `Returns(232).shift(21)` = 253-row window `close[-22]/close[0]−1` (T-12 test). Missing values propagate, no replacement | Codex |
+| A-33 | partial fills outside the panel (E0) vs participation cap and carry-over (UX) | 9.2-13, C4 | Capped partial fills and carry-over in the v1 state machine (user 9.0 points the same way) | user + Codex |
+| A-34 | hard-link exports vs adding columns at export time | 9.2-13, C9 | Same as A-05. Producer build files = the export shape as it is (stable keys) | Codex |
+| A-35 | `engine="auto"` (R-48) | C10, 11.3 | Not in v1, only `engine="panel"` | Codex |
+| A-36 | period window "30d" (R-47) | 11.3 | After v1 (11.3) | Codex |
+| A-37 | panel-style user functions (R-05) | C8 | After v1, `style="panel"` is E18 | Codex |
+| A-38 | R-13 wording | 11.4.6 | Changed to the INV-08 wording (canonical target; same account state gives the same order intent) | Codex |
+| A-39 | "returns are total returns including dividends" (design 3.6) vs `Price.close` adjusted only for splits (Codex) | 11.4.3 (1) | `Price.close` = split-only, as of that day; `Price.close_tr` = total return. ~~`Returns` default input is `Price.close`, as in zipline~~ → **v3**: zipline's `close` is adjusted for dividends too, so the default input of return-type factors is `Price.close_tr` (A-105). Labels and NAV are total return. `compat.zipline.USEquityPricing.close` = `close_tr` (the zipline adjustment DB reflects dividends too) | Codex + body |
+| A-40 | timing difference in the zipline comparison (previous-day data loader) | 11.8, design 5.1 | Preset `information_lag_sessions = 1`, result rows aligned by `prev_session(D)` | Codex |
+| A-41 | sleeve setting name `sleeves={"KR":0.5}` [est.] | design 3.6 | `[sleeves] KR, US` toml + `backtest(sleeves=)` | spec decision |
+| A-42 | cache key (four elements in sources) vs the whole meaning (Codex) | C9 | The key of 5.3.9 | Codex |
+| A-43 | index `runs/index.duckdb` (sources) vs SQLite (Codex) | 11.7 (8) | SQLite, append-only trigger. DuckDB removed from the engine dependencies | Codex |
+| A-44 | performance P5 10 s (sources) vs gate 30 s (Codex) | 3.10, 11.8 | Gate p95 ≤ 30 s, target 10 s. P6 gate 120 s, target 60 s | Codex |
+| A-45 | user decision Q1 "both currencies in the report" | 9.1 Q1 | Run output has KR net (KRW) and US net (USD) columns and a combined column in the base currency | user |
+| A-46 | `Strategy` has no risk-stage slot (LEAN structure) vs "one more noun" and cutting the v1 scope | SC-01, OQ-2, C6 | A `risk=` slot exists but defaults to `None` = `nx.risk.none()`, takes no account state, v1 implements only the identity. `stage`·`pre_risk_weight` in `TargetFrame` | blueprint (user confirmation OI-13) |
+| A-47 | hold band: user Q6 "portfolio option" vs Codex excluding it from v1 (A-10; relying on holdings breaks INV-08) | SC-02, OQ-1, A-10 | Defined as a target-state recursion relying on the previous decision's canonical target set instead of holdings (stays a pure function); an anchor added to INV-08. Norms and signature in v1, implementation T7.1 (v1.x), off by default. Replaces the hold-band part of A-10 | user Q6 + blueprint |
+| A-48 | v1 INV-03 "factor values bit for bit" (every node) vs the internal summation order of numpy in user functions | SC-03 | The bit promise only for registered kernels; user-function nodes "same window → same output". The addition order of registered kernels is defined (5.3.10, INV-13) | blueprint |
+| A-49 | start-date sensitivity: no property in v1 | SC-04, Freqtrade recursive-analysis | INV-14·P-START·M-* added. Built-in factors have finite windows, so it holds (EWMA included). User functions get a diagnostic (E32) | blueprint |
+| A-50 | probe dates: v1 random k vs false negatives (signals that did not occur) | SC-05, S-07 | Decisions with selection changes, corporate actions and financial changes first; the report gives the comparison-node ratio and the finite-cell ratio | blueprint |
+| A-51 | scenarios `scenarios: bool` vs adding a capacity scenario | SC-06, OQ-4, P5 | Widened to a list of names (`True` = the default 5), `capacity` off by default (P5 budget), on for sweep final candidates | blueprint |
+| A-52 | no attribution or exposure table / "exposure" is the same word as segment exposure | SC-07, OQ-3 | `attribution.parquet` (local, FX, cross, costs), `exposures.parquet` (holding exposures). The glossary separates the two | blueprint |
+| A-53 | risk that breadth and transfer-coefficient displays read like gates | SC-08, Q7 | Display only (not gates), with a sentence saying to read the expected IR as an upper bound | user Q7 |
+| A-54 | BHY, MinTRL and the Lo adjustment clutter the first screen | SC-09 | Two lines in FactorReport for BHY and breadth, one line in Run for MinTRL (at the end of the PSR line) and Lo (conditional), the rest in the HTML "hygiene" section | blueprint |
+| A-55 | N_eff vs user decision N = number of candidates (Q19·Q27) | SC-10, OQ-6 | N_eff and DSR(N_eff) as auxiliary lines, the default DSR uses N. v1.x | user > blueprint |
+| A-56 | fill-decision grounds and decision price missing from the record / impact fixed to one formula | SC-11 | Columns `fill_resolution`, `fill_rule`, `decision_price`, `arrival_price`; a general impact form (default = the square-root formula, so results are the same); every knob in the manifest (appendix C) | blueprint |
+| A-57 | user decision 9.0 "specify the rules and test against zipline" vs zipline's daily-bar triggering means something different from our OHLC rules [est.] | SC-12, OQ-9, 9.0 | Order types compared through a preset imitating zipline's meaning (L2-d; keeps 9.0's comparison test within this scope), our OHLC adverse-side rules only by hand-calculated golden answers. ADR-0021 "proposed", awaiting user confirmation (OI-20) — accepted by user decision 2026-10-28 [R6-03] | interpretation of a user decision (to be confirmed) |
+| A-58 | only `explain(term, …)` vs a request to explain the decision path | SC-13 | `explain` also takes a `Strategy` (recomputes), `Run.why` (from the outputs, M5) | blueprint |
+| A-59 | ledger reconciliation and status file vs "no scheduler or alerts" (L5) | SC-14 | Only `reconcile` and an atomic `status.json`; alerts and scheduling outside the engine. CLI exit code 4 | blueprint + L5 |
+| A-60 | L0 cache added vs disk around 95% and the cache budget | SC-15, risk 24 | L0+L1 together within `cache_max_gb`, deleted before snapshots, deleted together with the snapshot. A USS line in P7 because of memory mapping | blueprint |
+| A-61 | pyfolio and alphalens adapters vs "no dependency on those packages" | SC-16 | Adapters that only change shape, pandas an optional dependency, no import of those packages | blueprint |
+| A-62 | tax scenarios vs O6 withholding 0 | SC-17, OQ-7 | User decision 2026-10-28: `[taxes]` written by the user in the config file (5.6.11a), default none. T4.5b | decided (OI-18) |
+| A-63 | the settlement assumption is not visible in the config | SC-18, OQ-13 | Reserved key `[settlement] model = "immediate"` (one value in v1) | blueprint |
+| A-64 | no leakage check on the fitting segment of ML transforms | SC-19 | `fit_segment` and E29 reserved (number E29 as in the blueprint; new v2 errors from E30) | blueprint |
+| A-65 | name of the label end time: blueprint `label_end_utc` vs the TDS naming rule | SC-20, TDS K2 | `ts_label_start`, `ts_label_end`. The purging rule generalised to these columns | TDS naming rule |
+| A-66 | splitter argument name | SC-21 | `splits=` reserved (v1 only `None`) | blueprint |
+| A-67 | non-determinism of optimiser output vs INV-09 | SC-22 | Stated as an exception to bit determinism (only on the same solver version and machine), a rounding rule, a failure is a failure. Implemented after v1 | blueprint |
+| A-68 | exclusion reasons not reported / eligibility and tradability mixed up | SC-23 | Columns added to `coverage.parquet`; eligibility vs tradability in the glossary | blueprint |
+| A-69 | spec chapter 4 and TDS as two canonical texts | SC-24, OQ-12, TDS preamble | TDS is the canonical input text, chapter 4 holds only the engine-side reading rules. No difference breaks an engine invariant (B.3) | TDS > spec chapter 4 |
+| A-70 | decision clock of markets without sessions | SC-25 | Only the name `clock = "utc:HH:MM"` reserved | blueprint |
+| A-71 | numeric environment record vs exposing machine information in a public repository | SC-26, 2.7 | numba settings, BLAS summary, thread variables and CPU kind recorded; the host name only as `machine_id`, the first 16 characters of its sha256 | blueprint + publication decision |
+| A-72 | v1 "Strategy picklable" vs no pickle | SC-27, S-02 | No pickle in outputs, caches or checkpoints; Strategy kept only as source. No secret keys; other people's run folders need `--trust` | blueprint |
+| A-73 | `security_id` vs `instrument_id` | TDS-D1, TDS-Q1 | ~~The user API has the alias `security_id`~~ → **v3**: no alias, only `instrument_id` (three-reviewer review unanimous, RV-Q01). Defined in one place in the preamble + one constant | three-reviewer review > TDS recommended default |
+| A-74 | `*_utc` column names vs `ts_*` | TDS-D2 | Input columns use TDS names. Engine output follows the same rule (`ts_event`, `ts_created` …). Exceptions: the engine terms `decision_ts`, `inception_ts` stay | TDS |
+| A-75 | snapshot `manifest.json`·`columns.json` vs `tds.json`·`dictionary/` | TDS-D3 | Input is `tds.json`. The run folder's `manifest.json` (an engine output) is something else and keeps its name | TDS |
+| A-76 | time unit | TDS-D4 | v1 daily bars and financials stay in us. ns for ticks (E4) | TDS |
+| A-77 | partition `country=` | TDS-D5 | `market=` | TDS |
+| A-78 | `instrument_master`·`symbol_history` | TDS-D6, D7 | `instruments`, `instrument_symbols` (+ `instrument_xref`). `Meta.country/exchange` are aliases of `Meta.market/venue_mic` | TDS |
+| A-79 | `price_limit_pct`·`rule_version` of the session table | TDS-D8 | Removed from the session table. Order for finding the limit = `tradability_daily` prices → ratio × reference price → engine CSV | TDS |
+| A-80 | `shares_out` and factor names of bars | TDS-D9, TDS-Q4 | Share counts by point-in-time lookup of `share_counts` (5.3.5a), factors `cum_factor_*` (same meaning) | TDS |
+| A-81 | `tradability_1d` columns | TDS-D10 | `halted_full_day`, `price_limit_ratio`, `reference_price`, `admin_status`; `trading_status_events` not read in v1 | TDS |
+| A-82 | more corporate-action kinds vs the engine's v1 handling scope | TDS-D11 | Kind → handling table (4.6). A null `price_factor` gives window NaN instead of a hidden 1.0 (INV-12). `exchange_offer` not supported (policy) | TDS + spec |
+| A-83 | one classification `known_at` vs two time axes | TDS-D12 | Both the effective period and the known period must hold | TDS |
+| A-84 | `exits.parquet` | TDS-D13 | `delistings` (`ts_exit_known`, `ts_value_available`) | TDS |
+| A-85 | `fund_state`·`facts_pit` | TDS-D14 | `fundamentals_state` (`ts_known_from/to`), `fundamentals_events` | TDS |
+| A-86 | `benchmarks_1d` table | TDS-D15 | Index = `instruments(asset_class=index)` + `bars`, the setting value is the instrument id (`IDX:KOSPI_TR`) | TDS |
+| A-87 | `universe_1d.is_investable`, index membership as a `classif_pit` scheme | TDS-D16 | `eligibility_daily(rule_id, is_eligible, reason)`, membership in `universe_membership` | TDS |
+| A-88 | `fx_1d` | TDS-D17 | `fx_rates(rate_kind, ts_event)`, with several series chosen by `[fx] series` | TDS |
+| A-89 | `panel_monthly`·`labels_monthly` | TDS-D18 | `name` (setting `[panels]`) and `period` of `feature_panels`·`label_panels` | TDS |
+| A-90 | partition columns in the logical hash, partition columns inside files | TDS-D19, D20 | Partition columns hashed with their path values, not put in the files | TDS |
+| A-91 | engine open checklist (v1 4.18) | TDS-D21 | The three levels of the TDS checker as a library, TDS codes in E14. `schema` level added to `[data] verify` | TDS |
+| A-92 | `LATEST`·`PINS`·retention | TDS-D22 | Outside the standard, kept as a reference producer convention. For other producers one folder is enough | TDS |
+| A-93 | engine resource `kr_price_limits_v1.csv` | TDS-D23 | Kept as an engine resource, column `limit_ratio` (ratio units unified) | TDS |
+| A-94 | synthetic generator format | TDS-D24 | Uses the TDS package and passes `tds check --level full`, `degrade=` added for fallback tests | TDS + spec |
+| A-95 | data fallback behaviour vs INV-12 "no hidden substitution" | R-67 | Fallbacks are a defined table (4.5), always E30 + manifest. Can be turned off (`fallbacks="fail"`). Fails when the result cannot be defined | spec decision |
+| A-96 | README "76 tickets" vs 90 actual in v1 | README, v1 chapter 10 | v2 counts 112 (90 + 22 new), written in 10.0. README fixed at its next update (this work does not change the README) | spec |
+| A-97 | user memory "personal research only (no redistribution, not public)" vs the 2026-10-27 publication decision | user decision, TDS-Q5 | The publication decision wins: code, spec, TDS and checker public, only real data private. The memory rule applies to data only | user |
+| A-98 | TDS in the engine repository or separate | user decision (separate versioning), blueprint | A `tds/` workspace member of the same repository; versions, change log, tags and distributions separate (`nexusbt-tds`) | user |
+| A-99 | TDS 8.5 "checker reference implementation DuckDB (read only)" vs no DuckDB import in the engine | TDS 8.5, 2.5 | This repository's checker uses pyarrow only. Results (codes and meaning) same as TDS | spec > TDS implementation note |
+| A-100 | Apache-2.0 engine vs NautilusTrader LGPL-3.0 | publication decision, design risk 8 | Nautilus an optional dependency (import only, no copying). No LGPL code in the default install [est.: not legal advice] | spec decision |
+| A-101 | blueprint "about 6 new tickets" vs 22 new tickets in v2 | blueprint chapter 13 | TDS checker (3), fallback tests (1), v2 hand calculations (1), share counts (1), hygiene metrics (2), adapters and why (2), start-date probe (1), capacity (1), v1.x (5) added and split to keep the 400-line rule. All 6 of the blueprint included (T1.21, T3.19, T4.10, T5.7, T6.12, T7.1) | spec |
+| A-102 | real data without opens vs default execution "next-day open" (Q5) | 9.1 Q5 | Not silently switched to the close: `at="open"`, limits and stops in that market are E18 before running; if the user chooses `at="close"` it runs (assumption recorded). If only some rows lack it, only those rows are `blocked(no_open)` | user Q5 > convenience |
+| A-103 | plinth `--private` vs public | user decision | `--private` dropped, publication confirmation command. Creating after the name is settled recommended (OI-05) | user |
+| A-104 | every place where the three-reviewer review hit a normative sentence of v2 | `review/consensus.md` | Fixed as the consensus says (unanimous or 2:1, final positions of round 2) with `[RV-…]` at the end of the sentence. No consensus conflicts with user decisions (9.0) (all three reviews keep 9.0) | three-reviewer review < user decisions |
+| A-105 | `Returns` default input `close` (v2 A-39) vs the meaning of the zipline adjustment DB | RV-I02 | Return-type default `close_tr`, level factors `close`. L1-a compares default inputs with each other | three-reviewer review (unanimous) |
+| A-106 | labels: adjusted-price ratio (Fable) vs economic holding return (Sol·Opus) | RV-C04, RV-D2 | By 2:1 the economic holding return is the default (reinvested at the ex-date close, CRSP style), `fwd_return_adj` kept. Cash-holding variant v1.x | three-reviewer review (2:1) |
+| A-107 | window kernels: fixed-anchor running sum (Opus r1, withdrawn) / block partial sums (Fable r2) / left fold (Sol) | RV-D1 | Start with definition A (left fold), B (absolute block partial sums) pre-registered, switch by M1 measurement (ADR-0019). Running sums stay forbidden | three-reviewer review + measurement |
+| A-108 | sizing: a reserve net of receivables (Fable r1) vs size on assets, execute with cash (Sol·Opus) | RV-C06, RV-Q07 | Asset basis kept (Fable withdrew), quantity buyable under the actual cost function, bias of the reduction order removed, knob `cost_reserve_bps` default 0 | three-reviewer review |
+| A-109 | stop-limit intraday: close confirmation (Fable r1, withdrawn) vs immediate fill on the continuous path (Sol·Opus) | RV 2.4 | Current rule kept + boundaries, cap and trigger persistence stated, an assumption sentence. Close-confirmation model optional in v1.x | three-reviewer review (unanimous) |
+| A-110 | Strategy universe as an implicit mask (Opus r1, withdrawn) vs masks do not affect upstream (3.3) | RV-Q06 | Default domain definition + explicit mask + notice E34 | three-reviewer review (unanimous) |
+| A-111 | markets without rules run with one warning (Opus r1, revised) vs a support boundary (Sol) vs `allow_untested` (Fable) | RV-I08, RV-D8 | Names from the data, rules from packs, E18 without a pack, `allow_untested` optional (recorded). Same as the user's instruction | three-reviewer review + user instruction |
+| A-112 | close backtests with `minimal-daily` (Fable r1, withdrawn; TDS v1 chapter 7 promise) vs analysis path only (Opus·Sol) | RV-I03 | Analysis path only; economic backtests need raw prices + events (E18). TDS chapter 7 sentence fixed | three-reviewer review (unanimous) |
+| A-113 | freezing the tick and derivatives schemas in 1.0 (v2) vs experimental (Sol) | RV-I07 | experimental, outside the 1.0 compatibility promise. The "structure ready" goal is met by shapes and Protocols | three-reviewer review (unanimous) |
+| A-114 | `eligibility_daily` carry-forward (v2 5.1.5) vs no row = false (v2 3.6, TDS 5.20) | RV-C09 | No carry-forward, TDS default availability rule `session_close` | three-reviewer review (unanimous) |
+| A-115 | M0 size and a hand-calculation engine (v2) vs golden tickets before the consuming tickets | RV-I05 | M0 reduced, hand calculations are per-case arithmetic, implementation PRs cannot change expected values | three-reviewer review (unanimous) |
+| A-117 | design 9.0·9.1 Q2 "v1 long only" vs user decision 2026-10-28 "shorting in v1 but off by default, symmetric with long" | user decision | The new user decision wins: signed holdings and weights are the core, `[shorting] enabled = false` is the default and then results are bit-identical to long only (INV-22, P-SHORT-OFF). Borrow cost, collateral and proceeds interest are user settings, no data on borrow availability (assumption sentence), Korean ban periods in the pack [V31-LS-01] | user |
+| A-118 | 3.4 "zipline behaviour is the golden answer in the L1 comparison" vs 8.1 "zipline's known bugs are not taken as golden answers" | teardown TD-BUG-10 | The hand-calculated golden answer (T-25) decides; where zipline is wrong, `KNOWN_DIFFERENCES.md` [V31-24] | spec (contradiction resolved) |
+| A-119 | teardown proposals that hit user decisions: LEAN comparison preset (9.0 Q35), provisional cost defaults as tier tables (9.0 Q28 and "commissions are user settings"), `risk.exposure` implemented in v1 (OI-13), VWAP fill order mode (9.0 orders) | teardown MATRIX chapter 2 | User decisions kept: LEAN preset dropped, tier tables optional (default fixed bp), `risk.exposure` and VWAP v1.x | user decision |
+| A-116 | v2 with the strings `KR`·`US`·`XKRX`·`XNYS` in code and config keys vs a public engine | RV-I08 | Market keys are data values, config keys are `{MARKET: …}` tables, pack resources | three-reviewer review |
+| A-120 | f64 ratios: majority "simplest rational in the interval" (Opus·Fable) vs "do not fit" (Sol) vs counterexamples to the majority proposal itself (1.2 → 5/4, 0.4237 → 25/59) | R3-06 | Majority proposal + decimal-term conditions (d ≥ 4, q ≤ 20, repeating decimals) + noise 1e-8 + Sol's decimal-literal fallback; wrong exact ratio E13 — **removed in v3.4**: the whole inference rule replaced by A-128's required exact ratio [R4F-01, R6-08] | user instruction + three-reviewer consensus |
+| A-121 | terminal value: v3.1 5.6.13 (`ref*` unconditionally) vs G-55 vs TDS 5.13 "false → multiply by the factor" | R3-05 | Three bases (observation included, observation excluded, policy), TDS 5.13 sentence fixed, late flags append only | three reviewers + user instruction |
+| A-122 | hard-link reuse (implementation of user decision 2026-10-28 V31-PUB) vs APFS clones | R3-16 | The new user decision wins: clone first, hard link as fallback, read only, file identity | user |
+| A-123 | v1 "cash earns 0%" (RV-Q02, 10.1 later) vs cash interest | R3-25 | New user decision: `cash_rate_bps` in v1, default 0 | user |
+| A-124 | "cash does not go below 0" (5.6.7) vs no forced liquidation + obligations that must be paid | R3-09 | New user decision: obligations as negative cash (not fills), bankruptcy `ruined` | user |
+| A-125 | tie key: v3.1 decision salt vs `graph_hash` salt (Fable) vs fixed salt (Opus·Sol) | R3-12 | Fixed salt, the same key for `Factor.top/rank`, only comparisons use `id` | three reviewers + user instruction |
+| A-126 | INV-01 "only toward reducing" vs the original G-56·P-FILLCAUSAL | R3-03 | An ex-post feasibility cap sentence, two properties (fixed-volume H/L/C variation, isolated-order monotonicity) | three reviewers (unanimous) |
+| A-127 | v3.1 resolver `ts_pub = coalesce(terms, …)` vs 5.3.3a(4)·G-20 | R3-01 | Existence time and terms time separated, entitlement quantity fixed | three reviewers (unanimous) |
+| A-128 | f64 ratios: lower thresholds (Opus·Fable) vs required exact ratio (Sol) | R4F-01 | Exact ratio required, f64 inference removed, decimal literals only by user setting | user decision 2026-10-28 |
+| A-129 | unknown inclusion of delisting distributions: proceed conservatively + warn (Opus·Fable) vs stop with E13 (Sol) | R4F-05 | Majority proposal as default + option `[delisting] unknown_inclusion = "error"` | majority + the stricter side as a setting |
+| A-130 | preview: exposure only (Opus·Fable, designer default) vs counted as a trial (Sol) | R4F-15 | Counted as a trial (new strategy candidate +1, observation `fidelity="preview"`), first line "not a research result" kept | the safer rule (does not undercount trials) |
+| A-131 | account rules written before market rules: silent reordering (designer default, Fable) vs E16 (Opus·Sol) | R4F-26 | E16 | majority + no silent failure |
+| A-132 | fixing G-90: `costs.none()` (Fable alternative) vs K = 1,001,000 won (Fable·Sol) | R4F-12 | K = 1,001,000 won (tests the cost computation as it is) | majority |
+| A-133 | exit redemptions and negative cash: drop / fill into negative / carry over | R4F-06 | Carry over `blocked(cash)`, long sells first, INV-06 unchanged (all three reviews point the same way) | three reviewers |
+| A-134 | when an event-incremental decision exceeds a whole-book constraint: reduce existing targets / forbid the combination (E16) / reduce only new targets (Sol EV01 option) | R4G-02 | Only new targets reduced by `k` + `event_book_cap` reported (existing holdings not silently changed) | keeps the meaning of existing decisions, deterministic and visible |
+| A-135 | whether the margin account is in v1 | R4G-MG-02 | v1, off by default (`type = "cash"`), bit-identical when off (P-MARGIN-OFF) | user decision 2026-10-28 |
+
+---
+
+## Appendix B. Requirement map
+
+Status: **v1** = implemented by this spec, **changed** = implemented with a corrected meaning, **later** = after v1 (with the reason), **reserved** = name only. M is the milestone at which it first holds; the ticket is the representative ticket (the issue number once made into an issue).
+
+### B.1 Requirements R, performance P
+
+| Requirement | Section | M | Status | Ticket |
+|---|---|---|---|---|
+| R-01 import surface | 3.1, 2.5 | M0 | v1 | T0.2a |
+| R-02 every feature with daily data alone | 1.1 | M1 | v1 | T1.13 |
+| R-03 zipline names and meanings | 3.3, 3.4 | M1 | v1 | T1.5, T1.9~T1.11 |
+| R-04 column attributes, stubs, typos | 3.2 | M1 | v1 | T1.6 |
+| R-05 user functions in two styles | 3.3 | M1 | changed (window style only; panel later, A-37) | T1.12 |
+| R-06 zipline compatibility layer | 3.4, T1.16 | M1 | v1 | T1.16 |
+| R-07 declarative Strategy | 3.7 | M3 | changed (no `on_rebalance`, `risk=` slot, A-10, A-46) | T3.2 |
+| R-08 `nx.param` | 3.7 | M3 | v1 | T3.2 |
+| R-09 function and CLI list | 3.8, 3.10 | M5 | v1 | T5.4 |
+| R-10 result object display | 3.9 | M2 | v1 | T2.10a, T3.13a |
+| R-11 counts beside ratios | 3.9 | M2 | v1 | T2.10a |
+| R-12 structure hash, reuse | 5.3.9 (L0·L1) | M6 | changed (semantic key, A-42) | T1.5, T6.4, T6.12 |
+| R-13 screen = backtest | 5.5, INV-08 (anchor) | M3 | changed (A-38) | T3.1, T3.16, T7.1 |
+| R-14 plan pruning | 5.3.2 | M1 | v1 | T1.7a/b |
+| R-15 truncation test | 6.5 | M6 | changed (diagnostic, date priority SC-05, A-25, A-50) | T6.9 |
+| R-16 labels only in target | 6.5 | M2 | v1 | T2.6 |
+| R-17 known_on rule | 5.1 | M2 | changed (`available_at <= decision_ts`, fundamentals_state) | T2.1, T2.2 |
+| R-18 adjustment as of that day | 5.3.3 | M1 | v1 | T1.8 |
+| R-19 units, E5, `.to()` | 3.3, 5.1.5 | M2 | v1 | T2.5 |
+| R-20 reading snapshots directly | chapter 4 (TDS v1) | M1 | v1 | T1.1a/b |
+| R-21 export list | 4.5, 10.2 | E1 | v1 (reference producer side) | reference producer |
+| R-22 column dictionary | 3.2, 4.6 | M1 | v1 | T1.6 |
+| R-23 trace columns, explain | 4.6, 3.9 | M2 | v1 | T2.11 |
+| R-24 external data known_on | 3.2 | M2 | v1 | T2.6 |
+| R-25 cost table versions | 4.7, 5.6.8 | M3 | v1 | T3.8, T4.5 |
+| R-26 bench suite | chapter 7 | M6 | v1 | T1.24 |
+| R-27 automatic chunking | 5.3.8 | M6 | v1 | T6.5 |
+| R-30 run folder | 5.9 | M1 | v1 (from evaluate) | T1.14a/b |
+| R-31 rerun, determinism | 5.9.4 | M1 | changed (physical/value/semantic hashes, fails without dependencies) | T1.15 |
+| R-32 output in parts | 5.9.1 | M1 | v1 | T1.14a/b |
+| R-33 float32 computation | 3.11 | – | changed (float64, A-18) | T0.5a |
+| R-34 index, trial count | 5.9.5 | M2 | changed (SQLite, A-43) | T2.9 |
+| R-35 study | 6.2 | M2 | changed (name + UUID, A-04) | T2.9 |
+| R-36 blocking the holdout | 6.1 | M2 | changed (segments, exposure, A-07) | T2.9 |
+| R-37 evaluate report | 5.8 | M2 | v1 | T2.8, T2.10a, T2.16 |
+| R-38 backtest report (including 0×, 1×, 2×) | 5.7 | M3 | v1 | T3.13a, T3.20 |
+| R-39 sweep PBO, DSR, matrix | 6.3 | M6 | v1 | T6.8 |
+| R-40 static check in 1 second | 6.5 | M2 | v1 | T2.12 |
+| R-41 progress display | 3.9, T6.10 | M6 | v1 | T6.10 |
+| R-42 user exceptions as they are | 6.6 | M1 | v1 | T1.12 |
+| R-43 scope of blocking | 6.6 | M0 | changed (A-01) | T0.4 |
+| R-44 user experience order | 10.0 | all | v1 | 10.0 |
+| R-45 step-by-step examples | 8.5 | all | v1 | T1.20, T2.14, T3.18, T4.9, T5.6 |
+| R-46 no per-asset arguments | 11.3 | E4 | later (boundary only) | – |
+| R-47 period windows | 11.3 | E4 | later (A-36) | – |
+| R-48 engine choice | 11.1 | E4 | changed (`panel` only, A-35) | – |
+| R-49 ledger adapters | 5.9.6~5.9.7, 11.4 | M5 | v1 (paper), brokers later | T5.1~T5.3, T5.7 |
+| R-50 zipline comparison | 8.1 | M1~M3b | changed (scope narrowed, SC-12, A-57) | T1.17, T1.18, T2.13, T3.17a, T3.17b |
+| R-51 future-information test list | 8.4 | M2, M6 | v1 | T2.6, T6.9, T6.13 |
+| R-52 survivorship, currency, segment tests | 8.4 | M2 | v1 | T2.4, T2.5, T2.9 |
+| R-53 documentation example tests | 8.5 | all | v1 | T1.20 |
+| R-54 automatic truncation | 6.5 | M6 | changed (diagnostic, A-25) | T6.9 |
+| R-55 zipline preset | 5.6.15 | M3 | changed (tests only, A-40) | T3.15a/b |
+| R-56 order types | 3.7, 5.6 | M3 | changed (OHLC rules by hand-calculated tests, A-57) | T3.4~T3.7, T3.17a/b |
+| R-57 segments, no locks | 6.1 | M2 | v1 | T2.9 |
+| R-58 micro-caps | 3.6 | M2 | v1 | T2.4 |
+| R-59 benchmark | 4.6, 5.7 | M4 | v1 | T4.6 |
+| R-60 pay-date estimate | 5.6.11 | M3 | v1 | T3.10 |
+| R-61 provisional costs | 5.6.8 | M3 | v1 | T3.8 |
+| R-62 sleeves, clocks | 5.1.3, 5.6.9 | M4 | v1 | T4.1, T4.2 |
+| R-63 fundamentals_state | 4.6, 5.3.5 | M2 | v1 | T2.2 |
+| R-64 zipline only as oracle | 2.5, 8.1 | M0 | v1 | T0.2a |
+| R-65 plinth loop | chapter 9 | M0 | v1 | T0.1, T0.10 |
+| R-66 TDS as the input contract | chapter 4, 2.3 | M0 | v1 | T0.13a/b, T0.14a~c, T0.15a/b, T1.1a/b |
+| R-67 announcing fallbacks | 4.5 | M1~M3a | v1 | T0.16a/b, T1.1b, T2.2, T2.3, T2.4, T3.10, T3.11 |
+| R-68 market names are data, rules are packs | 4.7, 3.11 | M0, M4 | v1 | T0.5a, T1.1a, T4.4, T4.11 |
+| R-69 public first path (CSV → rerun) | 4.3, 8.5 | M1, M2 | v1 | T1.22, T1.23, T2.17 |
+| R-70 release gate | 9.1, 10.0 | M6 | v1 | T6.15, T6.16 |
+| P1 import + open 1.5 s | chapter 7 | M1 | v1 | T1.1a/b, T6.11 |
+| P2 screen 2 s | chapter 7 | M3/M6 | v1 | T6.11 |
+| P3 evaluate 5 s / 1 s | chapter 7 | M2/M6 | v1 | T6.11 |
+| P4 daily IC 30 s | chapter 7 | M6 | v1 | T6.11 |
+| P5 backtest 30 s gate / 10 s target | chapter 7 | M6 | changed (A-44) | T6.11 |
+| P6 sweep 120 s / 60 s | chapter 7 | M6 | changed (A-44) | T6.11 |
+| P7 RSS 4 GB | chapter 7 | M6 | v1 | T1.24, T6.11 |
+| P8 static check 1 s | chapter 7 | M2 | v1 | T2.12 |
+| P9 extra time for truncation | chapter 7 | M6 | changed (report only) | T6.9 |
+| P10 comparison tolerance | 8.1 | M1 | changed (A-24) | T1.17, T3.17a/b |
+
+### B.2 Spec changes SC-01~SC-27 (blueprint chapter 13)
+
+| SC | Class | Content | Section | Ticket | Status |
+|---|---|---|---|---|---|
+| SC-01 | addition | `risk=` slot, `nx.risk.none`, `TargetFrame.stage/pre_risk_weight` | 1.1, 3.7, 5.5.1–5.5.2 | T3.1, T3.2 (v1.x T7.3) | v1 |
+| SC-02 | normative | target-state recursion, anchor, `top(hold=)`, INV-08 wording | 1.3 INV-08, 3.7, 5.5.3, 5.1.3 `anchor_decision_id` | T3.1 (signature, E18), T3.2, **T7.1** | norm v1, implementation v1.x |
+| SC-03 | normative | kernel numeric rules, INV-03·04 wording, INV-13 | 1.3, 3.4, 5.3.10, ADR-0019 | T1.7a/b, T1.11, T1.19, T6.2, T6.3 | v1 |
+| SC-04 | addition | P-START, M-SCALE·DUMMY·SPLIT-NEUTRAL·CCY·SLEEVE, `check(start_probe=)`, E32 | 1.3 INV-14·15, 6.5, 8.3 | **T1.21**, T4.8, **T6.13** | v1 |
+| SC-05 | normative | probe date priority, comparison nodes, finite-cell report | 6.5 | T6.9 | v1 |
+| SC-06 | addition | `scenarios` name list, `capacity` | 3.8, 5.7, 5.9.1 | T3.13b (arguments), **T6.14** | v1 |
+| SC-07 | addition | `attribution.parquet`, `exposures.parquet`, `fx contribution` line | 3.9, 5.6.9, 5.7, 5.9.1 | T3.14 (costs), **T4.10**, T4.7 (Brinson T7.5) | v1 (Brinson v1.x) |
+| SC-08 | addition | breadth, expected IR (evaluate), transfer coefficient (backtest) | 5.7, 5.8, 3.9 | **T2.16**, **T3.20** | v1 |
+| SC-09 | addition | BHY, MinTRL, Lo Sharpe, drawdown duration, recovery, worst month | 5.7, 5.8, 6.3 | **T2.16**, **T3.20** | v1 |
+| SC-10 | addition | N_eff, DSR(N_eff) | 5.7, 6.3 | **T7.2** | v1.x |
+| SC-11 | addition | fill record columns, general impact form, manifest of every knob, appendix C | 3.7, 5.6.2, 5.6.4, 5.6.8, 5.9.1–5.9.2, appendix C | T3.4, T3.6, T3.8, T3.14 | v1 |
+| SC-12 | normative | narrowed zipline comparison scope, L2-d, preset trigger line | 1.4 R-56, 5.6.15, 8.1, ADR-0021 | T3.15a/b, T3.17a/b | v1 (user confirmation OI-20) |
+| SC-13 | addition | `explain(strategy)`, `Run.why` | 3.8, 3.9, 5.9.9 | **T3.19**, **T5.9** | v1 |
+| SC-14 | addition | `reconcile`, `status.json`, exit code 4 | 3.8, 3.10, 5.9.6–5.9.7 | **T5.7**, T5.4 | v1 |
+| SC-15 | addition | L0 raw block cache, P7 USS | 5.3.9, 7, ADR-0025 | T1.4 (key), **T6.12**, T6.4 | v1 |
+| SC-16 | addition | ecosystem adapters, evaluate `signal.parquet` | 2.3, 3.9, 5.8, 5.9.8 | **T5.8** | v1 |
+| SC-17 | implementation | `[taxes]` user-configured taxes | 3.11, 5.6.11a | T0.5a, T4.5b | v1 |
+| SC-18 | reserved | `[settlement] model` | 1.1, 3.11, 5.6.7 | T0.5a | reserved |
+| SC-19 | reserved | `fit_segment`, E29 | 1.1, 6.5, 6.6 | T0.4, T2.9 | reserved |
+| SC-20 | normative | `ts_label_start/end`, generalised purging, triple barrier = exit decision | 3.7, 4.6, 5.8 | T2.7 | v1 |
+| SC-21 | reserved | `splits=`, `nx.splits.*` | 3.1, 3.8, 6.3 | T2.9 | reserved |
+| SC-22 | reserved | `nx.risk`, `nx.portfolio.optimize`, `[opt]` | 1.1, 2.2, 2.3, 5.3.10(6), 5.5.2 | T0.2a (names) | reserved |
+| SC-23 | addition | `coverage.parquet` columns, eligible vs tradable | 1.2, 3.6, 5.9.1 | T2.4, T3.14 | v1 |
+| SC-24 | normative | chapter 4 → TDS references, renames | all of chapter 4, the whole spec | T0.13a~T0.16b, T1.1a/b | v1 |
+| SC-25 | reserved | `clock = "utc:HH:MM"` | 1.2, 3.11, 11.3 | T0.5a, T4.1 | reserved |
+| SC-26 | addition | numeric environment record | 5.9.2 | T1.14a/b | v1 |
+| SC-27 | addition | `rerun --trust`, no secret keys, no pickle | 2.5, 2.6, 3.10, 3.11, 5.9.3 | T0.2a, T0.5a, T1.14a/b, T1.15 | v1 |
+
+### B.3 TDS differences D1~D24 → where this spec reflects them [SC-24]
+
+Engine invariant check: of the 24 differences, none breaks INV-01 (the one rule of publication time) or A-05 (no integer index in files) (OQ-12 → OI-23).
+
+| TDS-D | Content | Where reflected | Ticket |
+|---|---|---|---|
+| D1 | `security_id` → `instrument_id` (v3: no alias) | header, 3.1, throughout | T0.3 |
+| D2 | `*_utc` → `ts_*` | throughout, 5.9 outputs | T0.3, T1.14a/b |
+| D3 | `manifest.json`+`columns.json` → `tds.json`+`dictionary/` | 4.1, 4.4, 3.2 | T0.13a/b, T1.1a/b, T1.6 |
+| D4 | time unit us/ns | 4.6, 11.3 | T0.13a/b |
+| D5 | `country=` → `market=` | 4.6 | T1.4 |
+| D6 | `instruments` | 4.6, 3.2 `Meta` | T0.6, T1.6 |
+| D7 | `instrument_symbols` + `instrument_xref` | 4.6 | T0.6 |
+| D8 | price limits and rule edition removed from the session table | 4.6, 5.6.5 | T4.4 |
+| D9 | `shares_out` → `share_counts`, factor names | 3.2, 5.3.3, 5.3.5a | T2.15, T1.8 |
+| D10 | `tradability_daily` columns, `trading_status_events` | 4.6, 5.6.5 | T3.5a/b |
+| D11 | `corporate_actions` columns and kinds | 4.6 correspondence table, 5.3.3–5.3.4, 5.6.10–5.6.12 | T3.9–T3.11, T1.8 |
+| D12 | `classifications` two time axes | 4.6, 5.1.5, 5.3.6 | T2.1, T2.3 |
+| D13 | `delistings` | 4.6, 5.6.13 | T3.11 |
+| D14 | `fundamentals_state` + `fundamentals_events` | 4.6, 5.3.5, 3.9 Explanation | T2.2, T2.11 |
+| D15 | benchmark = index instruments + bars | 4.6, 3.11, 5.7 | T4.6 |
+| D16 | `eligibility_daily` + `universe_membership` | 3.6, 4.6, 5.1.5 | T2.3, T2.4 |
+| D17 | `fx_rates` | 4.6, 3.11 `[fx] series`, 5.1.5, 5.6.9 | T2.5, T4.2 |
+| D18 | `feature_panels`/`label_panels` `name=` | 3.2, 3.11 `[panels]`, 4.6 | T2.3, T2.7 |
+| D19 | value hash (v2 logical hash) includes partition columns | 4.2, 5.9.4 | T0.14c |
+| D20 | no partition columns inside files | 4.6 | T0.13a/b, T1.4 |
+| D21 | checker stages and codes, E14 carries the TDS code | 4.4, 6.6 E14 | T0.13a~T0.15b, T1.1a/b |
+| D22 | `LATEST` and `PINS` are outside the standard | 4.2 | reference producer |
+| D23 | `kr_price_limits_v1.csv` kept as an engine resource | 4.7 | T4.4 |
+| D24 | the synthetic generator is a TDS package, `test_synth_conforms` | 4.8, INV-17 | T0.6~T0.8c, T0.16a/b |
+
+---
+
+### B.4 Three-reviewer review consensus RV → where this spec reflects it [`review/consensus.md`]
+
+| RV | Priority | Content | Where reflected | Ticket |
+|---|---|---|---|---|
+| C01 | P0 | account information at decision time (delisting recovery) | INV-01, 5.1.5, 5.6.9, 5.6.13 | T3.3, T3.11, T3.Gc(G-42) |
+| C02 | P0 | stage order, late bar `ready` | 5.1.2, 5.2, 5.6.3 | T1.3, T4.1, T4.G(G-50), T1.G(T-20) |
+| C03 | P0 | corporate-action resolver | 5.3.3a, 5.3.4, 5.3.5a, 4.6, 5.6.10~5.6.12 | T0.15a, T0.15b, T1.8, T3.9~T3.11 |
+| C04a | P0 | three label times, purging | 5.8, 4.6 | T2.7, T2.G(T-22) |
+| C04b | P1 | economic label default | 5.8, 3.8, 3.11 | T2.7, T2.G(T-21) |
+| C05 | P0 | order life, trigger persistence, quantity conservation, exit orders | 3.7, 5.6.2, 5.6.2a, 5.6.4, INV-18, appendix C | T3.4, T3.6, T3.7, T3.Gb |
+| C06 | P0 | buyable quantity, intraday funds | 5.6.3, 5.6.7 | T3.5b, T3.6, T3.8 |
+| C07 | P0 | integer minor units, NAV bridge, cost attribution, annual linking | INV-06, 5.6.1, 5.6.8, 5.6.9, 5.7, 5.9.1 | T3.3, T3.14, T4.10 |
+| C08 | P0 | rectangular lookup, keys, after-the-fact attributes | 3.2, 4.6, 5.3.6 | T0.14a/b, T2.1, T2.3 |
+| C09 | P0 | missing eligibility = false, strict quality | 3.6, 4.4, 5.1.5, 4.8(10) | T0.7, T2.1, T2.4 |
+| C10a | P0 | three hashes (physical, value, semantic) | 1.2, 4.2, 5.3.9, 5.9.2, 5.9.4 | T0.14c, T6.12, T6.4 |
+| C10b | P1 | cache dependencies (captured constant globals, external inputs, query policy) | 5.3.7, 5.3.9, 6.5 | T1.5, T1.12, T6.4 |
+| C11 | P0 | property premises, `every` anchor, leakage tests, numeric grades | INV-03·11·13~15, 3.7, 5.3.10, 8.3, 8.4 | T1.3, T1.7b, T1.19, T1.21, T4.8, T6.2, T6.9 |
+| C12 | P1 | candidates, observations, cohorts | 1.2, 5.7, 5.8, 5.9.5, 6.2, 6.3 | T1.14b, T2.9, T2.16, T6.8 |
+| C13 | P0 | ledger idempotency, transactions, replay/restatement | 5.9.6, 5.9.7, INV-19 | T5.1, T5.2, T5.3, T5.7 |
+| I01 | P1 | capability contract (three outcomes, graph dependency requirements, profile edition, path safety, `cum_factor` choice) | 4.1, 4.3, 4.4, 3.11 | T0.13a/b, T1.1a/b |
+| I02 | P1 | return series default `close_tr` | 3.4, A-105, 8.1 | T1.9, T1.10, T1.16, T1.17 |
+| I03 | P1 | public first path (CSV, minimal-daily analysis, English quick start) | 1.1, 4.3, 4.6, 8.5 | T1.22, T1.23, T2.17 |
+| I04 | P1 | artifact schema, pins, stamps, rerun in a new process, seal recovery | 4.2, 4.4, 5.9.1~5.9.3 | T1.14a/b, T1.15, T3.14 |
+| I05 | P1 | ticket graph, M0 reduction, golden location, early measurement, suites under one year | 5.3.8, 7, 8.2, chapter 10 | all of chapter 10, T0.12, T1.24 |
+| I06 | P1 | `std_item` provisional, `preliminary` | TDS v1.1 5.17 | (TDS document) |
+| I07 | P1 | stable scope, release gate, RC | 1.1, 2.3, 9.1, 10.0, 11 | T0.13b, T6.15, T6.16 |
+| I08 | P1 | market names are data, rules packs | 1.2, 3.6, 3.8, 3.11, 4.4, 4.7, 5.1.3, 5.6.5 | T0.5a, T1.1a, T4.4, T4.11 |
+| I09 | P2 | producer-neutral errors, `producer.hints` | 3.10, 4.4, 4.5, 6.6 | T0.2b, T0.4, T1.1a |
+| I10 | P1 | column-array state, Numba conditional | 5.6.1, 2.4, 7 | T3.3, T3.4, T6.6 |
+| Q01 | P2 | removing the `security_id` alias | header, 3.1, A-73 | T0.3 |
+| Q02 | P2 | honest report wording | 3.8, 3.9, 5.7, 5.8 | T3.13a/b, T3.20, T2.16 |
+| Q03 | P2 | missing tickets, small fixes | 2.7, 6.4, 6.6, 11 | T0.2b, T2.18, T3.21, T6.17 |
+| Q04 | P2 | public TDS hygiene, `nexusbt_tds` | header, 2.3, TDS v1.1 | T0.1, T0.2b |
+| Q05 | P2 | public release tickets (PyPI by the user) | 1.1, chapter 12 OI-44·45 | T0.1, T6.15, T6.16 |
+| Q06 | P2 | cross-section default domain, E34 | 3.3, 5.3.1, 5.4.2, 6.5 | T1.4, T2.12 |
+| Q07 | P2 | `cost_reserve_bps` | 3.11, 5.6.7, appendix C | T3.5b |
+| Q08~Q11 | P2 | interoperability sentence, `ts_exit_known` null, `availability_by_column`, keeping `fail` | TDS v1.1, 4.6, chapter 12 OI-09 | (TDS document), T0.7 |
+| D1 | – | window kernel definition A/B | 5.3.10, ADR-0019, OI-47 | T1.24, T6.2 |
+| D2 | – | default label | 5.8, OI-48 | T2.7 |
+| D3 | user | hold band timing | OI-12 | T7.1 |
+| D9 | – | M3a/M3b | 10.0 | chapter 10 |
+
+---
+
+### B.5 Teardown of engines on the market V31 → where this spec reflects it [`teardown/MATRIX.md`]
+
+| V31 | Priority | Where reflected | Ticket |
+|---|---|---|---|
+| 01 integer quantity arithmetic | P0 | INV-18, 4.6, 5.6.1, 5.6.7, 5.6.10, 5.6.12, TDS 5.11 | T0.15c, T0.16c, T3.Gd, T3.9, T3.5b, T3.11 |
+| 02 stale valuation-price adjustment | P0 | INV-06, 5.6.3(6), 5.6.7, 5.6.9, 5.6.13 | T3.Gd, T3.22 |
+| 03 that day's volume cap | P0 | INV-01, 5.6.6, 3.11 | T3.Gd, T3.5b |
+| 04 distributions just before delisting | P1 | 5.6.13, 4.6, TDS 5.13 | T0.15c, T3.22 |
+| 05 price grid, rounding | P1 | INV-20, 3.7, 4.5 F-15, 4.7, 5.6.1, 5.6.4a, 5.6.5, 5.6.8, TDS 5.27 (v3.2 comparison coordinates R3-02, KR rounding R3-27) | T3.Gf, T3.24, T3.23, T4.4, T0.15d, T0.5b |
+| 06 filtering small orders | P1 | 3.7, 3.11, 5.6.7 | T3.25 |
+| 07 metrics by hand calculation, kurtosis | P1 | 5.7, 8.2 G-60 | T3.Ge, T3.13a, T3.20, T6.8 |
+| 08 no non-deterministic sources | P1 | INV-09, 2.5, 8.3 P-DET | T1.27 |
+| 09 E4 backend boundary | P1 | 11.1, ADR-0017 | T6.17 |
+| 10 live preflight check | P1 | 5.9.6, 3.9, 3.11, E36 | T5.12 |
+| 11 sleeve independence | P1 | INV-21, 5.3.8, 7 | T4.8, T6.11 |
+| 12 partition cache key | P1 | 5.3.9, 7 P2b, TDS 4.2 (v3.2 key fix R3-04) | T0.14c, T1.4, T6.12, T6.4 |
+| 13 market-level series | P1 | 3.2, 3.3, 5.1.5, 5.3.2 | T2.Gb, T2.19 |
+| 14 target gap, execution quality | P1 | 5.6.7, 5.6.8, 5.7, 5.9.1, E37 | T3.Gd, T3.26 |
+| 15 benchmark | P1 | 5.7, 3.9, TDS 5.1 | T3.Ge, T4.6, T4.12 |
+| 16 volume units | P1 | 4.5 F-16, 4.6, TDS 3.4·5.5 | T0.15d, T1.1b |
+| 17 hold band boundary | P1 | 3.7, 5.5.3, 5.6.7 | T7.G, T7.1 |
+| 18 ledger with human intervention | P1 | 3.8, 5.6.5, 5.9.6, 5.9.7 | T5.10, T5.11a, T5.11b |
+| 19 deposits and withdrawals, TWR | P1 | INV-06, 5.6.9, 5.7, 5.9.6 | T5.G, T5.13 |
+| 20 trade table | P1 | 5.9.1, 3.9 | T5.G, T5.14 |
+| 21 three-valued Filter | P1 | 3.3, 5.4.1, 8.1 | T1.Gb, T1.25, T1.18 |
+| 22 fill causality | P1 | INV-01, 8.3 | T3.16 |
+| 23 drawdown boundary | P1 | 5.7 | T3.Ge, T3.20, T3.13a |
+| 24 built-in factors by hand calculation, 3.4/8.1 | P1 | 3.4, 8.1 | T1.Gb, T1.9, T1.10 |
+| 25 percentile composites | P1 | 3.3, 5.4.2 | T2.Gb, T2.20 |
+| 26 date luck, rolling | P1 | 3.8, 5.7, 6.2 | T6.18 |
+| 27 provisional cost table (optional) | P1 | 3.7, 5.6.8, 4.7 | T4.13 |
+| 28 X-Ray | P1 | 3.8, 3.9, 5.9.9 | T5.15 |
+| 29 tie-breaking | P1 | 3.7, 5.5.3, 5.6.15 (v3.2 fixed salt R3-12) | T1.Gb, T1.11, T3.1 |
+| 30 `Trad`, exclusions | P1 | 3.2, 3.6, 4.3 | T2.21 |
+| 33 no copying from PyBroker | P2 (applied by instruction) | 2.1 | T0.1 |
+| PUB-01~03 producer-specific packages, path linking | user decision | 4.2, 3.8 `open`, 3.11 `[data] path`, 5.3.9, 10.2, TDS 4.1 | T1.1a |
+| LS-01~LS-11 short selling, long–short | user decision | header, 1.1~1.3, 3.7, 3.11, 4.7, 5.5, 5.6, 5.7, 5.9, 6.6, 8.1~8.3, 11.1, A-117 | T4.Gs, T4.Gt, T4.17, T4.14, T4.15a~c, T4.16a·b, T4.18, T4.19, T5.14, T7.1 |
+
+### B.6 Third round R3 of the three-reviewer review → where this spec reflects it [`review/consensus-r3.md`]
+
+| R3 | Priority | Where reflected | Ticket |
+|---|---|---|---|
+| 01 resolver existence and terms times | P0 | INV-01, 1.2, 5.1.5, 5.3.3a(2)(4)(9)(10), 5.3.4, 5.6.11, 8.2 G-20, 8.3 P-FUT, TDS 5.11 | T0.15a, T3.Gc, T3.10, T4.15b |
+| 02 integer comparison in minor units | P0 | INV-20, 1.1, 1.2, 4.6, 4.7 `base_unit`, 5.6.4a, 8.2 G-57 (f)(h), 8.3 P-GRID, TDS 5.27 | T0.5b, T0.15d, T3.Gf, T3.24 |
+| 03 volume-cap sentence, P-FILLCAUSAL | P0 | INV-01, 3.9, 5.6.6, 5.9.2, 8.3 | T3.5b, T3.13a, T3.16 |
+| 04 cache key | P0 | INV-05, 4.2, 5.3.9, 3.11 `cache_max_gb`, 7 P2b, 8.3 P-CACHE-INCR, ADR-0025, TDS 4.2 | T0.15a, T1.4, T6.4, T6.11, T6.12 |
+| 05 terminal value on three bases | P0 | 4.6, 5.6.9, 5.6.13, 8.2 G-55, TDS 5.13 | T3.Gd, T3.22 |
+| 06 ratio fitting | P0 | 4.3, 4.4-4, 5.6.1, 6.6 E13·E30, 8.2 G-53, ADR-0034, TDS 5.11 | T0.15c, T1.1a, T3.Gd, T3.9 |
+| 07 exposure stage, INV-22 | P0 | INV-22, 3.7, 3.11, 5.5.2, appendix C | T0.5a, T4.14 |
+| 08 long–short target, feasible region | P0 | 1.1, 3.7, 5.6.7, 8.2 G-72, 11.1 | T0.5a, T4.Gt, T4.14 |
+| 09 short accounting, ruin | P0 | header, INV-06, 1.1, 1.2, 3.9, 3.11, 4.7, 5.6.1, 5.6.2, 5.6.3, 5.6.7, 5.6.9, 5.6.11, 5.6.11a, 5.6.13, 5.7, 5.9.1, 5.9.6, 6.6 E38, 8.2 G-67·68·70·76, ADR-0036 | T4.Gs, T4.15a, T4.15b |
+| 10 mirroring the short life cycle | P0 | INV-18, 1.1, 3.7, 5.6.2, 5.6.2a, 5.6.3, 5.6.4, 5.6.6, 5.6.7, 8.2 G-73 | T3.7, T4.Gt, T4.16a, T4.16b |
+| 11 P-SHORT-OFF | P1 | INV-22, 5.9.1, 8.3 | T3.14, T4.17, T4.14, T4.16a |
+| 12 fixed tie salt | P1 | 3.3, 3.7, 5.4.2, 8.1, 8.2 T-11·T-27, appendix C | T1.Gb, T1.11, T3.1 |
+| 13 completing the three-valued Filter | P1 | 1.2, 3.3, 3.5, 5.3.9, 5.4.1, 5.9.1, 6.6 E39, 8.2 T-24 | T0.4, T1.25, T2.22, T6.4 |
+| 14 grid seed, bars off the grid | P1 | 4.7, 5.6.4a, 8.2 G-57 (g) | T0.5b, T3.24, T6.15 |
+| 15 rule validation gate, forbidden syntax | P1 | R-70, 4.6, 4.7, 5.6.5 | T0.5b, T4.16b, T6.15 |
+| 16 snapshot immutability, file identity | P1 | header, 3.11, 4.2, 4.4, 5.3.9, 10.2, ADR-0037, TDS 4.1 | T1.1a, T1.1b, T6.12 |
+| 17 pin default, retention state | P1 | 3.11, 4.2, 5.9.2, 5.9.6, 10.2 | T0.5a, T1.1b, T1.2, T5.1 |
+| 18 default market order | P1 | 1.2, 3.11, 5.1.3, 5.9.2 | T0.5a, T1.3 |
+| 19 ledger TWR CAGR | P1 | 1.1, 5.7, 5.9.6, 8.2 G-65 (b) | T3.13a, T5.13 |
+| 20 report formulas | P1 | 5.6.7, 5.6.9, 5.6.11a, 5.7, 5.9.1, 8.2 G-75 (b) | T3.26, T4.10, T4.15c, T5.14 |
+| 21 ledger context, manual protocol | P1 | 3.8, 5.9.1, 5.9.6, 5.9.9 | T5.10, T5.11a, T5.11b, T5.15 |
+| 22 hold band state | P1 | 5.5.3, 5.6.1, 8.2 G-63, ADR-0020 | T5.16, T7.G, T7.1 |
+| 23 ticket split, T7.V | P1 | 10.0, 10.1 | T0.12, T7.V (all the split tickets) |
+| 24 PBO common period | P1 | 6.3, 12.1 V31-38 | T6.8 |
+| 25 cash interest | P1 (user decision) | header, 1.1, 3.9, 3.11, 5.6.3, 5.6.9, 5.7, 8.2 G-77, 12 OI-50 | T0.5a, T4.Gs, T4.19 |
+| 26 Rust seam | P1 (user decision) | header, chapter 0, 2.4, 5.3.10, 5.6.1, 7, 11.2, ADR-0016, 12 OI-53 | T1.7b, T3.3, T3.4, T6.2, T6.6 |
+| 27 KR rounding `down` | P2 (applied at the user's instruction) | 4.7, 8.2 G-58, ADR-0035 | T0.5b, T3.23 |
+| 28 TDS K1 example | P2 (cheap contradiction, applied) | TDS 2.2 K1 | T6.15 |
+| 29~37 | P2 | 12.1 (deferred; for 37 only the reasoning sentence was fixed) | – |
+
+---
+
+### B.7 Round 4 topics R4 → where this spec reflects them [`review/round4-topics.md`]
+
+| R4 | Priority | Where reflected | Ticket |
+|---|---|---|---|
+| 01 nine-slot block contract table, four promises | P0 | 3.7 | T3.27, T3.29, T3.31 |
+| 02 money-management slot, built-in sizers, `top(weight=)` trimmed | P0 | 1.1, 2.3, 3.1, 3.7, 5.5.1, 5.5.1a | T3.27 |
+| 03 ERC fixed-order coordinate descent, defined fallback | P1 | 5.5.1a, 6.6 E43 | T3.28 |
+| 04 risk-list slot, two layers canonical/final, INV-23 | P0 | 1.3, 5.5.1, 5.5.2, 5.5.2a, 5.5.3, 5.6.7, 8.3 | T3.29, T3.30 |
+| 05 built-in risk blocks (group cap v1) | P0 | 1.1, 5.5.2 | T3.29, T3.30 |
+| 06 drawdown brake shadow-index re-entry | P0 | 5.5.2a, 8.2 G-84 | T3.30 |
+| 07 user blocks `@nx.portfolio`·`@nx.sizer`·`@nx.risk_rule` | P0 | 3.1, 3.7, 3.8, 6.6 E41 | T3.27, T3.29, T3.31 |
+| 08 screen account: not evaluated / `--ledger` / `--as-backtest` | P0 | 3.8, 3.10, 6.6 E42 | T5.17 |
+| 09 risk waterfall | P1 | 5.5.2a, 5.9.1 | T3.29 |
+| 10 `exits.time_stop` v1 | P1 | 1.1, 3.7, 12.1 | T3.33 |
+| 11 `strategy.replace`, `compare` variant table | P1 | 3.7, 3.8, 3.10 | T3.34, T5.20 |
+| 12 `backtest --preview` | P1 | 3.8, 3.10, 3.11 | T3.34 |
+| 13 20 templates, `init --demo`, 30-minute path, output comparison | P1 | 3.10, 8.5 | T5.18, T6.27 |
+| 14 zipline → NexusBT mapping document | P1 | 8.5 | T5.19 |
+| 15 error layer line | P0 | 6.6 | T0.4b |
+| 16 no internal terms, layer golden, user exception note | P1 | 6.6, 8.4b | T0.4b |
+| 17 no silent failures (`skips.parquet`) | P0 | 5.9.1, 6.6, 8.3 | T3.32 |
+| 18 P11 high-dimensional work, design tools | P1 | 7 | T6.26, T6.11 |
+| 19 splitters, purging by label publication time, AFML embargo | P0 | 1.1, 3.8, 3.11, 5.8, 6.3, 6.3a | T6.19 |
+| 20 entry point `backtest(method=…)`, validation account | P0 | header, 3.8, 3.10, 6.1, 6.3a | T6.20, T6.21 |
+| 21 trial counting (folds, path diagnostics), `sweep` trimmed | P0 | 6.2, 6.3, 6.3a | T6.20, T6.21 |
+| 22 path statistics, hygiene first screen | P1 | 3.11, 6.3a | T6.21, T6.22 |
+| 23 `nx.ml.factor` | P0 | 1.1, 2.3, 3.1, 3.8, 5.3.11, 6.5, 6.6 | T6.23, T6.24 |
+| 24 `labels.triple_barrier` v1 | P1 | 3.7, 5.8 | T6.25 |
+| 25 new errors E40~E46 | P1 | 6.6 | T0.4b |
+| 26 tests G-78~G-93, seven properties, error layer tests | P0 | 8.2, 8.3, 8.4b | T3.Gr, T6.Gv |
+| 27 tickets 188 → 210 | – | 10.0, 10.1 | – |
+| 28 tidying the reserved list | P1 | 3.1, 6.6 E18 | T0.4b |
+
+## Appendix C. `SimConfig` knob table [SC-11]
+
+Every field of `SimConfig`. All of them, defaults included, stay in the manifest `sim_config`, and when a value changes, `settings_hash` changes (a new candidate). The "zipline" column is the preset value (5.6.15).
+
+| Knob | Default (`realistic`) | zipline preset | Config key / argument | Section |
+|---|---|---|---|---|
+| `fill_model` | `daily-ohlc-adverse-v1` | `zipline-close-v1` | `preset` | 5.6.4, 5.6.15 |
+| `order_type` | `market` | `market` | `[execution] order`, `nx.execution.*` | 3.7 |
+| `at` | `open` | `close` | `[execution] at` | 3.7 |
+| `information_lag_sessions` | 0 | 1 | (preset only) | 5.6.15 |
+| `limit_offset_bps` | 0.0 | – | `[execution] limit_offset_bps` | 3.7 |
+| `limit_fill` | `through` | (checked against the close) | `[execution] limit_fill` | 5.6.4 |
+| `tif` (rebalancing) | `gtc` | `gtc` | `nx.execution.market(tif=)` | 3.7 |
+| `max_age_sessions` (rebalancing) | 20 | infinite (NeverCancel) | `[execution] max_order_age_sessions` | 5.6.2 |
+| `exit_max_age_sessions` | None (no expiry, fixed) | – | (fixed) | 5.6.2a |
+| `trigger_persistence` | `persistent` (fixed) | (zipline fixed-version rule, T3.15b) | (fixed) | 5.6.2 |
+| `max_participation` | 0.05 | 0.10 | `[execution] max_participation` | 5.6.6 |
+| `capacity_basis` | `lagged_adv` | `same_bar_volume` | (preset only) | 5.6.6 |
+| `adv_window`, `adv_min_obs` | 20, 10 | – | `[execution] adv_window`, `adv_min_obs` | 5.6.6 |
+| `tradability_rules` | `on` | `zero_volume_only` | (preset only) | 5.6.5 |
+| `kr_limit_tolerance` | 0.005 | – | `[execution] kr_limit_tolerance` | 5.6.5 |
+| `unknown_tradability` | `assume_tradable` | `assume_tradable` | `[execution] unknown_tradability` | 5.6.5 |
+| `cash_negative_allowed` | false (order fills; mandatory obligations may go negative [R3-09]) | true | (preset only) | 5.6.7 |
+| `sizing_rounding` | `floor_lot` | `trunc_toward_zero` (signed values too) | (preset only) | 5.6.7 |
+| `cash_allocation` | `proportional_actual_cost_then_fill_ratio_desc` | (no cash constraint) | (fixed) | 5.6.7 |
+| `cost_reserve_bps` | 0 | 0 | `[execution] cost_reserve_bps` | 5.6.7 |
+| `intraday_proceeds` | `next_phase` | – | `[execution] intraday_proceeds` (fixed) | 5.6.3 |
+| `money_rounding` | integer minor units per entry, half-up | same | (fixed) | 5.6.1, 5.6.8 |
+| `settlement` | `immediate` | `immediate` | `[settlement] model` (reserved) | 5.6.7 |
+| `cost_profile` | `provisional` | `per_share(0.001)` | `[costs] profile` | 5.6.8 |
+| `provisional_bps` | KR 5/25, US 5/5 | – | `[costs.provisional_bps]` | 5.6.8 |
+| `slippage_bps` (on price) | 0 | 5 (FixedBasisPoints) | (preset only) | 5.6.15 |
+| `impact_y`, `impact_a2`, `impact_a3` | 0.5, 0.5, 1.0 | – | `[costs]` | 5.6.8 |
+| `spread_estimator` | `abdi_ranaldo` | – | (fixed) | 5.6.8 |
+| `min_half_spread_bps`, `max_half_spread_bps` | {KR 5, US 1}, 200 | – | `[costs]` | 5.6.8 |
+| `cost_sensitivity` | [0, 1, 2] | off | `[costs] sensitivity` | 5.7 |
+| `withholding` | {KR 0, US 0} | 0 | `[dividends] withholding` | 5.6.11 |
+| `missing_pay_date` | `estimate` | `estimate` | `[dividends] missing_pay_date` | 5.6.11 |
+| `fallback_pay_lag_days` | {KR 120, US 21} | same | `[dividends]` | 5.6.11 |
+| `rights` | `lapse` | `lapse` | `[corporate_actions] rights` | 5.6.12 |
+| `unsupported` | `fail` | `fail` | `[corporate_actions] unsupported` | 5.6.12 |
+| `bonus_shares_tradable` | `at_pay_date` | `at_ex` | `[corporate_actions] bonus_shares_tradable` | 5.6.10 |
+| `delisting_policy` | `observed_then_policy` | `observed_only` | `[delisting] policy` | 5.6.13 |
+| `scenarios` | gross (= cost0x, once), cost2x, delist_lo, delist_hi | off | `backtest(scenarios=)` | 3.8 |
+| `market_rules` | a pack version per market (`KR@1`, `US@1`) or `untested` | same | `[markets] allow_untested` | 4.7 |
+| `exits` | none | none | `Strategy(exits=)` | 3.7 |
+| `fill_resolution` | `1d` | `1d` | (set by the data) | 5.6.4 |
+| `max_bar_participation` | 0.10 | (the same-bar 10% stands in) | `[execution] max_bar_participation` | 5.6.6 [V31-03] |
+| `price_grid` | `on` (instrument → `market_rules` → pack → minimum unit; comparison = `base_unit` integers [R3-02]) | `off` | (pack and data) | 5.6.4a [V31-05] |
+| `money_rounding_rules` | pack `[rounding]` (KR: commissions, taxes and withholding down, the rest half_up; US half_up [R3-27]) | half_up | `[rounding.<MARKET>]` | 5.6.1 [V31-05] |
+| `min_trade_value`, `min_trade_weight`, `rebalance_band`, `band_mode` | 0, 0, none, edge | off | `[execution]` | 5.6.7 [V31-06] |
+| `tiebreak` | `hash` (fixed salt, independent of date [R3-12]) | `id` | `[portfolio] tiebreak` | 3.7 [V31-29] |
+| `band_entries`, `on_missing` | skip, drop | – | `[portfolio]`, `top(on_missing=)` | 5.5.3 [V31-17] |
+| `provisional_table` | none | – | `[costs] provisional_table` | 5.6.8 [V31-27] |
+| `shorting` | `enabled = false` | negative holdings allowed | `[shorting] enabled` | 5.6 [V31-LS-01] |
+| `max_gross`, `max_net` | 1.0, [−1, 1] (closed interval ∋ 0 [R3-07]) | none | `[shorting]` | 5.5.2 [V31-LS-02] |
+| `exposure_stage` | called only when `enabled = true` | – | `[shorting] enabled` | 5.5.2 [R3-07] |
+| `borrow_bps`, `collateral_ratio`, `short_rebate_bps`, `day_count` | 0, 0.5, 0, 365 (pack) | 0, none, 0, – | `[shorting]`, pack `[shorting] day_count` | 5.6.3, 5.6.7 [V31-LS-04, R3-09] |
+| `cash_rate_bps` | 0 | 0 | `[account] cash_rate_bps` | 5.6.3 [R3-25] |
+| `ruin_policy` | `stop_new_orders` (fixed: new orders stop, obligations as negative cash, no forced liquidation) | – | (fixed) | 5.6.7 [R3-09] |
+| `short_bans` | pack `[shorting] ban_table` | off | (pack) | 5.6.5 [V31-LS-07] |
+
+---
+
+## Appendix D. v1 → v2 change summary
+
+| Area | v1 | v2 |
+|---|---|---|
+| Input format | the reference producer's export of spec chapter 4 (16 tables, `manifest.json`) | references **TDS v1** (chapter 4 holds only the engine reading rules), four required profiles, fallbacks F-01~F-13, handling of gaps on the producer side |
+| Names | `security_id`, `*_utc`, `fund_state`, `classif_pit`, `universe_1d`, `exits`, `fx_1d`, `panel_monthly` … | `instrument_id` (+ alias), `ts_*`, `fundamentals_state`, `classifications` (two time axes), `eligibility_daily`, `delistings`, `fx_rates`, `feature_panels`; share counts in `share_counts` |
+| Public and security | private repository, no rules | public repository, Apache-2.0, hygiene tests, pickle and secret keys forbidden, `--trust` for someone else's run folder |
+| Packages | one engine | uv workspace: `nexusbt` + `nexusbt-tds` (versioned separately, `tds/`) |
+| Determinism | INV-01~INV-12 | INV-03/04/08 wording fixed, INV-13~INV-17 added (numeric order, start date, metamorphic relations, events as truth, input conformance), 5.3.10 numeric rules |
+| Portfolio | construction in one stage, hold band after v1 | construction → risk stage (`risk=`), target-state recursion as a norm (implementation v1.x) |
+| Execution | OHLC rules, zipline comparison | fill record columns, general impact form, `no_open`/`no_range`, knob table (appendix C), zipline comparison scope narrowed (L2-d) |
+| Corporate actions | 11 kinds | TDS 18 kinds → handling table, handling of null factors |
+| Metrics and hygiene | PSR, DSR, PBO | + MinTRL, Lo Sharpe, drawdown duration, transfer coefficient, breadth and expected IR, BHY, currency and cost attribution, exposures, capacity scenarios, probe-date priority, start-date probe; v1.x N_eff |
+| Operations | live, fill | + `reconcile`, `status.json`, `explain(strategy)`, `Run.why`, adapters |
+| Cache | L1 | L0 raw blocks (memory-mapped) + L1, P7 USS |
+| Errors | E1~E28 | E1~E33 |
+| Tests | G-01~G-30, T-01~T-12, P-* | + G-31~G-36, T-13~T-17, P-KERNEL·START·DERIVED·RECON·TDS, M-*, TDS conformance suite |
+| Tickets | 90 + producer 10 | 112 (22 new) + producer 18 |
+| Open items | O1~O11 | OI-01~OI-43 (OQ and TDS Q merged, user marks) |
+
+---
+
+## Appendix E. v2 → v3 change summary (with the three-reviewer review)
+
+| Area | v2 | v3 |
+|---|---|---|
+| Basis document | spec v2 + TDS v1, "no more changes to the spec needed" | spec v3 + TDS v1.1, the P0 and P1 and the cheap P2 of the three-reviewer consensus (`review/consensus.md`) applied, the "no more changes needed" sentence deleted |
+| Public readiness | `KR`, `US`, `XKRX`, `XNYS` in code and config keys, reference-producer tickets in error sentences | market names from `tds.json`, market rules packs (`resources/markets/<M>.toml`), a market without a pack E18 / `allow_untested`; errors as TDS codes + `producer.hints`; private comments marked; `security_id` alias deleted; checker import `nexusbt_tds`; English quick start, CONTRIBUTING and release gates |
+| Input contract | four fixed profiles required, `minimal-daily` out of scope (contradicts TDS) | a capability contract that depends on the graph, three profile results (declared, check level, supported), profile version `@1.0`, path safety, `minimal-daily` for the analysis path only, `cum_factor_*` optional in every profile, an unknown required interpretation rule E14 |
+| Hashes | logical hash = Arrow IPC bytes | three: physical, value (language-independent canonical serialisation, test vectors) and semantic (value + resolved metadata); the engine uses the semantic hash |
+| Time | at the same instant `open < decision < close` (contradicts the processing phases), late bars undefined | phase order `session_start < open < intraday < close_fill < close_mark < decision < session_end`, the time a row freezes `ready(s) = ts_close + declared delay` |
+| PIT lookup | one searchsorted on `ts_known_from`, eligibility carried forward, no level in the classification key | rectangular lookup (five examples), no eligibility row = false, level and edition in the classification key, `ts_known_to` in the symbol table, after-the-fact attributes of `instruments` marked |
+| Corporate actions | adjustment, accounting and checks interpret separately, quantity = inverse of the price factor | one resolver that takes a reference time (5.3.3a), explicit `share_factor`, correcting entries, A001 uses the same resolver |
+| Account | float cash, after-the-fact recoveries can leak into `decision_value`, the second formula of INV-06 false | columnar array state, integer minor units, only values knowable at the decision, NAV and P&L bridge, cost = direct + path effect, annual attribution linked |
+| Orders | triggering only for stop_limit, exit-order creation time and expiry unclear, a partial cancel is a terminal status, intraday sale proceeds go to buys on the same bar | lifecycle, trigger and quantity separated (INV-18), persistent triggers, exit-order lifecycle (5.6.2a), quantity events, intraday proceeds from the close phase on, purchasable quantity from the actual cost function, an unbiased reduction order |
+| Labels | adjusted-price ratio, two times | economic holding return by default + `fwd_return_adj`, three times (`ts_label_available`) |
+| Statistics | one statistic per candidate row, DSR and BHY over a mixed population | candidates, observations, cohorts, `cohort_sha256`, not-computable rules, TC → `signal_weight_corr`, simple breadth, Lo truncation marked, gross = cost0x once |
+| Tests | no preconditions for M-SCALE, M-DUMMY, M-SLEEVE, a `np.roll` leak expected (impossible), "an independent hand-calculation engine" | preconditions + counterexamples, injected future-reading sources, per-case arithmetic golden (an implementation PR cannot change it), G-37~G-50, T-18~T-23, P-BRIDGE, P-QTY, P-BOOK |
+| Numerics | a bit promise everywhere | bits within the same environment, the same elementwise functions of the transcendental class, adjustment shortcut 1e-12, window kernel definition A + preregistered B |
+| Ledger | `checkpoint_seq` in the idempotency key, only an atomic HEAD swap | key = (ledger, decision, graph, parameters), lock, state version, commit order, recovery, definition of an unchanging ledger, reconcile = replay of the recorded snapshots / restatement |
+| Operations | the engine puts PINS in the data root, `verify=manifest` does not look at bytes | canonical pins = the index, sha256 stamps for rerun, reconcile and live, rerun in a new process, seal recovery, memory budget of the process tree, sub-year chunks |
+| Plan | M0 17 tickets (all checkers, all synthetic data, hand calculation G-01~G-36), measurement in M6 | M0 13 tickets (contracts only), golden tickets before the tickets that consume them, M3a/M3b, measurement harness in M1, big tickets split, dependencies fixed, 141 tickets (142 the same day with taxes T4.5b), graph checked to be acyclic |
+| Errors | E1~E33 | + E34 `UnmaskedCrossSectionNotice`, E35 `BookConflictError`, F-14 |
+| Open items | OI-01~OI-43 | OI-27 and 32 closed, OI-44~OI-49 added (PyPI, document language, release definition, window kernels, labels, TDS RC) |
+
+---
+
+## Appendix F. v3 → v3.1 change summary (teardown of existing engines + shorting and long–short symmetry)
+
+Teardown sources: `teardown/A-lean-nautilus.md`, `B-vectorbt-qlib-bt-qstrader.md`, `C-backtrader-btpy-pybroker-pysystemtrade.md`, `D-bug-mining.md` (5,005 issues and PRs, 52 read in full), `E-screeners-and-others.md`. 103 raw gap numbers → 70 after merging duplicates (V31-01~V31-70): applied 31/70, deferred 38/70 (P1 2 + P2 36), dropped 1/70. Shorting (user decision) is V31-LS-01~V31-LS-11.
+
+| Area | v3 | v3.1 |
+|---|---|---|
+| Scope | long only (9.0 Q2) | signed holdings and weights, `bottom` and `long_short`, caps on gross and net exposure, shorting off by default (when off, bit-identical to long only, INV-22) [V31-LS] |
+| Quantity arithmetic | `floor(q·ρ)` floating-point floor | rational ratios (`ratio_num/ratio_den`), `floor_shares`, f64 ratio fitting recorded — no share lost on holdings that are integer multiples [V31-01] |
+| Stale valuation price | the last valid close as it is | × the price factors of later events (`stale_adjusted`), the same value for sizing and terminal value [V31-02]; a distribution just before delisting, once [V31-04] |
+| Volume cap | past 20-session ADV × 5% only | `min(η·ADV, ψ·that day's volume)`, `capacity_bound_reason` [V31-03] |
+| Prices | no tick rounding, floating-point comparison, half-up fixed | price grid (conservative snapping, integer tick comparison, INV-20), rounding rules per component (pack) [V31-05] |
+| Execution | always an order when Δ ≠ 0 | minimum trade threshold and weight band (off by default) [V31-06]; hold band missing scores and names never bought [V31-17] |
+| Pipeline | Filter missing = False (`~` makes it true), 3.4 "zipline is the answer" | three-valued Filter [V31-21], hand calculation decides [V31-24], market-level series [V31-13], percentile composition [V31-25], `Trad` and universe exclusion [V31-30], hash tie-break [V31-29] |
+| Metrics | formulas only | hand-calculated answers (kurtosis convention, monthly compounding) [V31-07], drawdown boundaries [V31-23], benchmark alignment, relative metrics and monthly table [V31-15], target gap and execution quality [V31-14], date luck and rolling [V31-26], trades table [V31-20], exposure [V31-LS-10] |
+| Determinism and cache | a promise about results only | nondeterministic sources forbidden, two new processes [V31-08], partition-level cache keys (incremental) [V31-12], sleeve independence and column bundles [V31-11], fill causality test [V31-22] |
+| Operations | paper ledger | pre-flight check E36 [V31-10], override, human ledger, fill CSV [V31-18], TWR with deposits and withdrawals [V31-19], X-Ray [V31-28] |
+| Costs | fixed provisional bp | optional: table by period and liquidity bucket (default unchanged) [V31-27] |
+| Data link | root + `LATEST`, a producer export layer assumed | one package path (`nx.open`, `[data] path`), the producer build writes the package directly (hard-linked partitions), the engine only reads [V31-PUB, user decision 2026-10-28] |
+| E4 boundary | the backend goes as far as accounting | the backend produces only fill events, accounting stays in the engine [V31-09] |
+| Data | TDS v1.1 | TDS v1.2 (optional columns, datasets and warnings only, `tds_version` "1.0" unchanged) |
+| Errors | E1~E35 | + E36 `OrderSanityWarning`, E37 `LotRoundingWarning`, E38 `CollateralWarning`; F-15 and F-16 |
+| Tests | G-01~G-52, T-01~T-23 | + G-53~G-75, T-24~T-28, P-FILLCAUSAL, P-SLEEVE-ISO, P-GRID, P-SHORT-OFF, P-TRADES, P-CACHE-INCR, L2-e |
+| Tickets | 142 | **176** (34 new: M1 5, M2 4, M3a 6, M3b 2, M4 8, M5 7, M6 2) |
+| ADR | 0001~0033 | + 0034~0036, 0017, 0021 and 0020 fixed |
+
+---
+
+## Appendix G. v3.1 → v3.2 change summary (third three-reviewer round + user decisions)
+
+Source: `review/consensus-r3.md` (first pass `r3-*.md` + cross review `r3b-*.md`; final scores Opus 7.1 · Fable 7.2 · Sol 7.2, average 7.2, +0.7 from 6.5 in round 1). All 10 P0 and 16 P1 applied, 2 of the 11 P2 applied (R3-27 at the user's instruction, R3-28 a cheap contradiction with a standard) + one rationale sentence fixed, the rest to 12.1. The four user decisions 2026-10-28 (cash interest, short ruin, cloning first, the Rust seam) and the default instructions are written in the header. Chapter 0 "the design story" (`STORY.md`) was put in front.
+
+| Area | v3.1 | v3.2 |
+|---|---|---|
+| Corporate-action resolver | version publication time `coalesce(terms, announced, effective)` — an event whose terms come late is hidden whole (G-20 impossible) | existence time and terms time separated, entitlement quantity fixed, a late discovery booked as an appended entry [R3-01] |
+| Price comparison | compared in tick counts that differ by price band (order flips across a boundary) | integer market minimum units (`base_unit`), snapping across boundaries, GTC re-snapping, off-grid bars preserved [R3-02, R3-14] |
+| Volume cap | "only reduces", P-FILLCAUSAL contradicts G-56 | a sentence on the after-the-fact feasibility cap, two properties, an assumption sentence [R3-03] |
+| Cache | L0 = value hash (advisory), summary of the final version, `markets` with watermarks, deleted with the snapshot | file sha256 + every version of the chain + axis datasets + stable `markets`, L1 = propagated input rows, LRU lifetime, file identity [R3-04, R3-16] |
+| Terminal value | `ref*` unconditionally (contradicts G-55) | three bases: observed-inclusive, observed-exclusive, policy [R3-05] |
+| Ratio fitting | the nearest rational within relative 1e-5 | three stages (rounded repeating decimal → computation noise → decimal as written), a wrong exact ratio E13 [R3-06] |
+| Long–short | per-side renormalisation, exposure stage always called, feasible region undefined, ties by decision salt | multiplication only, when off the stage is not called and `fsum`, `L + c·S ≤ 1` E16 before the run, ties by a fixed salt [R3-07, R3-08, R3-12] |
+| Short accounting | days counted from the previous valuation × the end quantity, rebate name mismatch, obligations clash with "cash ≥ 0", ruin undefined, estimates counted twice | accrual at session start (`day_count` 365), `short_rebate_bps`, obligations = negative cash, `ruined`, estimate replacement, short dividends pre-tax and E13 [R3-09] |
+| Short lifecycle | an order of four groups only in the open phase, no wait on a reversal, trailing `max` only | order and allocation over three phases, the opening side waits on a reversal, capacity by physical direction, mirrored fill and trigger checks and `min` trailing, cover cap, OCO protection [R3-10] |
+| P-SHORT-OFF | a fixed output-hash file | same-build differential + value-hash baselines of the four core tables (approval label) [R3-11] |
+| Three-valued Filter | `~ & |` only | `all/any`, `as_factor`, Classifier missing values, `screen`, `Filter.fillna(bool)`, E39 [R3-13] |
+| Operations | pin default `index`, hard links, default market by JSON order, ledger CAGR = NAV ratio | pin `index+root` and `retention`, cloning first, read-only, file identity, default market by codepoint, TWR CAGR [R3-16~R3-19] |
+| Reporting | annual FX cross term always 0, `rounding_cash_weight`, borrow cost inside the order-cost comparison | `R − L − F`, `rounding_gap`, a separate `financing` bridge, MAE/MFE excluding the entry and exit bars, short cost basis once, long–short turnover denominator [R3-20] |
+| Account | cash 0% | `[account] cash_rate_bps` (default 0) [R3-25] |
+| Implementation language | Numba, Rust after a bottleneck | + three Arrow seams, bit-identity test, E4 Rust core design [R3-26] |
+| Data | TDS v1.2 | TDS v1.3 (interpretive sentences fixed, K1 example, cloning/read-only, `value_sha256` advisory; `tds_version` "1.0" unchanged) |
+| Errors | E1~E38 | + E39 `UnknownFilterNotice`; E13, E30 and E38 widened |
+| Tests | G-01~G-75, T-01~T-28 | + G-76 (short ruin), G-77 (cash interest), changed G-20, G-53 (g)~(j), G-55 (a)~(f), G-57 (f)~(h), G-63 (c)(d), G-65 (b), G-67 rewritten, G-68 (b)~(d), G-70 (b), G-72 (b)(c), G-73, G-75 (b), T-24 extended, T-27 new values; P-FILLCAUSAL and P-SHORT-OFF rewritten, P-CACHE-INCR, P-GRID, P-FUT, P-QTY, P-BRIDGE and P-TRADES widened |
+| Tickets | 176 | **188** (8 split: T0.5b, T0.13c, T0.15d, T4.Gt, T4.15b, T4.15c, T4.16b, T5.11b; 4 new: T2.22, T4.19, T5.16, T7.V) |
+| ADR | 0001~0036 | 0016 fixed (Rust seam), 0020, 0025, 0034, 0035 and 0036 fixed, 0037 new (snapshot immutability) |
+| Open items | open 0 / ● 0 | unchanged (OI-50~OI-53 added as decided) |
+
+---
+
+## Appendix H. v3.2 → v3.3 change summary (round 4 topics + user decisions)
+
+Sources: `review/round4-topics.md` (topics 0~5, user decision 2026-10-28), `teardown/F-money-risk.md` (C18), `teardown/G-ux-ml4t.md` (C19), `research/validation-and-ml-2026-10-28.md`. User decisions: CPCV in v1, a minimum ML factor in v1, validation accounts, one entry point (`backtest(method=…)`). The round 4 review bundle is `review/packet-r4.md`, the rubric `review/rubric-r4.md`. TDS does not change (v1.3 as it is; every new output is an engine artefact).
+
+| Area | v3.2 | v3.3 |
+|---|---|---|
+| Strategy slots | schedule, universe, signal, construction, risk (`none` only), execution, exits, costs | the nine-slot contract table (+ money management), four promises, `strategy.replace` [R4-01, R4-11] |
+| Money management | `top(weight=equal/value/inverse_vol, max_weight)` | `sizing=` slot: 8 sizers + 2 decorators, ERC fixed order and fallback, `@nx.sizer` [R4-02, R4-03] |
+| Risk management | `risk.none()`, fitting to the exposure caps; group caps v1.x | a list slot, 4 market rules + 3 account rules, two layers canonical/final, INV-23, shadow-index brake, waterfall, `@nx.risk_rule` [R4-04~R4-09] |
+| Exits | `time_stop` reserved | v1 [R4-10] |
+| Learning path | `nexusbt new` | 20 templates, `init --demo`, `--preview`, `compare` variant table, 30-minute test, zipline mapping table [R4-11~R4-14] |
+| Errors | five-line shape, E1~E39 | `layer` line, layer table, no internal terms, exception note, E40~E46, no silent failures [R4-15~R4-17, R4-25] |
+| Performance | P1~P10 | + P11 high-dimensional (target only, a gate after prototype measurement) [R4-18] |
+| Validation | toml segments, PBO of sweep; `splits` reserved | `backtest(method=linear|walk_forward|cpcv|cscv)`, purging by label availability time, the validation-account decision, fold and path diagnostics, distribution side by side with linear, hygiene first screen [R4-19~R4-22] |
+| ML | none (`fit_segment` reserved) | `nx.ml.factor`, triple-barrier labels [R4-23, R4-24] |
+| Tests | G-01~G-77 | + G-78~G-93, P-RISK-OFF, P-SIZE-PURE, P-RISK-SHRINK, P-WF-STITCH, P-SPLIT-DET, P-ML-REPRO, P-SKIP, error layer tests [R4-26] |
+| Tickets | 188 | **210** (24 new; T7.3 and T7.4 became the v1 tickets T3.29 and T3.33) [R4-27] |
+| ADR | 0001~0037 | + 0038 (money and risk slots), 0039 (validation and ML), 0020 fixed |
+| Open items | open 0 / ● 0 | unchanged |
+
+---
+
+## Appendix I. v3.3 → v3.4 change summary (fourth three-reviewer round + user decisions)
+
+Sources: `review/r4-opus.md` (P1 5, P2 6, 9.3), `review/r4-fable.md` (P1 6, P2 15, 9.4), `review/r4-sol.md` (P0 3, P1 5, P2 2, 9.0), the four user decisions 2026-10-28 (exact ratio required, `kelly` v1.x, ML forward-only, economic-event investing). Rescoring bundle `review/packet-r4b.md`. TDS v1.4 (exact ratio required, A010 error, interpretation of unknown inclusion, event table columns; `tds_version` "1.0" unchanged). The decisions on differing opinions among reviewers are appendix A-128~A-133.
+
+| R4F | What | Source | Section |
+|---|---|---|---|
+| 01 | exact ratio required, f64 inference removed, `decimal_ratio = "literal"`, G-53 rewritten | user decision, Sol S03, Opus P1-5 | header, 4.3, 4.6, 5.6.1, 5.6.10, 5.6.12, 6.6 E13, E30, 8.2 G-53, 8.3 P-QTY, ADR-0034, TDS 5.11 and 8.3 |
+| 02 | `size.kelly` v1.x (reserved) | user decision, Opus D6, Fable D6, Sol S09 | 1.1, 3.1, 3.7, 5.5.1a, 6.6 E18, 12.1 |
+| 03 | ML training forward-only (every method), CPCV test blocks excluded | user decision, Fable P1-2 | 5.3.11, 6.3a, 8.3 P-ML-REPRO |
+| 04 | one shared terminal-value function (accounting, labels, shadow, triple barrier) | Sol S01, Opus B | 5.6.13, 5.8, 5.5.2a, G-55 (g) |
+| 05 | unknown inclusion = the conservative side (not counted twice) + option E13 | Sol S02, Opus B, Fable B | 5.6.13 (d), 3.11, G-55 (h), TDS 5.13 |
+| 06 | exit order `blocked(cash)` carried over, long sales first, INV-06 kept, `suspended` rows on ruin | Opus P1-1 and P2-6, Fable C, Sol C | 5.6.7, 5.5.2a, G-94 |
+| 07 | fourth term of `vol_target` (long–short feasible region), G-81 (c) numbers and (d) | Opus P1-2, Sol S08 | 5.5.1a, 8.2, 8.3 P-SIZE-PURE |
+| 08 | INV-23 exclusion list, −0.0 → +0.0 | Opus P1-3 and P2-1 | 1.3, 5.5.2a, 8.3 P-RISK-OFF |
+| 09 | delisting losses in the shadow index | Opus P1-4 | 5.5.2a, G-84 (b) |
+| 10 | P-WF-STITCH = `backtest(start=t_1)` | Fable P1-1 | 6.3a, 8.3 |
+| 11 | grid IS = for each grid point, one full linear run, cut, purged and embargoed | Fable P1-3, D11 | 6.3a |
+| 12 | G-90 K = 1,001,000 won | Fable P1-4, Sol S08 | 8.2 |
+| 13 | first line of the 30-minute path `uv init quant && cd quant && uv add nexusbt`, CI `--find-links dist/` | Fable P1-5 | 8.5, T5.18 |
+| 14 | `buffer-hold` template test moved to T7.1, later templates marked | Fable P1-6 | 3.10, 8.5, T5.18, T7.1 |
+| 15 | preview = an attempt (new strategy candidate +1, `fidelity="preview"`) | Sol S04 (A-130) | 3.8, 6.2, 6.3a hygiene |
+| 16 | preview period = chosen segment ∩ start/end ∩ the last year of the snapshot | Sol S05 | 3.8 |
+| 17 | `@nx.portfolio` one side only, `"both"` E16 | Sol S06 | 3.8 |
+| 18 | P11 fixed fixture, per-stage budgets, output value hash, cold/warm equal | Sol S07, criteria 12.5 and 12.6 | 7, T1.24, T6.26 |
+| 20 | `validation/` columns | Fable P2-6 | 5.9.1 |
+| 21 | `split_hash`, method and fidelity in observations and the manifest | Fable P2-7, Sol 14.4 | 5.9.2, 5.9.5 |
+| 22 | fix lines (E9, E11, E20, E21, E25, E33), a general fix for user exceptions, E33 layer, E21 tail, E15 version sentence | Fable P2-10, P2-14 and P2-15, Sol 10.5, Opus D15 | 6.6, 5.3.11 |
+| 23 | `nexusbt[ml]` optional dependency, license and install check | Sol S10 | 2.2, T6.15 |
+| 24 | sizer hand calculation G-95 (score, vol_parity, cash_floor) | Sol 15.1 | 8.2 |
+| 26 | account rules written first are E16 | Opus P2-5, Sol D3 (A-131) | 5.5.2 |
+| 28 | brake `brakes_with_shadow_ok`, `S ≤ 0` → `shadow_ruined`, `peak_source`, `repr` float | Opus P2-2~P2-4, Fable D2 | 5.5.2a |
+| 29 | CPCV path interpretation sentence | D12 of all three reviews | 6.3a |
+| 30 | `[validate] min_samples` key | Fable P2-1 | 3.11 |
+| 31 | `nx.ml.rolling`/`expanding` (window ≠ split) | Fable P2-2 | 3.8, 5.3.11 |
+| 32 | classification binary only, `predict_proba` description fixed | Fable P2-3 | 5.3.11 |
+| 33 | label selectors `.ret`/`.side` | Fable P2-4 | 5.3.11 |
+| 34 | formula for counting embargo sessions | Fable P2-5 | 5.3.11 |
+| 35 | `Run.validation = None` (linear), period on the side-by-side line | Fable P2-8, D13 | 6.3a |
+| 36 | with the carried account, `step == test` | Fable P2-9 | 6.3a |
+| 37 | initial list of skips reason codes | Fable P2-11 | 6.6 |
+| 38 | sign and sum contract of `@nx.sizer(returns="weights")` | Fable P2-12 | 3.8 |
+| 39 | `compare` variants "+1 when a new candidate" | Fable P2-13 | 3.8 |
+| 40 | ADV only when at least half the lookback is valid | Opus D5 | 5.5.2 |
+| 41 | triple barrier "same session count, different end time" | Sol D9 | 5.8 |
+| 42~44 | deferred: ERC `fallback="fail"`, `ml_two_sided`, event extensions | Fable D4, Fable P1-2, user | 12.1 |
+| EV-01 | `Macro.series(id, vintage=)` | user decision | 3.2, 4.3, 5.1.5, 5.3.12, G-96 |
+| EV-02 | `Events.<kind>` | user decision | 3.2, 4.3, 5.1.5, 5.3.12, G-98 |
+| EV-03 | `nx.on_event` schedule, incremental decisions | user decision | 3.7, 5.3.12, G-97, T3.35 |
+| EV-04 | `from_parquet(shape=)`, E47 | user decision | 3.2, 6.6 |
+| EV-05 | golden G-96~G-98, templates `event-driven-earnings` and `macro-regime`, tickets T2.Ge, T2.23 and T3.35 | user decision | 3.10, 8.2, 10.1 |
+
+### I.1 Final revision (after the 4b rescoring, 2026-10-28)
+
+Sources: `review/r4b-opus.md` (one P1-EV1, 10.0), `review/r4b-fable.md` (no P1, three EV-P2, 10.0), `review/r4b-sol.md` (P1 EV01~EV03, 9.49), two user decisions 2026-10-28 (margin account in v1, off by default; the market-event target written as an assumption) and a user request (a two-part config file). After the fix the version is still v3.4 (this file); the copy before the fix is `sources/engine-spec-v3.4-pre-final-2026-10-28.md`. Rescoring bundle `review/packet-r4c.md`.
+
+| R4G | What | Source | Section · test |
+|---|---|---|---|
+| 01 | target of a market-event trigger = the whole strategy universe (`universe_scope` default `None` → `"all"`), an explicit `"event_instruments"` is E16 | Opus P1-EV1 | 3.7 `on_event`, 5.3.12 · G-97 (c), T3.35 |
+| 02 | combined-book check of incremental decisions: only the new targets shrink by `k` (gross and net exposure, `L + c·S`, group caps, `max_weight`, vol_cap), existing targets unchanged, `event_book_cap` and `event_book_scale` reported | Sol EV01 (A-134) | 5.3.12 · G-97 (d), T3.35 |
+| 03 | end-of-life session = an exit-only decision (added to the decision grid), screen "scheduled exit" | Sol EV02 | 3.7, 5.3.12 · G-97 (e), T3.35 |
+| 04 | `ts_event=`, `period_end=`, `vintage=` and `value=` in the `from_parquet` signature, defaults, required columns and checks per shape; the E47 fix line runs with that signature | Sol EV03 | 3.2, 6.6 E47 · T2.23 |
+| 05 | 4.4-4 sentence: A010 is an error (E) in TDS v1.4 | Opus P2 | 4.4-4 |
+| 06 | long–short event budgets per side (`long_weight − Σprior long`, `short_weight − Σ|prior short|`), then the combined-book check of 02 | Opus P2-EV1, Fable EV-P2-1 | 5.3.12 |
+| 07 | end of life and `time_stop`: whichever comes first, one only; on the same open, one exit order (`covered_by_exit`) | Fable EV-P2-2 | 5.3.12 · G-97 main case |
+| 08 | periods without a trigger: non-event targets unchanged, the event share is cash after end of life | Fable EV-P2-3 | 5.3.12 |
+| MG-01 | the market-event target is written as an **assumption** ("the effect covers the whole universe") and kept in the manifest `assumptions` and the report header | user | 3.7, 5.3.12 · G-97 (c) |
+| MG-02~08 | margin account `[account] type = "margin"` (default `"cash"`): one requirement formula `R(ρ)`, allocation within `excess`, margin feasible region, borrowing interest `margin_interest` (bridge `financing`), close margin call → proportional reduction at the next open, ruin rule unchanged, `vol_target` above 1 (margin only) | user decision (A-135) | 3.11, 3.7, 5.5.1a, 5.6.7, **5.6.7a**, INV-06 · G-99~G-102, T4.Gm, T4.20 |
+| MG-09 | P-MARGIN-OFF: cash-account output bit-identical to before (baseline + differential) | user decision | 8.3 · T4.20 |
+| MG-10 | margin extensions (add-on requirements, portfolio margin, intraday calls, KR forced-sale order) are v1.x | user decision | 12.1 |
+| CFG-01~05 | config in two parts (part 1 what must be checked, part 2 advanced), `init --lang ko` comment template, `config check` (contradictions included) and `config show [--all]` (sources), part 1 values in the report header; every key of the example `nexusbt.toml.example` is in 3.11 (two example values fixed: `decimal_ratio = "require_exact"`, `rounding` table form) | user request | 3.10, 3.11 · T5.21 |
+
+Counts: tickets 213 → 216, golden 98 → 102, property tests +1 (P-MARGIN-OFF), no new error codes (E16 and E46 reused). Chapter 12 open 0 / ● 0 unchanged.
+
+Numbers 19, 25 and 27 were not used (19 = merged into 07, 25 = merged into 18, 27 = merged into 08). Chapter 12 open 0 / ● 0 unchanged.
+
+---
+
+
+### I.2 Final-check changes (r4c, 2026-10-28)
+- [R4H-01] the feasible region of the event combined-book check by account type (margin account = the 5.6.7a formula) — Opus P1-M1, G-103.
+- [R4H-02] forced reduction `f` clipped to 0~1 and the reduced quantity at most the holding; when `E ≤ 0`, full liquidation + `ruined` — Opus P1-M2 = Sol MG01, G-104.
+- [R4H-03] `f` with costs deducted in advance prevents repeated margin calls — Opus P2-M1.
+- [R4H-04] a reference to the margin account in the `vol_target` line of 5.5.1a, notation unified as `initial_margin_max` — Opus P2-M2.
+- Round 4 final: Opus 10.0 (settled without re-review after the two P1 fixes), Fable 10.0, Sol 9.82 → with MG01 resolved, no P0 or P1 remains.
+- [R4H-05~08] prototype findings applied: four answer notations (G-53 (g) reduction rule, G-81 (c) fourth term, G-54 (iv) 20 shares after the split, G-104 (b) cash), chapter 7 measured results, skipping row-group statistics, USS measurement inside workers, synthetic generator shapes strengthened.
+
+
+### I.3 Latest tools (2026-10-28, user decision)
+- [R5-01] `nx.dataset.from_frame` — accepts any table (pandas, Polars, DuckDB, pyarrow) through the Arrow PyCapsule, reproducible through the hash and the `inputs/` copy, G-105, T5.22.
+- [R5-02] result table objects `__arrow_c_stream__` — export to any table library without copying (5.9.8), T5.22.
+- [R5-03] pretrained models (time-series foundation models and the like) `nx.ml.pretrained(..., training_cutoff=)` — decisions before the pretraining data cutoff are blocked with E48, and with `allow_overlap` E49 is shown, G-106, T6.24b. Rationale: in 2026 research, general TSFMs do not beat strong baselines in return forecasting and finance-pretrained versions do better; when the pretraining data includes the test period, it is future information.
+- [R5-04] ADR-0040 — 3.14 free threading is a parallel-executor slot swapped in after measurement.
+- [R5 Sol check applied] pandas ≥ 3.0, zero-copy only for Arrow standard types, tz check only for timestamp (date32 allowed), a common `value_sha256` for the three paths = the TDS 4.5 value hash, `ml.factor` signature (for pretrained: label, train and refit None), cutoff boundary = by market-calendar session, model identity in `graph_hash` too, `allow_overlap` = the only explicit exception to INV-01, G-106 wording (the default run raises E48 before the run).
+
+### I.4 Pre-implementation polish (R6, 2026-10-28) — no normative change
+- [R6-01] the input canon of the header = TDS v1.4 (`engine-data-standard-v1.4.md`, chapter 18). [R6-02] spec file name in the repository `docs/spec/engine-spec-v3.4.md` (2.3, 9.1, 9.4).
+- [R6-03] 40 ADRs (0001~0040, M0 exit condition and T0.1), ADR-0021 accepted (OI-20 user decision). [R6-04] current counts: tickets 218, G-01~G-106, properties 34, E1~E49, ADR 40 (10.0); T4.Gm title G-99..G-104.
+- [R6-05] E48 and E49 in the T0.4b class list and the layer table (E48 = your code, E49 = config). [R6-06] the `risk=` slot sentence aligned with the v3.3 decision (built-in rule list, ADR-0038) — ADR-0020, OI-13, V31-54; there is no `risk.exposure` name.
+- [R6-07] forced-liquidation sentences by account type: none in the cash account (default), the margin account 5.6.7a (header, 1.1, 5.6.7, E38, CONTEXT, ADR-0036, OI-51). [R6-08] A-120 (f64 ratio inference) marked as removed in v3.4.
+- [R6-09] a target column in 12.1 (v1.x / E4·E5 / next TDS MINOR / dropped / resolved in v1), paragraphs made a table; the five rows that disagreed with the v1 tickets (V31-34, V31-43, V31-52, margin forced liquidation, V31-13) marked ⚑.
+- [R6-12] stale lines of the 1.2 term table and the 9.2 CONTEXT draft (TDS version, target stages, hold band = v1 T7.1, producer name).
+- [R6-13] G-105 and G-106 had no golden ticket → put in T5.G and T6.Gv and added to the Blocked by of T5.22 and T6.24b (an implementation PR does not write golden cases, 8.2).
+- [R6-10] `docs/adr`, `CONTEXT*` and `README*` added to the `grep` (forbidden-word list) of the T0.1 acceptance test. [R6-11] English canon of the first public bundle = the engine folder `handoff/` (CONTEXT, 40 ADRs, README, SPEC-INDEX; GRILL-NOTES is for user interviews and is not put in the repository).
+- Example files: `tds-examples.md` (checked against the TDS v1.4 column names — corporate actions `ts_announced`, `period_kind` codes, `share_counts`, `fx_rates`, `classifications` and `delistings` columns, event partitions, `run_pipeline` result columns, `name` per `from_parquet` shape), `nexusbt.toml.example` (checked against 3.11 — `[costs.provisional_bps]` = {buy, sell}, `[live] book_dir` default, neutral paths).
+
+
+### I.5 Real-data changes (R7, 2026-10-29, user decision)
+- [R7-01] default handling of a share-count event without an exact ratio = exclude only that instrument from the time the event becomes visible (5.6.1 "events without an exact ratio", config default `exclude_instrument`, E13 only with `require_exact`), G-107, T3.9b. Rationale: in the producer's real packages the verified ratios are about 58% in KR and about 85% in US, so with a `require_exact` default a full KR run would almost always stop.
+- [R7-02~R7-12] fact checks against primary sources (2026-10-29, `handoff/GRILL-NOTES.md` 'verification results'): 4.7 seeds — KR tick table (2023 common table and ETF 5 won verified, the old table starts 2010-10-04, before that 5 won below 5,000 won), US Rule 612 verified and Nasdaq decimalisation 2001-04-09 separated, the six KR short-sale ban periods verified from the FSC original text, the KR price-limit table fixed per market (KOSDAQ 0.15 from 2005-03-28, KONEX 0.15, the 1995~1998 steps; kept verified=false as a secondary source), `day_count` US 360 and KR 365, fact notes on rounding; facts on licenses, plinth and zipline trigger prices. No normative change (design impact only in GRILL-NOTES 'impact on design').
+
+## Revision history
+- 2026-10-27: v1 first written (integrated design, UX, E0, research and Codex review, reference producer documents, plinth 2.7.1).
+- 2026-10-27: **v2**. Blueprint SC-01~SC-27 all applied (normative, additions, reserved), TDS v1 made the input canon and D1~D24 applied throughout, gaps on the producer side and fallbacks, public decisions (public repository, Apache-2.0, TDS versioned separately, a repository without data, TDS-Q5 decided), tickets updated to 112, open items merged. The v1 file left as it is.
+- 2026-10-28 night: name Aion settled (OI-05; changed to NexusBT the same day in v3.1). All open items of chapter 12 closed: OI-18 taxes = `[taxes]` written by the user in the config file (new 5.6.11a, 8 keys in 3.11, ticket T4.5b, tests G-51 and G-52 → 142 tickets); OI-09, 19, 39, 44, 45, 46 and 47 decided; OI-06, 10, 21 and 22 decided; OI-01, 02, 03 and 37 moved to the producer roadmap.
+- 2026-10-28 (v3.1): name Aion → NexusBT (user decision; PyPI refused to register `aion`, and it collides with active packages that use `import aion`). import `import nexusbt as nx`, config `nexusbt.toml`, CLI `nexusbt`, checker `nexusbt-tds`/`nexusbt_tds`.
+- 2026-10-28 (v3.1): **v3.1**. The 3 P0 and the 27 accepted P1 of the teardown of existing engines (`teardown/`, raw gaps 103 → merged 70; applied 31, deferred 38, dropped 1) + no copying from PyBroker, the core of shorting and long–short symmetry (user decision, V31-LS-01~11, changes design 9.0 Q2 "v1 long only"), paired with TDS v1.2. 34 new tickets → 176, tests G-53~G-75, T-24~T-28, P-FILLCAUSAL, P-SLEEVE-ISO, P-GRID, P-SHORT-OFF, P-TRADES, P-CACHE-INCR, L2-e, errors E36~E38, ADR 0034~0036, 12.1 deferred items, appendices B.5 and F. v3 to `sources/`.
+- 2026-10-28: **v3**. The three-reviewer review (Opus 5.5 · Fable 5.1 · GPT-6.1 Sol xhigh, two rounds) consensus applied: 12 P0 correctness contracts (C01~C13), 11 P1 implementability items, the cheap P2. Paired with TDS v1.1. The producer neutralised on the public premise (Apache-2.0, only the producer's data private). 141 tickets (M3a/M3b, golden tickets, splits). v2 to `sources/`.
+- 2026-10-28 (v3.2): **v3.2**. The 10 P0, 16 P1 and two P2 of the consensus of the third three-reviewer round (first pass + cross review, `review/consensus-r3.md`; final Opus 7.1 · Fable 7.2 · Sol 7.2) applied (`[R3-NN]`, appendices G and B.6), the four user decisions 2026-10-28 (cash interest, short ruin `ruined`, APFS cloning first, the Rust seam) and the default instructions, chapter 0 the design story (`STORY.md`). Paired with TDS v1.3. Tickets 176 → 188, error E39, tests G-76 and G-77, ADR-0037. v3.1 to `sources/`.
+- 2026-10-28 (v3.3 draft): round 4 topics applied (`[R4-NN]`, appendices H and B.7): money and risk management slots (INV-23), nine-slot contract, templates, preview and compare, error layers, P11, `backtest(method=…)` validation (user decision: one entry point), `ml.factor`, triple barrier. Tickets 188 → 210, tests G-78~G-93, errors E40~E46, ADR 0038 and 0039. v3.2 to `sources/`.
+- 2026-10-28 (v3.4): all P0 and P1 and most P2 of the fourth three-reviewer round (Opus 9.3 · Fable 9.4 · Sol 9.0) applied (`[R4F-NN]`, appendix I), four user decisions (exact ratio required — TDS v1.4, `kelly` v1.x, ML forward-only, economic-event investing `[R4F-EV-NN]`). Tickets 210 → 213, golden G-94~G-98, error E47. v3.3 to `sources/`.
+- 2026-10-28 (v3.4 final revision): the four P1 (Opus EV1, Sol EV01~EV03) and four event P2 of the 4b rescoring (Opus 10.0 · Fable 10.0 · Sol 9.49) applied (`[R4G-NN]`), user decision margin account in v1 off by default (`[R4G-MG-NN]`, 5.6.7a), the market-event target recorded as an assumption, two-part config file and `config check`/`show` (`[R4G-CFG-NN]`). Tickets 213 → 216, golden G-99~G-102, P-MARGIN-OFF. Appendix I "final revision". The copy before the fix is in `sources/`.
+- 2026-10-28 (R6 pre-implementation polish): consistency sweep `[R6-NN]` (appendix I.4) — stale versions and counts fixed, the 12.1 target column, forced liquidation, `risk=` and ADR-0021 sentences aligned, E48 and E49 layers; first public bundle `handoff/` (English canon + Korean translation). No normative change. Copy before the fix: `sources/engine-spec-v3.4-pre-r6-2026-10-28.md`.
