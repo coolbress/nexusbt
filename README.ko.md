@@ -21,7 +21,7 @@ NexusBT는 일봉으로 주식 팩터를 연구하는 오픈소스(Apache-2.0) �
 | 읽을 것 | 무엇을 위해 |
 | --- | --- |
 | [START-HERE.ko.md](START-HERE.ko.md) | 어디서 시작하나, 일하는 순서, 다시 열지 않을 결정 |
-| [docs/spec/engine-spec-v3.4.md](docs/spec/engine-spec-v3.4.md) | 엔진 명세(한국어). **유일한 기준**: 다른 문서와 다르면 명세가 이긴다 |
+| [docs/spec/engine-spec-v3.4.ko.md](docs/spec/engine-spec-v3.4.ko.md) | 엔진 명세 한국어 번역(정본은 [영어 판](docs/spec/engine-spec-v3.4.md)). **유일한 기준**: 다른 문서와 다르면 명세가 이긴다 |
 | [ARCHITECTURE.ko.md](ARCHITECTURE.ko.md) | 시스템 지도: 층, 예정된 코드 배치, 불변식 |
 | [GLOSSARY.ko.md](GLOSSARY.ko.md) | 이 프로젝트의 낱말(명세가 쓰는 이름 `CONTEXT.ko.md`는 이 파일을 가리킨다) |
 | [SPEC-INDEX.md](SPEC-INDEX.md) | 마일스톤과 티켓, 티켓마다 명세 절과 시험 |
@@ -29,9 +29,8 @@ NexusBT는 일봉으로 주식 팩터를 연구하는 오픈소스(Apache-2.0) �
 | [docs/tds/tds-v1.4.ko.md](docs/tds/tds-v1.4.ko.md) | 입력 자료 표준과 [예시](docs/tds/tds-examples.ko.md) |
 | [docs/design/prototype-results.md](docs/design/prototype-results.md) | 시제품 실측 증거 |
 
-공개 문서는 영어가 정본이고 한국어 번역(`*.ko.md`)이 붙는다. 명세는 아직
-한국어다: 영어 판을 만드는 중이고, 다 될 때까지는 한국어 판이 정본이다(명세
-OI-45, 2026-10-31 개정).
+공개 문서는 영어가 정본이고 한국어 번역(`*.ko.md`)이 붙는다. 명세도
+그렇다(명세 OI-45, 2026-10-31 개정).
 
 ## 공개와 비공개
 

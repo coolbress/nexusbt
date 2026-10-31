@@ -2,7 +2,7 @@
 
 **Event-driven where it matters, vectorized where it scales. You just snap the blocks together.**
 
-This document describes the high-level architecture of NexusBT. Read it to find your way around the code and to learn which rules hold everywhere. It is a map, not the rules: the rules are in the [engine spec](docs/spec/engine-spec-v3.4.md) (Korean, the single source of truth). Section numbers below (§) point into the spec. Korean translation: [ARCHITECTURE.ko.md](ARCHITECTURE.ko.md).
+This document describes the high-level architecture of NexusBT. Read it to find your way around the code and to learn which rules hold everywhere. It is a map, not the rules: the rules are in the [engine spec](docs/spec/engine-spec-v3.4.md) (the single source of truth; Korean translation: [engine-spec-v3.4.ko.md](docs/spec/engine-spec-v3.4.ko.md)). Section numbers below (§) point into the spec. Korean translation: [ARCHITECTURE.ko.md](ARCHITECTURE.ko.md).
 
 > Status: the design is complete and the code is not written yet. Every package and module named here is **planned** (spec §2.3, ticket T0.2a).
 

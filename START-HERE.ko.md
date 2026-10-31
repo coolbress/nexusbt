@@ -8,7 +8,7 @@
 
 | 무엇 | 어디 | 메모 |
 |---|---|---|
-| 엔진 명세 v3.4 (한국어) | [docs/spec/engine-spec-v3.4.md](docs/spec/engine-spec-v3.4.md) | **유일한 기준.** 공개판. 다른 문서와 다르면 명세가 이긴다 |
+| 엔진 명세 v3.4 | [docs/spec/engine-spec-v3.4.md](docs/spec/engine-spec-v3.4.md)(영어 정본) · 한국어 번역 [engine-spec-v3.4.ko.md](docs/spec/engine-spec-v3.4.ko.md) | **유일한 기준.** 공개판. 다른 문서와 다르면 명세가 이긴다 |
 | 명세 검사기 | `tools/spec_lint.py`(아직 저장소에 없음: 인계 묶음에 들어 있지 않았다) | `python3 tools/spec_lint.py`(표준 라이브러리만): § 참조, 티켓 그래프, 번호. 명세를 고칠 때마다 돌린다 |
 | 티켓 색인 | [SPEC-INDEX.md](SPEC-INDEX.md) | 마일스톤 → 티켓 → 명세 절 → 시험 → 막는 티켓. 티켓 본문은 명세 10.1 |
 | 자료 표준 TDS v1.4 | [docs/tds/tds-v1.4.md](docs/tds/tds-v1.4.md) (+ [한국어](docs/tds/tds-v1.4.ko.md)), [예시](docs/tds/tds-examples.md) | 명세 2.3과 T0.1은 `tds/spec/tds-v1.md` 자리를 쓴다. T0.1에서 옮기고 링크를 고친다 |
@@ -74,7 +74,7 @@
 명세 머리말의 "사용자 결정" 묶음(2026-10-27/28):
 - 이름 NexusBT: 배포 `nexusbt`, `import nexusbt as nx`, `nexusbt.toml`, CLI `nexusbt`, 환경 변수 `NEXUSBT_*`. 검사기는 `nexusbt-tds` / `nexusbt_tds` / CLI `tds`.
 - 열쇠 이름은 `instrument_id` 하나이고 `security_id` 별칭은 없다. 다른 이름은 가져올 때만 바꾼다(`rename=`, `mapping.yaml`).
-- 공개 문서(TDS, README, 빠른 시작, 오류 문장, CONTEXT)는 영어 정본 + 한국어 번역이다. 2026-10-31 개정(명세 OI-45): 명세도 그렇다. 영어 판이 다 될 때까지는 한국어 명세가 정본이고, 영어 판은 `docs/spec/engine-spec-v3.4.en.md`에 쌓았다가 마지막 한 번에 명세 경로를 넘겨받는다.
+- 공개 문서(TDS, README, 빠른 시작, 오류 문장, CONTEXT)는 영어 정본 + 한국어 번역이다. 2026-10-31 개정(명세 OI-45): 명세도 그렇다. 영어 명세가 `docs/spec/engine-spec-v3.4.md`에서 정본이고 한국어 번역은 `docs/spec/engine-spec-v3.4.ko.md`이다. 영어 판은 한국어 판 옆에서 장마다 쌓였다가 한 번에 명세 경로를 넘겨받았다(#6).
 - v1은 합성 자료로 만들고, KR/US 실자료 검증을 통과하면 출시한다. PyPI는 이름만 예약했고 게시는 v1 때.
 - zipline 대조는 프리셋 범위만(ADR-0021). 완충대는 M6 마지막 티켓(T7.1).
 - 공매도는 v1에 넣고 기본은 꺼 둔다. 부호 대칭이고, `enabled = false`면 롱 전용과 비트까지 같다(P-SHORT-OFF). 대차 비용은 사용자 설정이다. 대차 가능 자료는 없다. KR 공매도 금지는 시장 규칙 팩에 둔다.

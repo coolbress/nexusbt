@@ -8,7 +8,7 @@ This repository builds **NexusBT**, an open-source (Apache-2.0) backtesting and 
 
 | What | Where | Notes |
 |---|---|---|
-| Engine spec v3.4 (Korean) | [docs/spec/engine-spec-v3.4.md](docs/spec/engine-spec-v3.4.md) | **The single source of truth.** Public edition. If anything disagrees with it, the spec wins |
+| Engine spec v3.4 | [docs/spec/engine-spec-v3.4.md](docs/spec/engine-spec-v3.4.md) (Korean translation: [engine-spec-v3.4.ko.md](docs/spec/engine-spec-v3.4.ko.md)) | **The single source of truth.** Public edition. If anything disagrees with it, the spec wins |
 | Spec checker | `tools/spec_lint.py` (not in the repository yet: it was not in the pack) | `python3 tools/spec_lint.py` (stdlib only): § refs, ticket graph, ids. Run it after any spec edit |
 | Ticket index | [SPEC-INDEX.md](SPEC-INDEX.md) | milestone → ticket → spec sections → tests → blocked by. Ticket text lives in spec 10.1 |
 | Data standard TDS v1.4 | [docs/tds/tds-v1.4.md](docs/tds/tds-v1.4.md) (+ [.ko](docs/tds/tds-v1.4.ko.md)), [examples](docs/tds/tds-examples.md) | Spec 2.3 and T0.1 place it at `tds/spec/tds-v1.md`; move it there in T0.1 and fix the links |
@@ -74,7 +74,7 @@ One ticket per session (`/clear` between). Write tests first: the ticket's accep
 From the spec header ("사용자 결정" blocks, 2026-10-27/28):
 - Name NexusBT: distribution `nexusbt`, `import nexusbt as nx`, `nexusbt.toml`, CLI `nexusbt`, env `NEXUSBT_*`; checker `nexusbt-tds` / `nexusbt_tds` / CLI `tds`.
 - One key name `instrument_id`, with no `security_id` alias. Other names are renamed only at import (`rename=`, `mapping.yaml`).
-- Public docs (TDS, README, quickstart, error messages, CONTEXT) are English canonical plus a Korean translation. Amended 2026-10-31 (spec OI-45): the spec too. Until its English text is complete, the Korean spec stays canonical; the English text grows in `docs/spec/engine-spec-v3.4.en.md` and takes over the spec's path in one last step.
+- Public docs (TDS, README, quickstart, error messages, CONTEXT) are English canonical plus a Korean translation. Amended 2026-10-31 (spec OI-45): the spec too. The English spec is canonical at `docs/spec/engine-spec-v3.4.md` and the Korean translation is `docs/spec/engine-spec-v3.4.ko.md`; the English text was grown chapter by chapter beside the Korean and took over the spec's path in one step (#6).
 - v1 is built on synthetic data. It is released after it passes KR/US real-data verification. PyPI name reserved; publish at v1.
 - zipline parity covers presets only (ADR-0021). The hold band is the last M6 ticket (T7.1).
 - Shorting is in v1, off by default. It uses signed symmetry; with `enabled = false` the result is bit-identical to long-only (P-SHORT-OFF). Borrow costs are user config. There is no borrow-availability data. KR short bans come from the market rules pack.
