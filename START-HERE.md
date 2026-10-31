@@ -63,7 +63,7 @@ Make **one plan issue** that points at spec sections. Do not rewrite the spec. I
 
 ### (d) `/to-tickets`
 
-Cut issues from [SPEC-INDEX.md](SPEC-INDEX.md): 219 tickets in milestone order (M0 → M6, then v1.x). Each issue body is the ticket text from spec 10.1, copied as written: title, size, Done means, Acceptance, Blocked by, § sections. Golden tickets (`T<m>.G…`) come before the tickets that use them. Replace `Blocked by` ticket ids with issue numbers as you go, and keep the id → issue map in the plan issue.
+Cut issues from [SPEC-INDEX.md](SPEC-INDEX.md): 219 tickets in milestone order (M0 → M6, then v1.x). Each issue body is the ticket text from spec 10.1, copied as written: title, size, Done means, Acceptance, Blocked by, § sections. The issue's own title is a plain sentence of what the ticket does, not the ticket's commit-style title (`T6.16 ci(release): …`); the ticket id and that title go under the body's `## Parent`. Golden tickets (`T<m>.G…`) come before the tickets that use them. Replace `Blocked by` ticket ids with issue numbers as you go, and keep the id → issue map in the plan issue.
 
 ### (e) `/implement #N`
 
