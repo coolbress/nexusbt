@@ -21,9 +21,9 @@ build-backend = "hatchling.build"
 
 [dependency-groups]
 dev = [
-    "mypy>=1.14",
+    "mypy>=2.4.0",
     "pytest>=8.3",
-    "ruff>=0.9",
+    "ruff>=0.17.3",
 ]
 
 # Linter and formatter. The configuration is committed; CI runs `ruff check`
