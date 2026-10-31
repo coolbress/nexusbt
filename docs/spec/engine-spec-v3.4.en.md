@@ -3788,3 +3788,218 @@ Following the three-reviewer consensus (RV-I05), v3 **cut M0 down to contracts o
 ### 10.2 Producer-side tickets (left out of the public edition)
 
 This section is a private producer's work plan and was left out of the public edition. It has nothing to do with engine behaviour, and the engine's M0~M6 can be finished with the synthetic package (4.8). What the engine does with columns and datasets the producer has not filled is set by the fallback behaviour of 4.5.
+
+---
+
+## 11. Extension points (E4 and E5, designed now and not implemented) [R-46, R-48, D6, design 4.6]
+
+v1 places only the boundaries below (Protocols, data types, table names) in `nx.bridge`. There is no implementation, and calling them in v1 is `CapabilityError` (E18). The test `tests/unit/bridge/test_capabilities.py` (ticket T6.17) checks this. The TDS tick, quote, futures, options and crypto schemas this chapter uses are `status: experimental` in TDS v1.1 (outside the version-compatibility promise; promoted to stable once lossless import and replay fixed cases exist) [RV-I07].
+
+### 11.1 Execution backend boundary
+
+```python
+@dataclass(frozen=True, slots=True)
+class Capabilities:
+    asset_classes: frozenset[str]          # v1 panel: {"equity"}
+    bar_freqs: frozenset[str]              # v1: {"1d"}
+    order_types: frozenset[str]            # v1: {"market","limit","stop","stop_limit"}
+    intraday_sequencing: bool              # v1: False (daily bars: the adverse side is assumed)
+    book_depth: int                        # v1: 0
+    margin: bool                           # v1: True (off by default in the config: [account] type = "cash", 5.6.7a [R4G-MG-02]); the cash account has no margin loan for longs [R3-08]
+    short_selling: bool                    # v1: True (off by default in the config) [V31-LS-01]
+    fractional_qty: bool                   # v1: False
+
+class ExecutionBackend(Protocol):
+    name: str                              # "panel" (v1), "nautilus" (E4)
+    def capabilities(self) -> Capabilities: ...
+    def run(self, orders: Iterable[OrderIntentBatch], market: MarketView,
+            config: SimConfig) -> Iterable[FillEvent]: ...   # [V31-09] fill events only
+```
+
+- **The engine is the accounting canon** [V31-09]: a backend emits **fill events only** (order status transitions, fill quantity, price, liquidity side). The `session_start` event (5.6.3(1)), tradability blocks (5.6.5), sellable quantity and short collateral (5.6.7), costs (5.6.8), cash allocation, corporate actions, dividends and delistings, and NAV are done by the engine's `accounting` with the same code. Why: the NautilusTrader core has no dividend, split or delisting handling (0 hits searching `crates/`), no price-band check and no trading calendar, and it has a history of bugs filling buys without enough cash (NT#5047, NT#5119), so filling in accounting inside the backend would make two copies. Nautilus is used with its accounting switched off by `calculate_account_state=False` [est.]. The connection tests include reproduction cases of NT#5047, #5054 and #5461 (E4).
+
+- `nx.backtest(..., engine: Literal["panel"] = "panel")`. Any other value is E18. `engine="auto"` is not made (fill semantics are not changed silently) [C10, R-48].
+- The features a strategy requires (asset class, bar frequency, order types, intraday sequence) are compared with `Capabilities`, and when one is missing the run stops with E18 before it starts.
+- Every backend takes the same `TargetFrame` input and produces the same canonical columns of `orders.parquet` and `account_events.parquet` and the same manifest [R-48].
+
+### 11.2 NautilusTrader connection (E4)
+- Only through the optional dependency `nexusbt[nautilus]`, used by importing it as a library (LGPL-3.0; no source copied, 2.1), with the version pinned. Only the 128-bit high-precision wheels are used (the 64-bit `Money` cap is about 9,200,000,000 won) — the connection tests include "a KRW account of 1,000,000,000,000 won" [design 4.6, risk 4].
+- The conversion table uses TDS 9.3 (the reverse direction is `tds export nautilus-catalog`): `instruments` → `Equity`/`FuturesContract`/`OptionContract`/`CryptoPerpetual`/`CurrencyPair`; `bars(freq<1d)` → `Bar` (`ts_end` = the closing time); `trades` → `TradeTick`; `quotes` → `QuoteTick`; `book_deltas` → `OrderBookDelta`; `book_snapshots` → `OrderBookDepth`.
+- One Nautilus `Strategy` evaluates the NexusBT Pipeline incrementally at each timer (decision clock) and goes `TargetFrame` → order intents → execution algorithm (immediate/TWAP). The user does not see Nautilus configuration objects.
+- **Rust core comparison** [R3-26, user decision 2026-10-28]: E4 intraday and tick execution (minute and tick event processing, order book state, `intraday-path-v1`) is designed as a Rust core (PyO3/maturin) on the 2.4 seam, and at that point it is compared with this Nautilus bridge on the same fixed cases (accounting ground-truth data, reproductions of NT#5047, #5054 and #5461) to choose one. The daily v1 path keeps the Python/Numba reference as canonical.
+- Daily equities stay with the v1 panel backend (Nautilus has no next-bar-open fill mode by default). The cross test matches NAV with zero costs and fills at the close.
+- When minute or tick data exist, the intraday sequence is judged with that data: fill model `intraday-path-v1` (walks the minute bars in time order and applies the 5.6.4 rules to each minute bar, with the same order state machine). Queue and latency defaults are conservative, and imitating limit orders with bars gives an optimism warning [research 2.5].
+
+### 11.3 Asset data types (E4 and E5)
+
+```python
+@dataclass(frozen=True, slots=True)
+class FutureSpec:  root: str; ts_expiry: datetime; multiplier: float; settlement: Literal["cash","physical"]; first_notice: date | None
+@dataclass(frozen=True, slots=True)
+class OptionSpec:  underlying_instrument_id: str; strike: float; right: Literal["call","put"]
+                   exercise_style: Literal["american","european"]; ts_expiry: datetime; multiplier: float; settlement: Literal["cash","physical"]
+@dataclass(frozen=True, slots=True)
+class CryptoSpec:  base: str; quote: str; venue: str; qty_step: float; price_step: float
+```
+
+- Data table names use TDS chapter 5 (`bars` freq=1m/1h, `trades`, `quotes`, `book_deltas`, `book_snapshots`, `market_statistics`, `roll_calendar`, `option_chain_snapshots`, `funding_rates`, `reference_prices`, `rates`) and the profiles (`tds:intraday-bars`, `tds:l1-ticks`, `tds:l2-book`, `tds:l3-book`, `tds:futures`, `tds:options`, `tds:crypto`) as they are. Tick and quote times are in ns, prices int64 fixed-point (TDS K2, K7) [TDS-D4]. Only provider Greeks and IV are inputs; values recomputed by the engine are not inputs.
+- Futures: continuous-contract prices are **for signal computation only**; fills and P&L use the actual individual contracts. The strategy states the roll with `roll.mapping` (when: last_trade / first_notice / open_interest / volume) and `roll.normalization` (how: backwards_ratio / panama / none) [research 2.7].
+- Options: fills by default buy = ask, sell = bid, and the mid price is an explicit optimistic option; early exercise for American style only [research 2.6]. In E5, Nautilus and LEAN are compared on small accounting, exercise and margin ground-truth data before one is chosen [Q16].
+- Crypto: calendar `CRYPTO-UTC` (session = one UTC day, minute bars by bar index), fractional quantities (`fractional_qty`). The decision clock is `clock = "utc:HH:MM"` (the name is only reserved, E18 in v1) [SC-25]. The market rules pack (4.7) holds that market's rules (no price limits, 24/7).
+- Plugin points (later): Python entry points `nexusbt.datasets`, `nexusbt.costs` and `nexusbt.factors`, these three kinds only. Plugin names and versions go into the structure hash and the cache keys. Execution backends are not plugins but only code in the engine repository (one canon for fill semantics) [blueprint 12.4].
+- Duration windows (`Returns("30d")`): added on top of row-count windows by a "time range → row range" conversion (R-47). No per-asset arguments are added to the `Strategy` or term API [R-46].
+
+### 11.4 Broker ledger boundary (after E3) [R-49, Q11]
+
+```python
+class Book(Protocol):
+    book_id: str
+    def state(self) -> AccountState: ...
+    def submit(self, orders: Orders) -> SubmissionReceipt: ...       # a paper ledger only records
+    def fills(self, since: datetime) -> pa.Table: ...                # canonical columns of orders.parquet
+```
+
+Real broker adapters (`nx.book("kis:<account>")` and the like) are opened by a separate ADR after they pass reconciliation and idempotency tests (M5 level). Keys come only from environment variables or the OS keychain (2.6). A broker's paper account is only a connection smoke test, not a verification standard (5.9.7). On a broker ledger, `reconcile` becomes a TCA report.
+
+---
+
+## 12. What remains open (the recommended defaults keep work from stopping)
+
+> **2026-10-28 all closed.** 0 open, 0 user decisions (●). v3.4: the three user questions raised by the fourth review round (f64 ratios, `kelly`, the direction of ML training inside CPCV) and economic-event investing were closed by user decision the same day (header) — no new open items [R4F-01~03, R4F-EV-01~05]. v3.3: the user decisions on the round 4 topics (CPCV v1, minimum ML factor v1, validation accounts, one entry point) are written in the header as decided, and there are no new open items; the points for the fourth review round to judge are in `review/packet-r4.md` and are not open items (work proceeds with the designer's defaults) [R4-19, R4-20, R4-23]. v3.2: the four user questions raised by the third review round were closed by user decision the same day (OI-50~OI-53, decided) [R3-25, R3-09, R3-16, R3-26]. What the engine has to do is decided or applied, and the data-side work (OI-01·02·03·37) moved to the producer roadmap. Taxes, like commissions, are written by the user in the config file (OI-18, 5.6.11a).
+
+This combines O1~O11 of the v1 spec, blueprint OQ-1~OQ-15 and TDS Q1~Q16 into one; v3 corrected it with the results of the three-reviewer review (`review/consensus.md` chapters 3 and 5) and added OI-44~OI-49 (numbered `OI-xx`, the original number in parentheses). "Status": **applied** = the recommended default is already applied in this spec, **decided** = the user decided, **moved** = closed in the producer roadmap, **open** = work proceeds with the default but someone has to close it. A ● in the "User" column means a user decision is needed (the default keeps implementation from stopping).
+
+| # | Open item | Recommended default (implemented now) | Status | User | Who closes it, when |
+|---|---|---|---|---|---|
+| OI-01 (O1) | The private producer's TDS export does not exist yet | The engine proceeds through M0~M6 with the synthetic package; real data opens with the 4.5 fallback behaviour. The producer-side tickets **moved to the producer roadmap**. Closed on the engine side | moved 2026-10-28 |  | producer roadmap |
+| OI-02 (O2) | Source of the dividend-inclusive benchmark indices KOSPI and S&P 500 | When the snapshot has no index instruments, "n/a"; the engine does not make them | moved 2026-10-28 | | producer roadmap |
+| OI-03 (O3) | Checking the sources of cost-table values | `provisional` (KR 5/25 bp, US 5/5 bp) + marking. `default_v1.csv` holds `verified=false` seed values | moved 2026-10-28 | | The user overrides them in the config file (the same principle as taxes). Row-by-row source checks of the seed table are on the producer roadmap |
+| OI-04 (O4, TDS-Q15) | Price-limit history before 1998-12 and for KOSDAQ, tick-size tables | `tradability_daily` first, then TDS v1.2 `market_rules` (an optional dataset, price limits and tick sizes), then the engine fallback CSVs (`limits/`·`ticks/`, unverified seeds), tolerance 0.5%. Tick sizes are the v3.1 price grid (5.6.4a) [V31-05] | applied | | reference producer (`market_rules` export) |
+| OI-05 (O5, TDS-Q6) | Engine name, checker package name, TDS schema URL | **Engine name = closed as NexusBT (name decision 2026-10-28: Aion → NexusBT; PyPI refused to register `aion` and the name collides with two active packages that use `import aion`; PyPI `nexusbt` 0.0.1 registered as a placeholder, repository `<owner>/nexusbt`).** The checker and schema URL as below. The checker's import name changed to `nexusbt_tds` (distribution `nexusbt-tds`, command `tds`) (recommended by Opus and Fable; `tds` is too common). **All three reviews: "decide before creating the public repository"**: from the candidates, one whose PyPI, GitHub and command names are all free. `$schema` is the relative path `tds/schemas/1.0/tds.schema.json` (the real address is set once the name is chosen) | decided 2026-10-28 | | user [9.0 N1] |
+| OI-06 (O6) | Default dividend withholding (pre-tax vs after-tax) | 0 (pre-tax). Settable with `[dividends] withholding` to KR 0.154, US 0.15 (taxes are written by the user in the config file, OI-18) | decided 2026-10-28 | | user |
+| OI-07 (O7) | The scheme that `Meta.sector` and `industry` point to | `"auto"` = `dictionary/columns.alias_of`; when absent, using `Meta.sector` requires naming a scheme, with E16 | applied | | reference producer |
+| OI-08 (O8, TDS 6.4) | System-history replay mode | v1 economic history only; `history_mode="system"` is E18. The lookup signature already takes it | applied | | reference producer + engine after v1 |
+| OI-09 (O9) | Does the default `fail` for unsupported corporate actions stop too often on real data? | Set to `fail` (unanimous three-reviewer review; the `exclude_from` escape hatch was rejected because it cannot release holdings). Once real exports exist, count them with `bench/count_unsupported.py`, and add support for frequent events as tickets (work of the KR/US real-data verification stage) | decided 2026-10-28 |  | measured at real-data verification |
+| OI-10 (O10) | Real-data checks as required CI (self-hosted runner) | No. **Attaching a self-hosted runner to a public repository risks external PRs running code on the data machine**, so all the more no. Real-data reconciliation and performance are manual + committed summary evidence | decided 2026-10-28 | | user |
+| OI-11 (O11) | Pay-date fallback gaps (KR 120 days, US 21 days) [est.] | The observed median first; the fallback only with fewer than 20 observations | applied | | checked against the real distribution after the producer's dividend data arrives |
+| OI-12 (OQ-1) | When to put in the hold band (`hold=`) — **decided 2026-10-28: the last ticket of v1 M6 (T7.1)** | The norm (5.5.3) and the INV-08 wording now (before M3), the implementation in T7.1 after M6, off by default. Review recommendations: Opus and Sol = the first ticket of v1.x (as it is now), Fable = the last ticket of M6 | decided 2026-10-28 (recommended default confirmed) | | user |
+| OI-13 (OQ-2) | Should v1 have a `risk=` slot? | Yes. Default `None`, not shown in the examples, v1 implements only `none` (v3.1: for shorting and long–short, fitting to the gross and net exposure caps is always attached as a mechanical step that keeps the caps the user set — not a new risk model; `risk.exposure` is v1.x, 12.1) | decided 2026-10-28 (changed in v3.3 as below [R6-06]) | | user **v3.3: changed by the round 4 topics (user) — the money-management slot, the list of risk rules and the account layer are implemented in v1 (5.5.1a, 5.5.2, 5.5.2a); exposure reduction is `risk.vol_cap` and `size.vol_target` [R4-04, R4-05]** |
+| OI-14 (OQ-3) | Number of currency attribution terms | Three: local, FX and cross (they sum exactly); the first screen shows one line of annual contribution | applied | | spec decision |
+| OI-15 (OQ-4) | Default for the capacity scenario | Off (P5 budget). On for the final `sweep` candidates | applied | | spec decision |
+| OI-16 (OQ-5) | Cross-section reduction determinism: sorted index vs exact sum; window kernel definition | Sorted index (ADR-0019). The exact sum is for comparison in reference tests. The bit promise holds in the same environment only. Window kernel definition A (left fold) + the pre-registered B (absolute block partial sums), by the OI-47 measurement | applied | | ADR (T1.11, T1.24) |
+| OI-17 (OQ-6) | N_eff clustering method | v1.x average-linkage hierarchical clustering (distance 1−ρ) + maximum silhouette, method name recorded. ONC after the original is checked | applied | | T7.2 |
+| OI-18 (OQ-7) | Tax scenario (`[taxes]`) | **Written by the user in the config file** (like commissions; the engine has no built-in tax rates). Default none. Capital gains: rate per bucket, annual deduction, average/FIFO cost basis, same-year loss offset; payment report-only (default) or a cash deduction in May of the next year. Dividends use `[dividends] withholding`. 5.6.11a, 3.11, T4.5b, G-51, G-52 | decided 2026-10-28 |  | user |
+| OI-19 (OQ-8) | Optimisation dependencies (cvxpy / Riskfolio-Lib) | Only the optional dependency `nexusbt[opt]`, after v1. Licences are checked when that ticket opens (cvxpy Apache-2.0, Riskfolio-Lib BSD-3 — for Riskfolio-Lib the 3-clause BSD of [LICENSE.txt](https://github.com/dcajasn/Riskfolio-Lib/blob/master/LICENSE.txt) was checked [R7-11], cvxpy is [unverified]) | decided 2026-10-28 |  | ticket after v1 |
+| OI-20 (OQ-9, SC-12) | How zipline triggers daily limit and stop orders, and the narrowed comparison scope — **decided 2026-10-28: comparison through the preset only + our rules by hand calculation** | T3.15b settles it from the code of the pinned zipline 3.2.1 (the three-reviewer review confirmed the same direction upstream). The comparison scope is applied as "order types in the preset's meaning (L2-d) + our OHLC rules as hand-written arithmetic" (A-57). **All three reviews recommend this reading**. Its relation to the wording of user decision 9.0 ("comparison tests with zipline") was confirmed by the 2026-10-28 user decision (header: "the zipline comparison covers the preset scope") [R6-03] | decided 2026-10-28 (recommended default confirmed) | | user, the implementer of T3.15b |
+| OI-21 (OQ-10) | Broker paper-account adapters (KIS paper, Alpaca) | Not made (ADR after E3). Our paper ledger is the standard | decided 2026-10-28 (not in v1; may be revisited after E3) | | user |
+| OI-22 (OQ-11) | MLflow export | Not made. If needed, `nexusbt runs export --mlflow` (later) | decided 2026-10-28 (not in v1) | | user |
+| OI-23 (OQ-12) | When TDS and chapter 4 of the spec differ | TDS wins (4.1). v2's assertion "no differences that break invariants" was removed after the three-reviewer review found counterexamples (entitlement carry-over, classification keys, minimal-daily). Instead differences are managed by the tables of appendix B.3 and B.4 and by tests (4.4, 8.4a) | applied | | – |
+| OI-24 (OQ-13) | US T+1 / Korea T+2 settlement | v1 keeps immediate settlement (the assumption marked with a reserved key). Revisited when daily-turnover strategies are used | applied | | spec decision |
+| OI-25 (OQ-14) | Default scenario parallelism | `workers = 1`. After the P5 measurement | applied | | T6.11 |
+| OI-26 (OQ-15) | Built-in factors `Illiquidity`, `Beta`, correlation and regression | After v1, together with the cross-sectional regression kernel | applied | | spec decision |
+| OI-27 (TDS-Q1) | `security_id` → `instrument_id` in the public API too? | **Alias removed** (unanimous three-reviewer review; it was a TDS recommended value, not a user decision). One `instrument_id`; external names through `rename=` and `mapping.yaml` | closed | (notice) | one header line if the user wants otherwise |
+| OI-28 (TDS-Q2) | Tick ns times and DuckDB (us) | Tick data with pyarrow on a separate collection path, not the reference producer. Unrelated to v1 | applied | | E4 |
+| OI-29 (TDS-Q3) | Financial publication time: the SEC filing instant vs the next open after `known_on` | v1 uses the conservative rule. The filing instant is published alongside as a producer extension column and switched to when the policy version is raised (Sol: the authoritative filing time when there is one, the next open when there is only a date) | applied | | producer |
+| OI-30 (TDS-Q4) | Removing `shares_out` from bars | Removed (5.3.5a). The engine looks up `share_counts` point-in-time. Reconciliation test against panel `me` (real data, summary) | applied | | T2.15 |
+| OI-31 (TDS-Q5) | Publishing the standard and the engine vs the "personal research only" rule | **Decided (user 2026-10-27)**: the engine, spec, TDS and checker are premised on public distribution; only real data is private. Repository public, Apache-2.0 (2.1), hygiene tests (2.7) | decided | | – |
+| OI-32 (TDS-Q7) | Possibility that logical hashes vary with the Arrow version | **Solved before 1.0** (unanimous three-reviewer review): language-independent canonical value serialisation = value hash, value hash + resolved metadata = semantic hash, test vectors published (TDS v1.1 4.5, ADR-0028) | closed | | T0.14c |
+| OI-33 (TDS-Q8) | Is float64 enough? | Daily bars and financials float64; the engine books account amounts as **integer minor units (int64)** (INV-06, 5.6.1) | applied | | – |
+| OI-34 (TDS-Q9) | Partition columns not stored in files | Not stored (Hive). Optional key-value metadata `tds.partition` | applied | | – |
+| OI-35 (TDS-Q10) | `classifications` version: column vs partition | Column | applied | | – |
+| OI-36 (TDS-Q11) | `eligibility_daily` publication time | The producer declares the rule; the engine takes it as is (5.1.5) | applied | | reference producer |
+| OI-37 (TDS-Q12) | Korean ex-dividend date derivation rule (changes of the settlement cycle) | The engine does not correct it and warns with a count of suspect cases (F-05). The rule **moved to the producer roadmap**. A prerequisite of KR real-data verification | moved 2026-10-28 |  | producer |
+| OI-38 (TDS-Q13) | Cumulative factors as a bar column vs a separate dataset | An optional column of bars (**optional in every profile**); when absent, the engine computes them from events with the resolver (F-04). A separate dataset after the rewrite cost is measured (three-reviewer agreement) | applied | | after measurement |
+| OI-39 (TDS-Q14) | Definition sentences of the TDS core financial items | v1.1 marks `std_item` as "provisional mapping, no interoperability guarantee". The definition appendix (consolidated/separate, period, currency, scale, sign) uses the producer's standard column list (std-columns-v1) as a seed **in TDS 1.2**. Looked at together in the TDS-only three-reviewer review right before 1.0 | decided 2026-10-28 |  | TDS 1.2 |
+| OI-40 (TDS-Q16) | Run a three-reviewer discussion (Opus 5.5 + Fable 5.1 + GPT-6.1 Sol xhigh) review on the TDS draft? | **TDS v1 also went through the three-reviewer review, together with spec v2** (2026-10-28, `review/`). The result is TDS v1.1. Whether to review TDS alone once more is an option before graduating to 1.0 (Opus's proposal) | applied | (optional) | user |
+| OI-41 (new) | Licence | Apache-2.0 (the reasons in 2.1). To change it, before T0.1 | decided 2026-10-28 (recommended default confirmed) | | user |
+| OI-42 (new) | Default execution `at="open"` in a market without opens | Not silently switched to the close; E18 + guidance to `at="close"` (A-102). Disappears once the producer fills in opens | applied | | reference producer |
+| OI-43 (design 9.2-12) | Memory note "backtests with zipline-reloaded" | NexusBT day to day; zipline is the comparison baseline (ADR-0011, A-31) | decided 2026-10-28 (recommended default confirmed) | | user |
+| OI-44 (new, RV-Q05) | PyPI publishing | Only the name `nexusbt` reserved now (by the user, login needed); publishing by trusted publishing at the v1 release (T6.16 up to a dry run) | decided 2026-10-28 |  | user |
+| OI-45 (new, RV-Q05) | Language of public documents | TDS body, README, quick start, error messages and `CONTEXT.md` English canonical + Korean translation. The English canonical TDS in T0.1. **Amended 2026-10-31: the spec too is English canonical + Korean translation** (the 2026-10-31 decision of the header; while it is translated, the Korean edition is canonical) | decided 2026-10-28, amended 2026-10-31 |  | T0.1 |
+| OI-46 (new, RV-I07) | What v1 "release" means | Release = passing "KR/US real-data verification" (reconciliation and gate summary evidence on snapshots in which the producer has filled in opens, calendars and corporate actions). "Synthetic conformance" (end of M6) is named separately as a pre-release stage. Engine development proceeds on synthetic data without stopping | decided 2026-10-28 |  | user |
+| OI-47 (new, RV-D1) | Window kernel definition A (left fold) vs B (absolute block partial sums) | Start with A. If in the T1.24 measurement `SMA(252)` over all daily rows exceeds the stage budget, B by ADR-0019 (pre-registered, both deterministic). The switching rule is set in advance, so nothing is left to decide | decided 2026-10-28 |  | the T1.24 measurement, by the rule |
+| OI-48 (new, RV-D2) | Meaning of the default label | The economic holding return (reinvestment at the ex-date close, CRSP style; 2:1 agreement); the adjusted-price ratio is `fwd_return_adj`. A cash-holding variant is v1.x | applied | (notice) | – |
+| OI-49 (new, RV-I07) | When TDS 1.0 is declared | Status draft → RC → 1.0 (`tds_version` stays `"1.0"`; the status is in tags and document headers). Graduation conditions TDS 10.5 | applied | | T6.15 + producer |
+| OI-50 (new, R3-25) | Cash interest in v1? | `[account] cash_rate_bps`, default 0, the same session-start accrual as borrow cost (5.6.3(1)) | decided 2026-10-28 |  | user |
+| OI-51 (new, R3-09) | Short sleeve equity ≤ 0 | `ruined`, new orders of that sleeve stop, mandatory obligations as negative cash, shown in the output, no forced liquidation in the cash account (5.6.7; the margin account is 5.6.7a [R6-07]) | decided 2026-10-28 |  | user |
+| OI-52 (new, R3-16) | How snapshot partitions are reused | APFS cloning first, hard links as the fallback, file identity check, published files read-only (4.2, ADR-0037, TDS 4.1) | decided 2026-10-28 |  | user + producer |
+| OI-53 (new, R3-26) | Implementation language | Python + numpy/Numba, a Rust seam (swapped in only after measurement, bit-identity test), E4 designs a Rust core (ADR-0016, 2.4, 11.2) | decided 2026-10-28 |  | user |
+
+### 12.1 Deferred in v3.1~v3.4 (not open items; no user decision needed)
+
+**Target column** [R6-09]: `v1.x` = small releases after the v1 release, `E4`/`E5` = the intraday and derivatives stages (chapter 11), `next TDS MINOR` = the standard side, `dropped` = not reopened, `solved in v1` = after the deferral a v1 ticket already took it on (⚑ = a row whose deferral reason contradicted that v1 ticket; the reason column of this table is kept as a record).
+
+These are what the teardown of existing engines (`teardown/MATRIX.md` chapter 2) decided not to put into v3.1. They are not open questions but **settled deferrals** (0 open / 0 ● in the table above stand). When one is reopened, a ticket is made under its number and the semantic contract and fixed cases are written first (the 10.1 "Later" rule).
+
+| V31 | What | Source | Priority | Reason for deferral / when | Target |
+|---|---|---|---|---|---|
+| V31-31 | Buy, hold and sell asymmetry (`keep`, `sell`, `min_hold`, `max_hold`, `cooldown`), replacement cap `max_replace`, percentile buffer `hold_pct` | TD-P123-02, TD-BT-01, TD-P123-13 | P1 | Defined only once the target-state recursion (T7.1, the last of M6 by user decision) exists; a candidate for the first v1.x ticket. It adds an "entry decision number" to the recursion state, so it is not mixed into T7.1 | v1.x |
+| V31-32 | Daily average price (VWAP) fill `market(at="vwap")` | TD-QLIB-04, TD-KR-03 | P1 | A new assumption outside the fill model version (`daily-ohlc-adverse-v1`), and the set of order types stays as the user decision (9.0) set it. The V31-03 cap by that day's volume limits only the fill **quantity** and does not prevent the optimism of the single open **price** (v3.1 sentence corrected [R3-37]) — that optimism is announced by the assumption sentence ("full-session volume used for open fills") and the capacity scenario. An optional v1.x knob | v1.x |
+| V31-34 | The walk-forward meaning "choose inside the window, apply outside it", the word embargo (AFML meaning vs `embargo_sessions`) | TD-PYB-05, TD-ZOR-01, TD-AFML-01 | P2 | Together, when the ticket for the `splits=` reservation (SC-21) opens. Then `embargo=` is defined in the AFML meaning, and `[split] embargo_sessions` keeps its name while 5.8 writes the two meanings separately | **solved in v1** (T6.19 AFML embargo, the two meanings in 5.8) — not a deferral ⚑ |
+| V31-35 | Block-bootstrap Sharpe intervals, maximum drawdown distribution | TD-PYB-03, TD-ZOR-03 | P2 | Together with the Sharpe bootstrap interval ticket of 10.1 "Later" (stationary blocks, mean length 21, seed = deterministic from the run id) | v1.x |
+| V31-36 | Random null comparisons (block shuffling, cross-section shuffling) | TD-BPY-03, TD-ZOR-02 | P2 | A diagnostic tool, outside the attempt count. v1.x | v1.x |
+| V31-37 | The sweep parameter landscape (`neighborhood_ratio`) | TD-BPY-02 | P2 | v1.x, after sweep (T6.7) | v1.x |
+| V31-38 | Per-candidate warm-up in sweep and common-period PBO | TD-BPY-04 | P2 | **The minimum version applied in v3.2** (common dates = after the first non-cash decision of every candidate, 6.3 [R3-24]); per-candidate warm-up reporting is v1.x | v1 minimum version (T6.8) + v1.x |
+| V31-39 | Rebalancing triggered by weight drift (`drift_rebalance`) | TD-BT-02 | P2 | It creates decisions outside the schedule (its relation to INV-14 and the screen preview needs defining). v1.x | v1.x |
+| V31-40 | Combining several strategies (`blend`/`combine`) | TD-BT-04, TD-P123-05 | P2 | Starting with a v1.x function that combines only return series | v1.x |
+| V31-41 | Taking profit in parts (exit ladder) | TD-VBT-04 | P2 | Exit-order resizing rule 3 has to be widened to "keep the ratio". v1.x | v1.x |
+| V31-42 | Registered kernels for time-series operators (`ts_max`, `ts_rank`, `ts_skew`…), fractional differencing | TD-QLIB-08, TD-AFML-05 | P2 | Together with widening the built-in factors (10.1 "Later"); needs adjustment-class declarations and P-ADJ proofs | v1.x |
+| V31-43 | Training-only/inference-only transforms in the ML layer, a skipped fit segment = error, substituting the label slot = E2 | TD-QLIB-10, TD-VNPY-02 | P2 | When 6.5 check 8 (E29 reserved) opens | part in v1 (E29 = T6.23, T6.24) ⚑; the `fit_segment` transform is v1.x |
+| V31-44 | The top 5 instruments that bind first in the capacity scenario | TD-LEAN-07 | P2 | Only the `capacity.parquet` column, in the next version of T6.14 | v1.x |
+| V31-45 | T+n settlement calendar (bank holidays) and the settlement of delisting proceeds and dividends | TD-LEAN-08 | P2 | When the OQ-13 and OI-24 settlement model opens | v1.x |
+| V31-46 | LEAN import pitfalls (back-computed dividends with 2 decimal places, empty factors) | TD-LEAN-09 | P2 | In the conversion report when `tds import lean` (TDS 9.2, planned) is built | v1.x (`tds import lean`) |
+| V31-48 | A table of named crisis windows (`stress_windows`, dates in the pack) | TD-LEAN-11 | P2 | A v1.x report slot | v1.x |
+| V31-49 | Fixed values of the E4 Nautilus fill settings (latency ≥ 1 bar, liquidity consumption on, sequence `intraday-path-v1`) | TD-NAUT-03 | P2 | At the start of E4 (11.2). The pinned-version note is to be updated to rc8 | E4 |
+| V31-50 | A counter-based random-number rule for probabilistic models (`(seed, order_id, session, purpose)`) | TD-NAUT-05 | P2 | v1 has no random models (5.3.8). When probabilistic fills and impact are added | E4 (when probabilistic fills arrive) |
+| V31-51 | Performance regression tests based on instruction counts | TD-NAUT-07 | P2 | The next version of the CI performance smoke test | v1.x |
+| V31-52 | The "session" of `time_stop` = a market-calendar session (halt days included) | TD-PYB-04 | P2 | With this definition in T3.33 (v1, v3.3 [R4-10]) | **solved in v1** (T3.33) ⚑ |
+| V31-53 | Costs in Sharpe units (`cost_SR`, 1/3 shown) | TD-PST-05 | P2 | A report line, v1.x | v1.x |
+| V31-54 | Estimation rules of the volatility-target overlay (no back-filling, a fast and slow blend) | TD-PST-07 | P2 | No back-filling is v1 (`size.vol_target`, `risk.vol_cap` — in-window sample covariance only [R4-05]); only the fast and slow blend is v1.x. No separate `risk.exposure` name is kept [R6-06] | part in v1 (T3.28, T3.29) + v1.x |
+| V31-55 | A futures continuous-contract design note (signal = adjusted continuous, accounting = actual contracts, roll = event) | TD-PST-08 | P2 | 11.3 already has the same meaning; the wording is strengthened at E4 and E5 | E4, E5 |
+| V31-56 | Hand calculations at schedule boundaries (year-end ISO weeks, weeks without sessions, months whose first session falls on a holiday) | TD-BUG-11 | P2 | As cases in the next version of T1.G (cheap tests); a candidate to add before the v1 release (before T7.V) [R3-29] | v1.x (recommended before T7.V) |
+| V31-57 | A warning when the calendar puts holidays in as sessions (TDS-D005) | TD-BUG-12 | P2 | A check of the next TDS MINOR; no warning does not mean the calendar is right (Sol) [R3-29] | next TDS MINOR |
+| V31-58 | Quantile hand calculations and the scope of comparison with zipline `quantiles` | TD-BUG-13 | P2 | When L1-d is checked (the next version of T1.18); a candidate to add before the v1 release (before T7.V) [R3-29] | v1.x (recommended before T7.V) |
+| V31-59 | An intraday cap by price range when a limit is touched at the extreme (`intraday_cap_scale = "range"`) | TD-BTR-03 | P2 | A daily-bar approximation knob, off by default, so v1.x | v1.x |
+| V31-60 | Instrument-side holdout (`universe.hash_split`) | TD-P123-08 | P2 | Research hygiene, v1.x | v1.x |
+| V31-61 | Sector aggregation terms, handling of small sectors | TD-P123-10 | P2 | Widening cross-sectional operations, v1.x | v1.x |
+| V31-62 | Cost estimates as terms (`costs.estimate_bps`) | TD-P123-11 | P2 | v1.x | v1.x |
+| V31-63 | Supplementary rank-performance tables (quantile medians, label cap, quantiles after costs) | TD-P123-12 | P2 | `evaluate` report, v1.x | v1.x |
+| V31-64 | Days since listing `Meta.days_listed` | TD-KR-02 | P2 | A cheap term, v1.x | v1.x |
+| V31-65 | A data-delay sensitivity scenario (`info_lag1`) | TD-KR-05 | P2 | A scenario that recomputes the Pipeline, so v1.x | v1.x |
+| V31-66 | A pack item forbidding same-session sales (T+1 markets) | TD-VNPY-01 | P2 | Not needed for KR and US; when a new market pack is added | v1.x (with a new market pack) |
+| V31-67 | Sizing by stop distance (`weight="risk"`) | TD-WL-01 | P2 | A v1.x weighting method | v1.x |
+| V31-68 | Effective sample count (average uniqueness) | TD-AFML-02 | P2 | `evaluate` hygiene, v1.x | v1.x |
+| V31-69 | The triple-barrier label definition, volatility-width exits | TD-AFML-03 | P2 | The triple-barrier label is v1 since v3.3 (5.8, T6.25 [R4-24]); the volatility-width barrier is v1.x | part in v1 (T6.25) + v1.x |
+| V31-70 | The meta-labelling path (exporting the event table, feeding in secondary probabilities, precision/recall lines) | TD-AFML-04 | P2 | Together with the ML layer outside the engine | outside the engine (not put into the engine) |
+
+**Deferred in v3.2 (third review round)** [`review/consensus-r3.md` 2.3]:
+
+| R3 | What | Reason for deferral / when | Target |
+|---|---|---|---|
+| R3-29 | Hand calculations at schedule and quantile boundaries (V31-56, 58), a warning on sessions suspected to be holidays (V31-57) | Tests of already-defined behaviour, so the correctness contract does not change. Before the v1 release, as the next versions of T1.G and T1.18 (recommended to include when T7.V runs again) | v1.x (recommended before T7.V) |
+| R3-30 | G-54 (v): effective during a halt + terms published 2 sessions later | The G-20 variant (R3-01) tests the same resolver path first. The next golden version | v1.x (next golden version) |
+| R3-31 | Short assumption sentences and realism lines: KR `uptick_rule_modeled = false`, "no recalls/buy-ins/locates", the share of short holdings in the bottom ADV quintile, the header line "short dividends paid gross" | Report sentences that do not change computation. Additions to the assumption-sentence list of T4.16b and the report lines of T5.14 (recommended before the v1 release) | v1.x (recommended before T7.V) |
+| R3-32 | The producer hint `files[].same_as_parent` | A producer claim the engine cannot use as identity (Sol against); cloning and the file sha256 suffice. If revisited, only as a hint not used as identity | dropped (as identity) / the hint in the next TDS MINOR |
+| R3-33 | `producer.checks.level` and the line "rows not verified by producer" | The next TDS MINOR, together with a sentence that keeps producer attestation and consumer checks apart | next TDS MINOR |
+| R3-34 | The effective clock in `decision_id` (single market = `market_local`) | The tie key no longer uses `decision_id`, so there is no effect on results; naming cleanup only | v1.x (naming cleanup) |
+| R3-35 | A cash-weight report line for the hold band's `band_entries = skip`, an explanation of how `floor_shares` relates to G-41 | Reporting and explanation. The next version of T7.1 | v1.x (next version of T7.1) |
+| R3-36 | After `offsets`, a `day=` change = a new-candidate sentence, per-offset row plans and recursive replay, rejection of overlapping cost windows | Tidying the boundaries of a diagnostic feature. The next versions of T6.18 and T4.13 | v1.x |
+| R3-37 | The E4 fill ↔ accounting feedback boundary (fill proposals ↔ engine buying power) | Outside v1 (E4). The supporting sentence (row V31-32) was corrected in v3.2 | E4 |
+| R4F-02 | `size.kelly(fraction, lookback, max_weight)` | **v1.x** (user decision 2026-10-28): very sensitive to the in-window μ estimate, an overfitting trap on the beginner path; with `max_weight` enforced it is in effect a capped μ/σ² score, which `size.score("raw")` replaces. Reserved in v1 (E18). When reopened, an independent hand-calculated golden and a report of the μ estimation interval come first | v1.x |
+| R4F-42 | The ERC option `fallback="fail"` | v1.x (Opus and Sol majority — fallback + E43 + counts suffice; Fable proposed v1). One option, so easy to reopen | v1.x |
+| R4F-43 | Two-sided ML training `ml_two_sided=True` (AFML-style CPCV training) | v1.x, with a warning of the E44 kind. v1 is forward-only by user decision (5.3.11) | v1.x |
+| R4F-44 | `Macro` and `Events` extensions: consensus distributions (standardised surprise), event-window event-study reports (CAR), precise fills at intraday release times | v1.x. v1 has only `value − consensus` and session-level triggers | v1.x |
+| R4G-MG-10 | Margin extensions: per-instrument broker add-on requirements (house requirement), portfolio margin, intraday margin calls, the exact order of KR forced selling (D+2 etc.), loan limits | v1.x. v1 has one requirement ratio per market (`R(ρ)`), a close check → proportional reduction at the next open. User decision 2026-10-28 | v1.x |
+
+**Dropped** (not reopened): V31-47 the LEAN comparison preset (TD-LEAN-10) — it conflicts with the user decision that zipline is the one comparison baseline engine and that comparison goes through the preset only (9.0 Q35, OI-20). LEAN regression statistics are not used even as comparison values (kurtosis convention suspected, V31-07).
+
+**Put into v3.1 but partly deferred** (one line each [R6-09]):
+
+| What | Reason for deferral | Target |
+|---|---|---|
+| V31-13 The exposure-reduction risk rule `nx.risk.exposure` | At v3.1, "the v1 risk implementation is `none` only" (OI-13) | **solved in v1** ⚑ — `risk.vol_cap`, `risk.regime`, `size.vol_target` (v3.3 [R4-05]); no `risk.exposure` name is kept |
+| V31-19 A periodic contribution scenario in backtests | Only the ledger (paper operation) in v1 | v1.x |
+| V31-27 Calibrating the default of the impact coefficient `Y` | Needs real trading records; the default 0.5 stays, and the report says whether `cost2x` covers the difference from Portfolio123's K = 2 | v1.x (after real trading records) |
+| V31-LS Borrow availability and borrow fee data | No public data; an assumption sentence instead | next TDS MINOR (a candidate optional dataset) |
+| A forced-liquidation model for margin shortfall | No model at v3.1 | **solved in v1** ⚑ — the margin account (5.6.7a, T4.20, G-104); the cash account is not simulated (dropped) |
+| Simulating the US uptick rule (Rule 201) | Needs the intraday price path | E4 |
