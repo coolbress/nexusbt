@@ -244,3 +244,404 @@ This chapter is explanation; the norms start at chapter 1. The sizing block, the
 | R-68 | Market, currency, clock, sleeve and index ids are read from the data. Per-market rules are in market rules packs (4.7), and a market without a pack does not run without `allow_untested` | RV-I08 |
 | R-69 | The public user's first path: two CSVs → `tds import csv` → `tds check` → `evaluate`/`run_pipeline` → a saved run → `rerun` works by the English quick start, without private producer knowledge | RV-I03 |
 | R-70 | Release gate: the public examples run from a clean wheel install, and an independent producer's package passes the `full` check and the consumption test. A "KR/US verified" claim is made only with evidence (a summary) on real data. For every market rule applied (ticks, price limits, bans, rounding), the release evidence lists its source, its effective boundary and `verified` [R3-15] | RV-I07 |
+
+---
+
+## 2. Repository layout, dependency rules, security rules
+
+### 2.1 Repository, public scope, licence, environment
+
+- Repository: `<owner>/<name>` (after the name is settled, chapter 12 OI-05), **public**, plinth `--archetype=library`. Separate from the data producer [design 1 principle 4].
+- **Public scope** (user decision 2026-10-27, TDS-Q5 decided): the engine code, this spec, and the data standard TDS with its format and checker **are designed on the premise of public distribution**. What stays private is only the **real data** inside the reference producer (raw data files, the DB, snapshots, vendor data). The user memory "personal research only (no redistribution, not public)" now applies only to the data [A-97].
+- **Licence: Apache-2.0** (the repository's `LICENSE`, `license = "Apache-2.0"` in each package's `pyproject.toml`, a `NOTICE` file). Reasons:
+  1. A permissive licence with a patent grant gives the lowest barrier to reusing a public engine and standard.
+  2. It is the same licence as the comparison reference zipline-reloaded (Apache-2.0), so quoting its code and comments in `tests/parity` raises no compatibility problem.
+  3. It is compatible with every core dependency (numpy, numba, scipy BSD; pyarrow, exchange-calendars Apache-2.0; polars MIT; jinja2 BSD) [R7-10: exchange-calendars licence = Apache License 2.0, checked against the original text of the repository's LICENSE 2026-10-29 ([LICENSE](https://github.com/gerrymanoim/exchange_calendars/blob/master/LICENSE)); T0.1 checks it again at the pinned version].
+  4. NautilusTrader (LGPL-3.0) is used in the E4 bridge only as the **optional dependency** `nexusbt[nautilus]`, by importing the installed library without copying its source. LGPL allows such use and puts no obligation on the Apache-2.0 code (it is enough that the user can swap the library; a Python import satisfies this) [est.: not legal advice]. The engine's default install contains no LGPL code.
+  5. The list of code not to copy (GPL: Freqtrade, backtrader, pysystemtrade; AGPL: Backtesting.py; non-commercial: RQAlpha; Commons Clause: vectorbt, **PyBroker** (Apache-2.0 + Commons Clause, the first line of its `LICENSE` is "Commons Clause License Condition v1.0") [V31-33]; subscription: vectorbt PRO; paid implementation: mlfinlab) stands. Only ideas are borrowed. MIT code (ported functions of ml4t-diagnostic) keeps the original repository, commit and licence text at the head of the file and is listed in `NOTICE` [Q22].
+  6. The development-only dependency hypothesis (MPL-2.0) does not go into the distribution.
+- **What does not go into the repository** (public repository rules, enforced by tests — 2.7): reference-producer data, snapshots or any part of them, answer files (fixtures) made from vendor data, producer data paths (absolute paths under the user's home and the like) and internal host names and addresses, secrets. All test data is made only by the synthetic generator (4.8). Evidence files of Mac mini measurements and real-data comparisons hold **summary numbers only** (row counts, maximum error, pass or fail, `snapshot_id`), not per-instrument values or prices.
+- Python: **3.13** (`.python-version`). Package management `uv` (workspace), lockfile `uv.lock` (required by plinth). The comparison test environment is separate, **Python 3.12** (`tests/parity/`, 8.1).
+- Where it runs: the user's compute machine that holds the data (currently a Mac mini M4 16 GB; its address and account only in the user's notes outside the repository). A notebook on a laptop attaches to that machine's Jupyter kernel over SSH. The engine builds no remote-call feature [Q9, A-17]. The data location is taken only from config (`[data] root`) or the environment variable `NEXUSBT_DATA_ROOT`.
+
+### 2.2 Pinned versions (as of the first `uv.lock`)
+
+Policy: every dependency is pinned exactly by `uv.lock`. A version published less than 14 days before locking is not used. Versions are raised by plinth step 9, one at a time, after the required checks pass.
+
+| Package | Version | Use | Notes |
+|---|---|---|---|
+| numpy | 2.5.3 | dense block computation | numba 0.68 needs numpy < 2.6 |
+| numba | 0.68.0 (llvmlite 0.50.0) | hot loop kernels | `cache=True`, `fastmath=False`, `parallel=False` (5.3.10). The first JIT delay is measured separately (chapter 7) |
+| pyarrow | 26.0.0 | Parquet reading and writing, Arrow tables, IPC (L0 and L1 caches) | the only Parquet writer (deterministic writes) |
+| polars | 2.0.0 | helper for interval lookups and sorting, user output tables | not used in the computation graph [Q15] |
+| scipy | 1.18.1 | normal distribution functions, ranks | |
+| jinja2 | 3.1.6 | `report.html` | one page with no external files |
+| pandas | optional dependency `nexusbt[pandas]` | `.to_pandas()`, ecosystem adapters (5.9.8) | the latest 2.x/3.x compatible with numpy 2.5 at locking |
+| exchange-calendars | 4.13.2 | predicting the next session in `live`, a substitute session table (4.5 F-02), the synthetic generator | for past sessions TDS `calendar_sessions` is canonical [design 5.2] |
+| optional dependency `nexusbt[nautilus]` | pinned when E4 starts (A-30) | event bridge | LGPL-3.0, only the name in v1 |
+| optional dependency `nexusbt[ml]` | pinned at locking (scikit-learn 1.x, BSD-3-Clause) | ML examples and tests (the models of `nx.ml.factor`) | the engine does not import it (5.3.11). The default wheel runs without sklearn and the ML examples run in an environment with the extra installed — two install checks (`test_clean_wheel_runs_example`, `test_ml_extra_runs_ml_example`) [R4F-23] |
+| optional dependency `nexusbt[opt]` | after v1 | `nx.portfolio.optimize` (reserved) | cvxpy or Riskfolio-Lib, after the licence is checked [OQ-8] |
+| development: pytest 9.1.1, hypothesis (14-day rule), psutil 7.2.2 | | tests, memory measurement | ruff, mypy and coverage versions are set by the plinth template |
+| comparison environment: zipline-reloaded 3.2.1, pandas 2.3.3 (requires <3.0), numpy as the lock sets it | | only for `tests/parity/` | not installed in the engine environment [R-64] |
+
+### 2.3 Package layout
+
+The split follows the deep-module principle (a small interface, much implementation). Each package exports only the "public interface" below from its `__init__.py`; the rest are internal modules with a `_` prefix [Codex 11.6, codebase-design]. The repository is a uv workspace with two distributions: the engine `nexusbt` (import `nexusbt`) and the data-standard checker `nexusbt-tds` (import `nexusbt_tds`, CLI `tds`). TDS is a **public document and package versioned separately** from the engine (the `tds/` folder, version = `tds_version` `1.0`, package version the matching `1.0.x`, release status draft → RC → 1.0) [A-98, RV-Q04, RV-I07].
+
+```
+nexusbt/                                     (public repository, Apache-2.0)
+├── LICENSE  NOTICE  pyproject.toml(workspace)  uv.lock  .python-version
+├── AGENTS.md  CONTEXT.md  README.md(English)  CONTRIBUTING.md  SECURITY.md  CODE_OF_CONDUCT.md  CHANGELOG.md
+├── docs/spec/engine-spec-v3.4.md             (this document [R6-02]; the public edition without private comments, personal information or hosts)
+├── docs/quickstart.md                        (English quick start, tested by 8.5)
+├── docs/adr/0001-… .md                       (9.3)
+├── docs/requirements.md                      (keeps appendix B with its status)
+├── tds/                                      ★ data standard (versioned separately)
+│   ├── README.md  CHANGELOG.md
+│   ├── spec/tds-v1.md                         (the TDS document body; the public edition of engine-data-standard-v1.4.md without chapter 11 (producer mapping) or personal information)
+│   ├── schemas/<kind>/<MAJOR.MINOR>.json      (machine-readable dataset schema sources, TDS 10.3; `status: stable|experimental`)
+│   ├── conformance/<code>/{pass,fail}/        (small passing and failing packages for each code, TDS 8.5)
+│   ├── conformance/hash-vectors.json          (language-independent test vectors for the value and semantic hashes, TDS 4.5)
+│   ├── pyproject.toml                         (distribution name nexusbt-tds, dependency: pyarrow only)
+│   └── src/nexusbt_tds/                       check, hash, manifest, describe, import_csv (no import of nexusbt)
+├── src/nexusbt/
+│   ├── __init__.py          re-exports only the public surface (3.1)
+│   ├── contracts/           the ID constant, engine-side column sets, units, policies, errors (no dependencies)
+│   ├── config/              reading and validating nexusbt.toml (secret keys forbidden)
+│   ├── data/                opening snapshots (calls the tds checker), profiles and fallbacks, market blocks, L0 cache, interval lookups, calendars, exchange rates
+│   ├── pipeline/            term value objects, datasets, operators, built-in factors, Pipeline, hashes, static checks
+│   ├── compute/             planning, reference kernels, fast kernels, adjustment, cross-sections, L1 cache, executor
+│   ├── portfolio/           scores → canonical target (pure functions, stages: construction → sizing → risk) + the account layer final [R4-02, R4-04]
+│   ├── risk/                money management `size.*` and risk rules `risk.*` (5.5.1a, 5.5.2, 5.5.2a; reserved `ledoit_wolf`) [R4-02, R4-05]
+│   ├── ml/                  the `ml.factor` training node, training windows, `fits` and `predictions` records (5.3.11; does not import sklearn) [R4-23]
+│   ├── execution/           orders (columnar order table), fill models, costs, sizing, the daily state machine, presets
+│   ├── accounting/          columnar account state, integer minor-unit booking, consuming the corporate-action resolver, entitlements, terminal value, valuation, NAV bridge
+│   ├── research/            labels (triple barrier included), IC, quantiles, breadth, statistics (NW, PSR, DSR, PBO, MinTRL, BHY, Lo), segments, splitters and validation methods (6.3a), attempt records, probes
+│   ├── artifacts/           run transactions, manifests, hashes, index (SQLite), saved sources, ledgers, reconciliation, attribution and exposure, reports
+│   ├── api/                 evaluate/backtest/screen/live/fill/reconcile/sweep/compare/explain/check/describe/runs
+│   ├── cli/                 argparse subcommands (a thin layer that calls api)
+│   ├── compat/              zipline.py (imitates zipline names, no zipline import), adapters.py (pyfolio and alphalens shapes, pandas optional)
+│   ├── bridge/              the E4 event-engine boundary (Protocols and data types only, chapter 11)
+│   ├── testing/             the synthetic TDS package generator (4.8), hand-calculation helpers
+│   └── resources/           markets/{KR,US,_generic}.toml (market rules packs), costs/default_v1.csv, limits/kr_price_limits_v1.csv, ticks/{kr,us}_tick_table_v1.csv [V31-05], shorting/kr_short_bans_v1.csv [V31-LS-07]
+├── tests/
+│   ├── unit/  property/  golden/  docs/  perf/  repo/  (golden/expected/** cannot be changed by an implementation PR, 8.2)
+│   └── parity/              its own pyproject.toml and uv.lock (Python 3.12, zipline 3.2.1)
+└── bench/                   measurement scripts and result JSON (summaries only)
+```
+
+### 2.4 Public interface by module (deep modules)
+
+Every signature uses `from __future__ import annotations` and passes mypy; data types are `@dataclass(frozen=True, slots=True)`.
+
+| Module | Public interface (only this is called from outside) | What it hides |
+|---|---|---|
+| `nexusbt_tds` (separate package, `tds` in this document) | `check(path, *, level: Literal["manifest","schema","full"], profiles: Sequence[str] | None = None, datasets: Sequence[str] | None = None, max_errors: int = 1000) -> CheckResult` (`.errors`, `.warnings`, `.profiles: dict[str, ProfileStatus]` — `ProfileStatus(declared: bool, verified_level: Literal["none","manifest","schema","full"], result: Literal["pass","fail","not_checked"])`, `.unchecked: list[str]`, `.to_jsonl()`), `read_manifest(path) -> Manifest`, `value_hash(path, dataset) -> str`, `semantic_hash(path) -> str`, `import_csv(mapping, out) -> Path`, `build_manifest(path) -> Manifest`, `PROFILES`, `SCHEMAS` | the implementation of the check levels, canonical value serialisation and hash computation, reading schema files |
+| `contracts` | `ID_COLUMN`, `ENGINE_COLUMNS: Mapping[str, frozenset[str]]` (the columns the engine reads per dataset, 4.6), `Unit`, `Currency`, `Phase` (the stage order of 5.6.3), `Policy*` enums, `NexusBTError` and its sub-errors (6.6), output schema version constants (`RUN_SCHEMA = "nexusbt-run/2"`, `EVENTS_SCHEMA = "nexusbt-events/1"`, `CHECKPOINT_SCHEMA = "nexusbt-checkpoint/1"`) | nothing (value definitions only) |
+| `config` | `load_config(path: Path | None = None, overrides: Mapping[str, Any] | None = None, *, markets: Sequence[str] | None = None) -> Config` (keys that contain a market name are validated against the snapshot's `markets`) | toml parsing, merging defaults, validation messages, the secret-key check, reading market rules packs |
+| `data` | `open_snapshot(cfg: DataConfig, *, required: CapabilityRequest | None = None) -> Snapshot` | calling the tds checker, deciding capability (declared, checked, supported), fallbacks, reading partitions, dictionary index → column numbers, L0 cache, rectangular interval lookups, calendars, exchange rates, the corporate-action resolver |
+| `data.Snapshot` | `.id`, `.semantic_hash`, `.value_hash`, `.physical_hash`, `.profiles -> dict[str, ProfileStatus]`, `.capabilities -> DataCapabilities`, `.fallbacks -> list[FallbackRecord]`, `.markets -> Mapping[str, MarketInfo]` (calendar, currency, time zone, watermark, rules pack or None), `.calendar(market) -> Calendar`, `.market_block(market, fields, sessions) -> MarketBlock`, `.intervals(kind, fields, market, cutoffs, edition, history_mode="economic") -> PITBlock`, `.actions(market, cutoff) -> ResolvedActions` (5.3.3a), `.events(market, start, end) -> EventTables`, `.fx() -> FxSeries`, `.instruments(market) -> pa.Table`, `.share_counts(market, cutoffs) -> PITBlock`, `.explain(instrument_id, field, ts) -> Explanation` | Parquet, partitions, statistics pruning |
+| `pipeline` | `Term`, `Factor`, `Filter`, `Classifier`, `Pipeline`, the datasets `Price/Fund/Meta/Panel/Label`, the `factor/filter/classifier` decorators, the `factors` module, `graph_hash(term) -> str`, `static_check(graph, ctx) -> list[Finding]` | node normalisation, hash computation |
+| `compute` | `compute(pipeline: Pipeline, grid: DecisionGrid, snapshot: Snapshot, policy: ComputePolicy, cache: TermCache | None = None) -> FactorFrame` | planning, batching, kernel choice, adjustment, cross-section operations, parallelism |
+| `portfolio` | `build_targets(scores: FactorFrame, rule: PortfolioRule, grid: DecisionGrid, *, risk: RiskRule | None = None, prior: TargetState | None = None) -> tuple[TargetFrame, TargetState]` | tie handling, caps, weighting, recursion |
+| `risk` | `RiskRule` (Protocol: `apply(targets: TargetFrame, inputs: DecisionInputs) -> TargetFrame`), `none() -> RiskRule` | – |
+| `accounting` | `AccountState` (columnar, 5.6.1), `apply_session_start(state, session: SessionInputs, actions: ResolvedActions, policy: AccountingPolicy) -> tuple[AccountState, list[Event]]`, `value(state, marks: Marks, fx: FxView, *, asof: datetime) -> Valuation`, `bridge(prev: Valuation, cur: Valuation, events) -> BridgeRows` | handling entitlements, receivables and corporate actions, integer minor-unit booking |
+| `execution` | `simulate(targets: TargetFrame, market: MarketView, config: SimConfig, initial: AccountState, sink: EventSink) -> SimResult`, `step_session(state, orders, session: SessionInputs, config) -> StepResult`, `SimConfig` (every knob of appendix C) | the order state machine, fill rules, costs, sizing |
+| `research` | `forward_labels(..., kind: Literal["econ","adj"] = "econ") -> LabelFrame`, `factor_stats(values: FactorFrame, labels: LabelFrame, cfg: EvalConfig) -> FactorStats`, `psr`, `dsr`, `min_trl`, `pbo_cscv`, `bhy_adjust`, `lo_sharpe`, `newey_west_t`, `signal_weight_corr`, `Segments`, `TrialRegistry` (candidates, observations, cohorts), `probe_truncation`, `probe_start` | quantile rules, bandwidth |
+| `artifacts` | `RunStore(root).begin(kind, name, study, ...) -> RunTxn`; `RunTxn.write_table(name, table)`, `.capture_sources(paths)`, `.set_manifest(fields)`, `.seal() -> RunRecord`, `.abort()`; `Index(root)` (holds the canonical pins); `BookStore(root).open(name) -> BookTxn` (locking, state version comparison, commit, recovery, 5.9.6); `derive_tables(events, prices, fx) -> DerivedTables` (INV-16); `render_report(run) -> Path` | temporary folders, atomic renames, fsync order, hashes |
+| `api` | the functions of 3.8 | coordination |
+
+**A seam where Rust can be swapped in** [R3-26, ADR-0016, user decision 2026-10-28]: the three hot kernels sit behind a narrow internal interface — `nx.compute._kernels` (window and cross-section kernels: array input → array output, no state), `nx.execution._step` (one step of the session simulator: columnar state + that session's input arrays → new state + event arrays), `nx.accounting._state` (the columnar account state and its booking functions). These three take no Python objects, callbacks or dicts; they exchange only Arrow arrays (or numpy arrays that share their buffers), integer and float scalars and integer codes. The reference implementation is Python (+ Numba), and another implementation (a Rust crate, PyO3/maturin, an optional build) is swapped in only with the same signatures, while `tests/property/test_kernels.py::test_kernel_swap_bit_equal` checks that it is bit-identical to the reference in the same environment. The condition for swapping is in chapter 7 (measurements and profiles). The signature rules are checked by `tests/unit/test_import_rules.py::test_*_seam_signatures_arrow_only` (T1.7b, T3.3, T3.4).
+
+### 2.5 Dependency rules (enforced by tests)
+
+```
+tds (separate package; does not import nexusbt)
+contracts ← config ← data ← compute ← api ← cli
+nexusbt_tds ← data
+contracts ← pipeline ← compute
+contracts ← risk ← portfolio ← api
+contracts ← accounting ← execution ← api
+contracts ← research ← api
+contracts ← artifacts ← api
+```
+
+- No import against the direction of an arrow. Only `api` combines several modules. `cli` imports only `api`.
+- `src/nexusbt/**` and `tds/src/nexusbt_tds/**` do not import `zipline`, `nautilus_trader`, `duckdb`, `pickle`, `dill`, `cloudpickle`, `joblib` or `shelve` [R-64, design 1 principle 4, SC-27]. `np.load(..., allow_pickle=True)` and `pd.read_pickle` are forbidden too. Enforced by ruff `flake8-tidy-imports.banned-api` and `tests/unit/test_import_rules.py` (reads every import and call through the AST and compares them with the graph above). The "checker reference implementation DuckDB (read-only)" of TDS 8.5 is implemented in this repository with pyarrow only [A-99].
+- **No sources of non-determinism** [V31-08]: the decision-path modules (`data`, `compute`, `pipeline`, `portfolio`, `risk`, `accounting`, `execution`, `research`) do not use `datetime.now/utcnow/today`, `time.time/monotonic/perf_counter` (for progress display, and only in `api`), `random`, `numpy.random` (except where a `Generator` made from the probes' `[checks] seed` is taken as an argument), `uuid.uuid1/uuid4`, `os.urandom` or `secrets`. Where iteration over a `set`, `frozenset` or `dict` sets the order of events, outputs or sums, it goes through `sorted(...)`. Only `artifacts` makes the run time, `run_id` and `study_id`. Enforced by ruff `banned-api` + the AST test `tests/unit/test_determinism_rules.py`, and P-DET runs in two new processes with different `PYTHONHASHSEED` (Nautilus NT#3914: two runs with the same seed differed by 6% in PnL because of hash iteration order).
+- `pipeline` reads no data (value objects and hashes only). The column and capability information needed to build a graph is passed at binding as a **schema registry** (`SchemaRegistry`, a value object) that `api` builds from the snapshot [RV-I05]. `portfolio`, `risk` and `research` take only Arrow/numpy arrays.
+- User code imports only `nexusbt`, `nexusbt.factors`, `nexusbt.ops`, `nexusbt.costs`, `nexusbt.exits`, `nexusbt.execution`, `nexusbt.portfolio`, `nexusbt.risk`, `nexusbt.dataset`, `nexusbt.compat.zipline` and `nexusbt.compat.adapters` [R-01]. These names are re-exports of `__init__`.
+
+### 2.6 Security rules [SC-27]
+
+- **No pickle**: run outputs, caches (L0, L1), ledger checkpoints and probe results do not use pickle. Tables are Parquet or Arrow IPC, the rest JSON. (Enforced by the forbidden list of 2.5.)
+- **No secrets**: if any table of `nexusbt.toml` has a key whose name contains `key`, `secret`, `token` or `password`, it is a `ConfigError` (E16, "secrets do not belong in nexusbt.toml; use environment variables or the OS keychain"). Broker keys come later, only through environment variables or the keychain, by an adapter ADR. This is blocked together with the repository's `ci / secrets` check.
+- **Code that runs**: `rerun` runs the run folder's `source/` in a **new process** (5.9.3; so that a module of the same name already imported in the current session does not get in the way). If the run manifest's `environment.machine_id` (= sha256(host unique id)[:16]; the original host name is not kept) differs from the current machine, it refuses with `UntrustedRunError` (E31) and runs only with `nx.rerun(id, trust=True)` / `nexusbt rerun ID --trust`.
+- **No data collection**: the engine does not collect data (that is the producer's job).
+- **Package path safety**: the engine and the checker do not read `tds.json` paths that point outside the package folder (`..`, absolute paths, symbolic links that lead outside) or a path that appears twice (TDS-M012/M013, E14) [RV-I01].
+
+### 2.7 Public repository hygiene (enforced by tests)
+
+`tests/repo/test_public_hygiene.py` (part of the default `ci / test`):
+- `::test_no_private_paths` — fails if any text file of the repository contains a macOS home path (starting with `/Users`), a word from the **forbidden-word list outside the repository** (the file the environment variable `NEXUSBT_HYGIENE_WORDS_FILE` points to, or the git-ignored `.hygiene-private.txt`; it holds the user's accounts, hosts, data paths and producer name — so that those words themselves are not written in the public repository), or a private IP (the regular expression `\b(10|192\.168|172\.(1[6-9]|2\d|3[01]))(\.\d{1,3}){2,3}\b` — four-number addresses only; text such as "section 10.2" is not caught) (the repository edition of this spec is the edition without such lines) [RV-Q03].
+- `::test_no_producer_internal_refs` — zero hits in `src/**`, `tds/src/**` and `docs/**` (the public edition) for the producer name of the forbidden-word list, the ticket shape ` X[0-9]+ ` and `.rebuild.lock` [RV-I09].
+- `::test_section_numbers_not_ip` — text cases such as "section 10.2" and "172.16" are not caught by the hygiene test.
+- `::test_no_data_files` — fails if it finds `*.parquet`, `*.duckdb` or `*.csv` in the repository (except small hand-written files under `src/nexusbt/resources/**` and `tds/conformance/**`). The data of `tds/conformance/` and `tests/` is made by generation scripts and its hashes must match the generation scripts.
+- `::test_fixtures_are_synthetic` — every place in `tests/**` that opens a snapshot uses only paths made by `nx.testing.synth.make_snapshot` (a static check).
+- `::test_license_headers` — `LICENSE` is Apache-2.0, and ported files have a source header.
+- `::test_tds_public_has_no_producer_names` — `tds/spec/tds-v1.md` has no particular producer's name or tickets (TDS chapter 11 is left out of the public edition) [RV-Q04].
+
+---
+
+## 4. Input data: TDS v1.4 references and the engine-side reading rules
+
+### 4.1 The canonical source and the scope of this chapter [SC-24, R-66]
+
+- **The canonical source of the input format is TDS v1.4** (`engine-data-standard-v1.4.md`; changes from v1.1 are in TDS chapter 16 [V31], from v1.2 in chapter 17 [R3], from v1.3 in chapter 18 [R4F]; in the repository `tds/spec/tds-v1.md`, 9.1). Column names, types, nulls, keys, sort order, partitions, availability rules, hashes and check codes are set by TDS, and this spec does not write them again. When this spec and TDS describe the input format differently, TDS is right (the differences from chapter 4 of the v1 spec, TDS-D1~D24, are already reflected throughout this v2; the mapping is appendix B.3).
+- This chapter sets only the **engine side**: the capabilities the engine requires (4.3), the checks at open (4.4), the fallbacks when columns are missing (4.5), the reading rules per dataset (4.6), the engine resource files and market rules packs (4.7), and the synthetic generator (4.8).
+- Version rules: the engine opens only packages with `tds_version` MAJOR = 1 (otherwise E14 + `TDS-M002`). A higher MINOR of the same MAJOR is opened, but split by **whether it uses features the engine does not know** [TDS 10.3, RV-I01]: unknown columns and **optional** datasets are ignored with a `TDS-M011` warning; unknown values of **descriptive** open enums (`category`, `delist_type`, `reason` and the like) are read as `other`; unknown values of **closed enums that affect the run** (`kind`, `asset_class`, `obs_status`, `exit_value_status`, `status`) and unknown **required resolution rules** (a new `availability` rule name and the like) are `TDS-M014` → E14 ("this engine does not support …"). It does not promise to accept every future 1.x package unconditionally.
+- Schemas with `status: experimental` (ticks, quotes, futures, options, crypto) are not read by the v1 engine (chapter 11).
+- The engine does not open DuckDB files [R-20, design 1 principle 4]. The engine reads only the files declared in `tds.json` [INV-17].
+
+### 4.2 Location and distribution conventions (outside TDS, producer conventions) [TDS-D22, RV-I04]
+
+- **Linked by path only** [V31-PUB-03]: the engine's data source is **one TDS package path** — `nx.open(path)`, `[data] path`, or the root below + `LATEST`. The engine has no reading code specific to a particular producer (DB connections, producer schemas, export steps). When a producer writes the package directly from its build (TDS 4.1 "producer-native package") and reuses unchanged partitions by cloning (APFS `clonefile`, reflink; preferred) or hard links (fallback), the engine side is the same: it only reads the package (it requires no write permission; caches and stamps are on the `runs/` side, pins in the index and the root `PINS/`), and it judges content by the file sha256. When the file sha256 is the same, the L0 cache hits as it is (5.3.9). **File identity** [R3-16, ADR-0037]: for every file whose sha256 it has checked, the engine writes `(dev, inode, size, mtime_ns)` in the stamp (`runs/.cache/verified/`) and the L0 entry, and on the next open checks with `stat` that it is the same. When it differs (edited in place, a replaced file), it computes the sha256 again and discards that stamp and L0 entry. The identity check is a defence against accidental edits, not a cryptographic proof (`[data] verify = "full"` reads every byte).
+- The engine takes the data root as `[data] root` (or `$NEXUSBT_DATA_ROOT`). `<snapshot_id>/tds.json` under the root is one snapshot. `snapshot_id` = the run id of the published build (for example `20261027-143144`) [Q3].
+- `LATEST`: a one-line text file whose content = the latest `snapshot_id`. The writer replaces it atomically, temporary file → `rename` [11.9 Q-E3]. `[data] snapshot = "latest"` is resolved once per call.
+- **Pins**: the canonical record is the `pins` table of the engine index `runs/index.sqlite` (5.9.5). With `[data] pins = "index+root"` (**default** — with v3.1's default `index`, the producer's retention rules could not see the engine index, so `rerun` and ledger `reconcile` of a run two days old became E15 [R3-17]), it also writes an empty file `PINS/<snapshot_id>/<run_or_book_id>` under the data root. A write failure (a read-only root, another producer) is left only as a warning, and the run manifest and the ledger `status.json` record `retention: unmanaged` (it does not claim the snapshot is protected). A ledger pin is not released while the ledger exists. `nexusbt doctor` shows the number of runs and ledgers whose root pin could not be written on a "pins not visible to producer" line. Whether the producer's clean-up respects the root `PINS/` is a producer convention. When the disk is short, the engine caches (L0, L1) are deleted first.
+- This convention is a promise on the producer side; another producer may give just one snapshot folder without `LATEST` or `PINS` (then `[data] snapshot` is the folder name). The engine runs even when the data root is read-only.
+- The snapshot's hash set = the package `physical_sha256`, `value_sha256` and `semantic_sha256` of TDS 4.5 (a dataset value hash includes the partition columns as path values, TDS-D19). The `snapshot_semantic_hash` of the run manifest and `DecisionContext` is the **semantic hash** (cache keys are set more finely, per partition, 5.3.9 [R3-04]): even with the same Parquet, a change in availability rules, fixed-point exponents, policies or market declarations makes it different data [RV-C10].
+
+### 4.3 Capability contract: profiles, check levels, engine support [TDS chapter 7, RV-I01]
+
+A profile is a **conformance claim**, and what the engine does is set by **capability**. The engine requires no fixed list of profiles (v2's requirement of four default profiles is abolished). At open (4.4) it gives three results per package: (a) **declared** — in `tds.json profiles` (with `@version`), (b) **checked** — up to which level (`manifest`/`schema`/`full`) the rules of that profile were confirmed; rules that level cannot see are `not_checked` and are not written as passing, (c) **supported** — whether this engine version implements the feature. Then it computes the datasets and columns needed from **the features the graph uses** ("feature → needs" in the table below), and when something is missing it applies a fallback (4.5) or raises E18. Factor screening that uses only `Price` needs only `instruments` + `bars` (+ `calendar_sessions` and `corporate_actions` when present). Names written in `[data] require_profiles` are required in addition.
+
+| Feature (graph, call) | Datasets needed | When missing or short |
+|---|---|---|
+| `Price.*`, `run_pipeline`, `screen(factor)`, `evaluate` (`fwd_return_adj`) | `instruments`, `bars(1d)` | E14 if `bars` has no close |
+| raw prices + adjustment (`close`, `close_tr` exact), `evaluate` (`fwd_return`) | the above + `bars.price_basis = raw` + `corporate_actions` (empty table allowed) + `calendar_sessions` | an adjusted-price package (`tds:minimal-daily`): `Price.close` = that value, `close_tr` and `fwd_return` → E18 ("economic labels need raw prices and corporate actions") |
+| `backtest`, strategy `screen`, `live` | the above + `delistings` (empty table allowed), `bars` OHLCV, `obs_status`, `density = dense` | 4.5 F-01, F-03, F-13; E18 for `minimal-daily` |
+| tradability rules | `tradability_daily` | when missing, blocks by `obs_status` only, with E30 |
+| `investable=True` | `eligibility_daily` | F-07 |
+| `Fund.*` | `fundamentals_state`, `dictionary/items` | F-06 (E18) |
+| `Meta.sector/industry/<scheme>` | `classifications` | E18 |
+| multi-market sleeves, `.to(ccy)` | `fx_rates` | E18 |
+| `weight="value"`, `exclude_microcap`, `shares_out` | `share_counts` | F-08 |
+| `Panel.*`, `Label.*` | `feature_panels`, `label_panels`, `dictionary/columns` | E18 |
+| `explain` lineage | `fundamentals_events` | F-11 |
+| `index_members` | `universe_membership` | E18 |
+| `Trad.*`, `universe(exclude=[admin values])` | `tradability_daily` (`admin_status` and so on) | E18 [V31-30] |
+| `Market.series(id)` | `instruments` (that id) + `bars` | E18 [V31-13] |
+| `Macro.series(id)` | `series_observations` (that `series_id`) | E18 [R4F-EV-01] |
+| `Events.<kind>` | `events` (that `event_type`) or `corporate_actions`, `fundamentals_events` | E18 [R4F-EV-02] |
+| price grid (limit, stop, exit, price limits) | `instruments.tick_size`/`tick_rule_id` → `market_rules` (TDS v1.2 5.27, optional) → rules pack `[grid]` | F-15 [V31-05] |
+| exact split ratios | `corporate_actions.ratio_num/ratio_den` (TDS v1.4, required for events that change the share count) | when missing, 0 or negative, or only one of the two: E13 at open (check A010 error); with `[corporate_actions] decimal_ratio = "literal"`, the f64 decimal notation as it is + E30 `ratio_decimal_literal` [V31-01, R4F-01] |
+
+The table below maps profiles to the features above (for reference).
+
+| Profile | Datasets the engine reads | Engine features it turns on | When missing |
+|---|---|---|---|
+| `tds:minimal-daily@1.0` | `instruments`, `bars(1d)` (adjusted prices allowed, `price_basis` declared) | analysis paths only: `Price.close`, `run_pipeline`, `screen(factor)`, `evaluate(target="fwd_return_adj")` | backtest and economic labels E18 [RV-I03] |
+| `tds:equity-daily-core@1.0` | `instruments`, `calendar_sessions`, `bars` (freq=1d, raw, dense, OHLCV, `obs_status`), `corporate_actions`, `delistings` | `Price.*`, OHLC fill rules, split, dividend and delisting accounting, `backtest`, `screen` | the fallbacks F-01~F-04 of 4.5; E14 if `bars` still has no close |
+| `tds:equity-daily-research@1.0` | the above + `tradability_daily`, `eligibility_daily`, `instrument_symbols`, `fx_rates` (two or more markets), `fundamentals_state`, `classifications`, `dictionary/columns`, `dictionary/items` (+ optional `share_counts`, `universe_membership`, `instrument_xref`) | tradability rules, the investable universe, KR+US sleeves, `Fund.*`, `Meta.*`, `.to(ccy)` | F-05~F-10 |
+| `tds:panels@1.0` | `feature_panels`, `label_panels` | `Panel.*`, `evaluate(target=Label.*)`, a universe substitute | `Panel.*` and `Label.*` → E18; the default `fwd_return` of `evaluate` still works |
+| `tds:pit-fundamentals@1.0` | `fundamentals_events` + `fundamentals_state` (TDS chapter 7 is canonical) | the source lineage of `nx.explain` | F-11 |
+
+`cum_factor_*` is required by no profile (when present it is compared by A001 in `full`; when absent the resolver builds it from the events) [RV-I01]. The engine does not read `tds:bitemporal` or the intraday, tick, futures, options and crypto profiles (`experimental`) in v1 (chapter 11).
+
+### 4.4 When a snapshot is opened [TDS chapter 8, TDS-D21]
+
+1. Calls `tds.check(path, level=…)` as a library. The level is `[data] verify`: `manifest` (default; `tds.json`, path safety (M012, M013), file existence, bytes, presence of the profile datasets), `schema` (+ Parquet footers, statistics, partition paths), `full` (+ every row: keys, sort order, references, time, density, factors ↔ events, values, hashes). `rerun`, `reconcile`, `live` and `fill` use at least `schema` + the file sha256 (skipped when there is a stamp and the file identity `(dev, inode, size, mtime_ns)` is the same, computed again when it differs [R3-16]). `nexusbt doctor --full` and `verify="full"` use `full`. Measurement (P1) is based on `manifest`.
+2. If there is even one error (severity E), `SnapshotError` (E14): the first error's TDS code, dataset, file, key and hint, the count per code, and, when the optional block `producer.hints` of `tds.json` has a hint for that code, that sentence (TDS 4.2) — the engine does not know a particular producer's ticket numbers. Warnings (W) are left in the run warnings as counts per code [RV-I09].
+3. Capability decision (4.3): three results per profile, the data needed by the features the graph uses. A package that **breaks** a profile it declared (a check error) is not repaired by fallbacks: E14. When a feature is missing in a valid lower-profile package, a feature with a 4.5 fallback is substituted with E30 when `[data] fallbacks = "warn"`, and is E14 when `"fail"`. A feature without a fallback is E18 when that feature is called. Repairing an old format is not the engine's job but the import step's (`tds import`, TDS chapter 9), which makes a new package.
+4. Additional engine-side checks (not in the checker; always at engine open): the markets the run needs are in `markets` and **their market rules pack** (4.7) exists — otherwise E18 ("no market rules pack for {m}; supported: {list}; set [markets] allow_untested = true to run with generic rules (recorded)"); the market's `calendar_id` is in `calendar_sessions` (otherwise F-02 only when `exchange_calendars` knows that calendar); the types of the columns the engine reads (`contracts.ENGINE_COLUMNS`) are the same as the TDS types. **strict quality**: rows with row-level `pit_quality = backfilled` in the two-time-axis tables (`classifications`, `universe_membership`, `instrument_symbols`) are left out of strict-edition lookups (TDS K6); using a dataset-level `backfilled`/`mixed` (a table without row-level quality) in a strict run is E30 (naming the dataset) [TDS 6.5, RV-C09]. **Invalid exact ratios**: if the `corporate_actions` of a run market have rows where only one of `ratio_num/ratio_den` is present or either is 0 or below, `AccountingDataError` (E13; the list of event ids) before the run — in TDS v1.4 A010 is an error (E) (5.11), and the engine blocks the same rows with E13 so that it does not compute quantities from a package whose canonical values are invalid [R3-06, R4G-05].
+5. As a result it builds `Snapshot.profiles` (the three results), `Snapshot.capabilities` (the set of features turned on) and `Snapshot.fallbacks` (the list of fallbacks used: id, dataset, market, count). They are kept as they are in the run manifest's `data.profiles`, `data.capabilities`, `data.unchecked`, `data.fallbacks` and `assumptions`.
+6. When a run starts, (snapshot_id, run_id) goes into the index `pins` (with `[data] pins = "index+root"` also the root `PINS/`; a failure is a warning) [11.7 (9), RV-I04].
+
+### 4.5 Fallbacks [R-67, RV-I01, RV-I09]
+
+The table below is the defined thing the engine does **when a valid package does not fill some column or dataset** (whatever the producer). Every fallback is an E30 warning + a manifest record, not a hidden fallback (INV-12). Each fallback is tested with the synthetic generator's `degrade=` option (4.8). Engine error and warning sentences mention only TDS codes and `producer.hints`. Engine M0~M6 can be finished with synthetic packages (4.8).
+
+| id | What is missing (a gap in TDS) | Engine behaviour | Test |
+|---|---|---|---|
+| F-01 | `open`, `high`, `low` of `bars` missing/null | `Price.open/high/low` = NaN. Open-stage orders on that row are `blocked(no_open)`, intraday-stage ones (limit, stop, exit) `blocked(no_range)` — 0 fills, the order stays and carries over (5.6.5). If opens are missing for the whole run period of a market, `CapabilityError` (E18) before the run: "open prices not in snapshot for {market}; use nx.execution.market(at='close') (recorded), or use a snapshot whose bars include open/high/low". A strategy that uses limit, stop or `exits` is E18 under the same condition. The Abdi–Ranaldo spread falls back to `min_half_spread_bps` (count reported). With this fallback `equity-daily-core` is recorded as "passed without OHLC" | G-31, `degrade=["no_ohlc"]` |
+| F-02 | no `calendar_sessions` | builds each market's `calendar_id` sessions (`ts_open`, `ts_close`, half days) with `exchange_calendars` 4.13.2 (E18 for a calendar that library does not know). The session set = the sessions of that calendar from the first to the last day of `bars`. E14 (`TDS-R003`) if `bars` has dates outside that calendar. Manifest `assumptions`: "sessions synthesized from exchange_calendars 4.13.2" | `degrade=["no_sessions"]` |
+| F-03 | `bars` is `density = sparse` or has no `obs_status` | expands in memory to listing period × sessions, with empty cells `obs_status = missing`. Without `obs_status`, `traded` when there is a price, `no_trade` when volume is 0 | `degrade=["sparse_bars"]` |
+| F-04 | no `bars.cum_factor_*` | the engine computes the correct adjustment from the event tables anyway (5.3.3). Without the columns it builds `C` from the `price_factor` of `corporate_actions` (a definition, not a fallback; no warning). When the columns are present, the `full` check compares them by `TDS-A001` | `degrade=["no_cum_factors"]` |
+| F-05 | the `ex_date` of a Korean cash dividend is really the record date | the engine uses `ex_date` as it is (no repair). It counts the KR cash dividends with `ex_date = record_date` and no `x_*_ex_date_method` column and leaves the count in E30 ("dividend ex_date may equal record date for {n} KR events; entitlement may be one session late" + the `fallback:F-05` sentence of `producer.hints` when there is one) and in the manifest | `degrade=["kr_ex_is_record"]` |
+| F-06 | no `fundamentals_state` | a graph that uses `Fund.*` is E18 when built ("snapshot lacks fundamentals_state; use a snapshot with fundamentals_state, or Panel.* monthly fundamentals if present"). Other features are unaffected | `degrade=["no_fundamentals_state"]` |
+| F-07 | no `eligibility_daily` | the `feature_panels.is_investable` substitute of 3.6 (`universe_source = "feature_panels"`); without that too, `investable=True` is E18 | `degrade=["no_eligibility"]` (T-06) |
+| F-08 | no `share_counts` | `Price.shares_out` and `market_cap` = NaN, `weight="value"` and `exclude_microcap` are E18 before the run ("share_counts not in snapshot") | `degrade=["no_share_counts"]` |
+| F-09 | US dividend amounts are split-adjusted values and the dates (record date, declaration date, pay date) are missing | no pay date → the estimation path of 5.6.11 with `pay_date_status = missing` (R-60). The engine cannot know the amount scale, so it counts per market the `TDS-A004` warnings (cash factor ≠ `1 − D/ref_price`) of the `full` check, and when the count is above 0 writes "US dividend amounts unverified (A004 n)" in the manifest `assumptions` and one warning line in the report. No repair | `degrade=["us_div_split_adjusted_no_dates"]` |
+| F-10 | both `corporate_actions.ts_terms_available` and `ts_announced` null | as the TDS rule says, the terms are taken as known at `ts_effective` (no pending handling). A dataset with such events must have `pit_quality` `backfilled`/`mixed`, and a strict run gives E30 (4.4-4) | unit test |
+| F-11 | no `fundamentals_events` (no `tds:pit-fundamentals`) | `nx.explain` shows the intervals only, with "lineage not in snapshot" | unit test |
+| F-12 | no benchmark index instruments | "n/a: not in snapshot"; the engine does not build an index (R-59) | T4.6 |
+| F-14 | no point-in-time table for changeable instrument attributes (`category`, `venue_mic`) | `Meta.category` and `Meta.venue_mic` use the current values of `instruments`, and when they reach a decision input, E30 "current value used for history" (count) [RV-C08] | `tests/unit/pipeline/test_meta.py::test_hindsight_attribute_warned` |
+| F-15 | no price-grid information anywhere (no instrument `tick_size`, no `market_rules`, no pack `[grid]`) | grid = the currency minor unit (`minor_unit`; KRW 1 won, USD 0.01). E30 "price grid = currency minor unit for {market}" + a manifest record [V31-05] | `degrade=["no_tick_info"]` |
+| F-16 | suspected volume unit (TDS-V011 warning: the per-instrument, per-year median of value traded / (volume × representative price) outside [0.5, 2]) | no repair. Raises the warning to E30 (counts per instrument and year), and marks "volume unit unverified" on the ADV cap, impact cost and capacity lines of that instrument and year. When `value_traded` is missing, doctor prints one line "volume unit unverified" [V31-16] | `degrade=["volume_in_lots"]` |
+| F-13 | an instrument left the market but there is no delisting event row | when `instruments.delisted_on` (or `last_session` before the watermark) is present and there is no `delistings` row, it builds in memory an event with `exit_value_status = unobserved`, `ret_observed = ret_policy = null`, `ret_lo = −1`, `ret_hi = 0`, `ref_price` = the last valid raw close, `exit_date` = `delisted_on` (when absent, the session after `last_session`). Under the policy `observed_then_policy`, a holding has `ret_policy` null → E13 (5.6.13; fix: `delisting="lo"|"hi"|"observed_only"`) | `degrade=["no_delistings"]` |
+
+### 4.6 Engine reading rules per dataset
+
+Common:
+- **Identifiers**: the key is `instrument_id`. The engine builds an integer index in memory (0..N−1 in `instrument_id` sort order; session numbers in `calendar_sessions` sort order). It does not expect integer keys in the files [A-05]. When `session_ord` is present, whether it equals the engine's numbering is checked only in `full`.
+- **Partitions**: partition columns (`market=`, `year=`, `edition=`, `freq=`, `name=`) are read from the path (they are not in the files) [TDS-D5, TDS-D20]. The files to read are chosen only from the manifest's `files[].stats` (minimum and maximum of the main columns) and the path values, without opening Parquet footers (P1).
+- **Availability time**: when a dataset's `availability` is `{"column": "ts_available"}`, the column is used; when it is a rule (TDS 6.2: `ts_end`, `session_open`, `session_close`, `next_session_open(<col>)`, `ts_end+<duration>`), the engine builds the column by the same rule and uses it. After that every lookup uses the one rule of 5.1.2 (`ts_available <= decision_ts`; market-axis rows by `ts_close(s)`) [INV-01].
+- **Enums**: unknown values of descriptive open enums are `other` (the engine handles `delist_type` and `reason` through the general path). Unknown values of closed enums that affect the run (`kind`, `asset_class`, `obs_status`, `exit_value_status`, `status`) are E14 (4.1) [RV-Q11].
+- **Edition**: `fundamentals_state` and `feature_panels` have an `edition=` partition, `classifications` an `edition` column (`strict`/`compare`/`both`). A strict run reads only strict (+ both) and does not fill from compare [Codex risk 18].
+- **Market watermark**: sessions after `markets.<m>.complete_through_session` and `complete_through` are not used for fills in `live` and `fill` (5.9.6).
+
+Per dataset (only the columns the engine reads; column definitions are in TDS chapter 5):
+
+| TDS dataset | Columns the engine reads | Engine-side rules |
+|---|---|---|
+| `instruments` | `instrument_id, asset_class, category, market, venue_mic, calendar_id, currency, issuer_id, name, listed_on, listed_on_censored, last_session, delisted_on, lot_size, multiplier, is_synthetic, index_kind` | **an after-the-fact static table** (TDS 5.1): deciding listing existence (`listed_on`, `last_session` and `delisted_on` only for the listing-period mask and delisting handling), name display, units and multipliers. `delisted_on`, `last_session` and `name` are not exposed as decision inputs, and `category` and `venue_mic` follow the rules of 3.2 and F-14 [RV-C08]. v1 uses only `asset_class = equity` (+ `index` for benchmarks). Market block = `equity ∧ is_synthetic = false` (3.3). `is_synthetic = true` is not used for fills. When `listed_on_censored = true`, the window warm-up is taken as cut off at the start of the data and counted in the coverage table |
+| `instrument_symbols` | `instrument_id, symbol_type, symbol, venue_mic, valid_from, valid_to, ts_known_from, ts_known_to` | display names and ticker history (the `name` of `Screen` and `Orders`), resolving symbols → ids for fixed-list universes (the `ticker` valid on that date and known at that time; rectangular lookup 5.3.6) [RV-C08] |
+| `calendar_sessions` | `calendar_id, session_date, ts_open, ts_close, is_half_day` | the only source of times (5.1.1). Price limits and rule versions are not here (TDS-D8) |
+| `bars` (freq=1d) | `instrument_id, session_date, open, high, low, close, volume, value_traded, obs_status, cum_factor_split, cum_factor_total` (+ the availability rule, default `ts_end` = `ts_close`; for a column rule `params.ready_delay`) | before price comparison, bar prices are turned into integers of the market minimum unit (5.6.4a; US `0.6768000000000001` → 6768 × 0.0001); a value that does not fit within 1e-9 is not moved and is counted as `off_grid_bar` [V31-05, R3-02]. Volume units: F-16 [V31-16]. With `price_basis = raw`, every feature. With adjusted prices (`minimal-daily`), analysis paths only (4.3): `Price.close` and `open/high/low` = those values, adjusted `close_tr` and `volume` = the same values (no adjustment), economic labels and backtest E18 [RV-I03]. The time a row freezes is `ready(s)` of 5.1.2. `shares_out` is not in bars (TDS-D9) |
+| `tradability_daily` | `status_known, halted_full_day, limit_up_close, limit_down_close, locked_up, locked_down, price_limit_ratio, up_limit_price, down_limit_price, reference_price, admin_status` | 5.6.5. The availability times per column group (`params.availability_by_column`, required for this table from TDS v1.1) matter only when used as decision inputs; when exposed as Pipeline terms, the values known at the end of the day (`locked_*`, `halted_full_day`, `limit_*_close`) are `session_close` [RV-Q10] (the state machine uses the same session's values when executing in that session — the prices and status of the execution session are facts that happened in that session). `trading_status_events` is not read in v1 |
+| `corporate_actions` | every column (TDS 5.11) | **only the resolver (5.3.3a) reads it**: it resolves amendments, cancellations, `status`, the existence time and the terms availability time at each reference time [R3-01], and adjustment (5.3.3, 5.3.4), accounting (5.6.10~5.6.12) and checks (A001) use the result [RV-C03]. **Kind mapping**: the table below |
+| `delistings` | every column (TDS 5.13; including v1.2 `ret_observed_includes_distributions`) | 5.6.13 (the distribution just before delisting and the terminal value once only; three bases: observed-inclusive, observed-exclusive, policy [V31-04, R3-05]). Recoveries are not put into decision sizing before `ts_value_available` (an entitlement of unknown amount, INV-01) [RV-C01]. For labels, an input of `ts_label_available` (5.8) |
+| `share_counts` | `instrument_id, count_kind, as_of_date, shares, ts_available` | 5.3.5a |
+| `market_rules` (TDS v1.2 5.27, optional) | `rule_id, market, rule_kind, venue_group, valid_from, valid_to, price_from, price_to, tick_size, limit_ratio, source, verified` | `verified` goes into the release-evidence rule list as it is [R3-15]. `rule_kind = tick_band` is the price grid (5.6.4a), `price_limit` the `pct` source of 5.6.5 (after `tradability_daily`, before the rules pack table). When present it is used before the rules pack table [V31-05] |
+| `fx_rates` | `base, quote, rate_kind, obs_date, ts_event, ts_available, rate, source` | one series is chosen by `[fx] series` (3.11). Decision inputs use `ts_available <= decision_ts`, report valuation `ts_event <= valuation time` (5.1.5) [TDS-D17] |
+| `fundamentals_state` | every column (TDS 5.18) | 5.3.5. Interval `[ts_known_from, ts_known_to)` |
+| `fundamentals_events` | `fact_id, instrument_id, item, period_end, statement_basis, version, value, known_on, ts_available, source, source_rank, doc_id, value_how, vendor_input` | only in `nx.explain` |
+| `classifications` | `instrument_id, scheme, level, code, label, effective_from, effective_to, ts_known_from, ts_known_to, edition, pit_quality` | key `(instrument_id, scheme, level, edition, effective_from, ts_known_from)` (TDS v1.1; `level` not null, single level = 0). Rectangular lookup (5.3.6): in the edition (strict = `strict`+`both`, compare = `compare`+`both`), the rows with `ts_known_from <= cutoff(s) < ts_known_to` and `effective_from <= session_date(s) < effective_to` [TDS-D12, RV-C08]. Two or more for the same (instrument, scheme, level, edition) is E14 (`TDS-T012`). strict leaves out rows with row-level `pit_quality = backfilled` |
+| `eligibility_daily` | `rule_id, instrument_id, session_date, is_eligible, reason` (+ availability time, TDS v1.1 default `session_close`) | 3.6, 5.1.5: only that session's row; false when missing or not yet available, no carry-over [TDS-D16, RV-C09] |
+| `universe_membership` | `universe_id, instrument_id, effective_from, effective_to, ts_known_from, ts_known_to` | `index_members` (3.6) |
+| `feature_panels` (name=`[panels] feature`) | `instrument_id, period, as_of_date, ts_available` + feature columns | `Panel.*`. Row `ts_available` required [TDS-D18] |
+| `label_panels` (name=`[panels] label`) | `instrument_id, period, entry_date, entry_price_basis, exit_date, horizon, return_definition, terminal_policy_id` (+ optional `ts_label_start, ts_label_end, ts_label_available`) + label columns | `Label.*` (only the target of evaluate). Label times: `ts_label_start` = `ts_open(entry_date)` when `entry_price_basis` is `open`, `ts_close(entry_date)` when `close`; `ts_label_end` = the same rule on `exit_date`; `ts_label_available` = `ts_label_end` when there is no column (with the manifest assumption "label availability assumed at label end"). When it is a column, that is used [SC-20, RV-C04] |
+| index instruments (`instruments(asset_class=index)` + `bars`) | `close` (= the index value), `index_kind` | benchmarks (5.7). Only `index_kind = TR` as the default benchmark [TDS-D15] |
+| `dictionary/columns`, `dictionary/items` | all | dataset attributes, stubs, units (3.2). Columns with `is_label = true` are forbidden as decision inputs (E2) |
+
+**Corporate-action kind → engine handling** [TDS-D11]:
+
+| TDS `kind` | Engine handling (5.6.x) | Price adjustment (5.3.3) |
+|---|---|---|
+| `split`, `reverse_split`, `capital_reduction` (share consolidation; `ratio_new_per_old` present, `cash_per_share` null) | 5.6.10 ratio ρ = `ratio_num/ratio_den` (canonical, required in TDS v1.4); E13 when missing — the decimal notation of `ratio_new_per_old` only when the user chose `decimal_ratio = "literal"` (5.6.1) [V31-01, R4F-01] | `price_factor` |
+| `stock_dividend`, `bonus_issue` | 5.6.10 ratio ρ = `1 + ratio_new_per_old`, the new shares locked for sale | `price_factor` |
+| `capital_reduction` with cash (paid capital reduction: `cash_per_share` present) | 5.6.10 (ρ) + a receivable of cash `q·cash_per_share` (pay date) | `price_factor` |
+| `cash_dividend`, `special_dividend`, `return_of_capital` | 5.6.11 (return of capital follows the same entitlement, receivable and payment path; withholding only for `cash_dividend` and `special_dividend`) | `price_factor` (`affects = total_only`) |
+| `stock_merger`, `mixed_merger` | 5.6.12 stock merger (mixed = stock + `cash_per_share`) | the old instrument disappears (`price_factor = 1`) |
+| `cash_merger` | 5.6.12 cash merger | – |
+| `spinoff` | 5.6.12 (handled when `new_instrument_id` and `ratio_new_per_old` are present, otherwise not supported) | `price_factor` |
+| `rights_issue` | 5.6.12 rights policy (`lapse`/`fail`); share factor = 1 (holding quantity unchanged) | `price_factor` (TERP) |
+| `exchange_offer`, `other` | unsupported events (5.6.12; when held, the policy `unsupported`) | `price_factor` applied when present |
+| `symbol_change`, `name_change`, `par_change` | no accounting effect (event record only) | none (`affects = none`) |
+
+Events whose `price_factor` is null (`factor_method = unavailable`): when an instrument's window crosses that event's effective session e (when the window has a row with s < e ≤ t), the engine leaves the adjusted price cells of the rows before e as NaN and counts the diagnostic `AdjustmentUnavailable` (no hidden 1.0 substitute, INV-12). This "none" also propagates into the cumulative factors as it is: even when the package's `cum_factor_*` has values after that event, the resolver leaves the ratio across e as none (A001 does not compare that session) [RV-C03]. When held, the policy for unsupported events applies. The coverage table counts `AdjustmentUnavailable` per instrument and year.
+
+### 4.7 Engine resource files and market rules packs (engine repository, versioned) [R-25, TDS-D23, RV-I08]
+
+**Market rules pack** `src/nexusbt/resources/markets/<MARKET>.toml` (v1: `KR.toml`, `US.toml`, the generic pack `_generic.toml`). The market name equals the TDS `markets` key, and a pack is used for a market only when its `calendar_ids` include that market's `calendar_id`:
+
+```toml
+[pack]
+market = "KR"            # TDS markets key
+version = 1              # "rules KR@1" in the report and manifest
+calendar_ids = ["XKRX"]
+currency = "KRW"
+minor_unit = 0           # digits of the currency minor unit (USD = 2)
+benchmark_hint = "KOSPI" # name hint when [benchmarks] auto finds several
+[price_limits]
+table = "limits/kr_price_limits_v1.csv"   # when absent, no price-limit rule (US)
+open_tolerance = 0.005   # source of the default of [execution] kr_limit_tolerance
+[costs]
+provisional_bps = {buy = 5, sell = 25}
+min_half_spread_bps = 5
+table_market_groups = "costs/venue_groups_v1.csv"
+[dividends]
+fallback_pay_lag_days = 120
+[tradability]
+unknown_status_before = ""   # US pack "2019-08-23" (describes the status_known=false period)
+[grid]                       # price grid [V31-05]
+tick_table = "ticks/kr_tick_table_v1.csv"   # tick sizes by period and price band (for membership checks and snapping); when absent F-15 (minor_unit)
+base_unit = 1                # integer coordinate for price comparison (KR 1 won; US pack 0.0001 dollars) [R3-02]
+[rounding]                   # rounding rule per booking component [V31-05]; KR pack default: commission, tax and withholding down (the majority option, a research default, not a claim about settlement practice), the rest half_up [R3-27]; US pack all half_up
+proceeds = {mode = "half_up", unit = 1}
+commission = {mode = "down", unit = 1}      # the truncation practice of Korean brokers and tax law [unverified, verified = false] — the user overrides it with [rounding.KR]. [R7-08] Facts checked (2026-10-29): National Treasury Management Act Article 47(1) truncates below 10 won at payment to the treasury; Income Tax Act Article 86 does not collect withholding tax below 1,000 won (except interest income); Samsung Securities truncates credit interest below 1 won. Per-fill tax and commission rounding was not checked against an original source, so the seed stays as it is
+tax = {mode = "down", unit = 1}
+dividend_withholding = {mode = "down", unit = 1}
+cash_in_lieu = {mode = "half_up", unit = 1}
+borrow_fee = {mode = "half_up", unit = 1}
+[shorting]                   # [V31-LS-07]
+allowed = true
+ban_table = "shorting/kr_short_bans_v1.csv"  # periods when new short-sale orders are forbidden (covers allowed); the US pack has none
+uptick_rule_modeled = false  # US pack: Rule 201 (price-restricted short sales) is not simulated (a documented assumption)
+borrow_availability = "assume_all"   # no data on borrowable quantity: everything is assumed borrowable outside ban periods (a manifest assumption)
+day_count = 365              # days per year of the borrow, rebate and cash-interest accrual [R3-09, R3-25]. [R7-07] KR = 365 verified = true (broker credit-interest terms: loan × rate × days/365, 366 in leap years — Korea Investment & Securities and Samsung Securities guides, 2026-10-29); the US pack seed corrected to 360 verified = true (source: IBKR margin interest USD 360 days, borrow fee /360 — broker practice, not regulation, 2026-10-29)
+```
+
+- `ticks/<m>_tick_table_v1.csv` (`valid_from, valid_to, venue_group, price_from, price_to, tick, source, verified`) [V31-05]: KR seed = from 2023-01-25, common to KOSPI, KOSDAQ and KONEX: under 2,000 won 1 won · 2,000~5,000 won 5 won · 5,000~20,000 won 10 won · 20,000~50,000 won 50 won · 50,000~200,000 won 100 won · 200,000~500,000 won 500 won · 500,000 won and above 1,000 won — `verified = true` [R7-02] (source: [Samsung Securities notice "Change of tick sizes in the domestic securities and derivatives markets"](https://samsungpop.com/ux/kor/customer/notice/notice/noticeViewContent.do?MenuSeqNo=19236), effective 2023-01-25; the original KRX regulation could not be seen because law.krx.co.kr was unreachable, 2026-10-29). Before that, the old per-market table for [2010-10-04, 2023-01-25) (under 1,000 won 1 · under 5,000 5 · under 10,000 10 · under 50,000 50 · under 100,000 100 · under 500,000 500 · 500,000 and above 1,000; KOSDAQ 100 from 50,000 won) — the KOSPI rows and KOSDAQ 50,000~500,000 won at 100 won are `verified = true` [R7-02] (source: [the KRX announcement of 2010-02-08 as republished (Mondo Visione)](https://mondovisione.com/media-and-resources/news/krx-to-lower-tick-size-for-low-priced-stocks-to-1-won-2011124/) — 1 won under 1,000 won from 2010-10-04; the "current" table of the Samsung Securities notice above). For KOSDAQ 500,000 won and above, the Samsung Securities "current" table says 1,000 won, which disagrees with the seed (100) → `verified = false` [unverified]. **Before 2010-10-04**, everything under 5,000 won was 5 won (no 1-won band), and above that the same table [R7-02, the KRX announcement above]; earlier effective dates are `verified = false` [unverified]. KR `venue_group = ETF` (`instruments.category ∈ {etf, etn}`): 5 won at every price band, kept in the 2023-01-25 reform as well (ETF, ETN, ELW) `verified = true` [R3-14, R7-03] (source: the Samsung Securities notice above; the start date is unverified). US seed = 0.01 at $1 and above, 0.0001 below $1 (Reg NMS Rule 612(b)(3)) `verified = true` [R7-04] (source: [17 CFR 242.612](https://www.law.cornell.edu/cfr/text/17/242.612)); however, the 2024 amendment (89 FR 81774) sets $0.005 for instruments at $1 and above whose time-weighted average quoted spread is ≤ $0.015, reclassified every half year, and its compliance date was postponed by an SEC exemptive order to **the first business day of November 2027** ([Release 34-105656](https://www.sec.gov/files/rules/exorders/2026/34-105656.pdf), 2026-06) — this table is right only until then. Pre-decimalisation rows — 1/8 dollar before 1997-06-24, 1/16 dollar for [1997-06-24, decimalisation date) — are `verified = false` [unverified: the 1/16 date and the finer unit below $1 have only secondary sources]; the decimalisation date is **per market**: NYSE 2001-01-29 (secondary source: [The Daily Record 2001-01-29](https://thedailyrecord.com/2001/01/29/nyse-goes-totally-decimal-8212-finally/)), Nasdaq 2001-04-09 (source: [SEC testimony 2001-05-24](https://www.sec.gov/news/testimony/052401tslu.htm), the deadline of the SEC order of 2000-06-08) — so the Nasdaq `venue_group` is 1/16 also in [2001-01-29, 2001-04-09) [R7-04, R3-14]. Pilot instruments (NYSE from 2000-08-28, Nasdaq from 2001-03-12) are not represented in the table and show up as `off_grid_bar`. The grid table is used only for membership checks and snapping order prices; comparisons use `base_unit` integers (5.6.4a).
+- `shorting/kr_short_bans_v1.csv` (`valid_from, valid_to, scope, except_universe_ids, source, verified`) [V31-LS-07, R3-15]: intervals are **half-open** `[valid_from, valid_to)` (end date = the first day it is allowed again). `scope` grammar = `all` / `index:<id>[,<id>…]` (applies when the instrument is a member of at least one on that date) / `classification:<scheme>=<code>` (two-time-axis lookup). `except_universe_ids` (a list) removes from the ban the instruments that are members of at least one on that date (the union). KR seed — all checked against the original Financial Services Commission press releases, `verified = true` [R7-05] (2026-10-29): [2008-10-01, 2009-06-01) `all` (source: the attachment of [FSC 2008-09-30](https://www.fsc.go.kr/no010101/68952) — KOSPI from 10.1 and KOSDAQ from 10.2, so for KOSDAQ on 2008-10-01 the seed is more conservative by one day; [FSC 2009-05-20](https://www.fsc.go.kr/no010101/69237) lifted for non-financial stocks on 6.1); [2009-06-01, 2013-11-14) `classification:is_financial=true` (financial stocks = the financial sectors of KOSPI and KOSDAQ, including banks, securities and insurance; source: [FSC 2013-11-13](https://www.fsc.go.kr/no010101/70903) "lifted from '13.11.14"); [2011-08-10, 2011-11-10) `all` (source: [FSC 2011-08-09](https://www.fsc.go.kr/no010101/70024) 8.10~11.9, [FSC 2011-11-08](https://www.fsc.go.kr/no010101/70123) non-financial stocks lifted on 11.10, financial stocks kept); [2020-03-16, 2021-05-03) `all`; [2021-05-03, 2023-11-06) `all` but with `except_universe_ids = [index:KOSPI200, index:KOSDAQ150]` (partial resumption; source: [FSC 2021-02-03](https://www.fsc.go.kr/no010101/75290), [FSC 2021-04-29](https://www.fsc.go.kr/no010101/75830)); [2023-11-06, 2025-03-31) `all` (KOSPI, KOSDAQ, KONEX; source: [FSC 2023-11-05](https://www.fsc.go.kr/no010101/81013), [FSC 2024-06-13](https://www.fsc.go.kr/no010101/82454) extended to '25.3.30, [FSC 2025-03-21](https://www.fsc.go.kr/no010101/84216) full resumption on 3.31). During the bans, covered short sales by market makers and liquidity providers were allowed (the 2020 and 2023 originals), but they are not the engine's subject. When the snapshot lacks that membership or classification data, every instrument is taken as banned, with E30.
+- **Rule verification gate** [R3-15]: the release evidence (T6.15, R-70) lists, for every rule row applied in the run (tick tables, price limits, bans, rounding, `day_count`), its source, its effective boundary and `verified`, shows the number of `verified = false` rows as numerator/denominator, and shows the off-grid bars `off_grid_bar` per market and year. A "KR/US verified" claim is made only when every row actually applied is `verified = true`.
+- Only what the pack sets differs per market; the state machine and the fill rules (5.6) are the same for every market. The price-limit rule (5.6.5) is turned on only when the pack has `price_limits` (instead of v2's condition `market == KR`).
+- A market without a pack is E18 (4.4). With `[markets] allow_untested = true`, `_generic.toml` is used (no price limits, ½-spread floor 5 bp, fallback pay interval 30 days, no `provisional_bps` → `[costs.provisional_bps] <MARKET>` required), with "untested market rules: {market}" in the report header and the manifest `assumptions`.
+- A new market pack is added only by a PR that has public sources (the exchange's regulations) and at least one hand-calculated case for that market (chapter 10 v1.x "add market rules packs").
+
+`src/nexusbt/resources/costs/default_v1.csv`:
+
+| Column | Type | Meaning |
+|---|---|---|
+| country | str | market code (TDS `markets` key; the column name is kept for v1 compatibility) |
+| market | str | `*`, KOSPI, KOSDAQ, NYSE, NASDAQ (names of price-policy groups, not MICs; the mapping `instruments.venue_mic` → group is `venue_groups_v1.csv` in the same folder) |
+| side | buy/sell (a short sale uses the sell row, a cover the buy row) [V31-LS-04] | |
+| component | commission / tax / other | other = the US SEC fee, FINRA TAF and the like |
+| bps | float | |
+| min_amount | float | minimum amount (local currency), 0 when none |
+| valid_from, valid_to | date | half-open, empty valid_to = current |
+| source | str | URL of the law or broker notice |
+| verified | bool | whether a person checked it against the source |
+
+- Coverage check: `realistic` can be used only when run period × run markets × side × (commission, tax) is covered without gaps by `verified = true` rows. Otherwise error E23. The first version holds only `verified = false` seed values (chapter 12 OI-03) [9.0 defaults, R-61].
+- `src/nexusbt/resources/limits/kr_price_limits_v1.csv` (`valid_from, valid_to, market, limit_ratio, source, verified`): a fallback table used only when both `tradability_daily.up_limit_price/down_limit_price` and `price_limit_ratio` are null. Seed values [R7-06] (corrected 2026-10-29 — per `market`): KOSPI [1995-04-01 0.06, 1996-11-25 0.08, 1998-03-02 0.12, 1998-12-07 0.15, 2015-06-15 0.30); KOSDAQ 0.12 (start date [unverified]) → 2005-03-28 0.15 → 2015-06-15 0.30; KONEX 0.15 (left out of the 2015-06-15 widening) [design 5.4, research 2.4]. The evidence is all secondary, so `verified = false` stays and only `source` is filled: newspapers of the time (Hankook Ilbo [1996-11-25](https://www.hankookilbo.com/news/article/199611250055411462), [1998-02-12](https://www.hankookilbo.com/news/article/199802120060207540), [2005-03-10](https://www.hankookilbo.com/news/article/200503100043910652)), a summary of the 2015 effective notice ([Crowe 2015-05-29](https://www.crowe.com/kr/news/news20150529_kr)); the original KRX business regulation and its history were not seen. Before 1995-04-01 the limits were **fixed amounts** (amounts per price band), not ratios, and cannot be represented in this table → that period has no `verified = false` row, only "no price-limit information". When the `market_rules` dataset of TDS 1.1 exists, this moves to the data side (TDS-Q15).
+- These files are small tables copied by hand from public sources (laws, exchanges, broker notices), not reference-producer data (the allow list of the hygiene test of 2.7).
+
+### 4.8 Synthetic TDS package generator (`nx.testing.synth`) [TDS-D24]
+
+The engine uses only this generator before a real producer package arrives, and in **every test** of the repository (2.7). `tiny` is a **hand-set table** (no randomness; the case yaml becomes rows as it is), and `small` and `full` follow the random rules below [RV-I05]. The generator writes TDS v1 packages (`tds.json`, hashes, dictionaries included), and its output must pass `tds check --level full` with the profiles it declares (test `test_synth_conforms`, INV-17).
+
+```python
+def make_snapshot(root: Path, *, preset: Literal["tiny","small","full","full_ci"] = "small", seed: int = 0,
+                  snapshot_id: str = "synth-0001", start: date | None = None, end: date | None = None,
+                  markets: Sequence[str] = ("KR", "US"),            # "ZZ" = a test market without a rules pack (XZZZ, currency XTS)
+                  n_kr: int | None = None, n_us: int | None = None,
+                  events: Sequence[EventSpec] = (), overrides: Mapping[str, Any] | None = None,
+                  degrade: Sequence[Literal["no_ohlc","no_sessions","sparse_bars","no_cum_factors",
+                                            "kr_ex_is_record","no_fundamentals_state","no_eligibility",
+                                            "no_share_counts","us_div_split_adjusted_no_dates",
+                                            "no_fundamentals_events","no_benchmarks","no_delistings",
+                                            "no_panels","no_tick_info","volume_in_lots"]] = ()) -> Path   # two values from v3.1 [V31-05, V31-16]
+```
+
+| preset | Markets and instruments | Period | Use |
+|---|---|---|---|
+| tiny | KR 6, US 6 (fixed names `KR:T00001`…, `US:T00001`…) | 2020-01-02 → 2020-03-31 | hand-calculated golden cases (8.2). Events only through `events` |
+| small | KR 120, US 180, with listings and delistings mixed into the period | 2015-01-02 → 2019-12-31 | unit and property tests, CI performance smoke tests |
+| full | KR 5,500, US 22,100 instruments ever listed; about KR 2,300 / US 5,700 alive on a day | 1995-01-02 → 2024-12-31 | performance measurement on the compute machine (about 1.2 GB of disk; run by a person on the compute machine) |
+| full_ci | 1/50 of the instruments of full (same rules and period) | 1995-01-02 → 2024-12-31 | testing the full generation path in CI |
+| ("ZZ" in markets) | ZZ 6~120 instruments, calendar `XZZZ` (a copy of the XNYS sessions, only the name differs), currency `XTS` (the ISO test currency) | the preset's period | tests that market names are not hard-coded (no rules pack → E18; runs when a test `ZZ.toml` is added) [RV-I08] |
+
+- With `degrade=()`, it declares `profiles = ["tds:equity-daily-core@1.0", "tds:equity-daily-research@1.0", "tds:panels@1.0", "tds:pit-fundamentals@1.0"]`. `producer = {"name": "nexusbt-synth", "hints": {...}}` (a few hint lines for the fallback tests). Each value of `degrade` imitates one gap of the 4.5 table, and the profiles it can no longer keep are dropped from the declaration (`tds check` still passes — it checks only what is declared). For example: `no_ohlc` → `open/high/low` null, core declaration dropped; `kr_ex_is_record` → KR cash dividends with `ex_date = record_date`; `us_div_split_adjusted_no_dates` → US dividend amounts divided by the later split factors + null dates.
+- Namespaces: `id_namespaces = {"KR": "synthetic KR", "US": "synthetic US", "ZZ": "synthetic test market", "IDX": "synthetic indices"}`. No real instrument codes are used (public repository, 2.7).
+
+Generation rules (deterministic, `numpy.random.Generator(PCG64(seed))`):
+1. Calendars: XKRX and XNYS are built from the sessions of `exchange_calendars` 4.13.2 (at generation only). Times: KR open 00:00Z, close 06:30Z (06:00Z before 2016-08-01), US open 14:30Z/13:30Z, close 21:00Z/20:00Z (US daylight saving applied), half days as they are → `calendar_sessions` (with `session_ord`).
+2. Instruments: uniform listing dates, exponentially distributed listing periods (mean 8 years), market proportions as in the table above → `instruments`, `instrument_symbols` (1% of ticker histories change, 0.5% have another id reuse an old ticker), `instrument_xref` (empty table).
+3. Prices: log returns `μ=0.0003, σ_i ∈ U(0.01, 0.04)`, first price KR `U(1e3, 1e6)` won, US `U(2, 500)` dollars. Open = previous close·exp(N(0, σ/2)); high and low enclose the open and close. Volume lognormal (integer values for equities) → `bars` (freq=1d, raw, dense, `cum_factor_*`, availability rule `ts_end`).
+4. Corporate actions: the exact ratio columns `ratio_num/ratio_den` are filled and the f64 column is their quotient (including ratios that are not exact as binary fractions, such as 1:3, 1:7 and a stock dividend of 0.29) [V31-01]; 10% of delisting events have a liquidating distribution whose ex-date lies between the last trading day and the exit, and `ret_observed_includes_distributions` [V31-04]; splits at 0.5% a year (2:1, 5:1, 7:1), reverse splits at 0.2% (1:10, 1:3), bonus issues at 0.1%, quarterly cash dividends for 30% of instruments, half of the Korean dividends with `ts_terms_available` 30~60 days after the ex-date, 1% of events amended (`revision_of`; amount and ratio amendments, some after payment), 0.5% cancelled after announcement (`status = cancelled`), `price_factor`, `share_factor`, `factor_method` and `factor_ref_price` filled → `corporate_actions`.
+5. Halts and price limits (Korea): raw prices are rounded to the pack's price grid (some rows get a 1-ULP wobble to test grid snapping [V31-05]), halts on 0.1% of days (some halt periods contain split and dividend effective dates [V31-02]), limit hits on 0.2% of days, `price_limit_ratio` and `up/down_limit_price` (without tick rounding) → `tradability_daily` (US `status_known = false` before 2019-08-23).
+6. Exits: a `delistings` row at the end of every listing (policy shares: observed 50%, estimated 30%, unobserved 20%; half of the observed have `ts_value_available` 20~90 days after the exit), matching `instruments.delisted_on`.
+7. Share counts: KR `listed` daily (available at session close), US `outstanding` quarterly (available at filing time) → `share_counts`.
+8. Financials: every quarter `fundamentals_events` (facts, 2% amended) and `fundamentals_state` (strict/compare; `equity`, `revenue_ttm`, `net_income_ttm`), availability delay 30~90 days → `dictionary/items`.
+9. Classifications: `krx_sector`/`gics_sector` on two time axes, 3% with `ts_known_from` later than `effective_from`, `is_financial` → `classifications`. Index membership `index:KOSPI200` and `index:SP500` → `universe_membership`.
+10. Investable: `eligibility_daily` (rule `investable-v1`: common stock, not an administrative-issue stock, a price on that day; the decision uses that day's close, so the availability rule is `session_close` — v2's `session_open` was future information inside the synthetic data itself) [RV-C09].
+11. Panels: every month `feature_panels(name=factor_pit_monthly)` with 5 columns (`bm`, `mom_12_1`, `mcap`, `is_investable`, `size_grp`), `label_panels(name=label_monthly)` with 2 columns (`ret_fwd_1m_dl`, `ret_fwd_1m_dl_est`) → `dictionary/columns` (`is_label`).
+11a. Market rules (optional): `market_rules` (two versions of the KR tick table, price limits) [V31-05]; `degrade=["volume_in_lots"]` divides KR volume by 100 [V31-16].
+12. Exchange rates: daily `fx_rates` for each pair of market currencies (`rate_kind = fixing`, one series; USDKRW for KR+US), published with a 1-session delay, a 2-session delay once a week.
+13. Benchmarks: two cap-weighted synthetic TR indices (`IDX:KOSPI_TR`, `IDX:SPX_TR`; built only inside the synthetic data) → `instruments(asset_class=index)` + `bars`.
+
+`EventSpec` (event injection): a dict that uses the column names of a TDS dataset (`corporate_actions`, `delistings`, `fundamentals_events`/`fundamentals_state`, `tradability_daily`) as they are, such as `{"kind": "split", "instrument_id": "KR:T00001", "ex_date": "2020-02-03", "ratio_new_per_old": 2.0}`, plus a `"dataset"` key. When there is an injected event, no random event is made on the same date. The generator's output must be byte-identical for the same arguments (test `test_synth_deterministic`).
+
+`python -m nexusbt.testing.synth --preset P --out DIR [--markets KR,US,ZZ] [--degrade a,b] --validate` runs `tds check --level full` after generating and prints the row counts per dataset, the package `value_sha256` and `semantic_sha256`, and the three profile results.
