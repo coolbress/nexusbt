@@ -55,6 +55,8 @@ select = ["E", "F", "W", "I", "N", "UP", "B", "S", "A", "C4", "PT", "SIM", "RUF"
 [tool.ruff.lint.per-file-ignores]
 # assert is the normal form in tests
 "tests/**" = ["S101"]
+# and spec 8.4a names the checker's tests after their codes (`test_M012_path_escape`)
+"tds/tests/**" = ["S101", "N802"]
 
 # The spec is the single source of truth and TDS is versioned on its own: the
 # formatter does not rewrite the Python examples inside their Markdown.
@@ -65,7 +67,7 @@ exclude = ["docs/spec/**", "docs/tds/**"]
 [tool.mypy]
 strict = true
 python_version = "3.13"
-files = ["src", "tds/src", "tests"]
+files = ["src", "tds/src", "tests", "tds/tests"]
 
 # pyarrow 26 ships no `py.typed` and `pyarrow-stubs` targets pyarrow 20 (#61 Decisions):
 # its names are `Any` to mypy. Only these two module names; every other setting stays strict.
@@ -75,7 +77,7 @@ ignore_missing_imports = true
 
 # Tests, `ci / test`.
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "tds/tests"]  # the checker's own tests too (spec 8.4a)
 # No silent failures: an unregistered `@pytest.mark.foo` is a no-op even when
 # it is a typo, and a misspelt key in this section is ignored. Both are made
 # errors.
