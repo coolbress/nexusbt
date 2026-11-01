@@ -549,6 +549,7 @@ Parameters (`params`): `freq` (`1d`, `1w`, `1mo`, `1h`, `30m`, `5m`, `1m`, `1s` 
 - Daily `dense`: per instrument exactly one row for every session of its calendar from `listed_on` to `last_session` (or the market watermark if absent) (D001). Rows on dates outside sessions are forbidden (D002).
 - Price check V001: `low <= min(open, close)`, `high >= max(open, close)`, `low <= high` (when all values exist). Raw prices lie on the price grid (5.27 grid norm, V012 W) [v1.2, V31-05]. The `volume` unit follows 3.4 (V011 W) [v1.2, V31-16]. V002 negative prices and volumes forbidden (instruments that allow negatives, such as indices and spread contracts, declare an exception via `instruments.category`). V004: if `obs_status = traded`, `close` is required.
 - Daily close = official close (Korean closing single-price auction, US official close). If different, use an `x_` column.
+- A daily bar, like `KR_close`, means the regular-session close; after-market trades are not included (specification 1.2, 4.6).
 - `shares_out` (specification 4.7) is removed from bars and moved to `share_counts` (because its availability time differs from prices; chapter 12 D9). A producer convenience column `x_<ns>_shares_out` is allowed.
 - Continuous contract bars: the `instrument_id` is a continuous instrument with `is_synthetic = true`, and `params.roll_rule` is stated (5.22).
 
