@@ -879,7 +879,7 @@ write: orders.to_csv("orders/{date}.csv")   apply to paper book: nx.fill(book, o
 | `nexusbt init [--data-root PATH] [--demo] [--lang en\|ko]` | 주석 달린 `nexusbt.toml` 틀을 쓴다(1부 "꼭 확인할 것"·2부 "고급", 3.11 두 층; 기본 영어 주석이 정본, `--lang ko`는 같은 키·같은 값에 한국어 주석만 다른 변형; 틀은 `nexusbt/templates/nexusbt.toml.{en,ko}`이고 시험이 3.11 표와 키 집합을 맞춤) [R4G-CFG-02]. `--demo`면 바퀴에 든 작은 합성 KR+US 스냅숏(`nx.testing.synth` `demo` 프리셋, 수 MB)을 풀고 그 경로를 적는다 — 자료 준비 0단계 [R4-13]. `nexusbt.toml` 생성. `--data-root`가 없으면 환경 변수 `NEXUSBT_DATA_ROOT`를 쓰고, 그것도 없으면 합성 스냅숏 만들기를 안내한다(저장소에 개인 경로를 넣지 않음, 2.7) |
 | `nexusbt config check [--file PATH]` | 설정 파일만 검사하고 실행하지 않는다: 알 수 없는 키·형·범위(E16)와 **모순**(현금 계좌에 증거금 키, `[shorting] enabled = false`인데 숏 키, `[taxes] profile = "none"`인데 묶음, `max_net`이 0을 안 포함 등)을 6.6 서식 그대로 쉬운 말로 낸다(`layer  config`, fix 줄). 문제 없으면 "config ok: {n} keys set, {m} defaults" 한 줄, 종료 코드 0/1 [R4G-CFG-03] |
 | `nexusbt config show [--all] [--file PATH]` | 지금 적용되는 값과 **출처**(`default` / `file` / `CLI` / `code` — 전략 코드 인자가 덮은 값)를 표로. 기본은 1부 키와 기본값이 아닌 키만, `--all`은 3.11 표 전부. 실행이 쓰는 해석기 `load_config`(2.x 모듈 표)와 같은 함수라 매니페스트에 적히는 설정과 같은 값 [R4G-CFG-04] |
-| `nexusbt doctor [--full]` | 스냅숏 id·의미 해시·프로필 셋 결과(선언 / 검사 단계 / 지원)·검사 안 한 항목·TDS 코드별 건수·**대체 동작 목록(4.5)**·시장별 규칙 팩(있음 / untested)·칼럼 수·시장별 종목 수·디스크 여유·L0/L1 캐시 크기·스텁 최신 여부. 자료 루트에 게시 중 표시 `<root>/.publishing`(일반 배포 관례, TDS 밖)이 있으면 "publishing in progress"만 보이고 새 스냅숏을 기다리라고 함 [청사진 12.5, RV-I09] |
+| `nexusbt doctor [--full]` | 스냅숏 id·의미 해시·판·프로필 셋 결과(선언 / 검사 단계 / 지원)·검사 안 한 항목·TDS 코드별 건수·**대체 동작 목록(4.5)**·시장별 규칙 팩(있음 / untested)·기간·종목 수·일간 행 수·칼럼 수·디스크 여유·L0/L1 캐시 크기·스텁 최신 여부. 루트 핀을 못 쓴 실행 수 줄 "pins not visible to producer" [R3-17]. 자료 루트에 게시 중 표시 `<root>/.publishing`(일반 배포 관례, TDS 밖)이 있으면 "publishing in progress"만 보이고 새 스냅숏을 기다리라고 함 [청사진 12.5, RV-I09] |
 | `nexusbt new factor NAME` / `nexusbt new strategy NAME [--template T]` / `nexusbt new --list` | 바로 돌아가는 파일 생성(기본 템플릿 `monthly-topn`). 템플릿 22개(각각 실행 예제 + 출력 시험, 8.5; 아직 못 쓰는 템플릿은 `--list`에 "(available after T7.1)"처럼 표시 [R4F-14]): `monthly-topn`, `value-quality-composite`, `momentum-12-1`, `low-vol`, `dividend-yield`, `sector-neutral`, `kr-us-sleeves`, `long-short`, `inverse-vol-weight`, `erc-vol-target`, `drawdown-brake`, `exits-stop-trail`, `buffer-hold`, `custom-factor`, `custom-sizer`, `custom-risk-rule`, `factor-evaluate-only`, `walk-forward-cpcv`, `ml-factor`, `zipline-port` [R4-13], `event-driven-earnings`(실적 발표 뒤 `on_event` + `time_stop`), `macro-regime`(`Macro.series` 국면 필터) [R4F-EV-05] |
 | `nexusbt evaluate FILE[:VAR]` | `--segment --start --end --freq --quantiles --set k=v` |
 | `nexusbt backtest FILE[:VAR]` | `--segment --start --end --set k=v --preset --no-scenarios --scenarios a,b --offsets K --preview --method linear|walk_forward|cpcv|cscv --method-opt k=v --grid k=v1,v2` [R4-12, R4-20] |
@@ -2689,7 +2689,7 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 
 | M | 단계(E) | 사용자가 바로 쓰는 것 [R-44] | 끝 조건 (모두 필요) | 보여 줄 명령 (`/run`) |
 |---|---|---|---|---|
-| M0 규범 계약 | E1 (엔진 쪽) | 없음(바탕) — `tds check --level manifest|schema`, `tds hash` | 명세 v3.4·TDS v1.4 공개판·CONTEXT·ADR 0001~0040 [R6-03]·LICENSE 병합; 모든 R·SC·TDS-D·RV가 `docs/requirements.md`에 매핑; 티켓 그래프 시험 통과; TDS 검사기 manifest·schema 단계 + 세 결과 + 경로 안전 + 해시 시험 벡터; 손으로 정한 `tiny` 합성이 `schema` 통과; golden 틀 + G-01 | `uv run python -m nexusbt.testing.synth --preset tiny --out .scratch/snap --validate` → 데이터셋별 행 수, `value_sha256`·`semantic_sha256`, 프로필 세 결과(검사 안 한 것은 `not_checked`); `uv run tds check .scratch/snap --level schema` → 종료 코드 0 |
+| M0 규범 계약 | E1 (엔진 쪽) | 없음(바탕) — `tds check --level manifest|schema`, `tds hash` | 명세 v3.4·TDS v1.4 공개판·CONTEXT·ADR 0001~0040 [R6-03]·LICENSE 병합; 모든 R·SC·TDS-D·RV·V31·R3·R4 항목이 `docs/requirements.md`에 매핑(R4F·R4G·R4H·R5·R6·R7은 부록 B에 매핑하지 않음); 티켓 그래프 시험 통과; TDS 검사기 manifest·schema 단계 + 세 결과 + 경로 안전 + 해시 시험 벡터; 손으로 정한 `tiny` 합성이 `schema` 통과; golden 틀 + G-01 | `uv run python -m nexusbt.testing.synth --preset tiny --out .scratch/snap --validate` → 데이터셋별 행 수, `value_sha256`·`semantic_sha256`, 프로필 세 결과(검사 안 한 것은 `not_checked`); `uv run tds check .scratch/snap --level schema` → 종료 코드 0 |
 | M1 스냅숏 + Pipeline 조각 + 공개 첫 경로 | E2 | `run_pipeline`, 팩터 스크리닝, 실행 기록·재실행, `tds import csv`, 영어 빠른 시작(분석) | 검사기 full(K·R·T·D·A·V·H) + 해석기; 합성 small(사건·정정 포함)과 core `degrade`가 `full` 통과; T-07, T-09~T-12, T-15, T-20, T-23; P-CHUNK(1년 미만 묶음 포함)·P-PERM·P-FUT·P-DET·P-KERNEL(참조)·P-START·M-SCALE·M-DUMMY·M-SPLIT-NEUTRAL(전제·반례 포함); L1-a(기본 입력끼리)·L1-b·L1-d; F-02~F-04 시험; 단계별 첫 측정(열기·블록·조정·창 커널·단면)이 `bench/results`에 | `uv run python examples/m1_screen.py` → 기준일 시장별 모멘텀 상위 10; `uv run nexusbt rerun <id>` → "outputs identical"; `uv run nexusbt doctor` → 프로필 세 결과·대체 목록·규칙 팩; `uv run python bench/run.py --stages m1 --snapshot synth-small` |
 | M2 PIT + 팩터 평가 | E2 | `evaluate`(경제 정답·정답 시각 셋·단순 폭·집단 BHY), `explain`(값), 구간, `preregister` | T-01~T-06, T-08, T-13, T-14, T-16~T-19, T-21, T-22; 엄격판 계보; 구간 넘는 정답 제외(`ts_label_available`); 후보·관측·집단; L1-c; F-06~F-08·F-11·F-14 시험; (실제 내보내기가 있으면) 월간 패널과 일치; P3 측정; 영어 빠른 시작 시험 | `uv run nexusbt evaluate examples/factors/momentum.py` → FactorReport(정답 정의 줄·naive breadth·BHY(cohort) 줄) |
 | M3a 한 시장 시장가 끝-끝 | E3 | `backtest`(한 시장, 시장가), 전략 `screen`, 정수 회계·NAV 다리 | G-01, G-10~G-26, G-30, G-31, G-34, G-35, G-41~G-49; P-NAV, P-BRIDGE, P-QTY, P-RESUME, P-STATE, P-PARITY13, P-DERIVED; L2-a·b·c; F-01·F-05·F-09·F-13 시험; 상태 기계 단계 측정(`full_ci`, 계산 기계 `full`) | `uv run nexusbt backtest examples/strategies/mom_kr.py` → Run 요약(가정 줄·직접 비용/경로 효과·reconciled: yes) |
@@ -2713,7 +2713,7 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 
 **명세 변경 반영 시점**: v3는 청사진 SC-01~SC-27과 3자 검토 합의의 P0·P1(그리고 값싼 P2)을 본문에 반영했다(부록 E). 구현 중 명세 빈틈이 나오면 9.5의 "spec deviation" 절차로 고치고 이 문서를 개정한다 — v2의 "마일스톤 시작 전에 명세를 다시 고칠 일은 없다"는 3자 검토가 반박해 뺐다 [RV-I07]. 각 SC가 처음 구현·시험되는 티켓은 부록 B.2, RV 항목은 부록 B.4.
 
-**티켓 규칙**: 한 티켓 = 한 세션 = 한 PR, 바뀐 줄 ≤ 400(문서·잠금 제외; plinth `ci / diff-size`). 크기 S ≤ 150줄, M ≤ 400줄. 제목은 PR 제목으로도 쓰는 Conventional Commits. "Context"는 할 일, "Done means"는 사람이 보고 확인할 것, "Acceptance"는 만들 시험 이름(tdd로 먼저 실패시킴), "Blocked by"는 티켓 번호(이슈로 만들면 이슈 번호로 바꿈). v1에서 바뀐 티켓은 *(v2: …)*, v3에서 바뀐 티켓은 *(v3: …)*, v2의 새 티켓은 **[new]**, v3의 새 티켓·나눈 티켓은 **[v3]** 를 붙였다. **golden 티켓**(`T<m>.G…`)은 손으로 쓴 세션별 산수(8.2)이고 그것을 쓰는 구현 티켓보다 먼저, 다른 세션에서 병합한다. v3.1의 새 티켓·나눈 티켓은 **[v3.1]**, 바뀐 티켓은 *(v3.1: …)*. v3.2의 새 티켓·나눈 티켓은 **[v3.2]**, 바뀐 티켓은 *(v3.2: …)*. v3.3의 새 티켓·나눈 티켓은 **[v3.3]**, 바뀐 티켓은 *(v3.3: …)*. **엔진 티켓 수(지금 기준 = v3.4 최종 + R5, `tools/spec_lint.py`로 셈) [R6-04]: M0 16, M1 40, M2 30, M3a 36, M3b 11, M4 28, M5 24, M6 31(T7.G·T7.1·T7.V 포함), v1.x 2(T7.2·T7.5) = 218.** 같은 셈의 시험·결정 id: 손계산 정답 G-01~G-106(106개), 성질 시험 34개(8.3 표), 오류 E1~E49(49개, 6.6), ADR 0001~0040(40개, 9.3). 이 문단과 아래의 다른 숫자는 그 판 때 기록이다. **엔진 티켓 수(v3.3): M0 16, M1 40, M2 28, M3a 36, M3b 10, M4 26, M5 22, M6 27, v1.x 절 5(T7.G·T7.1은 M6 끝, T7.V는 T7.1 뒤 확인 단계, T7.2·T7.5는 v1.x) = 210**(v3.2의 188에서 새 24, v1.x에서 v1로 옮긴 T7.3·T7.4는 새 티켓 T3.29·T3.33에 흡수 [R4-27]). 아래 v3.2 문장의 숫자는 v3.2 때 기록이다. 엔진 티켓 수(v3.2): M0 15, M1 40, M2 28, M3a 28, M3b 9, M4 26, M5 18, M6 17, v1.x 절 7(T7.G·T7.1은 M6 끝, T7.V는 T7.1 뒤 확인 단계, T7.2~T7.5는 v1.x) = 188(v3.1의 176에서 나눔 8·새 4, 아래 대응 표) [R3-23]. 아래 v3.1 문장의 숫자는 v3.1 때 기록이다. 엔진 티켓 수(v3.1): M0 13, M1 39, M2 27, M3a 28, M3b 9, M4 21, M5 16, M6 17, v1.x 절 6(T7.G·T7.1은 M6 끝에 들어가고 T7.2~T7.5는 v1.x) = **176**(v3의 142 = 141 + 세금 T4.5b에서 새 34) [V31, V31-LS]. 아래 v3 문장의 숫자는 v3 때 기록이다: M0 13, M1 34, M2 23, M3a 22, M3b 7, M4 12, M5 9, M6 16, v1.x 5 = **141**(v2의 112에서 나눔·새 티켓·golden 티켓으로 늘고, v2의 T0.11·T0.17은 golden 티켓으로 흩어져 없어지고 T6.1은 T1.24로 옮김). 의존 그래프는 비순환이고 모든 "Blocked by"가 같거나 앞 마일스톤에 있다(v3 작성 때 스크립트로 확인; 저장소에서는 T0.12의 `test_ticket_graph`).
+**티켓 규칙**: 한 티켓 = 한 세션 = 한 PR, 바뀐 줄 ≤ 400(문서·잠금 제외; plinth `ci / diff-size`). 크기 S ≤ 150줄, M ≤ 400줄. 제목은 PR 제목으로도 쓰는 Conventional Commits. "Context"는 할 일, "Done means"는 사람이 보고 확인할 것, "Acceptance"는 만들 시험 이름(tdd로 먼저 실패시킴), "Blocked by"는 티켓 번호(이슈로 만들면 이슈 번호로 바꿈). v1에서 바뀐 티켓은 *(v2: …)*, v3에서 바뀐 티켓은 *(v3: …)*, v2의 새 티켓은 **[new]**, v3의 새 티켓·나눈 티켓은 **[v3]** 를 붙였다. **golden 티켓**(`T<m>.G…`)은 손으로 쓴 세션별 산수(8.2)이고 그것을 쓰는 구현 티켓보다 먼저, 다른 세션에서 병합한다. v3.1의 새 티켓·나눈 티켓은 **[v3.1]**, 바뀐 티켓은 *(v3.1: …)*. v3.2의 새 티켓·나눈 티켓은 **[v3.2]**, 바뀐 티켓은 *(v3.2: …)*. v3.3의 새 티켓·나눈 티켓은 **[v3.3]**, 바뀐 티켓은 *(v3.3: …)*. **엔진 티켓 수(지금 기준 = v3.4 최종 + R5 + R7, `tools/spec_lint.py`로 셈) [R6-04]: M0 16, M1 40, M2 30, M3a 37, M3b 11, M4 28, M5 24, M6 31(T7.G·T7.1·T7.V 포함), v1.x 2(T7.2·T7.5) = 219.** 같은 셈의 시험·결정 id: 손계산 정답 G-01~G-107(107개), 성질 시험 34개(8.3 표), 오류 E1~E49(49개, 6.6), ADR 0001~0040(40개, 9.3). 이 문단과 아래의 다른 숫자는 그 판 때 기록이다. **엔진 티켓 수(v3.3): M0 16, M1 40, M2 28, M3a 36, M3b 10, M4 26, M5 22, M6 27, v1.x 절 5(T7.G·T7.1은 M6 끝, T7.V는 T7.1 뒤 확인 단계, T7.2·T7.5는 v1.x) = 210**(v3.2의 188에서 새 24, v1.x에서 v1로 옮긴 T7.3·T7.4는 새 티켓 T3.29·T3.33에 흡수 [R4-27]). 아래 v3.2 문장의 숫자는 v3.2 때 기록이다. 엔진 티켓 수(v3.2): M0 15, M1 40, M2 28, M3a 28, M3b 9, M4 26, M5 18, M6 17, v1.x 절 7(T7.G·T7.1은 M6 끝, T7.V는 T7.1 뒤 확인 단계, T7.2~T7.5는 v1.x) = 188(v3.1의 176에서 나눔 8·새 4, 아래 대응 표) [R3-23]. 아래 v3.1 문장의 숫자는 v3.1 때 기록이다. 엔진 티켓 수(v3.1): M0 13, M1 39, M2 27, M3a 28, M3b 9, M4 21, M5 16, M6 17, v1.x 절 6(T7.G·T7.1은 M6 끝에 들어가고 T7.2~T7.5는 v1.x) = **176**(v3의 142 = 141 + 세금 T4.5b에서 새 34) [V31, V31-LS]. 아래 v3 문장의 숫자는 v3 때 기록이다: M0 13, M1 34, M2 23, M3a 22, M3b 7, M4 12, M5 9, M6 16, v1.x 5 = **141**(v2의 112에서 나눔·새 티켓·golden 티켓으로 늘고, v2의 T0.11·T0.17은 golden 티켓으로 흩어져 없어지고 T6.1은 T1.24로 옮김). 의존 그래프는 비순환이고 모든 "Blocked by"가 같거나 앞 마일스톤에 있다(v3 작성 때 스크립트로 확인; 저장소에서는 T0.12의 `test_ticket_graph`).
 
 **v2 → v3 티켓 대응** (이슈를 만들 때 이 표로 확인):
 
@@ -2810,8 +2810,8 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 
 **T0.12 `docs: requirement status map and ticket graph check`** · `M0` `docs` · S · Blocked by: T0.1 · 부록 B, §10 *(v3: RV 항목, 티켓 그래프 시험)*
 - Context: 부록 B를 `docs/requirements.md`로(상태 = planned/deferred/replaced, 티켓 번호), `tests/repo/test_ticket_graph.py`(명세 10장 티켓 줄을 읽어 "Blocked by" 그래프가 비순환이고, 각 의존이 같거나 앞 마일스톤에 있는지 확인).
-- Done means: 표에 R-01~R-70, P1~P10, SC-01~SC-27, TDS-D1~D24, RV 항목(C01~C13, I01~I10, Q01~Q11), v3.1 항목(적용한 V31-01~V31-30·V31-33, V31-LS-01~V31-LS-11; 부록 B.5), v3.2 항목(R3-01~R3-28; 부록 B.6)이 모두 한 줄씩 있고, 그래프 시험이 통과한다.
-- Acceptance: `tests/docs/test_requirements_map.py::test_every_requirement_listed`, `::test_every_sc_tds_d_and_rv_listed`, `::test_every_applied_v31_listed`, `::test_every_r3_listed`, `tests/repo/test_ticket_graph.py::test_acyclic_and_milestone_order`(v3.2 번호 [R3-23]).
+- Done means: 표에 R-01~R-70, P1~P10, SC-01~SC-27, TDS-D1~D24, RV 항목(C01~C13, I01~I10, Q01~Q11), v3.1 항목(적용한 V31-01~V31-30·V31-33, V31-LS-01~V31-LS-11; 부록 B.5), v3.2 항목(R3-01~R3-28; 부록 B.6), v3.3 항목(R4-01~R4-28; 부록 B.7)이 모두 한 줄씩 있고, 그래프 시험이 통과한다.
+- Acceptance: `tests/docs/test_requirements_map.py::test_every_requirement_listed`, `::test_every_sc_tds_d_and_rv_listed`, `::test_every_applied_v31_listed`, `::test_every_r3_listed`, `::test_every_r4_listed`, `tests/repo/test_ticket_graph.py::test_acyclic_and_milestone_order`(v3.2 번호 [R3-23]).
 
 **T0.13a `feat(tds): manifest-level checker, profile results, path safety and CLI`** **[v3]** · `M0` `tds` · M · Blocked by: T0.2a · §2.6, §4.3, §4.4, §8.4a, TDS 4·7·8·10 *(v3: T0.13을 나눔; 세 결과, M012~M014)*
 - Context: `read_manifest`, `check(level="manifest")`(M001~M014: 경로 안전 M012·중복 경로 M013·모르는 필수 해석 규칙 M014 포함), `PROFILES`(TDS 7장, `@판`), 프로필 **세 결과**(`ProfileStatus`: declared / verified_level / result, 그 단계가 못 보는 규칙은 `not_checked`), `producer.hints` 읽기, CLI `tds check/describe`, JSON Lines 출력, 종료 코드, `tds/conformance/build.py`의 M 코드 pass/fail 패키지.
@@ -3065,7 +3065,7 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 - Acceptance: `tests/golden/test_time.py::test_T13_share_counts_and_split`, `tests/unit/data/test_share_counts.py::test_kind_preference_order`, `::test_uses_share_factor_not_price_factor`, `::test_missing_share_counts_E18`.
 
 **T2.4 `feat(pipeline): universes with eligibility, fallback, microcap switch and exclusion reasons`** · `M2` `pipeline` · M · Blocked by: T2.3, T2.15, T0.16b · §3.6, §4.5 F-07 [SC-23] *(v3: 결측 = 거짓·이월 없음, 시장 이름은 스냅숏에서)*
-- Done means: `nx.universe("KR", exclude_microcap=True)`의 세션별 종목 수가 약 80%임을 출력; `coverage` 표에 이유별 제외 수; 고정 목록 → E4; `degrade=["no_eligibility"]`에서 `universe_source = feature_panels`와 E30; 어제 참·오늘 행 없음 종목은 오늘 빠진다.
+- Done means: `nx.universe("KR", exclude_microcap=True)`의 세션별 종목 수가 같은 세션 `nx.universe("KR")` 종목 수의 약 80%임을 출력; `coverage` 표에 이유별 제외 수; 고정 목록 → E4; `degrade=["no_eligibility"]`에서 `universe_source = feature_panels`와 E30; 어제 참·오늘 행 없음 종목은 오늘 빠진다.
 - Acceptance: `tests/unit/pipeline/test_universe.py::test_eligibility_daily`, `::test_T17_missing_row_is_false`, `::test_T06_panel_fallback_recorded`, `::test_microcap_bottom_20pct`, `::test_survivorship_warning`, `::test_exclusion_reason_counts`, `::test_unknown_market_E16`.
 
 **T2.5 `feat(pipeline): units, currency conversion and cross-market terms`** · `M2` `pipeline` · M · Blocked by: T2.1, T1.11, T0.8b · §3.3, §5.3.2 (6), §5.1.5 fx, §3.11 `[fx] series` *(v2: 계열 고르기)*
@@ -3363,7 +3363,7 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 
 **T3.Gf `test(golden): price grid cases (G-57)`** **[v3.1]** · `M3b` `golden` · S · Blocked by: T0.9 · §5.6.4a, §8.2 [V31-05]
 - Context: G-57 (a)~(h)(US 1 ULP, KR 손절 내림, 지정가 매수 내림, 상하한 계산값, 숏 환매 손절 올림; v3.2: 가격대를 넘는 비교, 분수 시대·격자 밖 봉, 경계 넘는 맞춤·GTC 재맞춤 [R3-02, R3-14]). T3.24 전에 병합.
-- Done means: `uv run python tests/golden/check/G-57.py`가 다섯 사례의 원값·격자 값·체결을 출력.
+- Done means: `uv run python tests/golden/check/G-57.py`가 여덟 사례 (a)~(h)의 원값·격자 값·체결을 출력.
 - Acceptance: `test_handcalc_self.py::test_case_G57_expected_present`.
 
 **T3.24 `feat(execution): market price grid for order prices and minimum-unit integer comparisons`** **[v3.1]** · `M3b` `execution` · M · Blocked by: T3.6, T3.Gf, T0.16c, T0.5b · §5.6.4a, §4.7, §4.5 F-15 [V31-05] *(v3.2: 시장 최소 단위 정수 비교, 경계 넘는 맞춤, 규칙 날짜 GTC 재맞춤, 격자 밖 봉 보존 [R3-02, R3-14])*
@@ -3378,7 +3378,7 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 
 **T3.35 `feat(schedule): nx.on_event trigger schedule with incremental decisions and event templates`** **[v3.4]** · `M3b` `schedule` · M · Blocked by: T2.23, T3.27, T3.33, T3.34 · §3.7 일정, §5.3.12, §3.10 [R4F-EV-03, R4F-EV-05]
 - Context: `nx.on_event(trigger, delay=, universe_scope=, hold=)`(달력 닻 트리거 세션, 다른 일정과 `|`), 증분 판단(`E_d`만 구성·사이징·위험, 앞 정규 목표 유지, 쪽별 남은 예산 비례 축소 `event_budget`, 합친 책 검사로 새 목표만 `k` 축소 `event_book_cap` [R4G-02], `max_weight` 없으면 E16), 시장 사건 대상 = 전체·명시 `event_instruments`는 E16 [R4G-01], 목표 수명(`hold` → `time_stop` n → 다음 사건)과 수명 끝 청산 전용 판단 [R4G-03], 수명 끝·`time_stop` 겹침 한 주문 [R4G-07], screen의 트리거 판단·"scheduled exit", 보고서 "event decisions" 줄, 템플릿 `event-driven-earnings`·`macro-regime`.
-- Done means: `uv run nexusbt backtest examples/strategies/earnings_drift_us.py`가 사건 판단 수·청산 전용 판단 수·평균 보유 세션·"event book cap" 줄을 출력하고, 트리거 세션과 수명 끝 세션 모두에서 같은 asof의 `screen` 목표가 backtest 목표와 같다; G-97 (c)~(e) 통과.
+- Done means: `uv run nexusbt backtest examples/strategies/earnings_drift_us.py`가 사건 판단 수·청산 전용 판단 수·평균 보유 세션·"event book cap" 줄을 출력하고, 트리거 세션과 수명 끝 세션 모두에서 같은 asof의 `screen` 목표가 backtest 목표와 같다; G-97 (a)~(e) 통과.
 - Acceptance: `tests/golden/test_schedule.py::test_G97_earnings_trigger_delay`, `::test_G97b_event_budget`, `tests/unit/schedule/test_on_event.py::test_trigger_anchored_to_calendar_not_start`, `::test_screen_equals_backtest_on_trigger`, `::test_event_scope_requires_max_weight_E16`, `::test_target_life_from_time_stop`, `tests/golden/test_schedule.py::test_G97c_market_trigger_scope_all`, `::test_G97d_whole_book_scales_new_targets_only`, `::test_G97e_expiry_only_exit_decision`, `tests/unit/schedule/test_on_event.py::test_market_trigger_event_scope_E16`, `::test_long_short_event_budget_per_side`, `::test_screen_scheduled_exit_equals_backtest`, `::test_expiry_and_time_stop_single_order`, `::test_existing_targets_never_resized`, `tests/docs/test_templates.py::test_template_runs[event-driven-earnings]`, `::test_template_runs[macro-regime]`.
 
 #### M4 — 다중 시장 (KR/US 합성, 시장 규칙 팩) + 공매도·롱숏 [V31-LS]
@@ -3405,7 +3405,7 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 - Acceptance: `tests/unit/execution/test_limits.py::test_resolution_order`, `::test_rule_boundary_2015_06_15`, `::test_limits_only_where_pack_defines`, `::test_unknown_tradability_block`, `::test_missing_tradability_dataset_E30`, `::test_computed_limits_on_grid`(v3.1 G-57 (d) [V31-05]), `::test_market_rules_limit_source_order`.
 
 **T4.5 `feat(execution): realistic dated cost profile end to end`** · `M4` `execution` · M · Blocked by: T3.8 · §5.6.8, §4.7
-- Done means: 검증 표(시험용 `verified=true` 사본)로 KR 2014·2016 매도 세금이 표의 다른 값으로 기록됨.
+- Done means: 검증 표(시험용 `verified=true` 사본)로 KR 2014·2024 매도 세금이 표의 다른 값으로 기록됨.
 - Acceptance: `tests/unit/execution/test_costs_dated.py::test_tax_by_date`, `::test_us_other_fees`, `::test_venue_group_mapping`.
 
 **T4.5b `feat(accounting): user-configured tax scenario`** · `M4` `accounting` · M · Blocked by: T4.G, T4.2, T3.13a · §5.6.11a, §3.11 *(v3 사용자 결정 2026-10-28: 세금은 설정 파일에 사용자가 적음)*
@@ -3503,7 +3503,7 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 - Acceptance: `tests/golden/test_accounting.py::test_G77_cash_interest`, `tests/unit/accounting/test_cash_interest.py::test_default_zero_identical`, `::test_no_interest_on_negative_cash`, `tests/property/test_execution_invariants.py::test_P_BRIDGE_with_cash_interest`.
 
 **T4.Gm `test(golden): margin account cases (G-99..G-104)`** [R6-04] **[v3.4 최종]** · `M4` `golden` · S · Blocked by: T0.9 · §5.6.7a, §8.2 [R4G-MG-02~08]
-- Context: 130/30 증거금·대출 이자(G-99), 마진 콜 다음 시가 비례 축소(G-100), `vol_target` 1.5배(G-101), 현금 계좌 거절 E16(G-102), 사건 합친 책 증거금판(G-103), 음수 자본 강제 청산·보유량 상한(G-104) [R4H]의 손계산 사례. T4.20 전에 다른 세션에서 병합.
+- Context: 130/30 증거금·대출 이자(G-99), 마진 콜 다음 시가 비례 축소(G-100), `vol_target` 1.5배(G-101), 현금 계좌 거절 E16(G-102), 사건 합친 책 증거금판(G-103), 음수 자본 강제 청산·보유량 상한(G-104) [R4H]의 손계산 사례. 다른 세션에서 써서 T4.20 전에 병합(8.2).
 - Done means: `uv run python tests/golden/check/G-100.py`가 콜 세션·부족액·강제 축소 수량·축소 뒤 E/MM을 표로 출력.
 - Acceptance: `test_handcalc_self.py::test_cases_margin_expected_present`.
 
@@ -3602,7 +3602,7 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 
 **T5.17 `feat(api): screen account modes for account-reading risk rules`** **[v3.3]** · `M5` `api` · M · Blocked by: T3.30, T5.1, T5.4 · §3.8 screen, §3.10 [R4-08]
 - Context: `screen(account="auto"|"none"|"book"|"backtest")`, CLI `--ledger BOOK`·`--as-backtest`, not evaluated 줄·E42·skips, 장부 상태 판·스냅숏 해시를 매니페스트에, `--as-backtest` 걸린 시간.
-- Done means: 같은 전략을 장부 없이·`--ledger paper:demo`·`--as-backtest`로 screen한 세 결과가 같은 정규 목표와 다른(또는 같은) `final_weight` 칸을 출력.
+- Done means: 같은 전략을 장부 없이·`--ledger paper:demo`·`--as-backtest`로 screen한 세 결과가 같은 정규 목표를 출력하고, `final_weight` 칸은 전략에 계좌를 읽는 위험 규칙이 있을 때만 다를 수 있다.
 - Acceptance: `tests/golden/test_risk.py::test_G87_screen_part`, `tests/unit/api/test_screen_account.py::test_not_evaluated_line_and_E42`, `::test_ledger_reads_book_state`, `::test_as_backtest_equals_backtest_account`.
 
 **T5.18 `feat(cli): strategy templates, demo snapshot and the 30-minute path`** **[v3.3]** · `M5` `cli` · M · Blocked by: T5.4, T3.34, T3.33, T5.17 · §3.10, §8.5 [R4-13]
@@ -3678,7 +3678,7 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 - Acceptance: `tests/unit/api/test_progress.py::test_progress_after_2s`.
 
 **T6.11 `perf: compute-host gate run and evidence`** · `M6` `bench` · S · Blocked by: T6.3, T6.5, T6.8, T6.12, T6.26 (T6.6을 했다면 그것도) · §7 *(v3.3: P11 목표 측정 포함 [R4-18])* — **사용자가 계산 기계에서 실행**
-- Done means: `bench/results/<date>-<sha>-m4.json`(요약만)이 커밋되고 P1~P8 관문 통과/실패가 표로 PR에 있다. v3.1: 작업 P2b(어제 캐시 + 오늘 스냅숏 screen)의 시간·적중률과 열 묶음 켬/끔 두 값을 함께 [V31-11, V31-12]. P2b 적중률 > 0(워터마크가 열쇠에 없음, v3.2 [R3-04]). 실패 항목은 병목 프로파일 + ADR.
+- Done means: `bench/results/<date>-<sha>-m4.json`(요약만; `m4`는 마일스톤 M4가 아니라 7장의 계산 기계(Apple M4) 이름)이 커밋되고, P1~P8 관문 통과/실패가 표로 PR에 있으며, P11 (a)(b)(c) 결과를 목표와 견주어 보고한다. v3.1: 작업 P2b(어제 캐시 + 오늘 스냅숏 screen)의 시간·적중률과 열 묶음 켬/끔 두 값을 함께 [V31-11, V31-12]. P2b 적중률 > 0(워터마크가 열쇠에 없음, v3.2 [R3-04]). 실패 항목은 병목 프로파일 + ADR.
 - Acceptance: `tests/unit/bench/test_results_present.py::test_gate_file_for_release`.
 
 **T6.15 `chore(release): clean-install gate, independent producer acceptance, changelog and contributor docs`** **[v3]** · `M6` `release` · M · Blocked by: T2.17, T4.11, T5.4 · §2.3, §9.1 `engine / release`, R-70 [RV-I07, RV-Q05]
@@ -3755,8 +3755,6 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 - Done means: 두 템플릿이 `init --demo`에서 돌고 출력 블록이 같다.
 - Acceptance: `tests/docs/test_templates.py::test_template_runs[walk-forward-cpcv]`, `::test_template_runs[ml-factor]`.
 
-#### v1.x — v1 직후 (M6 뒤)
-
 **T7.G `test(golden): hold-band edge cases (G-63)`** **[v3.1]** · `M6 (T7.1 앞)` `golden` · S · Blocked by: T0.9 · §5.5.3, §8.2 [V31-17]
 - Context: 결측 점수 유지·연속 상한, 보유 0인 완충대 종목의 매수 건너뛰기(v3.2: 손절로 나간 종목 (c), `hold = n`·중앙값 가중 (d) [R3-22]), 숏 쪽(`bottom(hold=)`) 거울 사례 하나. T7.1 전에 병합.
 - Done means: `uv run python tests/golden/check/G-63.py`가 판단별 목표 집합·이유·주문을 출력.
@@ -3771,6 +3769,8 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 - Context: T7.1이 목표 경로를 바꾼 뒤 출시 관문을 다시 돈다: `engine / release`(깨끗한 설치·빠른 시작·독립 생산자), 대조 L1·L2 전체, P-SHORT-OFF(차등 + 기준선), 성질 `deep` 프로필, 7장 성능 관문(사용자가 계산 기계에서), 규칙 검증 증거. 새 기능·명세 변경 없음(실패면 그 원인 티켓을 다시 연다).
 - Done means: `uv run python -m tests.repo.release_check --all`가 "release gate after T7.1: pass"와 각 묶음 통과 수를 출력하고 성능 JSON이 커밋된다.
 - Acceptance: `tests/repo/test_release.py::test_release_rerun_after_last_feature`.
+
+#### v1.x — v1 직후 (M6 뒤)
 
 **T7.2 `feat(research): effective number of trials and DSR(N_eff)`** **[new]** · `v1.x` `research` · S · Blocked by: T6.8 · §5.7 [SC-10, OQ-6]
 - Done means: 상관 높은 후보 6개 + 독립 후보 2개 study에서 N = 8, N_eff ≈ 3을 출력, 방법 이름 기록.
