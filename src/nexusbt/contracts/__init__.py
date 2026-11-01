@@ -1,8 +1,9 @@
 """ID constant, column sets, units, policies, errors, shared frame and context types; no deps.
 
 The 2.4 shared types, declared empty, and the 6.6 error classes. `ID_COLUMN`,
-`ENGINE_COLUMNS`, `Unit`, `Currency`, `Phase`, `Policy*` and the schema version
-constants are T0.3's (#48); the error messages and `layer` lines are T0.4's.
+`ENGINE_COLUMNS`, `Unit`, `Currency`, `Phase` and the schema version constants
+are T0.3's (#48); the `Policy*` enums wait for the spec to name them (#68); the
+error messages and `layer` lines are T0.4's.
 """
 
 from __future__ import annotations
