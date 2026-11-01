@@ -45,7 +45,8 @@ STUB_CLASSES = [
     "nexusbt.artifacts.BookStore",
 ]
 
-#: 6.6, the classes whose kind is block or fail: the sub-errors of `NexusBTError`.
+#: 6.6, the classes whose kind is block or fail: the sub-errors of `NexusBTError`. The warnings
+#: and notices are checked with every E1~E39 code in `contracts/test_errors.py`.
 ERRORS = (
     "LookAheadError LabelLeakError PointInTimeError UnitError ColumnNameError WindowError"
     " UnsupportedCorporateActionError AccountingDataError SnapshotError ReplayError ConfigError"
