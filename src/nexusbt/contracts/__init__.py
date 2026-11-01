@@ -2,7 +2,7 @@
 
 The 2.4 shared types, declared empty, and the 6.6 error classes. `ID_COLUMN`,
 `ENGINE_COLUMNS`, `Unit`, `Currency`, `Phase` and the schema version constants
-are T0.3's (#48); the `Policy*` enums wait for the spec to name them (#68); the
+are T0.3's (#48); the 26 policy enums are the ones 2.4 names (#68); the
 E1~E39 messages are T0.4's (#49), the `layer` lines and E40~E49 T0.4b's.
 """
 
@@ -114,6 +114,198 @@ class Phase(IntEnum):
     CLOSE_MARK = 4
     DECISION = 5
     SESSION_END = 6
+
+
+# The policy enums of spec 2.4: one per 3.11 key with two or more closed choices. Values are
+# the choice strings of that key's Validation cell; member names follow `Unit`'s rule.
+
+
+class DelistingPolicy(StrEnum):
+    """`[delisting] policy` (5.6.13)."""
+
+    OBSERVED_THEN_POLICY = "observed_then_policy"
+    OBSERVED_ONLY = "observed_only"
+    LO = "lo"
+    HI = "hi"
+
+
+class RightsPolicy(StrEnum):
+    """`[corporate_actions] rights` (5.6.12)."""
+
+    LAPSE = "lapse"
+    FAIL = "fail"
+
+
+class UnsupportedPolicy(StrEnum):
+    """`[corporate_actions] unsupported` (5.6.12)."""
+
+    FAIL = "fail"
+    CASH_AT_ADJUSTMENT = "cash_at_adjustment"
+
+
+class DecimalRatioPolicy(StrEnum):
+    """`[corporate_actions] decimal_ratio` (5.6.1, 5.6.10)."""
+
+    EXCLUDE_INSTRUMENT = "exclude_instrument"
+    REQUIRE_EXACT = "require_exact"
+    LITERAL = "literal"
+
+
+class MissingPayDatePolicy(StrEnum):
+    """`[dividends] missing_pay_date` (5.6.11)."""
+
+    ESTIMATE = "estimate"
+    FAIL = "fail"
+
+
+class BonusSharesTradablePolicy(StrEnum):
+    """`[corporate_actions] bonus_shares_tradable` (5.6.10)."""
+
+    AT_EX = "at_ex"
+    AT_PAY_DATE = "at_pay_date"
+
+
+class UnknownInclusionPolicy(StrEnum):
+    """`[delisting] unknown_inclusion` (5.6.13)."""
+
+    CONSERVATIVE = "conservative"
+    ERROR = "error"
+
+
+class EditionPolicy(StrEnum):
+    """`[data] edition` (5.3.5)."""
+
+    STRICT = "strict"
+    COMPARE = "compare"
+
+
+class VerifyPolicy(StrEnum):
+    """`[data] verify` (4.4)."""
+
+    MANIFEST = "manifest"
+    SCHEMA = "schema"
+    FULL = "full"
+
+
+class PinsPolicy(StrEnum):
+    """`[data] pins` (4.2)."""
+
+    INDEX = "index"
+    INDEX_ROOT = "index+root"
+
+
+class FallbacksPolicy(StrEnum):
+    """`[data] fallbacks` (4.5)."""
+
+    WARN = "warn"
+    FAIL = "fail"
+
+
+class TiebreakPolicy(StrEnum):
+    """`[portfolio] tiebreak` (3.7, 5.4.2)."""
+
+    HASH = "hash"
+    ID = "id"
+
+
+class BandEntriesPolicy(StrEnum):
+    """`[portfolio] band_entries` (5.5.3, 5.6.7)."""
+
+    SKIP = "skip"
+    BUY = "buy"
+
+
+class AccountTypePolicy(StrEnum):
+    """`[account] type` (5.6.7a)."""
+
+    CASH = "cash"
+    MARGIN = "margin"
+
+
+class OrderTypePolicy(StrEnum):
+    """`[execution] order` (3.7)."""
+
+    MARKET = "market"
+    LIMIT = "limit"
+
+
+class ExecutionAtPolicy(StrEnum):
+    """`[execution] at` (3.7)."""
+
+    OPEN = "open"
+    CLOSE = "close"
+
+
+class BandModePolicy(StrEnum):
+    """`[execution] band_mode` (5.6.7)."""
+
+    EDGE = "edge"
+    TARGET = "target"
+
+
+class LimitFillPolicy(StrEnum):
+    """`[execution] limit_fill` (5.6.4)."""
+
+    THROUGH = "through"
+    TOUCH = "touch"
+
+
+class UnknownTradabilityPolicy(StrEnum):
+    """`[execution] unknown_tradability` (5.6.5)."""
+
+    ASSUME_TRADABLE = "assume_tradable"
+    BLOCK = "block"
+
+
+class CostProfilePolicy(StrEnum):
+    """`[costs] profile` (5.6.8)."""
+
+    PROVISIONAL = "provisional"
+    REALISTIC = "realistic"
+    NONE = "none"
+
+
+class TaxesProfilePolicy(StrEnum):
+    """`[taxes] profile` (5.6.11a)."""
+
+    NONE = "none"
+    CUSTOM = "custom"
+
+
+class TaxesPayPolicy(StrEnum):
+    """`[taxes] pay` (5.6.11a)."""
+
+    REPORT = "report"
+    CASH = "cash"
+
+
+class TaxesBasisPolicy(StrEnum):
+    """`[taxes.groups.<name>] basis` (5.6.11a)."""
+
+    AVERAGE = "average"
+    FIFO = "fifo"
+
+
+class LabelEntryPolicy(StrEnum):
+    """`[evaluate] label_entry` (5.8)."""
+
+    NEXT_OPEN = "next_open"
+    CLOSE = "close"
+
+
+class EvaluateTargetPolicy(StrEnum):
+    """`[evaluate] target` (5.8)."""
+
+    FWD_RETURN = "fwd_return"
+    FWD_RETURN_ADJ = "fwd_return_adj"
+
+
+class RoundingModePolicy(StrEnum):
+    """`[rounding.<MARKET>] mode` (5.6.1)."""
+
+    HALF_UP = "half_up"
+    HALF_EVEN = "half_even"
+    DOWN = "down"
 
 
 @dataclass(frozen=True, slots=True)
