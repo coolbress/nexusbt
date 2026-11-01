@@ -2900,7 +2900,7 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 - Done means: 이 티켓이 만드는 `examples/dev/show_grid.py`(월간 일정, KR, 2019년)가 12개 월말 세션과 `decision_ts`(UTC)를 출력; 휴장 시작일에 E9 알림; `every(5)`의 판단 날짜가 시작일을 하루 옮겨도 같다.
 - Acceptance: `tests/unit/data/test_calendar.py::test_monthly_last_session`, `::test_start_rounds_forward_end_backward` (T-10), `::test_weekly_quarterly`, `::test_T23_every_anchor_independent_of_start`, `::test_ready_delay_from_availability_rule`, `::test_default_clock_codepoint_first_market`(v3.2 [R3-18]), `tests/golden/test_time.py::test_T20_late_bar_ready_delay`.
 
-**T1.4 `feat(data): dense market blocks from daily bars`** · `M1` `data` · M · Blocked by: T1.3 · §5.3.1, §4.6, §5.3.9 L0 열쇠 *(v3: 기본 도메인 = equity ∧ 합성 아님, 수량 계수 `Q`, L0 열쇠는 의미 해시)*
+**T1.4 `feat(data): dense market blocks from daily bars`** · `M1` `data` · M · Blocked by: T1.3 · §5.3.1, §4.6, §5.3.9 L0 열쇠 *(v3: 기본 도메인 = equity ∧ 합성 아님, 수량 계수 `Q`, L0 열쇠는 의미 해시가 아니라 5.3.9의 열쇠)*
 - Context: `market_block`, 사전 색인 → 열 번호, `obs_status`, 존재 마스크, 꼬리 겹침, 매니페스트 통계로 파일 고르기, 지수·합성 종목 제외, `l0_key(...)` 함수(캐시 구현은 T6.12).
 - Done means: `Snapshot.market_block("KR", ["close"], sessions)`의 모양·존재 마스크를 출력하는 예제가 정지 세션 NaN과 상장 전 False, 지수 종목 없음을 보여 줌.
 - Acceptance: `tests/unit/data/test_market_block.py::test_obs_status_halted_is_nan`, `::test_existence_mask`, `::test_index_and_synthetic_not_in_block`, `::test_dictionary_index_mapping_matches_instrument_ids`, `::test_tail_overlap_rows`, `::test_partition_values_from_path`, `::test_l0_key_partition_scoped`(v3.2: 파일 sha256·사슬 모든 판·축 데이터셋·안정 `markets` [R3-04]), `::test_l0_key_ignores_watermark`, `::test_l0_key_ignores_advisory_value_hash`.
@@ -3639,11 +3639,11 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 - Done means: P2·P3 측정 전후.
 - Acceptance: `tests/property/test_kernels.py::test_P_KERNEL_crosssection_bit_equal`.
 
-**T6.12 `feat(data): L0 raw block cache with memory mapping`** **[new]** · `M6` `data` · M · Blocked by: T1.24, T1.4 · §5.3.9 L0, §7 P7 [SC-15] *(v3: 의미 해시 열쇠)*
+**T6.12 `feat(data): L0 raw block cache with memory mapping`** **[new]** · `M6` `data` · M · Blocked by: T1.24, T1.4 · §5.3.9 L0, §7 P7 [SC-15] *(v3: 5.3.9를 따르는 열쇠)*
 - Done means: 같은 screen 두 번째에서 블록 읽기 시간이 줄어든 것(L0 hit)을 출력; L0 폴더를 지워도 결과 비트 동일; `nexusbt doctor`가 L0 크기를 보임.
 - Acceptance: `tests/property/test_cache.py::test_P_CACHE_L0`, `::test_P_CACHE_INCR`(v3.1: 마지막 연도만 바뀐 새 스냅숏에서 과거 파티션 적중, 옛 정정은 미적중 [V31-12]), `tests/unit/data/test_l0.py::test_readonly_mmap`, `::test_key_changes_with_partition_file_sha256`, `::test_intermediate_action_revision_invalidates`, `::test_terms_availability_only_change_invalidates`, `::test_master_and_calendar_changes_invalidate_l0`, `::test_watermark_change_keeps_l0_hits`, `::test_bad_advisory_value_hash_never_reuses_wrong_block`, `::test_l0_shared_entry_survives_old_snapshot_removal`, `::test_l0_identity_mismatch_rehashes`(v3.2: 열쇠·수명·파일 신원 [R3-04, R3-16]).
 
-**T6.4 `feat(compute): semantic term cache (L1)`** · `M6` `compute` · M · Blocked by: T6.2 · §5.3.9 [RV-C10] *(v3: 의미 해시·외부 입력·질의 정책·잡힌 상수 전역, 상수 아닌 전역은 L1 끔)*
+**T6.4 `feat(compute): semantic term cache (L1)`** · `M6` `compute` · M · Blocked by: T6.2 · §5.3.9 [RV-C10] *(v3: 해석 메타 해시와 파일 sha256(5.3.9)·외부 입력·질의 정책·잡힌 상수 전역, 상수 아닌 전역은 L1 끔)*
 - Done means: 같은 evaluate 두 번째가 P3 캐시 목표 안(시간 출력); 캐시 폴더를 지워도 결과 동일; `availability`만 바꾼 스냅숏·`THRESHOLD`만 바꾼 함수는 캐시를 쓰지 않는다.
 - Acceptance: `tests/property/test_cache.py::test_P_CACHE`, `::test_key_changes_with_resolution_metadata`, `::test_key_changes_with_policy_and_calendar`, `::test_captured_scalar_changes_key`, `::test_nonconst_global_disables_l1`, `::test_external_input_hash_in_key`, `::test_atomic_write`, `::test_budget_counts_L0_and_L1`, `::test_l1_key_from_input_l0_keys`(v3.1 [V31-12]), `::test_january_nested_window_depends_on_prior_year`, `::test_partial_l1_coverage_cannot_satisfy_missing_rows`, `::test_validity_mask_cache_roundtrip`(v3.2 [R3-04, R3-13]).
 
