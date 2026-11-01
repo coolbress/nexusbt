@@ -620,7 +620,7 @@ nx.long_short(long: PortfolioRule, short: PortfolioRule, *, long_weight: float =
 - Weights before weighting `u_i`: equal = 1, value = `market_cap` at the decision (point-in-time lookup of `share_counts` × raw close; when missing, removed from the selection with E30), inverse_vol = 1/`AnnualizedVolatility(vol_lookback)` (removed from the selection when NaN or 0).
 - `on_missing` (meaningful only together with the hold band `hold`): 5.5.3 [V31-17].
 - `w_i = u_i / Σu`. With `max_weight`, `w_i ← min(w_i, max_weight)` and the remaining share is cash (`redistribute=False`; not filled from lower ranks). With `redistribute=True`, it is redistributed repeatedly and proportionally to the instruments not at the cap (at most 50 rounds, convergence 1e-12).
-- Result: long only, sum ≤ 1 (within the sleeve) [11.4.1]; long–short, `Σ|w| ≤ max_gross`, `Σw ∈ max_net` [V31-LS-02].
+- Result: long only, sum ≤ 1 (within the sleeve) [11.4.1]; long–short, `Σ|w| ≤ G_max`, `Σw ∈ max_net` [V31-LS-02].
 
 **Execution rules** [R-56, 9.0 orders]:
 

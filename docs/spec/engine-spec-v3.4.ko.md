@@ -621,7 +621,7 @@ nx.long_short(long: PortfolioRule, short: PortfolioRule, *, long_weight: float =
 - 가중 전 비중 `u_i`: equal = 1, value = 판단 시점 `market_cap`(`share_counts` 시점 조회 × 원 종가; 없으면 선택에서 빼고 E30), inverse_vol = 1/`AnnualizedVolatility(vol_lookback)`(NaN이나 0이면 선택에서 뺌).
 - `on_missing`(완충대 `hold`와 함께만 뜻이 있음): 5.5.3 [V31-17].
 - `w_i = u_i / Σu`. `max_weight`가 있으면 `w_i ← min(w_i, max_weight)`이고 남는 몫은 현금이다(`redistribute=False`, 낮은 순위로 채우지 않음). `redistribute=True`면 상한에 걸리지 않은 종목에 비례로 반복 재분배(최대 50회, 1e-12 수렴).
-- 결과: 롱만이면 합 ≤ 1 (슬리브 안) [11.4.1]; 롱숏이면 `Σ|w| ≤ max_gross`, `Σw ∈ max_net` [V31-LS-02].
+- 결과: 롱만이면 합 ≤ 1 (슬리브 안) [11.4.1]; 롱숏이면 `Σ|w| ≤ G_max`, `Σw ∈ max_net` [V31-LS-02].
 
 **집행 규칙** [R-56, 9.0 주문]:
 
