@@ -4,7 +4,7 @@ name = "nexusbt-tds"
 version = "1.0.0"
 description = "The TDS data standard's conformance checker: check, hash, manifest, describe, import"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.13"
 license = "Apache-2.0"
 authors = [{ name = "coolbress" }]
 classifiers = ["Typing :: Typed"]
