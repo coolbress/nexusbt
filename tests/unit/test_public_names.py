@@ -17,11 +17,15 @@ import pytest
 PUBLIC = {
     "nexusbt_tds": "check read_manifest value_hash semantic_hash import_csv build_manifest"
     " PROFILES SCHEMAS CheckResult ProfileStatus Manifest",
-    # the Policy* enums: #68, once the spec names them
     "nexusbt.contracts": "ID_COLUMN ENGINE_COLUMNS Unit Currency Phase RUN_SCHEMA EVENTS_SCHEMA"
     " CHECKPOINT_SCHEMA NexusBTError FactorFrame TargetFrame TargetState DecisionGrid"
     " DecisionContext DecisionInputs SchemaRegistry ResolvedActions SessionInputs MarketView"
-    " EventSink",
+    " EventSink DelistingPolicy RightsPolicy UnsupportedPolicy DecimalRatioPolicy"
+    " MissingPayDatePolicy BonusSharesTradablePolicy UnknownInclusionPolicy EditionPolicy"
+    " VerifyPolicy PinsPolicy FallbacksPolicy TiebreakPolicy BandEntriesPolicy AccountTypePolicy"
+    " OrderTypePolicy ExecutionAtPolicy BandModePolicy LimitFillPolicy UnknownTradabilityPolicy"
+    " CostProfilePolicy TaxesProfilePolicy TaxesPayPolicy TaxesBasisPolicy LabelEntryPolicy"
+    " EvaluateTargetPolicy RoundingModePolicy",
     "nexusbt.config": "load_config Config",
     "nexusbt.data": "open_snapshot Snapshot",
     "nexusbt.pipeline": "Term Factor Filter Classifier Pipeline Price Fund Meta Panel Label"
