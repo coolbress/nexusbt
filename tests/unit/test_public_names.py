@@ -1,7 +1,7 @@
 """Spec 2.4: every name of the "Public interface" column, importable from its module.
 
-The names are copied from the 2.4 table (#61); `api` will be "the functions of
-3.8", the top-level `nx.<name>(...)` lines. A function's body is
+The names are copied from the 2.4 table (#61); `api` is "the functions of 3.8",
+the top-level `nx.<name>(...)` lines. A function's body is
 `NotImplementedError` until its own ticket; a test that calls one sees it.
 """
 
@@ -39,6 +39,8 @@ PUBLIC = {
     " lo_sharpe newey_west_t signal_weight_corr Segments TrialRegistry probe_truncation"
     " probe_start LabelFrame EvalConfig",
     "nexusbt.artifacts": "RunStore RunTxn Index BookStore BookTxn derive_tables render_report",
+    "nexusbt.api": "evaluate backtest screen live fill reconcile sweep compare explain check"
+    " describe runs rerun book override record_fills cash_flow preregister config open",
 }
 
 #: Classes whose public members are stubs too, each called through the class.
