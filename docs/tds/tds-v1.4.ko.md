@@ -9,6 +9,7 @@
 > 판 이력(이어서): **v1.4**(2026-10-28): 3자 검토 4라운드 + 사용자 결정 2026-10-28(번호 `[R4F-NN]`) — 주식 수를 바꾸는 기업행동은 `ratio_num/ratio_den`이 **필수(MUST)**, 없으면 검사기 오류 A010(E); 소비자가 f64에서 비율을 추론하는 길은 없앰(사용자 설정으로 십진 리터럴을 쓰는 경우만, 경고와 기록); 폐지 분배 포함 여부 null의 해석 = 두 번 세지 않는 보수 쪽; 사건 표 `series_id`·`consensus`, 거시 계열 `consensus`·`frequency`와 첫 발표 판 정의. 초안이라 `tds_version`은 `"1.0"` 그대로(18장).
 > 판 이력(이어서): **v1.4, 2026-11-01 추가**: 선택 칼럼 `corporate_actions.resolution_date`(배당을 확정한 결의의 날; 결의일 기준 KR 지급일 대체에 관한 사용자 결정 2026-11-01). 선택 칼럼 추가는 10.2에서 MINOR이고 표준은 초안이라 `tds_version`은 `"1.0"` 그대로.
 > 판 이력(이어서): **v1.4, 2026-11-01 명확화**: KR 일봉은 KRX 정규장이며, NXT(넥스트레이드) 체결은 종가·OHLC·거래량·거래대금(`value_traded`)에서 뺀다(5.5; 사용자 결정 2026-11-01). 문구만 바꿨으므로 `tds_version`은 `"1.0"` 그대로.
+> 판 이력(이어서): **v1.4, 2026-11-01 추가**: `classifications` scheme `tick_rule_id`(날짜가 있는 종목별 호가 단위 규칙)를 격자 원천 순서의 맨 앞에 둔다(5.19, 5.27; 2027년 11월 첫 영업일부터 준수하는 US Rule 612 개정에 관한 사용자 결정 2026-11-01). 칼럼이 바뀌지 않고 표준이 초안이므로 `tds_version`은 `"1.0"` 그대로.
 > 관계: 이 문서는 엔진 명세서 v3.4(`engine-spec-v3.4-2026-10-28.md`) **4장이 참조하는 입력 정본**이다. 둘이 다르면 입력 형식은 이 문서가 맞다(차이 목록은 12장). 사용자 결정(설계 문서 9.0)은 이 문서보다 우선한다.
 > 공개: 이 표준과 검사기(`nexusbt-tds`, import `nexusbt_tds`, 명령 `tds`)는 공개(Apache-2.0)다. 작업판 11장(생산자별 대응)은 표준의 규범이 아니라서 이 공개판에 넣지 않았다.
 > 예시: 엔진이 읽는 모든 데이터셋(사건·거시 계열 포함)의 예시 행은 `tds-examples.md`(같은 폴더)에 있다.
@@ -472,7 +473,7 @@
 
 검사: R001(다른 표의 id가 여기 없음), V020(`asset_class`별 필수 칼럼: option은 underlying·strike·right·style·expiry·multiplier·settlement 필수; future는 root·expiry·multiplier·settlement 필수; crypto는 base·quote 필수), T010(`last_session < listed_on`), R002(달력 없음).
 
-**사후 정적 표** [v1.1, RV-C08]: `instruments`는 시점 없는 "지금 아는 값" 표다. `name`, `last_session`, `delisted_on`은 사후 정보이므로 소비자는 판단 입력으로 쓰면 안 된다(상장 기간 마스크·표시·폐지 처리에만). 바뀔 수 있는 속성(`category`, `venue_mic`, `currency`, `lot_size`, `tick_size`)이 실제로 바뀐 종목이 있으면 생산자는 그 이력을 `classifications`의 같은 이름 scheme(`category`, `venue_mic` …, 두 시간축)으로 함께 내보내고, 소비자는 그 scheme이 있으면 그것을 읽는다. `asset_class`, `market`, `calendar_id`는 한 id 안에서 바뀌지 않는다(바뀌면 새 id, K1(d)).
+**사후 정적 표** [v1.1, RV-C08]: `instruments`는 시점 없는 "지금 아는 값" 표다. `name`, `last_session`, `delisted_on`은 사후 정보이므로 소비자는 판단 입력으로 쓰면 안 된다(상장 기간 마스크·표시·폐지 처리에만). 바뀔 수 있는 속성(`category`, `venue_mic`, `currency`, `lot_size`, `tick_size`, `tick_rule_id`)이 실제로 바뀐 종목이 있으면 생산자는 그 이력을 `classifications`의 같은 이름 scheme(`category`, `venue_mic` …, 두 시간축)으로 함께 내보내고, 소비자는 그 scheme이 있으면 그것을 읽는다. `asset_class`, `market`, `calendar_id`는 한 id 안에서 바뀌지 않는다(바뀌면 새 id, K1(d)).
 
 ### 5.2 `instrument_symbols` (기호 이력)
 
@@ -811,6 +812,7 @@ LEAN 계수 파일·Qlib `factor`·공급사 조정 종가만 있는 사용자�
 
 칼럼: `instrument_id`, `scheme`(예 `gics`, `krx_sector`, `sic`, `industry_pit`, `market_segment`, `is_financial`, `category`, `venue_mic`), `level` i8 **null 금지**(단일 수준 체계는 0, 다단계는 1 = 가장 굵은 수준), `code` string, `label` string null, `effective_from` date, `effective_to` date null, `ts_known_from` ts_us, `ts_known_to` ts_us null, `edition` code(`strict`/`compare`/`both`, 기본 both), `pit_quality` code(행 단위), `source`.
 - 조회: 직사각형(6.3) — `ts_known_from <= t < ts_known_to` 그리고 `effective_from <= date(t) < effective_to`, 판 필터(strict = `strict`+`both`, compare = `compare`+`both`), strict는 행 단위 `backfilled` 제외. 같은 (종목, 체계, 수준, 판 필터)에서 이 조건을 만족하는 행은 하나(T012).
+- scheme `tick_rule_id` [2026-11-01]: 종목의 시기별 호가 단위 규칙. `level` 0, `code` = `rule_kind = tick_band`인 `market_rules.rule_id`(5.27), `effective_from` = 적용되는 첫 세션, `ts_known_from` = 배정이 발표된 시각. 종목과 기간마다 다른 배정을 싣는다. 예: US Reg NMS Rule 612 개정 — $1 이상에서 시간가중 평균 호가 스프레드에 따라 $0.005 또는 $0.01, 반년마다 다시 배정, 준수는 2027년 11월 첫 영업일부터([SEC Release 34-105656](https://www.sec.gov/files/rules/exorders/2026/34-105656.pdf)). 판단 시각에 유효한 행은 격자 원천 순서에서 `instruments.tick_size`와 `instruments.tick_rule_id`보다 앞선다(5.27).
 - `dictionary/columns.alias_of`로 소비자 이름(예 `sector`)을 `"<scheme>@<level>"`에 대응할 수 있다.
 - 명세서 4.13의 `valid_from_utc/valid_to_utc/known_at_utc`를 이 두 축으로 바꾼다(12장 D12).
 
@@ -879,7 +881,7 @@ LEAN 계수 파일·Qlib `factor`·공급사 조정 종가만 있는 사용자�
 | source | string | 아니오 | 거래소 규정·공고 URL |
 | verified | bool | 아니오 | 사람이 원문으로 확인했는가 |
 
-- **가격 격자 규범**: 원가격 칼럼(`bars.open/high/low/close`, `tradability_daily.*_limit_price`)은 그 종목·그 날짜의 격자 위 값이어야 하지만, f64 표현 때문에 1e-9 상대 안의 흔들림은 허용한다(`0.6768000000000001`). 소비자는 비교 전에 **시장 최소 단위 정수**(KR 1원, US 0.0001달러 같은 한 좌표)로 바꾼다 — 가격대마다 다른 호가 단위의 틱 수로 비교하면 경계를 넘는 두 가격의 순서가 뒤집힌다(4,995/5 = 999 > 5,000/10 = 500). 호가 단위 표는 격자 소속 확인과 주문 가격 맞춤에 쓴다. 최소 단위 정수에 맞지 않는 관측 가격은 소비자가 옮기지 않는다(그 행만 실수 비교) [v1.3, R3-02]. 격자 원천 순서: `instruments.tick_size`(고정) → `tick_rule_id`의 `market_rules` → 소비자 자원. 검사 V012(W): 격자 정보가 있는데 원가격이 격자에서 1e-9 상대 넘게 벗어난 행(조정가를 원가격으로 잘못 선언한 패키지를 잡음).
+- **가격 격자 규범**: 원가격 칼럼(`bars.open/high/low/close`, `tradability_daily.*_limit_price`)은 그 종목·그 날짜의 격자 위 값이어야 하지만, f64 표현 때문에 1e-9 상대 안의 흔들림은 허용한다(`0.6768000000000001`). 소비자는 비교 전에 **시장 최소 단위 정수**(KR 1원, US 0.0001달러 같은 한 좌표)로 바꾼다 — 가격대마다 다른 호가 단위의 틱 수로 비교하면 경계를 넘는 두 가격의 순서가 뒤집힌다(4,995/5 = 999 > 5,000/10 = 500). 호가 단위 표는 격자 소속 확인과 주문 가격 맞춤에 쓴다. 최소 단위 정수에 맞지 않는 관측 가격은 소비자가 옮기지 않는다(그 행만 실수 비교) [v1.3, R3-02]. 격자 원천 순서: 그 시각에 유효한 `classifications` scheme `tick_rule_id` 행(5.19) [2026-11-01] → `instruments.tick_size`(고정) → `instruments.tick_rule_id`의 `market_rules` → 소비자 자원. 검사 V012(W): 격자 정보가 있는데 원가격이 격자에서 1e-9 상대 넘게 벗어난 행(조정가를 원가격으로 잘못 선언한 패키지를 잡음).
 - 가격대 구간은 맞추기 전 값으로 정한다. 같은 (`rule_id`, `venue_group`, 날짜)에서 가격대 구간이 겹치면 T003.
 - 공매도 금지 기간·대차 자료는 이 표준에 두지 않는다(엔진 시장 규칙 팩의 일; 대차 가능 수량·수수료 데이터셋은 다음 MINOR 후보) [V31-LS-07].
 
@@ -1469,3 +1471,4 @@ availability: {rule: ts_end}
 - 2026-10-28: **v1.3**. 3자 검토 3라운드 반영(17장, `[R3-NN]`): 5.11 존재/조건 시각 분리, 5.13 종료가치 기준 고침, 5.27 최소 단위 정수 비교, 4.1 복제 우선·원자 게시·읽기 전용·파일 신원, 4.2 `value_sha256` 조언용·워터마크, A010 소비자 거절 허용, K1 예시. `tds_version` `"1.0"` 그대로(해석 문장 고침·권고·예시뿐, 초안).
 - 2026-11-01: **v1.4** 안에서. 결의일 기준 KR 지급일 대체를 위한 선택 칼럼 `corporate_actions.resolution_date`(5.11)(사용자 결정 2026-11-01). `tds_version` `"1.0"` 그대로(선택 칼럼은 10.2에서 MINOR, 초안).
 - 2026-11-01: **v1.4** 안에서. KR 일봉(5.5)은 KRX 정규장이며, NXT(넥스트레이드) 체결은 종가·OHLC·거래량·거래대금(`value_traded`)에서 뺀다(사용자 결정 2026-11-01). `tds_version` `"1.0"` 그대로(문구만).
+- 2026-11-01: **v1.4** 안에서. Rule 612 개정의 US 종목별 호가 단위를 위해 `classifications` scheme `tick_rule_id`(5.19)를 두고 격자 원천 순서(5.27)의 맨 앞에서 읽는다(사용자 결정 2026-11-01). `tds_version` `"1.0"` 그대로(칼럼 변경 없음).
