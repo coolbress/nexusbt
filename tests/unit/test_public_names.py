@@ -1,9 +1,8 @@
 """Spec 2.4: every name of the "Public interface" column, importable from its module.
 
-The names are copied from the 2.4 table, one module at a time as its stubs land
-(#61); `api` will be "the functions of 3.8", the top-level `nx.<name>(...)`
-lines. A function's body is `NotImplementedError` until its own ticket; a test
-that calls one sees it.
+The names are copied from the 2.4 table (#61); `api` will be "the functions of
+3.8", the top-level `nx.<name>(...)` lines. A function's body is
+`NotImplementedError` until its own ticket; a test that calls one sees it.
 """
 
 from __future__ import annotations
@@ -11,6 +10,7 @@ from __future__ import annotations
 import importlib
 import inspect
 from collections.abc import Callable
+from pathlib import Path
 
 import pytest
 
@@ -30,10 +30,20 @@ PUBLIC = {
     "nexusbt.portfolio": "build_targets PortfolioRule",
     "nexusbt.risk": "RiskRule none Sizer",
     "nexusbt.accounting": "AccountState apply_session_start value bridge",
+    "nexusbt.execution": "simulate step_session SimConfig",
+    "nexusbt.research": "forward_labels factor_stats psr dsr min_trl pbo_cscv bhy_adjust"
+    " lo_sharpe newey_west_t signal_weight_corr Segments TrialRegistry probe_truncation"
+    " probe_start LabelFrame EvalConfig",
+    "nexusbt.artifacts": "RunStore RunTxn Index BookStore BookTxn derive_tables render_report",
 }
 
 #: Classes whose public members are stubs too, each called through the class.
-STUB_CLASSES = ["nexusbt.data.Snapshot"]
+STUB_CLASSES = [
+    "nexusbt.data.Snapshot",
+    "nexusbt.artifacts.RunTxn",
+    "nexusbt.artifacts.RunStore",
+    "nexusbt.artifacts.BookStore",
+]
 
 #: 6.6, the classes whose kind is block or fail: the sub-errors of `NexusBTError`.
 ERRORS = (
@@ -85,3 +95,9 @@ def test_column_name_error_is_an_attribute_error() -> None:
     from nexusbt.contracts import ColumnNameError  # 6.6, E7: "subclass of `AttributeError`"
 
     assert issubclass(ColumnNameError, AttributeError)
+
+
+@pytest.mark.parametrize("name", ["RunStore", "Index", "BookStore"])
+def test_store_constructor_raises_not_implemented(name: str, tmp_path: Path) -> None:
+    with pytest.raises(NotImplementedError):  # 2.4 `RunStore(root)`, `Index(root)`, ...
+        getattr(importlib.import_module("nexusbt.artifacts"), name)(tmp_path)
