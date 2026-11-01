@@ -3,7 +3,7 @@ name = "nexusbt"
 version = "0.1.0"
 description = "One line saying what this is"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.13"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 authors = [{ name = "coolbress" }]
@@ -64,7 +64,7 @@ exclude = ["docs/spec/**", "docs/tds/**"]
 # Type checking, `ci / typecheck`.
 [tool.mypy]
 strict = true
-python_version = "3.12"
+python_version = "3.13"
 files = ["src", "tds/src", "tests"]
 
 # pyarrow 26 ships no `py.typed` and `pyarrow-stubs` targets pyarrow 20 (#61 Decisions):
