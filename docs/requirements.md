@@ -6,7 +6,7 @@ Columns:
 
 - **Spec status** (B.1 and B.2 only): appendix B's own word, unchanged. `v1` = implemented by this spec, `changed` = implemented with a corrected meaning, `later` = after v1 (with the reason), `reserved` = name only.
 - **Status**: the repository's word. `planned` = a ticket exists and its pull request has not merged; `implemented` = the pull request merged (its number goes in the Ticket column); `deferred` = `later`, `reserved`, a `v1.x` ticket, or no engine ticket at all (the item is the spec's own, the producer's or the TDS document's: R-21, R-44, R-48, TDS-D22, RV-I06, RV-D9, R4-27); `replaced` = appendix B says the item was folded into another id (no row says so today).
-- **Ticket**: the representative ticket as appendix B names it, with the GitHub issue number once the issue exists (the M0 tickets today; a range such as `T0.13a~T0.16b` is left as written) and the pull request number once it merges.
+- **Ticket**: the representative ticket as appendix B names it, with the GitHub issue number once the issue exists (the M0 tickets and T6.16 today; a range such as `T0.13a~T0.16b` is left as written) and the pull request number once it merges.
 
 The pull request that implements a ticket moves its rows to `implemented` and adds the pull request number (spec §9.5). The spec columns change only when the spec changes; this file never corrects the spec. `tests/docs/test_requirements_map.py` checks that every id of appendix B has exactly one row here.
 
@@ -81,7 +81,7 @@ The pull request that implements a ticket moves its rows to `implemented` and ad
 | R-67 | announcing fallbacks | 4.5 | M1~M3a | v1 | planned | T0.16a/b, T1.1b, T2.2, T2.3, T2.4, T3.10, T3.11 |
 | R-68 | market names are data, rules are packs | 4.7, 3.11 | M0, M4 | v1 | planned | T0.5a (#53), T1.1a, T4.4, T4.11 |
 | R-69 | public first path (CSV → rerun) | 4.3, 8.5 | M1, M2 | v1 | planned | T1.22, T1.23, T2.17 |
-| R-70 | release gate | 9.1, 10.0 | M6 | v1 | planned | T6.15, T6.16 |
+| R-70 | release gate | 9.1, 10.0 | M6 | v1 | planned | T6.15, T6.16 (#8) |
 | P1 | import + open 1.5 s | chapter 7 | M1 | v1 | planned | T1.1a/b, T6.11 |
 | P2 | screen 2 s | chapter 7 | M3/M6 | v1 | planned | T6.11 |
 | P3 | evaluate 5 s / 1 s | chapter 7 | M2/M6 | v1 | planned | T6.11 |
@@ -179,7 +179,7 @@ The pull request that implements a ticket moves its rows to `implemented` and ad
 | RV-I04 | P1 | artifact schema, pins, stamps, rerun in a new process, seal recovery | 4.2, 4.4, 5.9.1~5.9.3 | planned | T1.14a/b, T1.15, T3.14 |
 | RV-I05 | P1 | ticket graph, M0 reduction, golden location, early measurement, suites under one year | 5.3.8, 7, 8.2, chapter 10 | planned | all of chapter 10, T0.12 (#46), T1.24 |
 | RV-I06 | P1 | `std_item` provisional, `preliminary` | TDS v1.1 5.17 | deferred | (TDS document) |
-| RV-I07 | P1 | stable scope, release gate, RC | 1.1, 2.3, 9.1, 10.0, 11 | planned | T0.13b (#55), T6.15, T6.16 |
+| RV-I07 | P1 | stable scope, release gate, RC | 1.1, 2.3, 9.1, 10.0, 11 | planned | T0.13b (#55), T6.15, T6.16 (#8) |
 | RV-I08 | P1 | market names are data, rules packs | 1.2, 3.6, 3.8, 3.11, 4.4, 4.7, 5.1.3, 5.6.5 | planned | T0.5a (#53), T1.1a, T4.4, T4.11 |
 | RV-I09 | P2 | producer-neutral errors, `producer.hints` | 3.10, 4.4, 4.5, 6.6 | planned | T0.2b (#47), T0.4 (#49), T1.1a |
 | RV-I10 | P1 | column-array state, Numba conditional | 5.6.1, 2.4, 7 | planned | T3.3, T3.4, T6.6 |
@@ -187,7 +187,7 @@ The pull request that implements a ticket moves its rows to `implemented` and ad
 | RV-Q02 | P2 | honest report wording | 3.8, 3.9, 5.7, 5.8 | planned | T3.13a/b, T3.20, T2.16 |
 | RV-Q03 | P2 | missing tickets, small fixes | 2.7, 6.4, 6.6, 11 | planned | T0.2b (#47), T2.18, T3.21, T6.17 |
 | RV-Q04 | P2 | public TDS hygiene, `nexusbt_tds` | header, 2.3, TDS v1.1 | planned | T0.1 (#44), T0.2b (#47) |
-| RV-Q05 | P2 | public release tickets (PyPI by the user) | 1.1, chapter 12 OI-44·45 | planned | T0.1 (#44), T6.15, T6.16 |
+| RV-Q05 | P2 | public release tickets (PyPI by the user) | 1.1, chapter 12 OI-44·45 | planned | T0.1 (#44), T6.15, T6.16 (#8) |
 | RV-Q06 | P2 | cross-section default domain, E34 | 3.3, 5.3.1, 5.4.2, 6.5 | planned | T1.4, T2.12 |
 | RV-Q07 | P2 | `cost_reserve_bps` | 3.11, 5.6.7, appendix C | planned | T3.5b |
 | RV-Q08~Q11 | P2 | interoperability sentence, `ts_exit_known` null, `availability_by_column`, keeping `fail` | TDS v1.1, 4.6, chapter 12 OI-09 | planned | (TDS document), T0.7 |
