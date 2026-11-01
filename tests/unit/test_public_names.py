@@ -17,8 +17,9 @@ import pytest
 PUBLIC = {
     "nexusbt_tds": "check read_manifest value_hash semantic_hash import_csv build_manifest"
     " PROFILES SCHEMAS CheckResult ProfileStatus Manifest",
-    # ID_COLUMN, ENGINE_COLUMNS, Unit, Currency, Phase and the schema constants: #48 (T0.3)
-    "nexusbt.contracts": "NexusBTError FactorFrame TargetFrame TargetState DecisionGrid"
+    # the Policy* enums: #68, once the spec names them
+    "nexusbt.contracts": "ID_COLUMN ENGINE_COLUMNS Unit Currency Phase RUN_SCHEMA EVENTS_SCHEMA"
+    " CHECKPOINT_SCHEMA NexusBTError FactorFrame TargetFrame TargetState DecisionGrid"
     " DecisionContext DecisionInputs SchemaRegistry ResolvedActions SessionInputs MarketView"
     " EventSink",
     "nexusbt.config": "load_config Config",

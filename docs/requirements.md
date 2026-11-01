@@ -129,7 +129,7 @@ The pull request that implements a ticket moves its rows to `implemented` and ad
 
 | Id | Content | Where reflected | Status | Ticket |
 |---|---|---|---|---|
-| TDS-D1 | `security_id` → `instrument_id` (v3: no alias) | header, 3.1, throughout | planned | T0.3 (#48) |
+| TDS-D1 | `security_id` → `instrument_id` (v3: no alias) | header, 3.1, throughout | implemented | T0.3 (#48, PR #71) |
 | TDS-D2 | `*_utc` → `ts_*` | throughout, 5.9 outputs | planned | T0.3 (#48), T1.14a/b |
 | TDS-D3 | `manifest.json`+`columns.json` → `tds.json`+`dictionary/` | 4.1, 4.4, 3.2 | planned | T0.13a/b (#51, #55), T1.1a/b, T1.6 |
 | TDS-D4 | time unit us/ns | 4.6, 11.3 | planned | T0.13a/b (#51, #55) |
@@ -183,7 +183,7 @@ The pull request that implements a ticket moves its rows to `implemented` and ad
 | RV-I08 | P1 | market names are data, rules packs | 1.2, 3.6, 3.8, 3.11, 4.4, 4.7, 5.1.3, 5.6.5 | planned | T0.5a (#53), T1.1a, T4.4, T4.11 |
 | RV-I09 | P2 | producer-neutral errors, `producer.hints` | 3.10, 4.4, 4.5, 6.6 | planned | T0.2b (#47), T0.4 (#49), T1.1a |
 | RV-I10 | P1 | column-array state, Numba conditional | 5.6.1, 2.4, 7 | planned | T3.3, T3.4, T6.6 |
-| RV-Q01 | P2 | removing the `security_id` alias | header, 3.1, A-73 | planned | T0.3 (#48) |
+| RV-Q01 | P2 | removing the `security_id` alias | header, 3.1, A-73 | implemented | T0.3 (#48, PR #71) |
 | RV-Q02 | P2 | honest report wording | 3.8, 3.9, 5.7, 5.8 | planned | T3.13a/b, T3.20, T2.16 |
 | RV-Q03 | P2 | missing tickets, small fixes | 2.7, 6.4, 6.6, 11 | planned | T0.2b (#47), T2.18, T3.21, T6.17 |
 | RV-Q04 | P2 | public TDS hygiene, `nexusbt_tds` | header, 2.3, TDS v1.1 | planned | T0.1 (#44), T0.2b (#47) |
