@@ -233,7 +233,7 @@ NexusBT는 이 다섯을 한 엔진에 모은다. 각 엔진에서 가져온 장
 | R-57 | 미래 잠금은 없다. 사용자가 `nexusbt.toml [split]`에서 train/validation/test 구간을 정하고, 실행은 `segment=`로 고른다. 엔진은 시도 수와 노출을 기록하고 DSR을 표시한다 | 9.0 Q26 |
 | R-58 | 초소형주는 기본 포함, 설정 한 줄(`exclude_microcap = true`)로 제외. 숨은 제외 없음 | 9.0 Q31 |
 | R-59 | 벤치마크 기본값은 KOSPI·S&P 500 배당 포함 지수. 스냅숏에 지수 종목이 없으면 "없음"이라고 표시하고 만들지 않는다 | 9.0 Q30 |
-| R-60 | 배당 지급일이 없으면 나라별 보통 간격으로 추정하고 "estimated"로 표시한다 | 9.0 Q29 |
+| R-60 | 배당 지급일이 없으면 나라별 보통 간격으로 — `resolution_date`가 있는 KR 사건은 법정 지급 기한인 결의일 + 1개월로(5.6.11, 결정 2026-11-01) — 추정하고 "estimated"로 표시한다 | 9.0 Q29 |
 | R-61 | 비용 표가 검증되기 전에는 임시 bp 비용(`provisional`)을 기본으로 쓰고 보고서에 "provisional costs"를 표시한다 | 9.0 Q28 |
 | R-62 | 한국·미국은 따로 자금 댄 슬리브. 기준 시계는 설정으로 유지. 판단마다 UTC `decision_ts`를 기록한다 | 9.0 Q23 |
 | R-63 | `Fund.*`은 TDS `fundamentals_state` 구간 조회만 한다. 엔진은 회계 선택 규칙을 다시 만들지 않는다 | 9.0 Q24, C3 |
@@ -985,7 +985,7 @@ write: orders.to_csv("orders/{date}.csv")   apply to paper book: nx.fill(book, o
 | `[costs] impact_a2`, `impact_a3` | float | 0.5, 1.0 | (0, 2] | SC-11, Kissell |
 | `[costs] min_half_spread_bps` | {MARKET: float} | 시장 규칙 팩 값(KR 5, US 1) | ≥ 0 | RV-I08 |
 | `[costs] max_half_spread_bps` | float | 200 | ≥ min | |
-| `[dividends] missing_pay_date` | str | `"estimate"` | estimate / fail | 9.0 Q29, R-60 |
+| `[dividends] missing_pay_date` | str | `"estimate"` | estimate / fail. `estimate`는 5.6.11의 순서를 따른다: 관측 중앙값, 다음 KR 사건은 `resolution_date` + 1개월, 다음 `fallback_pay_lag_days`(결정 2026-11-01) | 9.0 Q29, R-60 |
 | `[dividends] fallback_pay_lag_days` | {MARKET: int} | 시장 규칙 팩 값(KR 120, US 21) | 1..400 | R-60 [추], RV-I08 |
 | `[dividends] estimate_window_years` | int | 5 | ≥ 1 | |
 | `[dividends] estimate_min_obs` | int | 20 | ≥ 1 | |
@@ -1815,7 +1815,7 @@ v1은 이 절의 정의를 규범으로 고정하고(INV-08 문구, `DecisionCon
 #### 5.6.11 현금배당 [11.4.3 (4)(5)(6), R-60]
 - **권리**: 배당락 세션 t 시작에 직전 종가 기준 보유 q에 대해 생긴다(지급일 보유가 아님). 권리·의무 수량은 이 보유로 고정된다 — 조건이 늦게 공개돼도, 그 사이 팔거나 환매해도 그대로(5.3.3a(4)) [R3-01]. **q < 0(숏)이면 의무**: 금액 `q·D`(음수, 원천징수 없이 세전 전액 — 대체 배당), 같은 권리·미수·지급 경로로 지급일에 현금에서 빠진다(사건 `dividend_short`) [V31-LS-05]. LEAN·zipline처럼 숏 배당을 빠뜨리면 숏 수익이 부풀어 오른다. `gross_or_net = "net"`인 배당의 숏 의무는 세전 금액이 필요하다: `[dividends] withholding[시장] = w > 0`이면 `D_gross = D/(1 − w)`로 복원하고 E30 건수, w가 0이면 세전 금액을 정할 수 없으므로 `AccountingDataError`(E13, "short dividend obligation needs a gross amount") [R3-09].
 - **금액**: `D` = `cash_per_share`(원금액, TDS). 조건 시각 `ts_terms`(5.3.3a)가 `ts_effective` 이하면 바로 미수금 `q·D·(1 − withholding)`(q > 0에만; `gross_or_net = "net"`이면 원천징수 0; q < 0은 위 의무 규칙 [R3-09]); 아니면 금액 모르는 권리로 두고, 공개 시각이 지난 첫 세션 시작에 미수금으로 바꾼다.
-- **지급**: `pay_date`(`pay_date_status = observed`; 만든 쪽이 `estimated`로 준 날짜도 그대로 쓰되 `estimated = true`로 센다) 세션 시작에 현금. 지급일이 없으면 `missing_pay_date = "estimate"`: 추정 지급일 = `ex_date + 중앙값(pay_date − ex_date)`(같은 나라·같은 kind, 배당락이 이 사건 전 `estimate_window_years`년 안이고 `pay_date`가 이 사건 배당락보다 이른 관측 사건들, 달력일), 관측이 `estimate_min_obs` 미만이면 `fallback_pay_lag_days[나라]`. 그 날 이후 첫 세션에 지급하고 `estimated = true`로 표시·집계한다. `"fail"`이면 `AccountingDataError`(오류 E13) [9.0 Q29, R-60, A-08].
+- **지급**: `pay_date`(`pay_date_status = observed`; 만든 쪽이 `estimated`로 준 날짜도 그대로 쓰되 `estimated = true`로 센다) 세션 시작에 현금. 지급일이 없으면 `missing_pay_date = "estimate"`: 추정 지급일 = `ex_date + 중앙값(pay_date − ex_date)`(같은 나라·같은 kind, 배당락이 이 사건 전 `estimate_window_years`년 안이고 `pay_date`가 이 사건 배당락보다 이른 관측 사건들, 달력일), 관측이 `estimate_min_obs` 미만이면: `resolution_date`가 있는 KR 사건은(TDS 5.11 — 배당을 확정한 결의의 날: 주주총회가 승인하는 결산배당은 주주총회일, 정관에 따라 이사회가 확정하는 배당과 중간·분기배당은 이사회 결의일) 법정 지급 기한인 `resolution_date` + 1개월(결산·중간배당은 [상법 제464조의2 제1항](https://www.law.go.kr/법령/상법/제464조의2), 분기배당은 [자본시장법 제165조의12 제3항](https://www.law.go.kr/법령/자본시장과금융투자업에관한법률/제165조의12); 주주총회나 이사회가 지급시기를 따로 정할 수 있으므로 결과는 추정으로 남는다), 달은 역에 따라 세어 다음 달 같은 날, 그 날이 없으면 그 달 말일([민법 제160조](https://www.law.go.kr/법령/민법/제160조)); `resolution_date`도 없으면 `fallback_pay_lag_days[나라]` [결정 2026-11-01]. 그 날 이후 첫 세션에 지급하고 `estimated = true`로 표시·집계한다. `"fail"`이면 `AccountingDataError`(오류 E13) [9.0 Q29, R-60, A-08].
 - 원천징수 `withholding`(기본 0)은 사건 `dividend_tax`로 따로 남긴다. `return_of_capital`은 원천징수 없이 같은 경로로 처리한다(사건 종류는 그대로 기록). 양도 세금은 5.6.11a. 기본 0이면 보고서 머리에 "dividends pre-withholding".
 - **정정·취소** [RV-C03]: 해석기가 나중 기준 시각에 다른 판(금액 정정) 또는 `cancelled`를 내면 5.3.3a(7)의 정정 기입: 지급 전이면 미수금 금액을 정정(`action_correction`), 지급 뒤면 현금 정정(같은 사건 종류), 취소면 미수금 반대 기입. 권리 수량(배당락 보유)은 바꾸지 않는다. 시험 G-43(지급 뒤 금액 정정), G-44(발표 뒤 취소).
 
@@ -3884,7 +3884,7 @@ v1 명세의 O1~O11, 청사진 OQ-1~OQ-15, TDS Q1~Q16을 하나로 모았고, v3
 | OI-08 (O8, TDS 6.4) | 시스템 이력 재생 모드 | v1은 경제 이력만, `history_mode="system"`은 E18. 조회 서명은 이미 받음 | 적용 | | 참조 생산자 + 엔진 v1 뒤 |
 | OI-09 (O9) | 지원 안 하는 기업행동 기본 `fail`이 실제 자료에서 너무 자주 멈추나 | `fail`로 정함(3자 검토 만장일치; `exclude_from` 탈출구는 보유를 풀지 못해 기각). 실제 내보내기가 생기면 `bench/count_unsupported.py`로 세고, 잦은 사건은 지원 구현을 티켓으로 추가(KR/US 실제 자료 검증 단계의 일) | 결정됨 2026-10-28 |  | 실제 자료 검증 때 측정 |
 | OI-10 (O10) | 실제 자료 검사를 CI 필수로(셀프 호스트 러너) | 안 함. **공개 저장소에 셀프 호스트 러너를 붙이면 외부 PR이 자료 기계에서 코드를 돌릴 위험**이 있어 더욱 안 함. 실제 자료 대조·성능은 수동 + 요약 증거 커밋 | 결정됨 2026-10-28 | | 사용자 |
-| OI-11 (O11) | 지급일 대체 간격(KR 120일, US 21일) [추] | 관측 중앙값 우선, 대체값은 관측 20건 미만일 때만 | 적용 | | 생산자 배당 자료가 온 뒤 실제 분포로 확인 |
+| OI-11 (O11) | 지급일 대체 간격(KR 120일, US 21일) [추] | 관측 중앙값 우선, 관측 20건 미만이면 `resolution_date`가 있는 KR 사건은 그 한 달 뒤(법정 기한, 5.6.11), 대체값은 그것도 없을 때만 | 적용(2026-11-01 결정으로 바뀜) | | 생산자 배당 자료가 온 뒤 실제 분포로 확인 |
 | OI-12 (OQ-1) | 완충대(`hold=`)를 언제 넣나 — **결정됨 2026-10-28: v1 M6 마지막 티켓(T7.1)** | 규범(5.5.3)·INV-08 문구는 지금(M3 전), 구현은 M6 마지막 티켓 T7.1, 기본 꺼짐. 검토 권고: Opus·Sol = v1.x 첫 티켓, Fable = M6 마지막 티켓 | 결정됨 2026-10-28 (추천 기본값 확정) | | 사용자 |
 | OI-13 (OQ-2) | `risk=` 칸을 v1에 둘까 | 둔다. 기본 `None`, 예제에 안 보임, v1 구현 `none`만(v3.1: 공매도·롱숏의 총·순 노출 상한 맞춤은 사용자가 정한 상한을 지키는 기계적 단계로 늘 붙음 — 새 위험 모형이 아님) | 결정됨 2026-10-28 (v3.3에서 아래대로 바뀜 [R6-06]) | | 사용자 **v3.3: 라운드 4 주제(사용자)로 바뀜 — 자금 관리 칸·위험 규칙 목록·계좌 층을 v1에 구현(5.5.1a·5.5.2·5.5.2a), 노출 축소는 `risk.vol_cap`·`size.vol_target` [R4-04, R4-05]** |
 | OI-14 (OQ-3) | 통화 귀속 항 수 | 현지·환율·교차항 3개(정확히 합이 맞음), 첫 화면은 연 기여 한 줄 | 적용 | | 명세 결정 |
