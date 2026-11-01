@@ -2,7 +2,7 @@
 
 The 2.4 shared types, declared empty, and the 6.6 error classes. `ID_COLUMN`,
 `ENGINE_COLUMNS`, `Unit`, `Currency`, `Phase` and the schema version constants
-are T0.3's (#48); the `Policy*` enums wait for the spec to name them (#68); the
+are T0.3's (#48); the 26 policy enums are the ones 2.4 names (#68); the
 E1~E39 messages are T0.4's (#49), the `layer` lines and E40~E49 T0.4b's.
 """
 
