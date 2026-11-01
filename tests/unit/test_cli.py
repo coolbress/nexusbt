@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Sequence
 
 import pytest
@@ -28,7 +29,8 @@ def test_help_lists_the_commands(
         main(["--help"])
     out = capsys.readouterr().out
     assert out.startswith(f"usage: {prog} ")
-    assert [c for c in commands if f"\n    {c} " not in out] == []
+    # a narrow terminal moves a long command's help to the next line: a space or a newline follows
+    assert [c for c in commands if not re.search(rf"\n    {c}\s", out)] == []
 
 
 @pytest.mark.parametrize(("main", "command"), [(nexusbt_main, "backtest"), (tds_main, "check")])
