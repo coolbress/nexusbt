@@ -23,7 +23,17 @@ PUBLIC = {
     " DecisionContext DecisionInputs SchemaRegistry ResolvedActions SessionInputs MarketView"
     " EventSink",
     "nexusbt.config": "load_config Config",
+    "nexusbt.data": "open_snapshot Snapshot",
+    "nexusbt.pipeline": "Term Factor Filter Classifier Pipeline Price Fund Meta Panel Label"
+    " factor filter classifier factors graph_hash static_check",
+    "nexusbt.compute": "compute ComputePolicy TermCache",
+    "nexusbt.portfolio": "build_targets PortfolioRule",
+    "nexusbt.risk": "RiskRule none Sizer",
+    "nexusbt.accounting": "AccountState apply_session_start value bridge",
 }
+
+#: Classes whose public members are stubs too, each called through the class.
+STUB_CLASSES = ["nexusbt.data.Snapshot"]
 
 #: 6.6, the classes whose kind is block or fail: the sub-errors of `NexusBTError`.
 ERRORS = (
@@ -48,6 +58,11 @@ def stub_functions() -> list[tuple[str, Callable[..., object]]]:
         obj = getattr(importlib.import_module(module), name, None)
         if inspect.isfunction(obj):
             found.append((f"{module}.{name}", obj))
+    for path in STUB_CLASSES:
+        module, _, cls = path.rpartition(".")
+        for name, member in vars(getattr(importlib.import_module(module), cls)).items():
+            if not name.startswith("_"):  # a property is called through its getter
+                found.append((f"{path}.{name}", getattr(member, "fget", member)))
     return found
 
 

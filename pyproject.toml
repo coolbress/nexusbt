@@ -9,8 +9,11 @@ license-files = ["LICENSE"]
 authors = [{ name = "coolbress" }]
 # The package ships `py.typed`: a type checker reads its annotations.
 classifiers = ["Typing :: Typed"]
-# `nexusbt-tds>=1.0,<2` (spec 9.1) joins this list with the first module that imports it.
-dependencies = []
+# `nexusbt-tds>=1.0,<2` (spec 9.1) joins this list with the first module that imports it at
+# run time (T1.1a); until then `data` imports its types under `TYPE_CHECKING` only.
+# pyarrow, for the `pa.Table` of 2.4: 2.2's lock version; the range leaves patch releases
+# to uv.lock.
+dependencies = ["pyarrow>=26.0.0,<27"]
 
 [project.scripts]
 nexusbt = "nexusbt.cli.main:main"
@@ -63,6 +66,12 @@ exclude = ["docs/spec/**", "docs/tds/**"]
 strict = true
 python_version = "3.12"
 files = ["src", "tds/src", "tests"]
+
+# pyarrow 26 ships no `py.typed` and `pyarrow-stubs` targets pyarrow 20 (#61 Decisions):
+# its names are `Any` to mypy. Only these two module names; every other setting stays strict.
+[[tool.mypy.overrides]]
+module = ["pyarrow", "pyarrow.*"]
+ignore_missing_imports = true
 
 # Tests, `ci / test`.
 [tool.pytest.ini_options]
