@@ -71,7 +71,7 @@ NexusBT는 일봉 주식 팩터 연구를 위한 백테스트·스크리닝 엔�
 | `tests/` | `unit/`, `property/`, `golden/`(구현 PR이 고칠 수 없는 기대값), `docs/`, `perf/`, `repo/`, `parity/`(격리된 zipline-reloaded 3.2.1 환경). |
 | `bench/` | 측정 스크립트와 요약 JSON. |
 
-의존 방향(AST 시험으로 강제): `contracts ← config ← data ← compute ← api ← cli`, `contracts ← pipeline ← compute`, `contracts ← risk ← portfolio ← api`, `contracts ← accounting ← execution ← api`, `contracts ← research ← api`, `contracts ← artifacts ← api`, `nexusbt_tds ← data`. 모듈을 조합하는 것은 `api`뿐이다.
+의존 방향(AST 시험으로 강제): `contracts ← config ← data ← compute ← api ← cli`, `contracts ← pipeline ← compute`, `contracts ← risk ← portfolio ← api`, `contracts ← accounting ← execution ← api`, `contracts ← research ← api`, `contracts ← artifacts ← api`, `nexusbt_tds ← data`. `compute`는 그래프가 그리는 대로 `data` 사슬과 `pipeline` 사슬 위에 함께 있다; 그 밖에 사슬을 잇는 것은 `api`뿐이다.
 
 ## 불변식
 

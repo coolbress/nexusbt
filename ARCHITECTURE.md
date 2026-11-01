@@ -70,7 +70,7 @@ The repository is a uv workspace with two distributions: the engine `nexusbt` (`
 | `tests/` | `unit/`, `property/`, `golden/` (expected values that implementation PRs may not edit), `docs/`, `perf/`, `repo/`, and `parity/` (isolated zipline-reloaded 3.2.1 environment). |
 | `bench/` | Measurement scripts and summary JSON. |
 
-Dependency direction (enforced by an AST test): `contracts ← config ← data ← compute ← api ← cli`, `contracts ← pipeline ← compute`, `contracts ← risk ← portfolio ← api`, `contracts ← accounting ← execution ← api`, `contracts ← research ← api`, `contracts ← artifacts ← api`, `nexusbt_tds ← data`. Only `api` composes modules.
+Dependency direction (enforced by an AST test): `contracts ← config ← data ← compute ← api ← cli`, `contracts ← pipeline ← compute`, `contracts ← risk ← portfolio ← api`, `contracts ← accounting ← execution ← api`, `contracts ← research ← api`, `contracts ← artifacts ← api`, `nexusbt_tds ← data`. `compute` sits on the `data` and `pipeline` chains as the graph draws it; apart from that, only `api` joins chains.
 
 ## Invariants
 
