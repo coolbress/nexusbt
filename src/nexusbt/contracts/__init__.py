@@ -44,9 +44,10 @@ class Unit(StrEnum):
     NONE = "none"
 
 
-#: Dataset → the columns the engine reads from it (spec 4.6), names only; their types are TDS
+#: Dataset → the columns the engine must read from it (spec 4.6), names only; their types are TDS
 #: chapter 5's, checked when a snapshot is opened. "every column" rows hold the whole TDS table;
 #: the panels hold only their fixed columns, as the producer names the feature and label ones.
+#: A column a 4.6 row marks "+ optional" (the `ts_label_*` of `label_panels`) is not here.
 #: Each list is in the spec's order, space-separated, with `ID_COLUMN` for the key's name.
 ENGINE_COLUMNS: Mapping[str, frozenset[str]] = MappingProxyType(
     {
@@ -60,9 +61,9 @@ ENGINE_COLUMNS: Mapping[str, frozenset[str]] = MappingProxyType(
             "calendar_sessions": "calendar_id session_date ts_open ts_close is_half_day",
             "bars": f"{ID_COLUMN} session_date open high low close volume value_traded obs_status"
             " cum_factor_split cum_factor_total",
-            "tradability_daily": "status_known halted_full_day limit_up_close limit_down_close"
-            " locked_up locked_down price_limit_ratio up_limit_price down_limit_price"
-            " reference_price admin_status",
+            "tradability_daily": f"{ID_COLUMN} session_date status_known halted_full_day"
+            " limit_up_close limit_down_close locked_up locked_down price_limit_ratio"
+            " up_limit_price down_limit_price reference_price admin_status",
             # every column, TDS 5.11
             "corporate_actions": f"event_id {ID_COLUMN} kind ex_date ts_effective record_date"
             " declared_date pay_date pay_date_status resolution_date ts_announced"
