@@ -46,6 +46,8 @@ STUB_CLASSES = [
     "nexusbt.artifacts.RunStore",
     "nexusbt.artifacts.BookStore",
 ]
+#: Functions whose ticket has landed: no longer stubs (T0.13a, #51).
+BUILT = {"nexusbt_tds.read_manifest"}
 
 #: 6.6, the classes whose kind is block or fail: the sub-errors of `NexusBTError`. The warnings
 #: and notices are checked with every E1~E39 code in `contracts/test_errors.py`.
@@ -69,7 +71,7 @@ def stub_functions() -> list[tuple[str, Callable[..., object]]]:
     found: list[tuple[str, Callable[..., object]]] = []
     for module, name in NAMES:
         obj = getattr(importlib.import_module(module), name, None)
-        if inspect.isfunction(obj):
+        if inspect.isfunction(obj) and f"{module}.{name}" not in BUILT:
             found.append((f"{module}.{name}", obj))
     for path in STUB_CLASSES:
         module, _, cls = path.rpartition(".")
