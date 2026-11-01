@@ -549,6 +549,7 @@
 - 일봉 `dense`: 종목마다 `listed_on`부터 `last_session`(없으면 시장 워터마크)까지 그 달력의 모든 세션에 행이 하나(D001). 세션 밖 날짜 행 금지(D002).
 - 가격 검사 V001: `low <= min(open, close)`, `high >= max(open, close)`, `low <= high`(값이 모두 있을 때). 원가격은 가격 격자 위(5.27 격자 규범, V012 W) [v1.2, V31-05]. `volume` 단위는 3.4(V011 W) [v1.2, V31-16]. V002 음수 가격·거래량 금지(지수·스프레드 계약 같은 음수 허용 종목은 `instruments.category`로 예외 선언). V004: `obs_status = traded`면 `close` 필수.
 - 일봉 종가 = 공식 종가(한국 종가 단일가, 미국 공식 종가). 다르면 `x_` 칼럼으로.
+- 일봉은 `KR_close`와 마찬가지로 정규장 종가를 뜻하며, 시간외 거래는 넣지 않는다(명세서 1.2, 4.6).
 - `shares_out`(명세서 4.7)은 봉에서 빼고 `share_counts`로 옮긴다(공개 시각이 가격과 다르기 때문; 12장 D9). 만든 쪽 편의 칼럼 `x_<ns>_shares_out`은 허용.
 - 연속 계약 봉: `instrument_id`가 `is_synthetic = true`인 연속 종목이고 `params.roll_rule`을 밝힌다(5.22).
 
