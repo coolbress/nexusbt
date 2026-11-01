@@ -1,9 +1,15 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version >= '3.15'",
     "python_full_version < '3.15'",
+]
+
+[manifest]
+members = [
+    "nexusbt",
+    "nexusbt-tds",
 ]
 
 [[package]]
@@ -260,6 +266,7 @@ source = { editable = "." }
 [package.dev-dependencies]
 dev = [
     { name = "mypy" },
+    { name = "nexusbt-tds" },
     { name = "pytest" },
     { name = "ruff" },
 ]
@@ -269,9 +276,15 @@ dev = [
 [package.metadata.requires-dev]
 dev = [
     { name = "mypy", specifier = ">=2.4.0" },
+    { name = "nexusbt-tds", editable = "tds" },
     { name = "pytest", specifier = ">=8.3" },
     { name = "ruff", specifier = ">=0.17.3" },
 ]
+
+[[package]]
+name = "nexusbt-tds"
+version = "1.0.0"
+source = { editable = "tds" }
 
 [[package]]
 name = "packaging"

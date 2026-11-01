@@ -9,7 +9,11 @@ license-files = ["LICENSE"]
 authors = [{ name = "coolbress" }]
 # The package ships `py.typed`: a type checker reads its annotations.
 classifiers = ["Typing :: Typed"]
+# `nexusbt-tds>=1.0,<2` (spec 9.1) joins this list with the first module that imports it.
 dependencies = []
+
+[project.scripts]
+nexusbt = "nexusbt.cli.main:main"
 
 # Distribution metadata. Read by `pip show`, GitHub and the dependency graph
 # even when the package is never uploaded.
@@ -24,15 +28,23 @@ build-backend = "hatchling.build"
 [dependency-groups]
 dev = [
     "mypy>=2.4.0",
+    "nexusbt-tds",  # the checker, from this workspace, so `uv run tds` works beside the engine
     "pytest>=8.3",
     "ruff>=0.17.3",
 ]
+
+# Two distributions: the engine, and the checker `nexusbt-tds` under `tds/`, versioned apart (2.3).
+[tool.uv.workspace]
+members = ["tds"]
+
+[tool.uv.sources]
+nexusbt-tds = { workspace = true }
 
 # Linter and formatter. The configuration is committed; CI runs `ruff check`
 # and `ruff format --check` as `ci / lint`.
 [tool.ruff]
 line-length = 100
-src = ["src", "tests"]
+src = ["src", "tds/src", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP", "B", "S", "A", "C4", "PT", "SIM", "RUF"]
@@ -50,7 +62,7 @@ exclude = ["docs/spec/**", "docs/tds/**"]
 [tool.mypy]
 strict = true
 python_version = "3.12"
-files = ["src", "tests"]
+files = ["src", "tds/src", "tests"]
 
 # Tests, `ci / test`.
 [tool.pytest.ini_options]

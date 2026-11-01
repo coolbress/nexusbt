@@ -1,0 +1,18 @@
+[project]
+name = "nexusbt-tds"
+# Versioned apart from the engine: `tds_version` "1.0", package version the matching 1.0.x (2.3).
+version = "1.0.0"
+description = "The TDS data standard's conformance checker: check, hash, manifest, describe, import"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "Apache-2.0"
+authors = [{ name = "coolbress" }]
+classifiers = ["Typing :: Typed"]
+dependencies = []  # pyarrow only (2.3), added with the first module that imports it
+
+[project.scripts]
+tds = "nexusbt_tds.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
