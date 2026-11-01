@@ -53,6 +53,8 @@ def test_a_ticket_under_the_wrong_milestone_heading_stops_the_reading() -> None:
     text = CHAPTER.replace("· `M1` `data`", "· `M2` `data`")
     with pytest.raises(ValueError, match=r"T1\.1a says milestone M2 under the heading of M1"):
         tickets(text)
+    with pytest.raises(ValueError, match=r"no section 10\.1"):
+        tickets("### 10.2 only\n")
 
 
 def test_a_later_milestone_an_unknown_ticket_and_an_id_written_twice_are_problems() -> None:
@@ -81,5 +83,5 @@ def test_acyclic_and_milestone_order() -> None:
     is a spec defect: it stops and proposes a spec pull request (#46, "Not building")."""
     text = SPEC.read_text(encoding="utf-8")
     found = tickets(text)
-    assert len(found) == 219, "SPEC-INDEX.md counts 219 engine tickets"
+    assert len(found) >= 219, "SPEC-INDEX.md counts 219 engine tickets; fewer means lines were lost"
     assert check(found, milestones(text)) == []

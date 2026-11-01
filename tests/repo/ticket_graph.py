@@ -37,9 +37,11 @@ class Ticket:
 def section(text: str) -> list[str]:
     """The lines of 10.1."""
     lines = text.splitlines()
-    start = next(i for i, line in enumerate(lines) if START.match(line))
-    end = next(i for i, line in enumerate(lines) if END.match(line) and i > start)
-    return lines[start:end]
+    start = [i for i, line in enumerate(lines) if START.match(line)]
+    end = [i for i, line in enumerate(lines) if END.match(line) and start and i > start[0]]
+    if not end:
+        raise ValueError("the text has no section 10.1 followed by 10.2")
+    return lines[start[0] : end[0]]
 
 
 def milestones(text: str) -> list[str]:

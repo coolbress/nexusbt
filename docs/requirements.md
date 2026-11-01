@@ -77,7 +77,7 @@ The pull request that implements a ticket moves its rows to `implemented` and ad
 | R-63 | fundamentals_state | 4.6, 5.3.5 | M2 | v1 | planned | T2.2 |
 | R-64 | zipline only as oracle | 2.5, 8.1 | M0 | v1 | planned | T0.2a (#45) |
 | R-65 | plinth loop | chapter 9 | M0 | v1 | planned | T0.1 (#44), T0.10 (#50) |
-| R-66 | TDS as the input contract | chapter 4, 2.3 | M0 | v1 | planned | T0.13a/b (#51, #55), T0.14a~c (#57), T0.15a/b, T1.1a/b |
+| R-66 | TDS as the input contract | chapter 4, 2.3 | M0 | v1 | planned | T0.13a/b (#51, #55), T0.14a~c, T0.15a/b, T1.1a/b |
 | R-67 | announcing fallbacks | 4.5 | M1~M3a | v1 | planned | T0.16a/b, T1.1b, T2.2, T2.3, T2.4, T3.10, T3.11 |
 | R-68 | market names are data, rules are packs | 4.7, 3.11 | M0, M4 | v1 | planned | T0.5a (#53), T1.1a, T4.4, T4.11 |
 | R-69 | public first path (CSV → rerun) | 4.3, 8.5 | M1, M2 | v1 | planned | T1.22, T1.23, T2.17 |
