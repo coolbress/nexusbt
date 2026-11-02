@@ -54,6 +54,9 @@ def test_broken_pack_is_refused(tmp_path: Path) -> None:
         ('mode = "half_up"', 'mode = "up"', "mode"),
         ("unit = 1}", "unit = 0.5}", "unit"),  # a multiple of the minor unit
         ("day_count = 360", "# day_count = 360", "day_count missing"),
+        ('proceeds = {mode = "half_up", unit = 1}', 'proceeds = "half_up"', "proceeds"),
+        ("[dividends]", "[extra]\n[dividends]", "extra"),
+        ('market = "US"', 'market = "ZZ"', "not 'US'"),
         ("[shorting]", "[shorts]", "shorting"),
         ('"ticks/us_tick_table_v1.csv"', '"ticks/none.csv"', "none.csv"),
     ]:
