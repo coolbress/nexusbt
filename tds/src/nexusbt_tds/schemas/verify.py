@@ -5,9 +5,9 @@ A schema file is `tds/schemas/<kind>/1.0.json`: `kind`, `schema_version`, `statu
 `{"name", "type", "null"}` plus `"enum": "closed"|"open"` for a code; `type` is a TDS 3.2 name or
 null where the document does not state one, and `null` is true, false, the document's condition
 text, or null where unstated. A blank document cell in a row whose meaning is a section (`5.17`)
-takes that section's row of the same name (the file marks it `"from"`); any other blank cell
-needs the file's value unstated too. A mismatch is reported, never fixed here: the TDS document
-is changed by its own pull request.
+takes that section's row of the same name (the file notes `"from"`, not checked); any other
+blank cell needs the file's value unstated too. A mismatch is reported, never fixed here: the
+TDS document is changed by its own pull request.
 """
 
 from __future__ import annotations
@@ -86,6 +86,7 @@ def doc_tables(doc: str) -> dict[str, list[Row]]:
     by_section: dict[str, str] = {}
     kind: str | None = None
     rows: list[Row] | None = None
+    section = ""
     for line in _chapter(doc):
         if heading := re.match(r"### (5\.\d+) ", line):
             kind, section = None, heading[1]
@@ -98,7 +99,8 @@ def doc_tables(doc: str) -> dict[str, list[Row]]:
                 continue
             cells = [cell.strip() for cell in line.strip("|").split("|")]
             names = [name.strip() for name in cells[0].split(",")]
-            ref = cells[3] if re.fullmatch(r"5\.\d+", cells[3]) else ""
+            meaning = cells[3] if len(cells) > 3 else ""
+            ref = meaning if re.fullmatch(r"5\.\d+", meaning) else ""
             parts = zip(_spread(cells[1], len(names)), _spread(cells[2], len(names)), strict=True)
             rows.extend((name, *part, ref) for name, part in zip(names, parts, strict=True))
         else:
@@ -108,8 +110,10 @@ def doc_tables(doc: str) -> dict[str, list[Row]]:
     def resolve(row: Row) -> Row:
         name, type_cell, null_cell, ref = row
         source = named_rows.get(by_section.get(ref, ""), {}).get(name)
-        if source is None or (type_cell and null_cell):
+        if not ref or (type_cell and null_cell):
             return name, type_cell, null_cell, ""
+        if source is None:  # the pointer names no table, or no row of this name there
+            return name, type_cell, null_cell, f"{ref}, not found"
         return name, type_cell or source[1], null_cell or source[2], ref
 
     return {k: [resolve(row) for row in rows] for k, rows in tables.items()}
@@ -179,18 +183,15 @@ def file_problems(schemas: dict[str, Schema], status: dict[str, str]) -> list[st
     return out
 
 
-def main() -> int:
+def main(schema_dir: Path = SCHEMA_DIR) -> int:
     doc = DOC.read_text(encoding="utf-8")
-    schemas = load_schemas()
+    schemas = load_schemas(schema_dir)
     for status in ("stable", "experimental"):
         kinds = sorted(k for k, s in schemas.items() if s.status == status)
         print(f"{status}: {', '.join(kinds) or '(none)'}")
     # A table of a kind missing from CHAPTER_5 is not skipped silently either.
-    missing = [kind for kind in {**CHAPTER_5, **doc_tables(doc)} if kind not in schemas]
-    if missing:
-        # The files arrive in three pull requests (#55); until the last, this is said, not failed.
-        print(f"::warning::not yet confirmed: no schema file yet for {', '.join(missing)}")
-    problems = file_problems(schemas, section_status(doc)) + compare(doc, schemas)
+    missing = [f"{k}: no schema file" for k in {**CHAPTER_5, **doc_tables(doc)} if k not in schemas]
+    problems = missing + file_problems(schemas, section_status(doc)) + compare(doc, schemas)
     for line in problems:
         print(line)
     if problems:

@@ -1,0 +1,14 @@
+{
+  "kind": "book_snapshots", "schema_version": "1.0", "status": "experimental", "section": "5.8",
+  "key": ["instrument_id", "ts_event", "side", "level"], "sort": null, "partitions": [],
+  "columns": [
+    {"name": "instrument_id", "type": null, "null": null},
+    {"name": "ts_event", "type": null, "null": null},
+    {"name": "ts_recv", "type": null, "null": null},
+    {"name": "side", "type": null, "null": null},
+    {"name": "level", "type": null, "null": null},
+    {"name": "price", "type": null, "null": null},
+    {"name": "size", "type": null, "null": null},
+    {"name": "order_count", "type": null, "null": null}
+  ]
+}

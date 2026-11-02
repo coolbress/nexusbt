@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import re
+import shutil
+from pathlib import Path
 
 import pytest
 
 from nexusbt_tds.schemas.verify import (
     CHAPTER_5,
+    SCHEMA_DIR,
     Column,
     Schema,
     compare,
@@ -89,6 +92,16 @@ def test_a_blank_cell_takes_the_section_it_points_to_or_stays_blank() -> None:
     ]
 
 
+def test_a_short_row_reads_and_a_pointer_to_nothing_is_named() -> None:
+    doc = "## 5. Kinds\n### 5.1 `x`\n| Column | Type | Null | Meaning |\n|---|\n| a | id | no |\n"
+    doc += "| u | | | 5.99 |\n## 6. Next\n"
+    a, u = Column("a", "id", False), Column("u", "code", False)
+    assert compare(doc, {"x": Schema("x", "stable", (a, u))}) == [
+        "x: column u: doc type `` (5.99, not found), schema `code`",
+        "x: column u: doc null `` (5.99, not found), schema `no`",
+    ]
+
+
 def test_a_table_the_parser_cannot_place_is_a_mismatch() -> None:
     header = "| Column | Type | Null | Meaning |"
     doc = SAMPLE_DOC.replace(header, f"{header} Checks |", 1)
@@ -99,8 +112,29 @@ def test_doc_tables_match_schema_files() -> None:
     doc = TDS_DOC.read_text(encoding="utf-8")
     schemas = load_schemas()
     assert compare(doc, schemas) == []
-    # Tables were compared, not skipped: only the experimental tables wait for a file (#55).
-    assert doc_tables(doc).keys() - schemas.keys() == {"trades", "book_deltas"}
+    # Tables were compared, not skipped: every chapter 5 table has its file.
+    assert doc_tables(doc).keys() - schemas.keys() == set()
+
+
+def test_experimental_schemas_flagged() -> None:
+    status = section_status(TDS_DOC.read_text(encoding="utf-8"))
+    experimental = sorted(kind for kind, n in CHAPTER_5.items() if status[n] == "experimental")
+    assert experimental == [  # 5.6-5.9 and 5.22-5.24, whose headings say experimental
+        "book_deltas", "book_snapshots", "funding_rates", "market_statistics",
+        "option_chain_snapshots", "quotes", "reference_prices", "roll_calendar", "trades",
+    ]  # fmt: skip
+    schemas = load_schemas()
+    flagged = {k for k, s in schemas.items() if s.status == "experimental"}
+    assert [k for k in experimental if k not in flagged] == []
+
+
+def test_a_kind_without_a_file_fails_verify(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    shutil.copytree(SCHEMA_DIR, tmp_path, dirs_exist_ok=True)
+    shutil.rmtree(tmp_path / "quotes")
+    assert main(tmp_path) == 1
+    assert "quotes: no schema file" in capsys.readouterr().out.splitlines()
 
 
 def test_schema_files_cover_stable_datasets() -> None:
@@ -142,5 +176,8 @@ def test_verify_prints_the_lists_and_the_match(capsys: pytest.CaptureFixture[str
         " label_panels, market_rules, rates, series_observations, share_counts, tradability_daily,"
         " trading_status_events, universe_membership"
     )
-    assert out[1].startswith("experimental:")
-    assert out[-1] == "doc tables match schema files"
+    assert out[1] == (
+        "experimental: book_deltas, book_snapshots, funding_rates, market_statistics,"
+        " option_chain_snapshots, quotes, reference_prices, roll_calendar, trades"
+    )
+    assert out[2:] == ["doc tables match schema files"]
