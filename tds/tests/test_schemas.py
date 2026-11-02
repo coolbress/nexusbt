@@ -113,6 +113,12 @@ def test_a_status_other_than_its_sections_is_a_problem() -> None:
 def test_verify_prints_the_lists_and_the_match(capsys: pytest.CaptureFixture[str]) -> None:
     assert main() == 0
     out = capsys.readouterr().out.splitlines()
-    assert out[0].startswith("stable: bars, calendar_segments, calendar_sessions, classifications,")
+    assert out[0] == (
+        "stable: bars, calendar_segments, calendar_sessions, classifications, corporate_actions,"
+        " delistings, eligibility_daily, events, feature_panels, fundamentals_events,"
+        " fundamentals_state, fx_rates, instrument_symbols, instrument_xref, instruments,"
+        " label_panels, market_rules, rates, series_observations, share_counts, tradability_daily,"
+        " trading_status_events, universe_membership"
+    )
     assert out[1].startswith("experimental:")
     assert out[-1] == "doc tables match schema files"
