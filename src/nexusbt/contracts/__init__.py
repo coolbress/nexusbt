@@ -532,7 +532,7 @@ class SnapshotError(NexusBTError, code="E14"):
 _EXAMPLES: dict[str, tuple[str, str, str, str, str, str, str]] = {
     "E1": ("strategy.py:8", "mom", "The value on 2020-03-02 changed when data after 2020-03-02 was removed", "term mom, instrument X1, 2020-03-02", "the term reads the future, so a backtest of it is not possible in real time", "use .shift(k) with k ≥ 1, nx.ops.rolling(...), or window style", "nx.explain(strategy, 'X1', '2020-03-02'); spec 6.5 truncation probe"),  # noqa: E501
     "E2": ("strategy.py:9", "Label.ret_1m", "Label.ret_1m is a forward-looking label", "the signal of Strategy 'value'", "a label is known only after the decision, so it cannot drive one", "remove it from the signal; test it with nx.evaluate(f, target=Label.ret_1m)", "spec 5.3.11 (label ports)"),  # noqa: E501
-    "E3": ("strategy.py:4", "earnings", "dataset 'earnings' has no known_on column", "file data/earnings.parquet", "without the time a row became known, it could be read before it existed", "from_parquet(path, key=[...], known_on='published_at') or known_on='date' (recorded as an assumption)", "nx.describe(earnings); tds check snap --level full"),  # noqa: E501
+    "E3": ("strategy.py:4", "earnings", "dataset 'earnings' has no known_on column", "file data/earnings.parquet", "without the time a row became known, it could be read before it existed", "from_parquet(path, key=[...], known_on='published_at') or known_on='date' (recorded as an assumption)", "nx.describe(earnings)"),  # noqa: E501
     "E4": ("", "universe", "a fixed list of 40 securities is used from 2000-01-03 to 2024-12-30; 0 delisted included", "Strategy 'value', universe", "a list of names alive today hides the ones that failed", "nx.universe('KR') & ... .top(n) or index_members('KOSPI200'); keep with survivorship_ok='reason'", "spec 6.6 E4"),  # noqa: E501
     "E5": ("strategy.py:11", "market_cap", "market_cap is in local currency (KRW for KR, USD for US)", "rank across markets KR, US", "numbers in two currencies are not comparable", "remove across_markets=True, .to('USD'), or use a ratio", "nx.describe(Price.market_cap)"),  # noqa: E501
     "E6": ("", "screen", "the screen keeps 120 of 2400 names on 2020-03-02 (5%)", "NaN counts: Fund.roe 2100, Price.close 180", "most of the universe is missing, so results describe a few names", "accept (coverage table recorded), edition='compare', or start=...", "nx.check(strategy); tds check snap --level full"),  # noqa: E501
@@ -576,22 +576,22 @@ _EXAMPLES: dict[str, tuple[str, str, str, str, str, str, str]] = {
     "E44": ("", "ml", "fits used 4 threads; rerun compares predictions with tolerance 1e-9", "[ml] threads", "parallel fits may differ in the last bits", "[ml] threads = 1 for bit-identical reruns", "spec 5.3.11"),  # noqa: E501
     "E45": ("", "classifications", "skipped 1 dataset for reason optional_data_unread", "dataset classifications", "work the run planned was not done", "see the reason code in skips.toml", "spec 6.6 (no silent failure); tds check snap --level full"),  # noqa: E501
     "E46": ("", "run r1", "this is a NexusBT bug, not your code or data", "run r1", "an engine invariant does not hold", "please report: nexusbt bugreport r1", "spec 6.6 E46"),  # noqa: E501
-    "E47": ("", "my_earnings", "events need a ts_event column, a known_on column and one of instrument_id/issuer_id/series_id; 'ts_event' is missing in data/earnings.parquet", "file data/earnings.parquet", "an event without its time cannot be placed on the timeline", "nx.dataset.from_parquet(path, shape='events', ts_event='announced_at', known_on='published_at', rename={'ticker_id': 'instrument_id'}, name='my_earnings')", "spec 3.2 (from_parquet); tds check snap --level full"),  # noqa: E501
+    "E47": ("", "my_earnings", "events need a ts_event column, a known_on column and one of instrument_id/issuer_id/series_id; 'ts_event' is missing in data/earnings.parquet", "file data/earnings.parquet", "an event without its time cannot be placed on the timeline", "nx.dataset.from_parquet(path, shape='events', ts_event='announced_at', known_on='published_at', rename={'ticker_id': 'instrument_id'}, name='my_earnings')", "spec 3.2 (from_parquet)"),  # noqa: E501
     "E48": ("strategy.py:25", "model", "model m1 was trained on data up to 2021-12-30; decision 2021-06-30 is before it", "ml.pretrained model m1", "the model has seen the period it would decide on", "start after 2022-01-14, or nx.ml.pretrained(..., allow_overlap=True) to mark instead of fail", "spec 5.3.11"),  # noqa: E501
     "E49": ("strategy.py:25", "model", "6 decisions use a pretrained model that saw their period", "ml.pretrained model m1", "results on those decisions are optimistic", "read the marked rows before trusting the result", "spec 5.3.11"),  # noqa: E501
 }
 
 
-def _data(dataset: str, column: str, producer: str = "synthetic") -> str:
-    return f"snapshot s1 / {dataset} / column {column} / producer {producer}"
+def _data(dataset: str, column: str) -> str:
+    return f"snapshot s1 / {dataset} / column {column} / producer synthetic"
 
 
 _BUG = "please report: nexusbt bugreport r1"
-_FILE = "from_parquet('data/earnings.parquet')"
+_FILE = "file data/earnings.parquet"  # a user's own file (E3, E47): #52 Decisions 2026-11-02
 #: Code → the example's `layer` line, the layer of `tests/errors/layers.toml` with its 6.6 tail.
 _EXAMPLE_LAYERS: dict[str, str] = {
     "E1": "your code — strategy.py:8 in mom", "E2": "your code — strategy.py:9 in value",
-    "E3": f"data — {_data('earnings', 'known_on', _FILE)}",
+    "E3": f"data — {_FILE} / earnings / column known_on",
     "E4": "your code — strategy.py:5 in value", "E5": "your code — strategy.py:11 in value",
     "E6": f"data — {_data('fundamentals_state', 'value')}",
     "E7": "your code — strategy.py:12 in value", "E8": "your code — strategy.py:14 in mom",
@@ -626,7 +626,7 @@ _EXAMPLE_LAYERS: dict[str, str] = {
     "E42": "config — argument ledger=None",
     "E43": f"data — {_data('bars', 'close')}", "E44": "config — nexusbt.toml [ml] threads = 4",
     "E45": f"data — {_data('classifications', 'code')}", "E46": f"engine bug — {_BUG}",
-    "E47": f"data — {_data('my_earnings', 'ts_event', _FILE)}",
+    "E47": f"data — {_FILE} / my_earnings / column ts_event",
     "E48": "your code — strategy.py:25 in model", "E49": "your code — strategy.py:25 in model",
 }
 # fmt: on

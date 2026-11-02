@@ -42,7 +42,8 @@ CASES = [CLASSES[code].example() for code in CODES] + EXTRA
 #: The tail each layer carries (6.6 "Layer line").
 TAILS = {
     "data": r"snapshot \S+ / \S+ / column \S+ / producer .+"
-    r"|run \S+ / series \S+ / T = \d+ \(needs \d+\)",
+    r"|run \S+ / series \S+ / T = \d+ \(needs \d+\)"  # E21's second form
+    r"|file \S+ / \S+ / column \S+",  # a user's own file: #52 Decisions 2026-11-02
     "your code": r"\S+:\d+ in \w+( \(\w+ slot\))?",
     "config": r"nexusbt\.toml \[[\w.]+\] \w+ = .+|argument \w+=.+",
     "engine bug": r"please report: nexusbt bugreport \S+",
