@@ -1,0 +1,20 @@
+{
+  "kind": "book_deltas", "schema_version": "1.0", "status": "experimental", "section": "5.8",
+  "key": null, "sort": ["instrument_id", "ts_event", "sequence"], "partitions": ["venue=/date="],
+  "columns": [
+    {"name": "instrument_id", "type": null, "null": false},
+    {"name": "session_date", "type": null, "null": false},
+    {"name": "ts_event", "type": "ts_ns", "null": false},
+    {"name": "ts_recv", "type": "ts_ns", "null": true},
+    {"name": "sequence", "type": "i64", "null": false},
+    {"name": "action", "type": "code", "enum": "closed", "null": false},
+    {"name": "side", "type": "code", "null": false},
+    {"name": "price", "type": "fixed", "null": true},
+    {"name": "size", "type": "fixed", "null": true},
+    {"name": "order_id", "type": "i64", "null": true},
+    {"name": "level", "type": "i16", "null": true},
+    {"name": "is_snapshot", "type": "bool", "null": false},
+    {"name": "is_last", "type": "bool", "null": false},
+    {"name": "flags", "type": "i32", "null": true}
+  ]
+}

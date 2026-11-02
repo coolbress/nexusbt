@@ -1,0 +1,13 @@
+{
+  "kind": "funding_rates", "schema_version": "1.0", "status": "experimental", "section": "5.24",
+  "key": ["instrument_id", "ts_event"], "sort": null, "partitions": [],
+  "columns": [
+    {"name": "instrument_id", "type": null, "null": null},
+    {"name": "ts_event", "type": null, "null": null},
+    {"name": "rate", "type": "f64", "null": null},
+    {"name": "interval_hours", "type": "f64", "null": null},
+    {"name": "is_predicted", "type": "bool", "null": null},
+    {"name": "ts_available", "type": null, "null": null},
+    {"name": "source", "type": null, "null": null}
+  ]
+}

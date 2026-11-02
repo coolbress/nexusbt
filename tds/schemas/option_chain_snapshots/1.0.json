@@ -1,0 +1,27 @@
+{
+  "kind": "option_chain_snapshots", "schema_version": "1.0", "status": "experimental", "section": "5.23",
+  "key": ["instrument_id", "ts_snapshot"], "sort": null, "partitions": ["underlying=/date="],
+  "columns": [
+    {"name": "instrument_id", "type": null, "null": null},
+    {"name": "underlying_instrument_id", "type": null, "null": null},
+    {"name": "session_date", "type": null, "null": null},
+    {"name": "ts_snapshot", "type": "ts_us", "null": null},
+    {"name": "ts_available", "type": null, "null": null},
+    {"name": "bid", "type": null, "null": null},
+    {"name": "ask", "type": null, "null": null},
+    {"name": "bid_size", "type": null, "null": null},
+    {"name": "ask_size", "type": null, "null": null},
+    {"name": "last", "type": null, "null": null},
+    {"name": "volume", "type": null, "null": null},
+    {"name": "open_interest", "type": null, "null": null},
+    {"name": "underlying_price", "type": null, "null": null},
+    {"name": "underlying_price_kind", "type": null, "null": null},
+    {"name": "iv_vendor", "type": null, "null": null},
+    {"name": "delta_vendor", "type": null, "null": null},
+    {"name": "gamma_vendor", "type": null, "null": null},
+    {"name": "vega_vendor", "type": null, "null": null},
+    {"name": "theta_vendor", "type": null, "null": null},
+    {"name": "rho_vendor", "type": null, "null": null},
+    {"name": "greeks_model", "type": null, "null": null}
+  ]
+}
