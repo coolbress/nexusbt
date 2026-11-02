@@ -197,23 +197,55 @@ def _net(v: Any, m: tuple[str, ...]) -> Any:
 
 
 def _fx_series(v: Any, m: tuple[str, ...]) -> Any:
-    return named(STR)(v, m) if isinstance(v, dict) else STR(v, m)
+    # "<BASE><QUOTE>": 3.11 gives the form only; two currency codes is the rule chosen (#94)
+    return named(STR, match("[A-Z]{6}"))(v, m) if isinstance(v, dict) else STR(v, m)
 
 
-STR, BOOL = is_(str), is_(bool)
-CCY, DATE = match("[A-Z]{3}"), match(r"\d{4}-\d\d-\d\d|latest|start")
+def _date(v: Any, m: tuple[str, ...]) -> Any:
+    match(r"\d{4}-\d\d-\d\d|latest|start")(v, m)
+    try:
+        return v if v in ("latest", "start") else date.fromisoformat(v).isoformat()
+    except ValueError:
+        raise _RejectedError(
+            "not a calendar date", "write a real YYYY-MM-DD", ConfigError
+        ) from None
+
+
+def whole(table: Check, *keys: str) -> Check:  # a table that writes every one of `keys`
+    def check(v: Any, m: tuple[str, ...]) -> Any:
+        if missing := [k for k in keys if k not in (got := table(v, m))]:
+            what, fix = f"has no {', '.join(missing)}", f"write {{{', '.join(keys)}}}"
+            raise _RejectedError(what, fix, ConfigError)
+        return got
+
+    return check
+
+
+NAME = "[A-Za-z0-9_-]+"  # 3.11 [project] name; also the [meta] scheme (a rule chosen in #94)
+STR, BOOL, CCY, DATE = is_(str), is_(bool), match("[A-Z]{3}"), _date
+META = rule(  # "<scheme>@<level>": 3.11 gives the form; a level of digits is the rule chosen (#94)
+    lambda v: isinstance(v, str) and re.fullmatch(rf"auto|{NAME}(@\d+)?", v) is not None,
+    'not "auto" or a scheme', 'write "auto", <scheme> or <scheme>@<level>'
+)  # fmt: skip
 POS, COUNT, UNIT, ANY = num(1, int_=True), num(0, int_=True), num(0, 1, gt=True), num()
-BPS, GE0, PER_STR = num(0, 2000), num(0), per_market(STR, scalar=True)
+BPS, GE0, PER_META = num(0, 2000), num(0), per_market(META, scalar=True)
 ROUNDING = named(fields(mode=choice(RoundingModePolicy), unit=num(0, gt=True)))
-GROUP = fields(markets=list_of(_market), gains_rate=num(0, 0.6), annual_exemption=COUNT,
-               basis=choice(TaxesBasisPolicy))  # fmt: skip
+_GROUP = fields(markets=list_of(_market), gains_rate=num(0, 0.6), annual_exemption=COUNT,
+                basis=choice(TaxesBasisPolicy))  # fmt: skip
+_UNWRITTEN = {"gains_rate": 0.0, "annual_exemption": 0, "basis": TaxesBasisPolicy.AVERAGE}  # 3.11
+
+
+def _group(v: Any, m: tuple[str, ...]) -> Any:
+    return {**_UNWRITTEN, **_GROUP(v, m)}
+
+
 SEGMENTS = named(list_of(DATE), match("[a-z0-9_]+"))
 SPLIT = {"train": ["start", "2021-12-31"], "validation": ["2022-01-01", "latest"]}
 
 # 3.11, table by table: key → (default, check). A "*" key is any market name.
 # fmt: off
 SCHEMA: dict[str, dict[str, tuple[Any, Check]]] = {
-    "project": {"name": (None, match("[A-Za-z0-9_-]+"))},
+    "project": {"name": (None, match(NAME))},
     "data": {
         "root": (None, STR), "snapshot": ("latest", STR), "path": (None, STR),
         "edition": policy(EditionPolicy.STRICT), "verify": policy(VerifyPolicy.MANIFEST),
@@ -267,7 +299,8 @@ SCHEMA: dict[str, dict[str, tuple[Any, Check]]] = {
     "costs": {
         "profile": policy(CostProfilePolicy.PROVISIONAL), "table": ("default", STR),
         "sensitivity": ([0, 1, 2], list_of(ANY)), "provisional_table": (None, STR),
-        "provisional_bps": (PACK, per_market(fields(buy=GE0, sell=GE0))), "impact_y": (0.5, GE0),
+        "provisional_bps": (PACK, per_market(whole(fields(buy=GE0, sell=GE0), "buy", "sell"))),
+        "impact_y": (0.5, GE0),
         "impact_a2": (0.5, num(0, 2, gt=True)), "impact_a3": (1.0, num(0, 2, gt=True)),
         "min_half_spread_bps": (PACK, per_market(GE0)), "max_half_spread_bps": (200, GE0),
     },
@@ -290,7 +323,7 @@ SCHEMA: dict[str, dict[str, tuple[Any, Check]]] = {
     "taxes": {
         "profile": policy(TaxesProfilePolicy.NONE), "currency": (None, CCY),
         "pay": policy(TaxesPayPolicy.REPORT),
-        "pay_month": (5, num(1, 12, int_=True)), "groups": ({}, named(GROUP)),
+        "pay_month": (5, num(1, 12, int_=True)), "groups": ({}, named(_group)),
     },
     "fx": {"max_stale_days_decision": (10, COUNT), "max_stale_days_valuation": (10, COUNT),
            "series": ("auto", _fx_series)},
@@ -301,7 +334,7 @@ SCHEMA: dict[str, dict[str, tuple[Any, Check]]] = {
         "label_entry": policy(LabelEntryPolicy.NEXT_OPEN),
         "target": policy(EvaluateTargetPolicy.FWD_RETURN),
     },
-    "meta": {"sector": ("auto", PER_STR), "industry": ("auto", PER_STR)},
+    "meta": {"sector": ("auto", PER_META), "industry": ("auto", PER_META)},
     "gates": {"ic_t": (3.0, ANY), "dsr": (0.95, ANY)},
     "checks": {
         "auto_truncation_probe": (True, BOOL), "probes": (4, num(0, 64, int_=True)),
@@ -416,17 +449,54 @@ def _sleeves(values: dict[str, dict[str, Any]], m: tuple[str, ...]) -> dict[str,
     return {k: w / total for k, w in kept.items()}  # markets outside the universe: rescaled
 
 
+_ENDS = {"start": "0000-01-01", "latest": "9999-12-31"}  # from the beginning, to the end
+
+
 def _segments(values: dict[str, dict[str, Any]]) -> None:
-    named = {"start": "0000-01-01", "latest": "9999-12-31"}  # from the beginning, to the end
     last = ""
     for name, bounds in values["split"]["segments"].items():
-        first, end = (named.get(d, d) for d in bounds) if len(bounds) == 2 else ("", "")
+        first, end = (_ENDS.get(d, d) for d in bounds) if len(bounds) == 2 else ("", "")
         if not last < first <= end:
             what = f"[split] segments: {name} = {bounds} overlaps, is out of order or is not [s, e]"
             fix = "give each segment [start, end], in time order, without overlap"
             why = "a decision belongs to one segment (R-57)"
             _raise(what, "[split] segments", fix, why, value=values["split"]["segments"])
         last = end
+
+
+def _ties(values: dict[str, dict[str, Any]]) -> None:
+    """The 3.11 Validation cells that name another key."""
+    d, split, costs, account = (values[t] for t in ("defaults", "split", "costs", "account"))
+    start, end = (_ENDS.get(d[k], d[k]) for k in ("start", "end"))
+    adv, obs = values["execution"]["adv_window"], values["execution"]["adv_min_obs"]
+    im, mm = account["initial_margin"], account["maintenance_margin"]
+    segment, spread = split["default_segment"], costs["max_half_spread_bps"]
+    both = isinstance(im, dict) and isinstance(mm, dict)  # a pack's default: not compared here
+    over = [k for k, v in mm.items() if k in im and v > im[k]] if both else []
+    mins = costs["min_half_spread_bps"]
+    low = max(mins.values(), default=0) if isinstance(mins, dict) else 0  # a pack's: unwritten
+    names, groups = [*split["segments"], "all"], values["taxes"]["groups"]
+    seen = [x for g in groups.values() for x in set(g.get("markets", []))]  # per group, once
+    twice = sorted({x for x in seen if seen.count(x) > 1})
+    for key, value, ok, what, fix in (
+        ("[taxes] groups", groups, not twice, f"put {', '.join(twice)} in two groups",
+         "a market belongs to one group only"),
+        ("[defaults] end", d["end"], end >= start, f"is before [defaults] start = {d['start']!r}",
+         "use a date on or after start"),
+        ("[split] default_segment", segment, segment in names, "is not a name of [split] segments",
+         f"use one of {', '.join(map(repr, names))}"),
+        ("[costs] sensitivity", costs["sensitivity"], 1 in costs["sensitivity"],
+         "does not contain 1", "add 1, the cost table as written"),
+        ("[execution] adv_min_obs", obs, obs <= adv, f"is more than [execution] adv_window = {adv}",
+         f"use 1..{adv}"),
+        ("[account] maintenance_margin", mm, not over,
+         f"is above initial_margin in {', '.join(over)}", "use (0, initial_margin] in each market"),
+        ("[costs] max_half_spread_bps", spread, spread >= low,
+         f"is below [costs] min_half_spread_bps = {mins!r}", f"use {low:g} or more"),
+    ):  # fmt: skip
+        if not ok:
+            why = "spec 3.11 limits it"
+            _raise(f"{key} = {value!r} {what}", key, fix, why, value=value)
 
 
 def _iso(value: Any) -> Any:
@@ -500,6 +570,7 @@ def load_config(
         fix, why = 'set type = "margin" or remove them', "3.11 [account] type"
         _raise(what, "[account]", fix, why, value="cash", at="[account] type")
     _segments(values)
+    _ties(values)
     d = values["defaults"]
     if d["clock"] is None and m:
         d["clock"] = f"{m[0]}_close"  # the first market by UTF-8 bytes (5.1.3, R3-18)
@@ -512,6 +583,10 @@ def load_config(
         )
     values["data"]["root"] = _data_root(values["data"]["root"], values["data"]["path"])
     folder = (path.resolve().parent if path else Path.cwd()).name
+    if not values["project"]["name"] and not re.fullmatch(NAME, folder):  # the default, checked
+        what = f"[project] name defaults to the folder name {folder!r}, outside {NAME}"
+        fix = "set [project] name in nexusbt.toml"
+        _raise(what, "[project] name", fix, "spec 3.11 limits it", value=folder)
     values["project"]["name"] = values["project"]["name"] or folder
     resolved = {"clock": d["clock"], "base_ccy": d["base_ccy"], "sleeves": _sleeves(values, m)}
     return Config(values, m, resolved)
