@@ -1,0 +1,19 @@
+{
+  "kind": "trades", "schema_version": "1.0", "status": "experimental", "section": "5.6",
+  "key": ["instrument_id", "ts_event", "sequence", "trade_id"], "sort": ["instrument_id", "ts_event", "sequence"], "partitions": ["venue=/date="],
+  "columns": [
+    {"name": "instrument_id", "type": "id", "null": false},
+    {"name": "session_date", "type": "date", "null": false},
+    {"name": "ts_event", "type": "ts_ns", "null": false},
+    {"name": "ts_recv", "type": "ts_ns", "null": true},
+    {"name": "sequence", "type": "i64", "null": false},
+    {"name": "price", "type": "fixed", "null": false},
+    {"name": "size", "type": "fixed", "null": false},
+    {"name": "aggressor_side", "type": "code", "null": false},
+    {"name": "trade_id", "type": "string", "null": true},
+    {"name": "venue_mic", "type": "code", "null": true},
+    {"name": "conditions", "type": "list<code>", "null": true},
+    {"name": "action", "type": "code", "null": false},
+    {"name": "flags", "type": "i32", "null": true}
+  ]
+}
