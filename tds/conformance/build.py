@@ -54,20 +54,39 @@ def bars(m: dict[str, Any]) -> dict[str, Any]:
     return dataset
 
 
-def _set(key: str, value: Any) -> Change:
-    """Set a top-level field of tds.json."""
+def _set(key: str, value: Any, *, in_bars: bool = False) -> Change:
+    """Set a top-level field of tds.json, or with `in_bars` a field of the bars dataset."""
 
     def change(m: dict[str, Any], files: Files) -> None:
-        m[key] = value
+        (bars(m) if in_bars else m)[key] = value
 
     return change
 
 
-#: Code → (pass change, fail change); a pass change of `None` keeps the base package.
+def _move_bars(path: str) -> Change:
+    """List the bars file at `path`; the file moves with it unless `path` leaves the package."""
+
+    def change(m: dict[str, Any], files: Files) -> None:
+        bars(m)["files"][0]["path"] = path
+        content = files.pop(BARS)
+        if not path.startswith(("/", "..")):
+            files[path] = content
+
+    return change
+
+
+def _keep(m: dict[str, Any], files: Files) -> None:
+    """The base package, unchanged."""
+
+
+#: Code → (pass change, fail change). M005 and M011 are warnings: their fail package warns.
 CASES: dict[str, tuple[Change, Change]] = {
-    "TDS-M001": (lambda m, f: None, lambda m, f: m.clear()),  # `[]` is written, see write()
+    "TDS-M001": (_keep, lambda m, f: m.clear()),  # `[]` is written, see write()
     "TDS-M002": (_set("tds_version", "1.4"), _set("tds_version", "2.0")),
-    "TDS-M003": (lambda m, f: None, lambda m, f: m.pop("snapshot_id")),
+    "TDS-M003": (_keep, lambda m, f: m.pop("snapshot_id")),
+    "TDS-M004": (_keep, lambda m, f: f.pop(BARS)),
+    "TDS-M005": (_keep, lambda m, f: f.update({"notes.txt": b"not listed\n"})),
+    "TDS-M006": (_keep, lambda m, f: f.update({BARS: f[BARS] + b"!"})),
     "TDS-M007": (
         _set("profiles", ["tds:minimal-daily"]),
         _set("profiles", ["tds:no-such-profile@1.0"]),
@@ -75,6 +94,21 @@ CASES: dict[str, tuple[Change, Change]] = {
     "TDS-M008": (
         _set("profiles", ["tds:minimal-daily@1.0", "tds:fx@1.0"]),
         _set("profiles", ["tds:minimal-daily@1.0", "tds:alt-events@1.0"]),
+    ),
+    "TDS-M009": (
+        _set("schema_version", "1.0", in_bars=True),
+        _set("schema_version", "2.0", in_bars=True),
+    ),
+    "TDS-M010": (_keep, _move_bars(BARS.replace("market=US", "market=ZZ"))),
+    "TDS-M011": (
+        _set("schema_version", "1.0", in_bars=True),
+        _set("schema_version", "1.9", in_bars=True),
+    ),
+    "TDS-M012": (_move_bars(BARS.replace("year=", "./year=")), _move_bars("../outside.parquet")),
+    "TDS-M013": (_keep, lambda m, f: bars(m)["files"].append(dict(bars(m)["files"][0]))),
+    "TDS-M014": (
+        _set("availability", {"rule": "ts_end+PT15M"}, in_bars=True),
+        _set("availability", {"rule": "ts_end_when_ready"}, in_bars=True),
     ),
 }
 

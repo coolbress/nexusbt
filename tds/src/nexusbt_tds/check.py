@@ -1,6 +1,6 @@
 """`check(path, *, level, ...) -> CheckResult`: the levels manifest, schema and full (TDS 8.2).
 
-The `manifest` level reads `tds.json` (M001~M003, M007, M008 so far; #51 adds the rest). It
+The `manifest` level reads `tds.json` and file sizes (M001~M014). It
 never reports a profile as `pass`: the rules it cannot see are listed in `unchecked`, and the
 profile is `not_checked`.
 """
@@ -8,13 +8,14 @@ profile is `not_checked`.
 from __future__ import annotations
 
 import json
+import os
 import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import asdict, dataclass, field, replace
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Literal
 
-from .manifest import Manifest, ManifestError, read_manifest
+from .manifest import MANIFEST, Manifest, ManifestError, read_manifest
 from .profiles import PROFILES, profile_id
 
 Level = Literal["manifest", "schema", "full"]
@@ -33,11 +34,21 @@ UNCHECKED_AT_MANIFEST = tuple(f"TDS-{c}" for c in _ROW_CODES.split())
 REQUIRED: tuple[str, ...] = ("tds_version", "name", "created", "snapshot_id", "producer")
 REQUIRED += ("profiles", "id_namespaces", "markets", "datasets", "hashes", "writer")
 #: 4.2 lists more fields without saying which are required; until #79 decides, the ones the
-#: manifest-level checks need (#51, Decisions 2026-11-02).
+#: manifest-level checks need (#51, Decisions 2026-11-02). A file needs `path` and `bytes`.
 DATASET_REQUIRED = ("name", "kind", "schema_version", "path", "files")
-FILE_REQUIRED = ("path", "bytes")
 _OBJECTS = ("producer", "id_namespaces", "markets", "hashes", "writer")
+HASH_SPECS = frozenset({"tds-hash-1"})  # 4.5
 SUPPORTED_MAJOR = 1  # 10.3
+#: The newest dataset `schema_version` MINOR this checker knows; per kind with T0.13b's files.
+KNOWN_MINOR = 0
+
+# TDS 6.2: the availability rule names. An unknown one is M014, never ignored.
+_DUR = r"P(?=\d|T\d)(\d+Y)?(\d+M)?(\d+W)?(\d+D)?(T(?=\d)(\d+H)?(\d+M)?(\d+(\.\d+)?S)?)?"
+_COL = r"[a-z_][a-z0-9_]*"
+RULE = re.compile(
+    rf"column|ts_end|ts_end\+{_DUR}|session_open|session_close|next_session_open(\({_COL}\))?"
+    rf"|ts_recv|ts_recv\+{_DUR}|ts_recv_else\({_COL}\+{_DUR}\)"
+)
 _VERSION = re.compile(r"(\d+)\.(\d+)")
 _PROFILE = re.compile(r"tds:[a-z0-9-]+@\d+\.\d+")
 
@@ -145,22 +156,88 @@ def _check_manifest(m: Manifest, only: Sequence[str] | None) -> Iterable[Finding
     if "tds_version" in data and _major(data["tds_version"]) != SUPPORTED_MAJOR:
         msg = f"tds_version {data['tds_version']!r} is not supported (MAJOR {SUPPORTED_MAJOR})"
         yield Finding("TDS-M002", "error", msg)
+    hashes = data.get("hashes")
+    spec = hashes.get("hash_spec") if isinstance(hashes, dict) else None
+    if spec is not None and not (isinstance(spec, str) and spec in HASH_SPECS):
+        yield Finding("TDS-M014", "error", f"unknown hash_spec {spec!r}")
+    markets, editions = data.get("markets"), data.get("editions")
+    values = editions.get("values") if isinstance(editions, dict) else None
+    declared: dict[str, set[str]] = {
+        "market": set(markets) if isinstance(markets, dict) else set(),
+        "edition": set(values) if isinstance(values, dict) else set(),
+    }
+
+    root = m.root.resolve()
+    listed: set[str] = set()
     for ds in m.datasets:
         name = ds["name"] if isinstance(ds.get("name"), str) else None
-        if only is None or name in only:
-            yield from _check_dataset(ds, name)
+        if only is not None and name not in only:
+            continue
+        coverage = ds.get("coverage")
+        by_market = coverage.get("by_market") if isinstance(coverage, dict) else None
+        for market in sorted(by_market) if isinstance(by_market, dict) else []:
+            if market not in declared["market"]:
+                msg = f"coverage.by_market names market {market!r}, not declared in tds.json"
+                yield Finding("TDS-M010", "error", msg, dataset=name)
+        yield from _check_dataset(root, ds, name, listed, declared)
+    if only is None:
+        for rel in _walk(root):
+            if rel not in listed and rel != MANIFEST:
+                yield Finding("TDS-M005", "warning", "file is not listed in tds.json", file=rel)
 
 
-def _check_dataset(ds: Mapping[str, Any], name: str | None) -> Iterable[Finding]:
+def _check_dataset(
+    root: Path,
+    ds: Mapping[str, Any],
+    name: str | None,
+    listed: set[str],
+    declared: Mapping[str, set[str]],
+) -> Iterable[Finding]:
     for key in DATASET_REQUIRED:
         if key not in ds:
             yield Finding("TDS-M003", "error", f"dataset field {key!r} is missing", dataset=name)
+    if "schema_version" in ds:
+        version = _VERSION.fullmatch(str(ds["schema_version"]))
+        if version is None or int(version[1]) != SUPPORTED_MAJOR:
+            msg = f"schema_version {ds['schema_version']!r} is not supported"
+            yield Finding("TDS-M009", "error", msg, dataset=name)
+        elif int(version[2]) > KNOWN_MINOR:
+            msg = f"schema_version {ds['schema_version']} is newer than this checker"
+            yield Finding("TDS-M011", "warning", msg, dataset=name)
+    for rule in _rules(ds):
+        if not isinstance(rule, str) or not RULE.fullmatch(rule):
+            yield Finding("TDS-M014", "error", f"unknown availability rule {rule!r}", dataset=name)
+    if isinstance(ds.get("path"), str) and (why := _unsafe(root, ds["path"])):
+        yield Finding("TDS-M012", "error", f"dataset path {why}", dataset=name, file=ds["path"])
     files = ds.get("files")
     for entry in files if isinstance(files, list) else []:
-        for key in FILE_REQUIRED:
-            if not isinstance(entry, dict) or key not in entry:
-                msg = f"a files[] entry has no {key!r}"
-                yield Finding("TDS-M003", "error", msg, dataset=name)
+        rel = entry.get("path") if isinstance(entry, dict) else None
+        if not isinstance(rel, str):
+            yield Finding("TDS-M003", "error", "a files[] entry has no 'path'", dataset=name)
+            continue
+        if why := _unsafe(root, rel):
+            yield Finding("TDS-M012", "error", f"file path {why}; not read", dataset=name, file=rel)
+            continue
+        norm = str(PurePosixPath(rel))
+        if norm in listed:
+            yield Finding("TDS-M013", "error", "file path listed twice", dataset=name, file=rel)
+            continue
+        listed.add(norm)
+        for part in PurePosixPath(norm).parts[:-1]:
+            column, eq, value = part.partition("=")
+            if eq and column in declared and value not in declared[column]:
+                msg = f"{column} {value!r} is not declared in tds.json"
+                yield Finding("TDS-M010", "error", msg, dataset=name, file=rel)
+        target = root / norm
+        if not target.is_file():
+            yield Finding("TDS-M004", "error", "listed file is missing", dataset=name, file=rel)
+        elif "bytes" not in entry:
+            yield Finding(
+                "TDS-M003", "error", "files[] entry has no 'bytes'", dataset=name, file=rel
+            )
+        elif target.stat().st_size != entry["bytes"]:
+            msg = f"file has {target.stat().st_size} bytes, tds.json says {entry['bytes']}"
+            yield Finding("TDS-M006", "error", msg, dataset=name, file=rel)
 
 
 def _check_profile(m: Manifest, name: str) -> Iterable[Finding]:
@@ -188,6 +265,41 @@ def _has(
         if kind in (ds.get("kind"), ds.get("path")) and all(own.get(k) == v for k, v in params):
             return True
     return False
+
+
+def _rules(ds: Mapping[str, Any]) -> Iterable[object]:
+    """The rule names a dataset declares: `availability.rule`, `params.availability_by_column`."""
+    availability = ds.get("availability")
+    if isinstance(availability, str):  # 4.2: "a 6.2 rule", written bare
+        yield availability
+    elif isinstance(availability, dict) and "rule" in availability:
+        yield availability["rule"]
+    params = ds.get("params")
+    by_column = params.get("availability_by_column") if isinstance(params, dict) else None
+    if isinstance(by_column, dict):
+        yield from by_column.values()
+
+
+def _unsafe(root: Path, rel: str) -> str | None:
+    """TDS 4.2 path safety (M012): why `rel` may not be read, or None."""
+    if not rel or PurePosixPath(rel).is_absolute() or PureWindowsPath(rel).anchor:
+        return "is absolute"
+    if ".." in PurePosixPath(rel).parts or "\\" in rel:
+        return "leaves the package folder ('..', or a backslash that may hide one)"
+    try:
+        inside = (root / rel).resolve().is_relative_to(root)
+    except (OSError, RuntimeError, ValueError):  # a loop, a NUL byte: not a readable path
+        inside = False
+    return None if inside else "leads outside the package folder through a symbolic link"
+
+
+def _walk(root: Path) -> list[str]:
+    out = []
+    for folder, dirs, names in os.walk(root):
+        dirs.sort()
+        for n in sorted(names):
+            out.append((Path(folder) / n).relative_to(root).as_posix())
+    return out
 
 
 def _major(version: object) -> int | None:
