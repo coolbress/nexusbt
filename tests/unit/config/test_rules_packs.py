@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from importlib.resources import files
+from itertools import pairwise
 from pathlib import Path
 
 import pytest
@@ -101,11 +102,11 @@ def test_describe_kr(capsys: pytest.CaptureFixture[str]) -> None:
         "dividend_withholding down 1, cash_in_lieu half_up 1, borrow_fee half_up 1",
         "day_count = 365",
         "limits/kr_price_limits_v1.csv: 9 rows, verified = false 9/9",
-        "costs/default_v1.csv: 0 rows, verified = false 0/0",
-        "costs/venue_groups_v1.csv: 0 rows, verified = false 0/0",
+        "costs/default_v1.csv: 16 rows, verified = false 16/16",  # KR rows only, not US
+        "costs/venue_groups_v1.csv: 3 rows, verified = false 3/3",
         "ticks/kr_tick_table_v1.csv: 31 rows, verified = false 15/31",
         "shorting/kr_short_bans_v1.csv: 6 rows, verified = false 0/6",
-        "verified = false: 24/46",
+        "verified = false: 43/65",
     ]
     main(["--describe", "_generic"])
     assert "base_unit = the currency's minor unit (F-15)" in capsys.readouterr().out
@@ -197,8 +198,35 @@ def test_seed_tables_marked_unverified() -> None:
                      ("1998-12-07", "0.15"), ("2015-06-15", "0.30")]  # fmt: skip
     assert in_effect(limits, "1995-03-31") == []  # fixed amounts before then: no row
     assert [r["limit_ratio"] for r in limits if r["market"] == "KONEX"] == ["0.15"]
-    # costs: no seed values yet (OI-03), so `realistic` finds no verified row and stops (E23)
-    assert tables["costs/default_v1.csv"] == tables["costs/venue_groups_v1.csv"] == []
+    groups = tables["costs/venue_groups_v1.csv"]  # ISO 10383 MICs → 4.7 price groups
+    assert {r["venue_mic"]: (r["country"], r["market"]) for r in groups} == {
+        "XKRX": ("KR", "KOSPI"), "XKOS": ("KR", "KOSDAQ"), "XKON": ("KR", "KONEX"),
+        "XNYS": ("US", "NYSE"), "XNAS": ("US", "NASDAQ"),
+    }  # fmt: skip
+    costs = tables["costs/default_v1.csv"]
+    # every row unverified (OI-03): `realistic` finds no verified row and stops (E23)
+    assert {r["verified"] for r in groups + costs} == {"false"}
+    assert all(r["source"].startswith("https://") for r in groups + costs)
+    assert {r["market"] for r in costs} <= {"*", "KOSPI", "KOSDAQ", "NYSE", "NASDAQ"}
+    assert {(r["side"], r["component"]) for r in costs} <= {("sell", "tax"), ("sell", "other")}
+    periods: dict[tuple[str, ...], list[tuple[str, str]]] = {}
+    for r in costs:
+        what = (r["country"], r["market"], r["side"], r["component"])
+        periods.setdefault(what, []).append((r["valid_from"], r["valid_to"]))
+    for group, spans in periods.items():  # one row per key and day: no overlap, no gap
+        assert all(a[1] == b[0] for a, b in pairwise(sorted(spans))), group
+
+    def bps(market: str, day: str) -> list[str]:
+        return [r["bps"] for r in in_effect(costs, day) if r["market"] == market]
+
+    # KOSPI = securities transaction tax + rural special tax 15 bp, one row (decree art. 5)
+    assert bps("KOSPI", "1995-01-02") == ["50"]  # 35 + 15
+    assert bps("KOSPI", "2025-06-02") == ["15"]  # a zero rate, and the rural tax still applies
+    assert bps("KOSPI", "2026-01-02") == bps("KOSDAQ", "2026-01-02") == ["20"]
+    assert bps("KOSDAQ", "2024-12-31") == ["18"]  # the staged 2024 rate
+    assert bps("KOSDAQ", "1996-08-21") == bps("*", "2001-12-27") == []  # not sourced: no row
+    assert bps("*", "2025-05-14") == ["0"]  # SEC Section 31: $0.00 per million
+    assert bps("*", "2026-04-04") == ["0.206"]  # $20.60 per million
     kr = tables[KR_TICKS]
     kosdaq_top = [r for r in kr if r["venue_group"] == "KOSDAQ" and r["price_from"] == "500000"]
     assert [r["verified"] for r in kosdaq_top] == ["false"]  # disagrees with the broker table

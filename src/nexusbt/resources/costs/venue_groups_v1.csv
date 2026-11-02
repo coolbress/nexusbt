@@ -1,1 +1,6 @@
 country,venue_mic,market,source,verified
+KR,XKRX,KOSPI,https://www.iso20022.org/sites/default/files/ISO10383_MIC/ISO10383_MIC.csv,false
+KR,XKOS,KOSDAQ,https://www.iso20022.org/sites/default/files/ISO10383_MIC/ISO10383_MIC.csv,false
+KR,XKON,KONEX,https://www.iso20022.org/sites/default/files/ISO10383_MIC/ISO10383_MIC.csv,false
+US,XNYS,NYSE,https://www.iso20022.org/sites/default/files/ISO10383_MIC/ISO10383_MIC.csv,false
+US,XNAS,NASDAQ,https://www.iso20022.org/sites/default/files/ISO10383_MIC/ISO10383_MIC.csv,false
