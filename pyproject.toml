@@ -30,6 +30,10 @@ build-backend = "hatchling.build"
 
 [dependency-groups]
 dev = [
+    # 2.2's 14-day rule: the newest release at least 14 days old on 2026-11-02, released
+    # 2026-10-16. Exact, so `uv lock --upgrade` cannot take a newer one before it is 14 days
+    # old; step 9 raises it. MPL-2.0, development only: not in the distribution (2.1).
+    "hypothesis==6.170.1",
     "mypy>=2.4.0",
     "nexusbt-tds",  # the checker, from this workspace, so `uv run tds` works beside the engine
     "pytest>=8.3",
@@ -50,9 +54,24 @@ line-length = 100
 src = ["src", "tds/src", "tests"]
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "N", "UP", "B", "S", "A", "C4", "PT", "SIM", "RUF"]
+select = ["E", "F", "W", "I", "N", "UP", "B", "S", "A", "C4", "PT", "SIM", "RUF", "TID251"]
+
+# Spec 2.5: what `src/**` and `tds/src/**` never import or call, beside the AST test
+# `tests/unit/test_import_rules.py`, which also catches `np.load(..., allow_pickle=True)`.
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"zipline".msg = "spec 2.5: no zipline import; compat imitates its names"
+"nautilus_trader".msg = "spec 2.5: no nautilus_trader import; the E4 bridge is Protocols only"
+"duckdb".msg = "spec 2.5: no duckdb; the checker reads with pyarrow only"
+"pickle".msg = "spec 2.5, 2.6: no pickle; Parquet, Arrow IPC or JSON"
+"dill".msg = "spec 2.5, 2.6: no pickle-based serialisation"
+"cloudpickle".msg = "spec 2.5, 2.6: no pickle-based serialisation"
+"joblib".msg = "spec 2.5, 2.6: no pickle-based serialisation"
+"shelve".msg = "spec 2.5, 2.6: no pickle-based storage"
+"pandas.read_pickle".msg = "spec 2.5, 2.6: no pickle; read Parquet or Arrow IPC"
 
 [tool.ruff.lint.per-file-ignores]
+# The 2.5 ban is for `src/**` and `tds/src/**` only: every other path ignores it.
+"!{src,tds/src}/**" = ["TID251"]
 # assert is the normal form in tests
 "tests/**" = ["S101"]
 # and spec 8.4a names the checker's tests after their codes (`test_M012_path_escape`)
@@ -80,8 +99,27 @@ ignore_missing_imports = true
 testpaths = ["tests", "tds/tests"]  # the checker's own tests too (spec 8.4a)
 # No silent failures: an unregistered `@pytest.mark.foo` is a no-op even when
 # it is a typo, and a misspelt key in this section is ignored. Both are made
-# errors.
-addopts = ["--strict-markers", "--strict-config"]
+# errors. Then 9.1's own: the default run leaves out the markers that run as
+# separate jobs, and hypothesis runs its `ci` profile (both profiles: `conftest.py`).
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "-m",
+    "not parity and not perf_smoke and not examples and not slow",
+    "--hypothesis-profile=ci",
+]
+# Spec 9.1's nine markers.
+markers = [
+    "unit: fast tests of one module",
+    "golden: hand-calculated expected outputs (tests/golden, 8.2)",
+    "property: hypothesis property tests (tests/property, 8.3)",
+    "docs: documentation and example checks (8.5)",
+    "examples: the full run of examples/ (job engine / docs-examples)",
+    "parity: comparison with zipline-reloaded (job engine / parity)",
+    "perf_smoke: CI performance smoke tests (job engine / perf-smoke)",
+    "slow: long tests left out of the default run",
+    "repo: repository hygiene and structure (2.7)",
+]
 # Warnings are errors. A third-party warning that blocks gets one narrow
 # ignore here, with its reason.
 filterwarnings = ["error"]
