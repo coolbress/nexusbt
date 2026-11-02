@@ -1,0 +1,8 @@
+valid_from,valid_to,venue_group,price_from,price_to,tick,source,verified
+,1997-06-24,*,0,,0.125,https://www.sec.gov/news/testimony/052401tslu.htm,false
+1997-06-24,2001-01-29,NYSE,0,,0.0625,https://thedailyrecord.com/2001/01/29/nyse-goes-totally-decimal-8212-finally/,false
+1997-06-24,2001-04-09,NASDAQ,0,,0.0625,https://www.sec.gov/news/testimony/052401tslu.htm,false
+2001-01-29,,NYSE,0,1,0.0001,https://www.law.cornell.edu/cfr/text/17/242.612,true
+2001-01-29,,NYSE,1,,0.01,https://www.law.cornell.edu/cfr/text/17/242.612,true
+2001-04-09,,NASDAQ,0,1,0.0001,https://www.law.cornell.edu/cfr/text/17/242.612,true
+2001-04-09,,NASDAQ,1,,0.01,https://www.law.cornell.edu/cfr/text/17/242.612,true

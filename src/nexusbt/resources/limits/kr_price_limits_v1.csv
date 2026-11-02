@@ -1,0 +1,10 @@
+valid_from,valid_to,market,limit_ratio,source,verified
+1995-04-01,1996-11-25,KOSPI,0.06,https://www.hankookilbo.com/news/article/199611250055411462,false
+1996-11-25,1998-03-02,KOSPI,0.08,https://www.hankookilbo.com/news/article/199611250055411462,false
+1998-03-02,1998-12-07,KOSPI,0.12,https://www.hankookilbo.com/news/article/199802120060207540,false
+1998-12-07,2015-06-15,KOSPI,0.15,https://www.crowe.com/kr/news/news20150529_kr,false
+2015-06-15,,KOSPI,0.30,https://www.crowe.com/kr/news/news20150529_kr,false
+1995-04-01,2005-03-28,KOSDAQ,0.12,https://www.hankookilbo.com/news/article/200503100043910652,false
+2005-03-28,2015-06-15,KOSDAQ,0.15,https://www.hankookilbo.com/news/article/200503100043910652,false
+2015-06-15,,KOSDAQ,0.30,https://www.crowe.com/kr/news/news20150529_kr,false
+1995-04-01,,KONEX,0.15,https://www.crowe.com/kr/news/news20150529_kr,false
