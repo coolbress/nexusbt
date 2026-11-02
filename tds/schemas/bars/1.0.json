@@ -21,7 +21,7 @@
     {"name": "trade_count", "type": "i64", "null": true},
     {"name": "vwap", "type": "f64", "null": true},
     {"name": "open_interest", "type": "f64", "null": true},
-    {"name": "obs_status", "type": "code", "enum": "closed", "null": "no if dense"},
+    {"name": "obs_status", "type": "code", "enum": "closed", "null": "no if dense", "values": ["traded", "no_trade", "halted", "missing"]},
     {"name": "cum_factor_split", "type": "f64", "null": true},
     {"name": "cum_factor_total", "type": "f64", "null": true},
     {"name": "ts_available", "type": "ts_us", "null": true},

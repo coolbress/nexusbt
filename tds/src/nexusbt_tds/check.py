@@ -1,9 +1,10 @@
 """`check(path, *, level, ...) -> CheckResult`: the levels manifest, schema and full (TDS 8.2).
 
 The `manifest` level reads `tds.json` and file sizes (M001~M014); the `schema` level adds the
-Parquet footers and statistics, no rows (S001~S005, S008~S010); the `full` level adds, so far,
-the hashes (H001~H003, TDS 4.5) and verifies no profile beyond `schema`. None reports a profile as
-`pass`: the rules a level cannot see are listed in `unchecked`, and the profile is `not_checked`.
+Parquet footers and statistics and the `dictionary/` tables, no data rows (S001~S010); the `full`
+level adds, so far, the hashes (H001~H003, TDS 4.5) and verifies no profile beyond `schema`. None
+reports a profile as `pass`: the rules a level cannot see are listed in `unchecked`, and the
+profile is `not_checked`.
 """
 
 from __future__ import annotations
@@ -36,9 +37,10 @@ _ROW_CODES = (
     " V001 V002 V004 V005 V010 V011 V012 V020 V030 V031 V032 V040 V041 V050 H001 H002 H003 H004"
 )
 UNCHECKED_AT_MANIFEST = tuple(f"TDS-{c}" for c in _ROW_CODES.split())
-#: What the `schema` level judges from footers. S006 and S007 need value lists (#117); S009 sees
-#: ±Inf in the statistics but never NaN, which writers leave out of them, so it stays unchecked.
-SCHEMA_CODES = tuple(f"TDS-S{n:03}" for n in (1, 2, 3, 4, 5, 8, 10))
+#: What the `schema` level judges from footers. S006 and S007 see only a column's minimum and
+#: maximum; S009 sees ±Inf in the statistics but never NaN, which writers leave out of them, so
+#: it stays unchecked.
+SCHEMA_CODES = tuple(f"TDS-S{n:03}" for n in (1, 2, 3, 4, 5, 6, 7, 8, 10))
 UNCHECKED_AT_SCHEMA = tuple(c for c in UNCHECKED_AT_MANIFEST if c not in SCHEMA_CODES)
 
 #: TDS 4.2: the fields marked ○ that are required unconditionally.
@@ -346,10 +348,11 @@ def _fits(tag: str, value: str) -> bool:
 
 
 def _check_schema(m: Manifest, only: Sequence[str] | None, blind: set[str]) -> list[Finding]:
-    """S001~S005, S008~S010 from each listed, readable Parquet file's footer (TDS 8.2)."""
+    """S001~S010 from each listed, readable Parquet file's footer (TDS 8.2)."""
     from .schemas.verify import load_schemas
 
     schemas, root, out = load_schemas(), m.root.resolve(), []
+    codes = _dictionary_codes(m, root)
     for ds in m.datasets:
         schema = schemas.get(str(ds.get("kind")))
         version = _VERSION.fullmatch(str(ds.get("schema_version")))
@@ -360,8 +363,26 @@ def _check_schema(m: Manifest, only: Sequence[str] | None, blind: set[str]) -> l
         for entry in files if isinstance(files, list) else []:
             rel = entry.get("path") if isinstance(entry, dict) else None
             if isinstance(rel, str) and not _unsafe(root, rel) and (root / rel).is_file():
-                found = _check_file(root, rel, ds, schema, blind)
+                found = _check_file(root, rel, ds, schema, blind, codes)
                 out += [replace(f, dataset=ds.get("name"), file=rel) for f in found]
+    return out
+
+
+def _dictionary_codes(m: Manifest, root: Path) -> set[tuple[str, str]]:
+    """TDS 4.4 `dictionary/codes` as (`field`, `code`); `field` is a column name (#117)."""
+    out: set[tuple[str, str]] = set()
+    for ds in m.datasets:
+        files = ds.get("files") if "dictionary/codes" in (ds.get("kind"), ds.get("path")) else []
+        for entry in files if isinstance(files, list) else []:
+            rel = entry.get("path") if isinstance(entry, dict) else None
+            if not isinstance(rel, str) or _unsafe(root, rel) or not (root / rel).is_file():
+                continue
+            try:
+                rows = pq.ParquetFile(root / rel).read(columns=["field", "code"]).to_pylist()
+            except (OSError, pa.ArrowException):  # unreadable: it excuses nothing
+                continue
+            pairs = ((row.get("field"), row.get("code")) for row in rows)  # a column may be absent
+            out.update((str(f), str(c)) for f, c in pairs if f is not None and c is not None)
     return out
 
 
@@ -371,7 +392,12 @@ def _by_name(entries: object) -> dict[str, Any]:  # tds.json `columns`, `partiti
 
 
 def _check_file(
-    root: Path, rel: str, ds: Mapping[str, Any], schema: Any, blind: set[str]
+    root: Path,
+    rel: str,
+    ds: Mapping[str, Any],
+    schema: Any,
+    blind: set[str],
+    codes: set[tuple[str, str]],
 ) -> Iterable[Finding]:
     try:
         meta = pq.ParquetFile(root / rel).metadata
@@ -401,6 +427,7 @@ def _check_file(
             continue
         required = _required(column.null, params)
         yield from _check_column(meta, arrow, column, required, declared.get(column.name), blind)
+        yield from _check_values(meta, arrow, column, codes, blind)
     newer = int(str(ds["schema_version"]).split(".")[1]) > KNOWN_MINOR  # M011: ignore unknown
     for name in [] if newer else arrow.names:
         if name not in known and name not in parts and not name.startswith("x_"):
@@ -434,6 +461,43 @@ def _check_column(
     seen = [v for s in stats if s is not None and s.has_min_max for v in (s.min, s.max)]
     if tag == "f64" and any(math.isinf(v) for v in seen):
         yield Finding("TDS-S009", "error", f"{name} holds ±Inf (statistics; NaN is not visible)")
+
+
+def _check_values(
+    meta: Any, arrow: pa.Schema, column: Any, codes: set[tuple[str, str]], blind: set[str]
+) -> Iterable[Finding]:
+    """S006 (closed) and S007 (open, unless in `dictionary/codes`) of one enum column.
+
+    A row group's minimum and maximum are values it holds; they are all its values only when
+    equal. Any other row group leaves the code unchecked: what lies between is not in a footer.
+    pyarrow does not say whether a writer truncated a statistic; one read here is taken as exact.
+    """
+    name, values = column.name, column.values
+    paths = [meta.schema.column(i).path for i in range(meta.num_columns)]
+    kind = arrow.types[arrow.names.index(name)]
+    if values is None or name not in paths or not _IS["code"](kind):  # S002 names a wrong type
+        return
+    code, closed = ("TDS-S006", True) if column.enum == "closed" else ("TDS-S007", False)
+    index, seen = paths.index(name), set()
+    for g in range(meta.num_row_groups):
+        s = meta.row_group(g).column(index).statistics
+        if s is not None and s.has_min_max:
+            seen |= {_text(s.min), _text(s.max)}
+        if s is None or (s.min != s.max if s.has_min_max else s.num_values):
+            blind.add(code)
+    for value in sorted(seen):
+        if not _listed(value, values) and (closed or (name, value) not in codes):
+            msg = f"{name} holds {value!r}, not in its {column.enum} list"
+            yield Finding(code, "error" if closed else "warning", msg)
+
+
+def _text(value: object) -> str:
+    return value.decode(errors="replace") if isinstance(value, bytes) else str(value)
+
+
+def _listed(value: str, values: Sequence[str]) -> bool:
+    """`<name>` in a listed value stands for any non-empty text (`vendor:<name>`, #117)."""
+    return any(re.fullmatch(re.sub(r"<\w+>", ".+", re.escape(v)), value) for v in values)
 
 
 def _check_profile(m: Manifest, name: str) -> Iterable[Finding]:

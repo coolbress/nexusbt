@@ -130,6 +130,24 @@ def _bars(meta: dict[str, str] | None = None, **columns: pa.Array | None) -> Cha
     return lambda m, f: rewrite(m, f, BARS, bars_table(**columns), meta=meta)
 
 
+def _instruments(*, codes: bool = False, **columns: pa.Array | None) -> Change:
+    """Rewrite the instruments file; `codes` lists `category` `ordinary` in `dictionary/codes`."""
+
+    def change(m: dict[str, Any], files: Files) -> None:
+        rewrite(m, files, INSTRUMENTS, instruments(**columns))
+        if codes:
+            rel = "dictionary/codes/part-00000.parquet"
+            table = pa.table({"field": ["category"], "code": ["ordinary"]})
+            files[rel] = parquet(table, "dictionary/codes")
+            entry = {"path": rel, "rows": 1, "bytes": len(files[rel])}
+            name = {"name": "dictionary/codes", "kind": "dictionary/codes"}
+            m["datasets"].append(
+                name | {"schema_version": "1.0", "path": "dictionary/codes", "files": [entry]}
+            )
+
+    return change
+
+
 WRONG = "0" * 64
 
 
@@ -201,6 +219,14 @@ CASES: dict[str, tuple[Change, Change]] = {
     ),
     "TDS-S004": (_bars(ts_end=TS), _bars(ts_end=TS.cast(pa.timestamp("us")))),
     "TDS-S005": (_bars(x_cf_note=pa.array(["a"])), _bars(note=pa.array(["a"]))),
+    "TDS-S006": (
+        _instruments(asset_class=pa.array(["etf"])),
+        _instruments(asset_class=pa.array(["stock"])),
+    ),
+    "TDS-S007": (
+        _instruments(codes=True, category=pa.array(["ordinary"])),
+        _instruments(category=pa.array(["ordinary"])),
+    ),
     "TDS-S008": (_keep, _bars(market=pa.array(["US"]))),
     "TDS-S009": (_bars(close=pa.array([-1e300])), _bars(close=pa.array([math.inf]))),
     "TDS-S010": (

@@ -2,7 +2,10 @@
 
 A schema file is `tds/schemas/<kind>/1.0.json`: `kind`, `schema_version`, `status`
 (`stable`|`experimental`), `section`, `key`, `sort`, `partitions` and `columns`. A column is
-`{"name", "type", "null"}` plus `"enum": "closed"|"open"` for a code; `type` is a TDS 3.2 name or
+`{"name", "type", "null"}` plus, for a code, `"enum": "closed"|"open"` and `"values"`, the list
+the Meaning cell names (its backticked values outside parentheses and before ` — `; a `<name>`
+in one is any non-empty text, a rule chosen in #117; only a table row is compared, so the list of
+`eligibility_daily.reason`, whose section is prose, is not). `type` is a TDS 3.2 name or
 null where the document does not state one, and `null` is true, false, the document's condition
 text, or null where unstated. A blank document cell in a row whose meaning is a section (`5.17`)
 takes that section's row of the same name (the file notes `"from"`, not checked); any other
@@ -46,6 +49,7 @@ class Column:
     type: str | None
     null: Null
     enum: str | None = None
+    values: tuple[str, ...] | None = None
 
     def type_cell(self) -> str:
         if self.type is None:
@@ -69,8 +73,8 @@ class Schema:
 
 _HEADER = "| Column | Type | Null | Meaning |"
 _NAMED = re.compile(r"^(?:### 5\.\d+ )?`(\w+)`")
-#: (name, type cell, null cell, the section a blank cell was taken from or "").
-Row = tuple[str, str, str, str]
+#: (name, type cell, null cell, the section a blank cell was taken from or "", meaning cell).
+Row = tuple[str, str, str, str, str]
 
 
 def _chapter(doc: str) -> list[str]:
@@ -104,21 +108,28 @@ def doc_tables(doc: str) -> dict[str, list[Row]]:
             meaning = cells[3] if len(cells) > 3 else ""
             ref = meaning if re.fullmatch(r"5\.\d+", meaning) else ""
             parts = zip(_spread(cells[1], len(names)), _spread(cells[2], len(names)), strict=True)
-            rows.extend((name, *part, ref) for name, part in zip(names, parts, strict=True))
+            rows.extend(
+                (name, *part, ref, meaning) for name, part in zip(names, parts, strict=True)
+            )
         else:
             rows = None
     named_rows = {k: {row[0]: row for row in rows} for k, rows in tables.items()}
 
     def resolve(row: Row) -> Row:
-        name, type_cell, null_cell, ref = row
+        name, type_cell, null_cell, ref, meaning = row
         source = named_rows.get(by_section.get(ref, ""), {}).get(name)
         if not ref or (type_cell and null_cell):
-            return name, type_cell, null_cell, ""
+            return name, type_cell, null_cell, "", meaning
         if source is None:  # the pointer names no table, or no row of this name there
-            return name, type_cell, null_cell, f"{ref}, not found"
-        return name, type_cell or source[1], null_cell or source[2], ref
+            return name, type_cell, null_cell, f"{ref}, not found", meaning
+        return name, type_cell or source[1], null_cell or source[2], ref, meaning
 
     return {k: [resolve(row) for row in rows] for k, rows in tables.items()}
+
+
+def enum_values(meaning: str) -> tuple[str, ...]:
+    """A Meaning cell's value list: its backticked values outside parentheses, before ` — `."""
+    return tuple(re.findall(r"`([^`]+)`", re.sub(r"\([^)]*\)", "", meaning.split(" — ")[0])))
 
 
 def _spread(cell: str, n: int) -> list[str]:
@@ -142,12 +153,17 @@ def compare(doc: str, schemas: dict[str, Schema]) -> list[str]:
                 f"{kind}: doc columns {', '.join(doc_names)}; schema {', '.join(file_names)}"
             )
             continue
-        for (name, type_cell, null_cell, ref), column in zip(rows, schema.columns, strict=True):
+        for (name, type_cell, null_cell, ref, meaning), column in zip(
+            rows, schema.columns, strict=True
+        ):
             via = f" ({ref})" if ref else ""
-            pairs = (
+            pairs = [
                 ("type", type_cell, column.type_cell()),
                 ("null", null_cell, column.null_cell()),
-            )
+            ]
+            if column.enum or column.values is not None:
+                listed = ", ".join(column.values or ())
+                pairs.append(("values", ", ".join(enum_values(meaning)), listed))
             for what, cell, own in pairs:
                 if cell != own:
                     out.append(f"{kind}: column {name}: doc {what} `{cell}`{via}, schema `{own}`")
@@ -166,7 +182,9 @@ def load_schemas(root: Path = SCHEMA_DIR) -> dict[str, Schema]:
     for path in sorted(root.glob(f"*/{VERSION}.json")):
         data = json.loads(path.read_text(encoding="utf-8"))
         columns = tuple(
-            Column(c["name"], c["type"], c["null"], c.get("enum")) for c in data["columns"]
+            Column(c["name"], c["type"], c["null"], c.get("enum"), values)
+            for c in data["columns"]
+            for values in [tuple(c["values"]) if "values" in c else None]
         )
         schemas[path.parent.name] = Schema(data["kind"], data["status"], columns, data["key"])
     return schemas

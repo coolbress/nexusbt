@@ -3,8 +3,8 @@
   "key": ["instrument_id"], "sort": ["instrument_id"], "partitions": [],
   "columns": [
     {"name": "instrument_id", "type": "id", "null": false},
-    {"name": "asset_class", "type": "code", "enum": "closed", "null": false},
-    {"name": "category", "type": "code", "enum": "open", "null": true},
+    {"name": "asset_class", "type": "code", "enum": "closed", "null": false, "values": ["equity", "etf", "fund", "index", "future", "option", "crypto_spot", "crypto_perp", "crypto_future", "fx_spot", "bond", "rate", "other"]},
+    {"name": "category", "type": "code", "enum": "open", "null": true, "values": ["common", "preferred", "adr", "reit", "spac", "unit", "warrant", "right", "closed_end_fund", "other"]},
     {"name": "market", "type": "code", "null": false},
     {"name": "venue_mic", "type": "code", "null": true},
     {"name": "operating_mic", "type": "code", "null": true},
@@ -36,7 +36,7 @@
     {"name": "settlement_currency", "type": "code", "null": true},
     {"name": "is_inverse", "type": "bool", "null": true},
     {"name": "index_kind", "type": "code", "null": true},
-    {"name": "index_weighting", "type": "code", "enum": "open", "null": true},
+    {"name": "index_weighting", "type": "code", "enum": "open", "null": true, "values": ["cap", "float_cap", "equal", "price", "other"]},
     {"name": "is_synthetic", "type": "bool", "null": false}
   ]
 }
