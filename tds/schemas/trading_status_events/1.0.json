@@ -1,0 +1,15 @@
+{
+  "kind": "trading_status_events", "schema_version": "1.0", "status": "stable", "section": "5.10",
+  "key": ["instrument_id", "ts_event", "sequence"], "sort": null, "partitions": [],
+  "columns": [
+    {"name": "instrument_id", "type": null, "null": null},
+    {"name": "ts_event", "type": null, "null": null},
+    {"name": "sequence", "type": null, "null": null},
+    {"name": "ts_recv", "type": null, "null": null},
+    {"name": "status", "type": null, "null": null},
+    {"name": "reason", "type": null, "null": null},
+    {"name": "reason_group", "type": null, "null": null},
+    {"name": "source", "type": null, "null": null},
+    {"name": "source_record_id", "type": null, "null": null}
+  ]
+}

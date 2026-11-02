@@ -1,0 +1,14 @@
+{
+  "kind": "universe_membership", "schema_version": "1.0", "status": "stable", "section": "5.20",
+  "key": ["universe_id", "instrument_id", "effective_from", "ts_known_from"], "sort": null, "partitions": [],
+  "columns": [
+    {"name": "universe_id", "type": null, "null": null},
+    {"name": "instrument_id", "type": null, "null": null},
+    {"name": "effective_from", "type": "date", "null": null},
+    {"name": "effective_to", "type": "date", "null": true},
+    {"name": "ts_known_from", "type": null, "null": null},
+    {"name": "ts_known_to", "type": null, "null": null},
+    {"name": "weight", "type": "f64", "null": true},
+    {"name": "source", "type": null, "null": null}
+  ]
+}

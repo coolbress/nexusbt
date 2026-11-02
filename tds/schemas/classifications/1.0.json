@@ -1,0 +1,19 @@
+{
+  "kind": "classifications", "schema_version": "1.0", "status": "stable", "section": "5.19",
+  "key": ["instrument_id", "scheme", "level", "edition", "effective_from", "ts_known_from"],
+  "sort": ["instrument_id", "scheme", "level", "edition", "effective_from", "ts_known_from"], "partitions": [],
+  "columns": [
+    {"name": "instrument_id", "type": null, "null": null},
+    {"name": "scheme", "type": null, "null": null},
+    {"name": "level", "type": "i8", "null": false},
+    {"name": "code", "type": "string", "null": null},
+    {"name": "label", "type": "string", "null": true},
+    {"name": "effective_from", "type": "date", "null": null},
+    {"name": "effective_to", "type": "date", "null": true},
+    {"name": "ts_known_from", "type": "ts_us", "null": null},
+    {"name": "ts_known_to", "type": "ts_us", "null": true},
+    {"name": "edition", "type": "code", "null": null},
+    {"name": "pit_quality", "type": "code", "null": null},
+    {"name": "source", "type": null, "null": null}
+  ]
+}
