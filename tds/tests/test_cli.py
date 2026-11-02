@@ -46,7 +46,8 @@ def test_exit_codes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_jsonl_output_schema(capsys: pytest.CaptureFixture[str]) -> None:
     # spec 10.1 T0.13a "done means", on the package committed under tds/conformance
-    assert run(["check", str(CONFORMANCE / "TDS-M012" / "fail"), "--format", "json"]) == 1
+    argv = ["check", str(CONFORMANCE / "TDS-M012" / "fail"), "--format", "json"]
+    assert run([*argv, "--level", "manifest"]) == 1
     finding, last = (json.loads(line) for line in capsys.readouterr().out.splitlines())
     assert {"code", "severity", "message"} <= set(finding) <= FINDING_KEYS
     assert (finding["code"], finding["severity"]) == ("TDS-M012", "error")
@@ -57,6 +58,15 @@ def test_jsonl_output_schema(capsys: pytest.CaptureFixture[str]) -> None:
         "tds:minimal-daily@1.0": {"declared": True, "verified_level": "manifest", "result": "fail"}
     }
     assert "TDS-K001" in summary["unchecked"]
+
+
+def test_schema_level_done_means(capsys: pytest.CaptureFixture[str]) -> None:
+    # spec 10.1 T0.13c "done means": `tds check tds/conformance/TDS-S002/fail --format json`
+    argv = ["check", str(CONFORMANCE / "TDS-S002" / "fail"), "--format", "json"]
+    assert run(argv) == 1  # as written: no `--level`, the CLI's default is `schema` (TDS 8.1)
+    *findings, last = (json.loads(line) for line in capsys.readouterr().out.splitlines())
+    assert [f["code"] for f in findings] == ["TDS-S002"]
+    assert last["summary"]["level"] == "schema"
 
 
 def test_committed_packages_match_the_generator(tmp_path: Path) -> None:

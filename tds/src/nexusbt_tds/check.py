@@ -1,19 +1,24 @@
 """`check(path, *, level, ...) -> CheckResult`: the levels manifest, schema and full (TDS 8.2).
 
-The `manifest` level reads `tds.json` and file sizes (M001~M014). It
-never reports a profile as `pass`: the rules it cannot see are listed in `unchecked`, and the
-profile is `not_checked`.
+The `manifest` level reads `tds.json` and file sizes (M001~M014); the `schema` level adds the
+Parquet footers and statistics, no rows (S001~S005, S008~S010). Neither reports a profile as
+`pass`: the rules a level cannot see are listed in `unchecked`, and the profile is `not_checked`.
 """
 
 from __future__ import annotations
 
+import datetime as dt
 import json
+import math
 import os
 import re
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Literal
+
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 from .manifest import MANIFEST, Manifest, ManifestError, read_manifest
 from .profiles import PROFILES, profile_id
@@ -29,6 +34,10 @@ _ROW_CODES = (
     " V001 V002 V004 V005 V010 V011 V012 V020 V030 V031 V032 V040 V041 V050 H001 H002 H003 H004"
 )
 UNCHECKED_AT_MANIFEST = tuple(f"TDS-{c}" for c in _ROW_CODES.split())
+#: What the `schema` level judges from footers. S006 and S007 need value lists (#117); S009 sees
+#: ±Inf in the statistics but never NaN, which writers leave out of them, so it stays unchecked.
+SCHEMA_CODES = tuple(f"TDS-S{n:03}" for n in (1, 2, 3, 4, 5, 8, 10))
+UNCHECKED_AT_SCHEMA = tuple(c for c in UNCHECKED_AT_MANIFEST if c not in SCHEMA_CODES)
 
 #: TDS 4.2: the fields marked ○ that are required unconditionally.
 REQUIRED: tuple[str, ...] = ("tds_version", "name", "created", "snapshot_id", "producer")
@@ -110,12 +119,15 @@ def check(
     datasets: Sequence[str] | None = None,
     max_errors: int = 1000,
 ) -> CheckResult:
-    if level != "manifest":
-        raise NotImplementedError(f"check level {level!r}: not built yet (T0.13c, T0.14a)")
+    if level == "full":
+        raise NotImplementedError(f"check level {level!r}: not built yet (T0.14a)")
     manifest: Manifest | None = None
+    blind: set[str] = set()  # codes this package's files hide from the level (no statistics)
     try:
         manifest = read_manifest(path)
         found = list(_check_manifest(manifest, datasets))
+        if level == "schema":
+            found += _check_schema(manifest, datasets, blind)
     except ManifestError as exc:
         found = [Finding("TDS-M001", "error", str(exc))]
     declared = {profile_id(p) for p in manifest.profiles} if manifest else set()
@@ -137,7 +149,9 @@ def check(
         errors=tuple(f for f in found if f.severity == "error")[:max_errors],
         warnings=tuple(f for f in found if f.severity == "warning"),
         profiles=statuses,
-        unchecked=list(UNCHECKED_AT_MANIFEST),
+        unchecked=list(UNCHECKED_AT_MANIFEST)
+        if level == "manifest"
+        else [c for c in UNCHECKED_AT_MANIFEST if c in blind or c in UNCHECKED_AT_SCHEMA],
     )
 
 
@@ -239,6 +253,137 @@ def _check_dataset(
         elif target.stat().st_size != entry["bytes"]:
             msg = f"file has {target.stat().st_size} bytes, tds.json says {entry['bytes']}"
             yield Finding("TDS-M006", "error", msg, dataset=name, file=rel)
+
+
+_string = pa.types.is_string
+#: TDS 3.2: whether an Arrow type is the TDS type (a timestamp's unit and zone are S004's).
+_IS: dict[str, Callable[[pa.DataType], bool]] = {
+    **dict.fromkeys(("id", "code"), lambda t: _string(t) or (
+        pa.types.is_dictionary(t) and _string(t.value_type))),  # 3.2, 3.7: dictionary strings
+    **dict.fromkeys(("string", "json"), _string),
+    **dict.fromkeys(("ts_us", "ts_ns", "ts_us/ns"), pa.types.is_timestamp),
+    "date": pa.types.is_date32, "f64": pa.types.is_float64, "fixed": pa.types.is_int64,
+    "i8": pa.types.is_int8, "i16": pa.types.is_int16, "i32": pa.types.is_int32,
+    "i64": pa.types.is_int64, "bool": pa.types.is_boolean,
+    "list<code>": lambda t: pa.types.is_list(t) and _string(t.value_type),
+}  # fmt: skip
+_UNITS = {"ts_us": {"us"}, "ts_ns": {"ns"}, "ts_us/ns": {"us", "ns"}}  # K2; `ts_us/ns`: #56
+_BITS = {"i8": 8, "i16": 16, "i32": 32, "i64": 64}
+#: Without tds.json `partitioning`: 3.6's examples, any other a code (rule chosen in #56).
+_PARTITION_TYPE = {"year": "i16", "date": "date"}
+
+
+def _required(null: object, params: Mapping[str, Any]) -> bool:
+    """A schema `null` cell as "may not be null"; its conditions read `params` (rule of #56)."""
+    if null == "daily yes / intraday no":
+        return params.get("freq") != "1d"
+    if null == "no if dense":
+        return params.get("density") == "dense"
+    return null is False
+
+
+def _fits(tag: str, value: str) -> bool:
+    """TDS 3.6: a partition path value read as its type (S008)."""
+    if tag in _BITS:
+        bound = 2 ** (_BITS[tag] - 1)
+        return re.fullmatch(r"-?\d+", value) is not None and -bound <= int(value) < bound
+    if tag == "date":
+        try:
+            return dt.date.fromisoformat(value).isoformat() == value
+        except ValueError:
+            return False
+    return value != ""
+
+
+def _check_schema(m: Manifest, only: Sequence[str] | None, blind: set[str]) -> list[Finding]:
+    """S001~S005, S008~S010 from each listed, readable Parquet file's footer (TDS 8.2)."""
+    from .schemas.verify import load_schemas
+
+    schemas, root, out = load_schemas(), m.root.resolve(), []
+    for ds in m.datasets:
+        schema = schemas.get(str(ds.get("kind")))
+        version = _VERSION.fullmatch(str(ds.get("schema_version")))
+        skip = only is not None and ds.get("name") not in only
+        if skip or schema is None or not version or int(version[1]) != SUPPORTED_MAJOR:  # M009
+            continue
+        files = ds.get("files")
+        for entry in files if isinstance(files, list) else []:
+            rel = entry.get("path") if isinstance(entry, dict) else None
+            if isinstance(rel, str) and not _unsafe(root, rel) and (root / rel).is_file():
+                found = _check_file(root, rel, ds, schema, blind)
+                out += [replace(f, dataset=ds.get("name"), file=rel) for f in found]
+    return out
+
+
+def _by_name(entries: object) -> dict[str, Any]:  # tds.json `columns`, `partitioning`: name → type
+    items = entries if isinstance(entries, list) else []
+    return {str(e["name"]): e.get("type") for e in items if isinstance(e, dict) and "name" in e}
+
+
+def _check_file(
+    root: Path, rel: str, ds: Mapping[str, Any], schema: Any, blind: set[str]
+) -> Iterable[Finding]:
+    try:
+        meta = pq.ParquetFile(root / rel).metadata
+        arrow = meta.schema.to_arrow_schema()
+    except (OSError, pa.ArrowException):  # not Parquet: nothing this level can read
+        blind.update(SCHEMA_CODES)
+        return
+    params: dict[str, Any] = ds["params"] if isinstance(ds.get("params"), dict) else {}
+    declared, typed = _by_name(ds.get("columns")), _by_name(ds.get("partitioning"))
+    kv = {k: v.decode(errors="replace") for k, v in (meta.metadata or {}).items()}
+    names = [str(ds.get("name")), str(ds.get("kind"))]  # either names the dataset (rule of #56)
+    version = kv.get(b"tds.schema_version") == ds.get("schema_version")
+    if kv.get(b"tds.dataset") not in names or not version:
+        yield Finding("TDS-S010", "error", "tds.dataset/tds.schema_version missing or different")
+    parts = dict(p.split("=", 1) for p in PurePosixPath(rel).parent.parts if "=" in p)  # 3.6
+    for key, value in parts.items():
+        tag = typed.get(key) or _PARTITION_TYPE.get(key, "code")
+        if not _fits(str(tag), value):
+            yield Finding("TDS-S008", "error", f"partition {key}={value!r} is not a {tag}")
+        if key in arrow.names:
+            yield Finding("TDS-S008", "error", f"partition column {key} is also inside the file")
+    known = {c.name for c in schema.columns}
+    for column in schema.columns:
+        if column.name not in arrow.names:
+            if column.name not in parts and _required(column.null, params):
+                yield Finding("TDS-S001", "error", f"required column {column.name} is missing")
+            continue
+        required = _required(column.null, params)
+        yield from _check_column(meta, arrow, column, required, declared.get(column.name), blind)
+    newer = int(str(ds["schema_version"]).split(".")[1]) > KNOWN_MINOR  # M011: ignore unknown
+    for name in [] if newer else arrow.names:
+        if name not in known and name not in parts and not name.startswith("x_"):
+            yield Finding("TDS-S005", "warning", f"unknown column {name} (not `x_`)")
+
+
+def _check_column(
+    meta: Any, arrow: pa.Schema, column: Any, required: bool, unit: Any, blind: set[str]
+) -> Iterable[Finding]:
+    """S002, S003, S004, S009 of one column; `unit`: its tds.json `columns[].type`."""
+    name, tag, kind = column.name, column.type, arrow.types[arrow.names.index(column.name)]
+    paths = [meta.schema.column(i).path for i in range(meta.num_columns)]
+    index = paths.index(name) if name in paths else None  # None: a nested column
+    if index is not None and meta.schema.column(index).physical_type == "INT96":
+        yield Finding("TDS-S004", "error", f"{name} is written as INT96 (TDS 3.7)")
+        return
+    if tag in _IS and not _IS[tag](kind):
+        yield Finding("TDS-S002", "error", f"{name} is {kind}, TDS type {tag}")
+        return
+    if tag in _UNITS:  # tds.json `columns[].type` names the unit of a `ts_us/ns` column (#57)
+        units = _UNITS.get(str(unit), _UNITS[tag])
+        if kind.tz != "UTC" or kind.unit not in units:
+            yield Finding("TDS-S004", "error", f"{name} is {kind}, wants UTC {'/'.join(units)}")
+    if index is None:  # its statistics are its leaves'
+        return
+    stats = [meta.row_group(g).column(index).statistics for g in range(meta.num_row_groups)]
+    if required and any(s is None or not s.has_null_count for s in stats):
+        blind.add("TDS-S003")
+    elif required and (nulls := sum(s.null_count for s in stats)):
+        yield Finding("TDS-S003", "error", f"{name} may not be null", count=nulls)
+    seen = [v for s in stats if s is not None and s.has_min_max for v in (s.min, s.max)]
+    if tag == "f64" and any(math.isinf(v) for v in seen):
+        yield Finding("TDS-S009", "error", f"{name} holds ±Inf (statistics; NaN is not visible)")
 
 
 def _check_profile(m: Manifest, name: str) -> Iterable[Finding]:

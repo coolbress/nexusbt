@@ -988,6 +988,7 @@ tds export {zipline-bundle|nautilus-catalog|wide-parquet} ... # 9.8
 ```
 
 - Exit codes: `0` pass, `1` errors present, `2` only warnings and `--strict`, `64` usage error, `66` input missing, `70` checker internal error.
+- The CLI's default level is `schema`, and stays `schema` once `full` is built (`full` reads every row, so it runs only when asked with `--level full`); the library `check()` takes the level as a required argument [v1.4, 2026-11-02].
 - Without `--profile`, every profile in `tds.json` `profiles` is checked. Giving an undeclared profile checks only "does this package follow that profile" (independent of the declaration).
 - The engine calls the same checker as a library when it opens a snapshot: `manifest` by default, `full` with `verify="full"`/`nexusbt doctor --full` (specification v3 4.4). On failure, `SnapshotError` (E14) carries the list of TDS codes and the sentences from `producer.hints`.
 - **Status per command** [v1.1, RV-I03] — whether the commands advertised by the standard actually exist:
@@ -1474,3 +1475,4 @@ Reference numbers are `R4F-NN` of specification v3.4 (appendix I). **`tds_versio
 - 2026-11-01: **v1.4**, in place. The KR daily bar (5.5) is the KRX regular session; NXT (Nextrade) trades are excluded from the close, the OHLC, the volume and `value_traded` (maintainer decision 2026-11-01). `tds_version` stays `"1.0"` (wording only).
 - 2026-11-01: **v1.4**, in place. `classifications` scheme `tick_rule_id` (5.19), read first in the grid source order (5.27), for the US per-instrument tick sizes of the Rule 612 amendment (maintainer decision 2026-11-01). `tds_version` stays `"1.0"` (no column changes).
 - 2026-11-02: **v1.4**, in place. 4.2 marks the required dataset fields (`name`, `kind`, `schema_version`, `path`, `files`) and file fields (`path`, `bytes`); a missing one is TDS-M003, the rest are optional (maintainer decision 2026-11-02). `tds_version` stays `"1.0"` (wording clarification).
+- 2026-11-02: **v1.4**, in place. 8.1: the CLI's default check level is `schema`, also once `full` is built; the library `check()` takes the level as a required argument (maintainer decision 2026-11-02). `tds_version` stays `"1.0"` (checker behaviour, no format change).

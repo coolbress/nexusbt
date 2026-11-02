@@ -988,6 +988,7 @@ tds export {zipline-bundle|nautilus-catalog|wide-parquet} ... # 9.8
 ```
 
 - 종료 코드: `0` 통과, `1` 오류 있음, `2` 경고만 있고 `--strict`, `64` 사용법 오류, `66` 입력 없음, `70` 검사기 내부 오류.
+- CLI의 기본 수준은 `schema`이고, `full`이 생긴 뒤에도 `schema`로 남는다(`full`은 모든 행을 읽으므로 `--level full`로 요청할 때만 돈다). 라이브러리 `check()`는 수준이 필수 인자다 [v1.4, 2026-11-02].
 - `--profile`을 주지 않으면 `tds.json`의 `profiles` 전부를 검사한다. 선언하지 않은 프로필을 주면 "이 패키지가 그 프로필을 지키나"만 본다(선언과 무관).
 - 엔진은 스냅숏을 열 때 같은 검사기를 라이브러리로 부른다: 기본 `manifest`, `verify="full"`/`nexusbt doctor --full`이면 `full`(명세서 v3 4.4). 실패하면 `SnapshotError`(E14)에 TDS 코드 목록과 `producer.hints`의 문장을 싣는다.
 - **명령별 상태** [v1.1, RV-I03] — 표준 문서가 광고한 명령이 실제로 있는지:
@@ -1474,3 +1475,4 @@ availability: {rule: ts_end}
 - 2026-11-01: **v1.4** 안에서. KR 일봉(5.5)은 KRX 정규장이며, NXT(넥스트레이드) 체결은 종가·OHLC·거래량·거래대금(`value_traded`)에서 뺀다(사용자 결정 2026-11-01). `tds_version` `"1.0"` 그대로(문구만).
 - 2026-11-01: **v1.4** 안에서. Rule 612 개정의 US 종목별 호가 단위를 위해 `classifications` scheme `tick_rule_id`(5.19)를 두고 격자 원천 순서(5.27)의 맨 앞에서 읽는다(사용자 결정 2026-11-01). `tds_version` `"1.0"` 그대로(칼럼 변경 없음).
 - 2026-11-02: **v1.4** 안에서. 4.2에 필수 데이터셋 필드(`name`·`kind`·`schema_version`·`path`·`files`)와 파일 필드(`path`·`bytes`)를 표시; 없으면 TDS-M003, 나머지는 선택(사용자 결정 2026-11-02). `tds_version` `"1.0"` 그대로(문구 명확화).
+- 2026-11-02: **v1.4** 안에서. 8.1: CLI의 기본 검사 수준은 `schema`이며 `full`이 생긴 뒤에도 그대로, 라이브러리 `check()`는 수준이 필수 인자(사용자 결정 2026-11-02). `tds_version` `"1.0"` 그대로(검사기 동작, 형식 변경 없음).
