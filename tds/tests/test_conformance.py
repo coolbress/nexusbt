@@ -72,6 +72,14 @@ def test_full_level_checks_only_the_hashes_so_far(tmp_path: Path) -> None:
     assert "TDS-H001" not in untyped.unchecked
 
 
+def test_a_file_listed_twice_gets_one_H001(tmp_path: Path) -> None:
+    def twice(m: dict[str, Any], f: Any) -> None:  # M013, and the same wrong sha256 on both
+        entry = build.bars(m)["files"][0] | {"sha256": "0" * 64}
+        build.bars(m)["files"] = [entry, dict(entry)]
+
+    assert codes(write(tmp_path / "pkg", twice), "full") == ["TDS-M013", "TDS-H001"]
+
+
 def test_full_level_reads_no_file_outside_the_package(tmp_path: Path) -> None:
     def outside(m: dict[str, Any], f: Any) -> None:  # M012's absolute path, with a sha256
         build.bars(m)["files"].append({"path": "/etc/hosts", "bytes": 1, "sha256": "0" * 64})
