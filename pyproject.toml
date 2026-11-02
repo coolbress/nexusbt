@@ -67,7 +67,7 @@ exclude = ["docs/spec/**", "docs/tds/**"]
 [tool.mypy]
 strict = true
 python_version = "3.13"
-files = ["src", "tds/src", "tests", "tds/tests"]
+files = ["src", "tds/src", "tests", "tds/tests", "tds/conformance"]
 
 # pyarrow 26 ships no `py.typed` and `pyarrow-stubs` targets pyarrow 20 (#61 Decisions):
 # its names are `Any` to mypy. Only these two module names; every other setting stays strict.
