@@ -60,12 +60,14 @@ def test_jsonl_output_schema(capsys: pytest.CaptureFixture[str]) -> None:
     assert "TDS-K001" in summary["unchecked"]
 
 
-def test_schema_level_done_means(capsys: pytest.CaptureFixture[str]) -> None:
-    # spec 10.1 T0.13c "done means": `tds check tds/conformance/TDS-S002/fail --format json`
-    argv = ["check", str(CONFORMANCE / "TDS-S002" / "fail"), "--format", "json"]
+@pytest.mark.parametrize("code", ["TDS-S002", "TDS-S006"])
+def test_schema_level_done_means(code: str, capsys: pytest.CaptureFixture[str]) -> None:
+    # spec 10.1 T0.13c "done means": `tds check tds/conformance/TDS-S002/fail --format json`;
+    # #117 asks the same of TDS-S006 (its fail package: the code and exit code 1)
+    argv = ["check", str(CONFORMANCE / code / "fail"), "--format", "json"]
     assert run(argv) == 1  # as written: no `--level`, the CLI's default is `schema` (TDS 8.1)
     *findings, last = (json.loads(line) for line in capsys.readouterr().out.splitlines())
-    assert [f["code"] for f in findings] == ["TDS-S002"]
+    assert [f["code"] for f in findings] == [code]
     assert last["summary"]["level"] == "schema"
 
 

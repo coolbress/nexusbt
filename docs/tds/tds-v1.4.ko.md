@@ -1007,8 +1007,10 @@ tds export {zipline-bundle|nautilus-catalog|wide-parquet} ... # 9.8
 | 단계 | 읽는 것 | 하는 검사 |
 |---|---|---|
 | `manifest` | `tds.json`, 파일 크기 | M*, 프로필 데이터셋 존재, 파일 존재·바이트 |
-| `schema` | + Parquet 바닥글(footer)·통계 | S*, 파티션 경로 값, 파일 통계로 할 수 있는 범위 검사(T006 워터마크, D002 일부) |
+| `schema` | + Parquet 바닥글(footer)·통계, `dictionary/` 표 | S*, 파티션 경로 값, 파일 통계로 할 수 있는 범위 검사(T006 워터마크, D002 일부) |
 | `full` | + 모든 행 | K*, R*, T*, D*, A*, V*, H*(sha256·값·의미 해시) |
+
+- `dictionary/` 표(4.4)는 데이터 행이 아니라 패키지를 설명하는 표이므로 `schema` 단계가 읽는다. S007은 `dictionary/codes`에서 값을 찾는다 [v1.4, 2026-11-02].
 
 - **세 결과** [v1.1, RV-I01]: 요약은 프로필마다 `{"declared": bool, "verified_level": "none|manifest|schema|full", "result": "pass|fail|not_checked"}`. 그 단계가 볼 수 없는 규칙(예 `manifest` 단계에서 행 규칙)은 `not_checked`이고 "pass"라고 쓰지 않는다. `unchecked` 목록에 검사하지 않은 규칙 코드를 적는다.
 - 유효한 하위 프로필 패키지(더 작은 프로필만 선언하고 그것을 지킴)와 선언을 어긴 패키지는 다르다: 후자는 오류이고 소비자가 대체 동작으로 고치지 않는다. 오래된 형식 고치기는 가져오기 단계가 새 패키지를 만드는 일이다.
@@ -1476,3 +1478,4 @@ availability: {rule: ts_end}
 - 2026-11-01: **v1.4** 안에서. Rule 612 개정의 US 종목별 호가 단위를 위해 `classifications` scheme `tick_rule_id`(5.19)를 두고 격자 원천 순서(5.27)의 맨 앞에서 읽는다(사용자 결정 2026-11-01). `tds_version` `"1.0"` 그대로(칼럼 변경 없음).
 - 2026-11-02: **v1.4** 안에서. 4.2에 필수 데이터셋 필드(`name`·`kind`·`schema_version`·`path`·`files`)와 파일 필드(`path`·`bytes`)를 표시; 없으면 TDS-M003, 나머지는 선택(사용자 결정 2026-11-02). `tds_version` `"1.0"` 그대로(문구 명확화).
 - 2026-11-02: **v1.4** 안에서. 8.1: CLI의 기본 검사 수준은 `schema`이며 `full`이 생긴 뒤에도 그대로, 라이브러리 `check()`는 수준이 필수 인자(사용자 결정 2026-11-02). `tds_version` `"1.0"` 그대로(검사기 동작, 형식 변경 없음).
+- 2026-11-02: **v1.4** 안에서. 8.2: `schema` 단계는 `dictionary/` 표도 읽는다. 데이터 행이 아니라 패키지를 설명하는 표이기 때문이다(사용자 결정 2026-11-02). `tds_version` `"1.0"` 그대로(검사기 동작, 형식 변경 없음).

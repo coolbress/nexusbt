@@ -4,8 +4,8 @@
   "columns": [
     {"name": "rule_id", "type": "id", "null": false},
     {"name": "market", "type": "code", "null": false},
-    {"name": "rule_kind", "type": "code", "enum": "closed", "null": false},
-    {"name": "venue_group", "type": "code", "enum": "open", "null": false},
+    {"name": "rule_kind", "type": "code", "enum": "closed", "null": false, "values": ["tick_band", "price_limit"]},
+    {"name": "venue_group", "type": "code", "enum": "open", "null": false, "values": ["*", "KOSPI", "KOSDAQ", "NYSE"]},
     {"name": "valid_from", "type": "date", "null": false},
     {"name": "valid_to", "type": "date", "null": true},
     {"name": "price_from", "type": "f64", "null": true},
