@@ -107,11 +107,13 @@ def test_profiles_must_be_strings(tmp_path: Path) -> None:
     assert codes(write(tmp_path, lambda m, f: m.update(profiles=[123]))) == ["TDS-M001"]
 
 
-@pytest.mark.parametrize(("key", "where"), [("files", "dataset"), ("bytes", "file")])
+@pytest.mark.parametrize(
+    ("key", "where"), [("files", "dataset"), ("path", "file"), ("bytes", "file")]
+)
 def test_M003_minimal_dataset_and_file_fields(key: str, where: str, tmp_path: Path) -> None:
     def drop(m: dict[str, Any], f: Any) -> None:
         (build.bars(m) if where == "dataset" else build.bars(m)["files"][0]).pop(key)
-        if key == "files":
+        if key in ("files", "path"):
             f.pop(build.BARS)  # no longer listed: it would be M005
 
     assert codes(write(tmp_path, drop)) == ["TDS-M003"]

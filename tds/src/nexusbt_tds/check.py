@@ -36,6 +36,7 @@ REQUIRED += ("profiles", "id_namespaces", "markets", "datasets", "hashes", "writ
 #: 4.2 lists more fields without saying which are required; until #79 decides, the ones the
 #: manifest-level checks need (#51, Decisions 2026-11-02). A file needs `path` and `bytes`.
 DATASET_REQUIRED = ("name", "kind", "schema_version", "path", "files")
+FILE_REQUIRED = ("path", "bytes")  # TDS 4.2; checked one by one in _check_dataset
 _OBJECTS = ("producer", "id_namespaces", "markets", "hashes", "writer")
 HASH_SPECS = frozenset({"tds-hash-1"})  # 4.5
 SUPPORTED_MAJOR = 1  # 10.3
