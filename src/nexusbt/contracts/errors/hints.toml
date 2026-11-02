@@ -1,0 +1,32 @@
+# Spec 6.6 "User function exceptions": the interpretation table. The first row whose `type`
+# is the exception's class (or a base) and whose `contains` is in its message gives the fix.
+[[hint]]
+type = "KeyError"
+fix = "a missing id or column: use ctx.ids for the alive ids, nx.describe(...) for the columns"
+
+[[hint]]
+type = "IndexError"
+fix = "the row is outside the window: raise window= on the factor"
+
+[[hint]]
+type = "ValueError"
+contains = "shape"
+fix = "return one value per alive instrument, shape (n_alive,)"
+
+[[hint]]
+type = "TypeError"
+contains = "NoneType"
+fix = "a missing value reached arithmetic: handle NaN or None before it (fillna, np.where)"
+
+[[hint]]
+type = "ZeroDivisionError"
+fix = "guard the division: np.where(den != 0, num / den, np.nan), or fillna"
+
+[[hint]]
+type = "FloatingPointError"
+fix = "guard the division: np.where(den != 0, num / den, np.nan), or fillna"
+
+[[hint]]
+type = "RuntimeWarning"
+contains = "invalid value"
+fix = "a comparison or operation met NaN: fillna, or np.where(np.isnan(x), ..., ...)"
