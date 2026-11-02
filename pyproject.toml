@@ -123,3 +123,9 @@ markers = [
 # Warnings are errors. A third-party warning that blocks gets one narrow
 # ignore here, with its reason.
 filterwarnings = ["error"]
+
+# Coverage, read by `ci / test` (plinth v2.23.0 measures the source named
+# here; before it, `src/` only). TDS is a second package under `tds/src`,
+# versioned apart from the engine, so it is named too (#109).
+[tool.coverage.run]
+source = ["src", "tds/src"]
