@@ -42,7 +42,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         if name == "check":
             sub.add_argument("path", type=Path)
             sub.add_argument("--profile", action="append", help="repeatable; default: declared")
-            sub.add_argument("--level", choices=["manifest", "schema", "full"], default="manifest")
+            sub.add_argument(  # TDS 8.1: `schema`, also once `full` is built (#56 Decisions)
+                "--level", choices=["manifest", "schema", "full"], default="schema"
+            )
             sub.add_argument("--datasets", help="comma-separated dataset names")
             sub.add_argument("--max-errors", type=int, default=1000)
             sub.add_argument("--format", choices=["text", "json"], default="text")

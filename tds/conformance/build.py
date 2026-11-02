@@ -1,20 +1,25 @@
 """The conformance packages: per check code, a package raising only that code (TDS 8.5, 8.4a).
 
 `python tds/conformance/build.py [OUT]` writes them to `OUT/<code>/{pass,fail}/` (default: this
-folder). They are generated, never edited by hand. These are manifest-level packages: a data file
-holds placeholder bytes, since that level reads only sizes; the schema level (T0.13c) writes
-Parquet.
+folder). They are generated, never edited by hand. The data files are one-row Parquet files with
+the columns the schema level needs (the M packages are read for sizes only).
 """
 
 from __future__ import annotations
 
 import copy
+import datetime as dt
+import io
 import json
+import math
 import shutil
 import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 Files = dict[str, bytes]
 Package = tuple[dict[str, Any], Files]
@@ -22,11 +27,46 @@ Change = Callable[[dict[str, Any], Files], object]
 
 INSTRUMENTS = "instruments/part-00000.parquet"
 BARS = "bars/freq=1d/market=US/year=2024/part-00000.parquet"
+DAY = pa.array([dt.date(2024, 1, 2)])
+
+
+def instruments(**columns: pa.Array | None) -> pa.Table:
+    """One `instruments` row with the non-null columns (TDS 5.1); a column `None` is left out."""
+    base = {"instrument_id": ["US:AAA"], "asset_class": ["equity"], "market": ["US"],
+            "calendar_id": ["XNYS"], "currency": ["USD"], "listed_on": DAY, "lot_size": [1.0],
+            "multiplier": [1.0], "is_synthetic": [False]}  # fmt: skip
+    return pa.table({k: v for k, v in (base | columns).items() if v is not None})
+
+
+def bars_table(**columns: pa.Array | None) -> pa.Table:
+    """One daily bar (TDS 5.5); a column `None` is left out."""
+    base = {"instrument_id": pa.array(["US:AAA"]), "session_date": DAY, "close": pa.array([10.0])}
+    return pa.table({k: v for k, v in (base | columns).items() if v is not None})
+
+
+def parquet(
+    table: pa.Table, dataset: str, *, meta: dict[str, str] | None = None, **opts: Any
+) -> bytes:
+    """`table` as Parquet with TDS 3.7's key-value metadata (`meta` replaces it)."""
+    kv = {"tds.dataset": dataset, "tds.schema_version": "1.0"} if meta is None else meta
+    out = io.BytesIO()
+    pq.write_table(table.replace_schema_metadata(kv), out, **opts)
+    return out.getvalue()
+
+
+def rewrite(m: dict[str, Any], files: Files, rel: str, table: pa.Table, **opts: Any) -> None:
+    """Write `table` to the listed file `rel` and keep its `bytes` in tds.json right."""
+    (ds,) = (d for d in m["datasets"] if d["files"][0]["path"] == rel)
+    files[rel] = parquet(table, ds["name"], **opts)
+    ds["files"][0]["bytes"] = len(files[rel])
 
 
 def base() -> Package:
-    """A package that passes the manifest level: `tds:minimal-daily@1.0`, two datasets."""
-    files = {INSTRUMENTS: b"placeholder instruments\n", BARS: b"placeholder bars 1d\n"}
+    """A package that passes the manifest and schema levels: `tds:minimal-daily@1.0`."""
+    files = {
+        INSTRUMENTS: parquet(instruments(), "instruments"),
+        BARS: parquet(bars_table(), "bars_1d"),
+    }
     bars_1d = {"params": {"freq": "1d", "price_basis": "raw"}, "availability": {"rule": "ts_end"}}
     datasets: list[tuple[str, str, str, str, dict[str, Any]]] = [
         ("instruments", "instruments", "instruments", INSTRUMENTS, {}),
@@ -84,7 +124,15 @@ def _keep(m: dict[str, Any], files: Files) -> None:
     """The base package, unchanged."""
 
 
-#: Code → (pass change, fail change). M005 and M011 are warnings: their fail package warns.
+def _bars(meta: dict[str, str] | None = None, **columns: pa.Array | None) -> Change:
+    """Rewrite the bars file with `columns` changed (`meta`: its key-value metadata)."""
+    return lambda m, f: rewrite(m, f, BARS, bars_table(**columns), meta=meta)
+
+
+TS = pa.array([0], pa.timestamp("us", "UTC"))
+VERSION_1_9 = {"tds.dataset": "bars_1d", "tds.schema_version": "1.9"}  # M011: the file says so too
+
+#: Code → (pass change, fail change). M005, M011 and S005 are warnings: their fail package warns.
 CASES: dict[str, tuple[Change, Change]] = {
     "TDS-M001": (_keep, lambda m, f: m.clear()),  # `[]` is written, see write()
     "TDS-M002": (_set("tds_version", "1.4"), _set("tds_version", "2.0")),
@@ -107,13 +155,29 @@ CASES: dict[str, tuple[Change, Change]] = {
     "TDS-M010": (_keep, _move_bars(BARS.replace("market=US", "market=ZZ"))),
     "TDS-M011": (
         _set("schema_version", "1.0", in_bars=True),
-        _set("schema_version", "1.9", in_bars=True),
+        lambda m, f: (_set("schema_version", "1.9", in_bars=True)(m, f), _bars(VERSION_1_9)(m, f)),
     ),
     "TDS-M012": (_move_bars(BARS.replace("year=", "./year=")), _move_bars("../outside.parquet")),
     "TDS-M013": (_keep, lambda m, f: bars(m)["files"].append(dict(bars(m)["files"][0]))),
     "TDS-M014": (
         _set("availability", {"rule": "ts_end+PT15M"}, in_bars=True),
         _set("availability", {"rule": "ts_end_when_ready"}, in_bars=True),
+    ),
+    "TDS-S001": (_bars(ts_end=TS), _bars(session_date=None)),
+    "TDS-S002": (_keep, _bars(close=pa.array(["10.0"]))),
+    "TDS-S003": (
+        lambda m, f: rewrite(m, f, INSTRUMENTS, instruments(name=pa.array([None], pa.string()))),
+        lambda m, f: rewrite(
+            m, f, INSTRUMENTS, instruments(lot_size=pa.array([None], pa.float64()))
+        ),
+    ),
+    "TDS-S004": (_bars(ts_end=TS), _bars(ts_end=TS.cast(pa.timestamp("us")))),
+    "TDS-S005": (_bars(x_cf_note=pa.array(["a"])), _bars(note=pa.array(["a"]))),
+    "TDS-S008": (_keep, _bars(market=pa.array(["US"]))),
+    "TDS-S009": (_bars(close=pa.array([-1e300])), _bars(close=pa.array([math.inf]))),
+    "TDS-S010": (
+        _bars(meta={"tds.dataset": "bars", "tds.schema_version": "1.0"}),  # the kind, not the name
+        _bars(meta={}),  # no key-value metadata at all
     ),
 }
 
