@@ -529,7 +529,7 @@ Every built-in factor is a registered kernel and follows the numeric rules of 5.
 ```python
 nx.Pipeline(columns: Mapping[str, Term], screen: Filter | None = None)   # the default cross-section domain is in 3.3
 nx.run_pipeline(pipeline: Pipeline, *, start: str | date, end: str | date, freq: Literal["daily","weekly","monthly"] = "daily",
-                markets: Sequence[str] | None = None, edition: str | None = None, snapshot: str | None = None,   # markets: keys of the snapshot's markets
+                markets: Sequence[str] | None = None, edition: str | None = None, snapshot: str | Snapshot | None = None,   # markets: keys of the snapshot's markets
                 save: bool = False) -> PipelineResult
 ```
 
@@ -670,14 +670,15 @@ nx.execution.limit(offset_bps: float = 0.0, *, ref: Literal["decision_close"] = 
 
 ### 3.8 Function signatures and returns
 
-Common keywords ("common" in the table below): `snapshot: str | None = None` (default toml), `edition: Literal["strict","compare"] | None = None`, `segment: str | None = None` (default toml `[split] default_segment`), `start`, `end` (only to narrow further inside the segment; `ConfigError` outside it), `study: str | None = None`, `save: bool = True`. v3.2's reserved argument `splits=` was removed: splitting is a value of `backtest(method=…)` (6.3a; `evaluate` is linear only) [SC-21, R4-20].
+Common keywords ("common" in the table below): `snapshot: str | Snapshot | None = None` (default toml), `edition: Literal["strict","compare"] | None = None`, `segment: str | None = None` (default toml `[split] default_segment`), `start`, `end` (only to narrow further inside the segment; `ConfigError` outside it), `study: str | None = None`, `save: bool = True`. v3.2's reserved argument `splits=` was removed: splitting is a value of `backtest(method=…)` (6.3a; `evaluate` is linear only) [SC-21, R4-20].
 
 ```python
 nx.evaluate(term: Factor | Mapping[str, Factor], *, target: str | BoundColumn = "fwd_return",   # "fwd_return" (economic label) | "fwd_return_adj" | Label.*
             freq: Literal["monthly","weekly","daily"] = "monthly", horizons: Sequence[int | Literal["next"]] = ("next",),
             quantiles: int = 5, universe: Filter | None = None,
             by: Sequence[Literal["market","year","segment"]] = ("market",),
-            delisting: Literal["observed_then_policy","observed_only","lo","hi"] | None = None, **common) -> FactorReport
+            delisting: Literal["observed_then_policy","observed_only","lo","hi"] | None = None,
+            save_signal: bool = False, **common) -> FactorReport
 
 nx.backtest(strategy: Strategy, *, capital: float | None = None, base_ccy: str | None = None,   # ISO 4217; the snapshot must have exchange rates into that currency
             clock: str | None = None,                                                     # "<MARKET>_close" | "market_local"
@@ -699,10 +700,10 @@ nx.screen(obj: Strategy | Factor | Pipeline, *, asof: str | date | None = None, 
           account: Literal["auto","none","book","backtest"] = "auto", **common) -> Screen   # [V31-28, R3-21, R4-08]
 
 nx.live(strategy: Strategy, *, book: Book | str, asof: str | date | None = None,
-        params: Mapping[str, Any] | None = None, snapshot: str | None = None) -> Orders
+        params: Mapping[str, Any] | None = None, snapshot: str | Snapshot | None = None) -> Orders
 nx.fill(book: Book | str, orders: Orders | None = None, *, at: Literal["next_open"] = "next_open",
-        snapshot: str | None = None) -> BookUpdate
-nx.reconcile(book: Book | str, *, restate: bool = False, snapshot: str | None = None) -> ReconcileReport
+        snapshot: str | Snapshot | None = None) -> BookUpdate
+nx.reconcile(book: Book | str, *, restate: bool = False, snapshot: str | Snapshot | None = None) -> ReconcileReport
                                    # default: replay with the snapshots the ledger recorded. restate=True: restatement comparison with snapshot (default latest)
 
 nx.sweep(strategy: Strategy, *, grid: Mapping[str, Sequence[Any]] | None = None,
