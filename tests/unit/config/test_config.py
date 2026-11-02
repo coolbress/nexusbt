@@ -273,9 +273,17 @@ def test_long_short_feasible_region(tmp_path: Path) -> None:
     with pytest.raises(ConfigError, match=re.escape("L + S = 1.6 > 1.5")) as e:
         check_long_short(tight, "US", 1.3, 0.3)
     assert e.value.layer == "config — nexusbt.toml [account] type = 'margin'"
+    assert e.value.parts["where"] == "nexusbt.toml [account] type, sleeve US"  # `where` as before
     with pytest.raises(ConfigError, match="initial_margin") as e:  # no value for KR: E16
         check_long_short(tight, "KR", 0.5, 0.1)
     assert e.value.layer == "config — nexusbt.toml [account] initial_margin = {'US': 0.5}"
+    unset = load_config(overrides={"account": {"type": "margin"}}, markets=KR_US)
+    with pytest.raises(ConfigError, match="initial_margin") as e:  # the pack's default, unset
+        check_long_short(unset, "KR", 0.5, 0.0)
+    assert e.value.layer == "config — nexusbt.toml [account] initial_margin = <rules pack>"
+    with pytest.raises(ConfigError) as e:  # an unknown table: no value to show
+        load_config(overrides={"foo": {"x": 1}})
+    assert " = " not in e.value.layer
 
 
 def test_file_path_and_toml_dates(tmp_path: Path) -> None:
