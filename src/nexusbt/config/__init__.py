@@ -38,6 +38,7 @@ class _Hidden:
 
 
 _HIDDEN = _Hidden()  # a secret key's value, never echoed in an error
+_NONE: Any = object()  # no value to show (a key's value may itself be None)
 
 
 class _RejectedError(Exception):
@@ -50,10 +51,12 @@ def _raise(
     fix: str,
     why: str,
     error: type[NexusBTError] = ConfigError,
-    value: Any = None,
+    value: Any = _NONE,
+    at: str = "",
 ) -> NoReturn:
-    """E16 or E18 at `where` (`[table] key`), layer config (6.6); TOML has no None value."""
-    layer = f"config — nexusbt.toml {where}" + ("" if value is None else f" = {value!r}")
+    """E16 or E18 at `where`, layer config (6.6): `[table] key = value` names `at` (default
+    `where`) and `value`; a value not given is not shown, a secret's as `<hidden>`."""
+    layer = f"config — nexusbt.toml {at or where}" + f" = {value!r}" * (value is not _NONE)
     where = f"nexusbt.toml {where}"
     raise error(what=what, where=where, why=why, fix=fix, more="spec 3.11", layer=layer)
 
@@ -280,7 +283,7 @@ DEFAULTS = {t: {k: d for k, (d, _) in kv.items() if k != "*"} for t, kv in SCHEM
 _MARGIN_ONLY = {"initial_margin", "maintenance_margin", "debit_rate_bps"}  # 3.11 [account] type
 
 
-def _known(name: str, names: Mapping[str, Any], where: str = "", value: Any = None) -> str:
+def _known(name: str, names: Mapping[str, Any], where: str = "", value: Any = _NONE) -> str:
     if name not in names:
         near = difflib.get_close_matches(name, list(names), n=3)
         fix = f"did you mean: {', '.join(near)}?" if near else "remove it"
@@ -340,7 +343,8 @@ def _data_root(root: str | None, package: str | None) -> str | None:
         )
     ):
         what = f"[data] root = {root!r} has no snapshot folder with LATEST or tds.json"
-        _raise(what, "[data] root", "point it at a data root", "snapshots are read there (4.2)")
+        why = "snapshots are read there (4.2)"
+        _raise(what, "[data] root", "point it at a data root", why, value=root)
     return root
 
 
@@ -356,7 +360,7 @@ def _sleeves(values: dict[str, dict[str, Any]], m: tuple[str, ...]) -> dict[str,
     if abs(sum(weights.values()) - 1) > 1e-9 or total <= 0:
         what = f"[sleeves] weights sum to {sum(weights.values()):g}, {total:g} in the universe"
         why = "each sleeve's share of the capital comes from them (11.4.1)"
-        _raise(what, "[sleeves] weights", "make them sum to 1 ± 1e-9", why)
+        _raise(what, "[sleeves] weights", "make them sum to 1 ± 1e-9", why, value=weights)
     return {k: w / total for k, w in kept.items()}  # markets outside the universe: rescaled
 
 
@@ -368,7 +372,8 @@ def _segments(values: dict[str, dict[str, Any]]) -> None:
         if not last < first <= end:
             what = f"[split] segments: {name} = {bounds} overlaps, is out of order or is not [s, e]"
             fix = "give each segment [start, end], in time order, without overlap"
-            _raise(what, "[split] segments", fix, "a decision belongs to one segment (R-57)")
+            why = "a decision belongs to one segment (R-57)"
+            _raise(what, "[split] segments", fix, why, value=values["split"]["segments"])
         last = end
 
 
@@ -390,7 +395,8 @@ def check_long_short(config: Config, market: str, long_weight: float, short_weig
     shorting, account = config.values["shorting"], config.values["account"]
     if short_weight > 0 and not shorting["enabled"]:
         why = "shorting is off by default (3.7)"
-        _raise("short targets need [shorting] enabled = true", "[shorting] enabled", "set it", why)
+        what = "short targets need [shorting] enabled = true"
+        _raise(what, "[shorting] enabled", "set it", why, value=shorting["enabled"])
     if account["type"] == "cash":
         unwritten = DEFAULTS["shorting"]["collateral_ratio"].value  # 0.5, "in every market"
         x = (
@@ -403,18 +409,19 @@ def check_long_short(config: Config, market: str, long_weight: float, short_weig
                 f"long-short book needs margin: long_weight + collateral_ratio {times} short_weight"
             )
             why = "longs are fully cash-funded; no margin loan; short proceeds are collateral"
-            _raise(
-                f"{what} = {x:g} > 1", f"[account] type, sleeve {market}", "lower the weights", why
-            )
+            where, fix = f"[account] type, sleeve {market}", "lower the weights"
+            _raise(f"{what} = {x:g} > 1", where, fix, why, value="cash", at="[account] type")
         return
     im = _per_market(account["initial_margin"], market)
     if not isinstance(im, int | float):
         what = f"[account] initial_margin has no value for {market}"
-        _raise(what, "[account] initial_margin", f"write {market} = <ratio>", "5.6.7a needs it")
+        where, fix = "[account] initial_margin", f"write {market} = <ratio>"
+        _raise(what, where, fix, "5.6.7a needs it", value=account["initial_margin"])
     cap, x = min(shorting["max_gross"], 1 / im), long_weight + short_weight
     if x > cap:
         what = f"margin book exceeds buying power: L + S = {x:g} > {cap:g}"
-        _raise(what, f"[account] type, sleeve {market}", "lower the weights", "5.6.7a")
+        where, fix = f"[account] type, sleeve {market}", "lower the weights"
+        _raise(what, where, fix, "5.6.7a", value="margin", at="[account] type")
 
 
 def load_config(
@@ -432,12 +439,14 @@ def load_config(
     _merge(values, given, m)  # checks the file's shape first
     if values["defaults"]["preset"] == "zipline":
         why = "zipline is for tests only (R-55)"
-        _raise("[defaults] preset = 'zipline'", "[defaults] preset", "pass it in test code", why)
+        what, fix = "[defaults] preset = 'zipline'", "pass it in test code"
+        _raise(what, "[defaults] preset", fix, why, value="zipline")
     _merge(values, code, m)
     written = {k for src in (given, code) for k in src.get("account", {})} & _MARGIN_ONLY
     if written and values["account"]["type"] == "cash":
         what = f'margin settings need [account] type = "margin": {", ".join(sorted(written))}'
-        _raise(what, "[account]", 'set type = "margin" or remove them', "3.11 [account] type")
+        fix, why = 'set type = "margin" or remove them', "3.11 [account] type"
+        _raise(what, "[account]", fix, why, value="cash", at="[account] type")
     _segments(values)
     d = values["defaults"]
     if d["clock"] is None and m:
