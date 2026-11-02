@@ -11,10 +11,15 @@ E1~E39 messages are T0.4's (#49), the `layer` lines and E40~E49 T0.4b's.
 
 from __future__ import annotations
 
+import inspect
 import re
-from collections.abc import Mapping
+import tomllib
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from enum import IntEnum, StrEnum
+from functools import cache
+from importlib import resources
+from pathlib import Path
 from types import MappingProxyType
 from typing import ClassVar, Literal, NewType, Protocol, Self
 
@@ -525,6 +530,39 @@ class SnapshotError(NexusBTError, code="E14"):
             layer=f"data — snapshot {snapshot_id} / {dataset} / column {column}"
             f" / producer {producer}",
         )
+
+
+@cache
+def _hints() -> list[dict[str, str]]:
+    text = (resources.files(__name__) / "errors" / "hints.toml").read_text(encoding="utf-8")
+    hints: list[dict[str, str]] = tomllib.loads(text)["hint"]
+    return hints
+
+
+def _note_user_exception(
+    error: BaseException, function: Callable[..., object], *, instrument_id: str, date: str
+) -> None:
+    """6.6 "User function exceptions": add the `layer` and `fix` lines to `error` in place.
+
+    The caller re-raises it with a bare `raise`, so its class and traceback stay the user's
+    (R-42). The line is the last one of `function` (through a decorator or a partial) in the
+    traceback, else the innermost; the fix is the first `errors/hints.toml` row the exception
+    matches, else the general sentence (R4F-22). It never raises an error of its own.
+    """
+    user = inspect.unwrap(getattr(function, "func", function))
+    code, name = getattr(user, "__code__", None), getattr(user, "__name__", type(user).__name__)
+    at, tb = "", error.__traceback__
+    while tb is not None:
+        frame = tb.tb_frame.f_code
+        at = f"{Path(frame.co_filename).name}:{tb.tb_lineno}" if code in (None, frame) else at
+        tb = tb.tb_next
+    names = {c.__name__ for c in type(error).__mro__}
+    fixes = (
+        h["fix"] for h in _hints() if h["type"] in names and h.get("contains", "") in str(error)
+    )
+    explain = f"nx.explain(strategy, '{instrument_id}', '{date}')"
+    error.add_note(f"  layer  your code — {at} in {name}")
+    error.add_note(f"  fix    {next(fixes, f'check {name} at {at}; reproduce with {explain}')}")
 
 
 #: Code → (at, subject, what, where, why, fix, more), from the 6.6 "Message core" column.
