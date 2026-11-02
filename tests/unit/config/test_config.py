@@ -284,6 +284,7 @@ def test_long_short_feasible_region(tmp_path: Path) -> None:
     with pytest.raises(ConfigError) as e:  # an unknown table: no value to show
         load_config(overrides={"foo": {"x": 1}})
     assert " = " not in e.value.layer
+    assert e.value.parts["where"] == "nexusbt.toml [foo]"  # the bracket closed (#87 left `[foo`)
 
 
 def test_file_path_and_toml_dates(tmp_path: Path) -> None:

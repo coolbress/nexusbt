@@ -288,7 +288,8 @@ def _known(name: str, names: Mapping[str, Any], where: str = "", value: Any = _N
         near = difflib.get_close_matches(name, list(names), n=3)
         fix = f"did you mean: {', '.join(near)}?" if near else "remove it"
         why = "unknown keys would be silently ignored"
-        _raise(f"{where}{name} is not a key", f"{where}{name}", fix, why, value=value)
+        key = f"{where}{name}]" if where == "[" else f"{where}{name}"  # a table: `[name]`
+        _raise(f"{key} is not a key", key, fix, why, value=value)
     return name
 
 
