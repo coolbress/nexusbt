@@ -12,7 +12,7 @@ import pytest
 
 import nexusbt as nx
 from nexusbt.config import check_long_short, load_config
-from nexusbt.contracts import CapabilityError, ConfigError
+from nexusbt.contracts import CapabilityError, ConfigError, SnapshotError
 
 ROOT = Path(__file__).resolve().parents[3]
 SPEC = (ROOT / "docs" / "spec" / "engine-spec-v3.4.md").read_text(encoding="utf-8")
@@ -158,6 +158,16 @@ def test_markets_from_manifest(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     with pytest.raises(ConfigError, match="base_ccy"):  # a market without a currency code
         load_config(markets={"KR": "None"})
     assert importlib.import_module("nexusbt.config").load_config is load_config  # 2.4 module
+    write(tmp_path, f"[data]\npath = '{folder.parent}'\n[defaults]\nclock = 'US_close'\n")
+    assert nx.config().resolved["clock"] == "US_close"  # `path`: a parent with LATEST (4.2)
+    write(tmp_path, f"[data]\nroot = '{folder.parent}'\nsnapshot = '{folder.name}'\n")
+    assert nx.config().markets == ("KR", "US")  # `root` + a snapshot id
+    (folder / "tds.json").write_text("{not json", encoding="utf-8")  # a broken file: E14
+    with pytest.raises(SnapshotError, match=r"tds\.json"):
+        nx.config()
+    (folder / "tds.json").unlink()  # no file
+    with pytest.raises(SnapshotError, match=r"tds\.json"):
+        nx.config()
 
 
 def test_market_object_reordering_preserves_resolved_defaults(tmp_path: Path) -> None:
