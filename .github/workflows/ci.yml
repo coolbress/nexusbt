@@ -64,6 +64,52 @@ jobs:
       pull-requests: read
       actions: write
 
+  # The engine and TDS checks of spec 9.1 (T0.10). Each check name is the matrix value,
+  # `engine / parity` and so on, the name the ruleset requires once its milestone ends:
+  # renaming one has the same consequence as renaming `ci`. What each runs is the 9.1
+  # table in tests/repo/ci_jobs.py; a check with no tests yet passes and says so in a
+  # `not yet confirmed:` line.
+  checks:
+    name: ${{ matrix.check }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        check:
+          - engine / parity
+          - engine / property-deep
+          - engine / perf-smoke
+          - engine / docs-examples
+          - engine / golden-guard
+          - engine / release
+          - tds / conformance
+          - tds / schemas
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false   # nothing here pushes (zizmor `artipacked`)
+      # The same release and checksum as the plinth jobs the `ci` job calls; Dependabot
+      # does not raise these two, so raise them with that pin.
+      - name: Install uv (official release, SHA256 verified)
+        env:
+          UV_VERSION: "0.12.9"
+          UV_SHA256: "ec7a99cd05e0cd7f80243f135ce1361c76835cb0ee60055d14d20eba8eba1460"
+        run: |
+          set -euo pipefail
+          d="$RUNNER_TEMP/uv"; mkdir -p "$d"
+          f="uv-x86_64-unknown-linux-gnu.tar.gz"
+          curl -fsSL --retry 3 -o "$d/$f" \
+            "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/$f"
+          echo "${UV_SHA256}  $d/$f" | sha256sum -c -
+          tar -xzf "$d/$f" -C "$d" --strip-components=1 "${f%.tar.gz}/uv" "${f%.tar.gz}/uvx"
+          echo "$d" >> "$GITHUB_PATH"
+      - run: uv sync --locked
+      - name: Run the check
+        env:
+          CHECK: ${{ matrix.check }}   # through env, not inline (zizmor `template-injection`)
+        run: uv run python tests/repo/ci_jobs.py "$CHECK"
+
 # Optional: a review signal from a third party on every ready pull request,
 # reported as the check `third-party / review`. Off by default: it needs a
 # reviewer account (the default is the Codex code reviewer, a ChatGPT
