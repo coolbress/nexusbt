@@ -185,8 +185,9 @@ def test_market_object_reordering_preserves_resolved_defaults(tmp_path: Path) ->
 
 
 def test_sleeve_weights_must_sum_to_one(tmp_path: Path) -> None:
-    with pytest.raises(ConfigError, match="sum"):
+    with pytest.raises(ConfigError, match="sum") as e:
         load_config(write(tmp_path, "[sleeves]\nweights = {KR = 0.5, US = 0.6}\n"), markets=KR_US)
+    assert e.value.layer == "config — nexusbt.toml [sleeves] weights = {'KR': 0.5, 'US': 0.6}"
     text = '[defaults]\nuniverse = "US"\n[sleeves]\nweights = {KR = 0.3, US = 0.7}\n'
     assert load_config(write(tmp_path, text), markets=KR_US).resolved["sleeves"] == {"US": 1.0}
     with pytest.raises(ConfigError, match="unknown market JP"):
@@ -199,16 +200,18 @@ def test_segments_must_not_overlap(tmp_path: Path) -> None:
         '{a = ["2022-01-01", "latest"], b = ["start", "2021-12-31"]}',  # out of order
         '{a = ["2022-01-01", "2021-01-01"]}',  # ends before it starts
     ):
-        with pytest.raises(ConfigError, match="segments"):
+        with pytest.raises(ConfigError, match="segments") as e:
             load_config(write(tmp_path, f"[split]\nsegments = {segments}\n"))
+        assert e.value.layer.startswith("config — nexusbt.toml [split] segments = {'a': [")
     text = '[split]\nsegments = {train = ["start", "2019-12-31"], b = ["2020-01-01", "latest"]}\n'
     assert list(load_config(write(tmp_path, text)).values["split"]["segments"]) == ["train", "b"]
     load_config(overrides={"defaults": {"start": "2023-01-01"}})  # "start": from the beginning
 
 
 def test_preset_zipline_forbidden_in_toml(tmp_path: Path) -> None:
-    with pytest.raises(ConfigError, match="zipline"):
+    with pytest.raises(ConfigError, match="zipline") as e:
         load_config(write(tmp_path, '[defaults]\npreset = "zipline"\n'))
+    assert e.value.layer == "config — nexusbt.toml [defaults] preset = 'zipline'"
     config = load_config(overrides={"defaults": {"preset": "zipline"}})  # code may set it
     assert config.values["defaults"]["preset"] == "zipline"
     with pytest.raises(ConfigError, match=r"\[defaults\]"):  # not a table: E16, not a crash
@@ -220,14 +223,16 @@ def test_data_root_from_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     assert load_config(write(tmp_path, "")).values["data"]["root"] == str(tmp_path / "data")
     monkeypatch.setenv("NEXUSBT_DATA_ROOT", str(tmp_path / "missing"))
     load_config(overrides={"data": {"path": str(folder)}})  # `path` comes before `root`
-    with pytest.raises(ConfigError, match="root"):
+    with pytest.raises(ConfigError, match="root") as e:
         load_config(write(tmp_path, ""))
+    assert e.value.layer == f"config — nexusbt.toml [data] root = {str(tmp_path / 'missing')!r}"
 
 
 def test_shorting_disabled_by_default(tmp_path: Path) -> None:
     assert load_config(write(tmp_path, "")).values["shorting"]["enabled"] is False
-    with pytest.raises(ConfigError, match=re.escape("[shorting] enabled = true")):
+    with pytest.raises(ConfigError, match=re.escape("[shorting] enabled = true")) as e:
         check_long_short(load_config(markets=KR_US), "KR", 0.5, 0.5)
+    assert e.value.layer == "config — nexusbt.toml [shorting] enabled = False"
 
 
 def test_pins_default_index_root(tmp_path: Path) -> None:
@@ -245,8 +250,9 @@ def test_net_interval_must_contain_zero(tmp_path: Path) -> None:
 
 
 def test_margin_keys_need_margin_account(tmp_path: Path) -> None:
-    with pytest.raises(ConfigError, match=re.escape('need [account] type = "margin"')):
+    with pytest.raises(ConfigError, match=re.escape('need [account] type = "margin"')) as e:
         load_config(write(tmp_path, "[account]\ninitial_margin = {US = 0.5}\n"), markets=KR_US)
+    assert e.value.layer == "config — nexusbt.toml [account] type = 'cash'"
     assert load_config(write(tmp_path, MARGIN), markets=KR_US).values["account"]["type"] == "margin"
 
 
@@ -258,15 +264,27 @@ def test_long_short_feasible_region(tmp_path: Path) -> None:
     partial = {"shorting": {"enabled": True, "collateral_ratio": {"KR": 1.0}}}  # US: the 0.5
     check_long_short(load_config(overrides=partial, markets=KR_US), "US", 0.5, 1.0)
     sentence = f"collateral_ratio {chr(0xD7)} short_weight = 1.45 > 1"  # 3.7's E16 sentence
-    with pytest.raises(ConfigError, match=re.escape(sentence)):
+    with pytest.raises(ConfigError, match=re.escape(sentence)) as e:
         check_long_short(cash, "KR", 1.3, 0.3)  # 130/30 in a cash account
+    assert e.value.layer == "config — nexusbt.toml [account] type = 'cash'"
     margin = on + MARGIN
     check_long_short(load_config(write(tmp_path, margin), markets=KR_US), "US", 1.3, 0.3)
     tight = load_config(write(tmp_path, margin.replace("2.0", "1.5")), markets=KR_US)
-    with pytest.raises(ConfigError, match=re.escape("L + S = 1.6 > 1.5")):
+    with pytest.raises(ConfigError, match=re.escape("L + S = 1.6 > 1.5")) as e:
         check_long_short(tight, "US", 1.3, 0.3)
-    with pytest.raises(ConfigError, match="initial_margin"):  # no value for KR: E16
+    assert e.value.layer == "config — nexusbt.toml [account] type = 'margin'"
+    assert e.value.parts["where"] == "nexusbt.toml [account] type, sleeve US"  # `where` as before
+    with pytest.raises(ConfigError, match="initial_margin") as e:  # no value for KR: E16
         check_long_short(tight, "KR", 0.5, 0.1)
+    assert e.value.layer == "config — nexusbt.toml [account] initial_margin = {'US': 0.5}"
+    unset = load_config(overrides={"account": {"type": "margin"}}, markets=KR_US)
+    with pytest.raises(ConfigError, match="initial_margin") as e:  # the pack's default, unset
+        check_long_short(unset, "KR", 0.5, 0.0)
+    assert e.value.layer == "config — nexusbt.toml [account] initial_margin = <rules pack>"
+    with pytest.raises(ConfigError) as e:  # an unknown table: no value to show
+        load_config(overrides={"foo": {"x": 1}})
+    assert " = " not in e.value.layer
+    assert e.value.parts["where"] == "nexusbt.toml [foo]"  # the bracket closed (#87 left `[foo`)
 
 
 def test_file_path_and_toml_dates(tmp_path: Path) -> None:
