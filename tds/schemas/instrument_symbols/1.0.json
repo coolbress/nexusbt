@@ -1,0 +1,17 @@
+{
+  "kind": "instrument_symbols", "schema_version": "1.0", "status": "stable", "section": "5.2",
+  "key": ["instrument_id", "symbol_type", "venue_mic", "valid_from", "ts_known_from"],
+  "sort": ["instrument_id", "symbol_type", "venue_mic", "valid_from", "ts_known_from"],
+  "partitions": [],
+  "columns": [
+    {"name": "instrument_id", "type": "id", "null": false},
+    {"name": "symbol_type", "type": "code", "enum": "open", "null": false},
+    {"name": "symbol", "type": "string", "null": false},
+    {"name": "venue_mic", "type": "code", "null": true},
+    {"name": "valid_from", "type": "date", "null": false},
+    {"name": "valid_to", "type": "date", "null": true},
+    {"name": "ts_known_from", "type": "ts_us", "null": true},
+    {"name": "ts_known_to", "type": "ts_us", "null": true},
+    {"name": "source", "type": "string", "null": true}
+  ]
+}

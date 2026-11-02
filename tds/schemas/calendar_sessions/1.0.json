@@ -1,0 +1,15 @@
+{
+  "kind": "calendar_sessions", "schema_version": "1.0", "status": "stable", "section": "5.4",
+  "key": ["calendar_id", "session_date"], "sort": ["calendar_id", "session_date"], "partitions": [],
+  "columns": [
+    {"name": "calendar_id", "type": "id", "null": false},
+    {"name": "session_date", "type": "date", "null": false},
+    {"name": "ts_open", "type": "ts_us", "null": false},
+    {"name": "ts_close", "type": "ts_us", "null": false},
+    {"name": "session_ord", "type": "i32", "null": true},
+    {"name": "is_half_day", "type": "bool", "null": true},
+    {"name": "session_kind", "type": "code", "null": false},
+    {"name": "calendar_version", "type": "string", "null": true},
+    {"name": "source", "type": "string", "null": true}
+  ]
+}
