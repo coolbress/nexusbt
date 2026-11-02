@@ -95,7 +95,7 @@ def test_snapshot_error_carries_tds_codes_and_hints() -> None:
         counts={"TDS-A001": 3, "TDS-M012": 1},
         dataset="bars",
         file="bars/year=2020/part-0.parquet",
-        key="instrument_id=X1, session_date=2020-03-02",
+        key="instrument_id=A1, session_date=2020-03-02",
         hint="cum_factor_split does not match corporate_actions",
         snapshot_id="s1",
         producer="synthetic",

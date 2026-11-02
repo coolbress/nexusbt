@@ -530,7 +530,7 @@ zipline 3.2.1과 같은 이름은 zipline의 결측 규칙과 **입력 의미**�
 ```python
 nx.Pipeline(columns: Mapping[str, Term], screen: Filter | None = None)   # 단면 기본 도메인은 3.3
 nx.run_pipeline(pipeline: Pipeline, *, start: str | date, end: str | date, freq: Literal["daily","weekly","monthly"] = "daily",
-                markets: Sequence[str] | None = None, edition: str | None = None, snapshot: str | None = None,   # markets: 스냅숏 markets의 키
+                markets: Sequence[str] | None = None, edition: str | None = None, snapshot: str | Snapshot | None = None,   # markets: 스냅숏 markets의 키
                 save: bool = False) -> PipelineResult
 ```
 
@@ -671,14 +671,15 @@ nx.execution.limit(offset_bps: float = 0.0, *, ref: Literal["decision_close"] = 
 
 ### 3.8 함수 서명과 반환
 
-공통 키워드(아래 표의 "공통"): `snapshot: str | None = None`(기본 toml), `edition: Literal["strict","compare"] | None = None`, `segment: str | None = None`(기본 toml `[split] default_segment`), `start`, `end`(구간 안으로 더 좁힐 때만; 구간 밖이면 `ConfigError`), `study: str | None = None`, `save: bool = True`. v3.2의 예약 인자 `splits=`는 없앴다: 분할은 `backtest(method=…)`의 값이다(6.3a; `evaluate`는 선형만) [SC-21, R4-20].
+공통 키워드(아래 표의 "공통"): `snapshot: str | Snapshot | None = None`(기본 toml), `edition: Literal["strict","compare"] | None = None`, `segment: str | None = None`(기본 toml `[split] default_segment`), `start`, `end`(구간 안으로 더 좁힐 때만; 구간 밖이면 `ConfigError`), `study: str | None = None`, `save: bool = True`. v3.2의 예약 인자 `splits=`는 없앴다: 분할은 `backtest(method=…)`의 값이다(6.3a; `evaluate`는 선형만) [SC-21, R4-20].
 
 ```python
 nx.evaluate(term: Factor | Mapping[str, Factor], *, target: str | BoundColumn = "fwd_return",   # "fwd_return"(경제 정답) | "fwd_return_adj" | Label.*
             freq: Literal["monthly","weekly","daily"] = "monthly", horizons: Sequence[int | Literal["next"]] = ("next",),
             quantiles: int = 5, universe: Filter | None = None,
             by: Sequence[Literal["market","year","segment"]] = ("market",),
-            delisting: Literal["observed_then_policy","observed_only","lo","hi"] | None = None, **공통) -> FactorReport
+            delisting: Literal["observed_then_policy","observed_only","lo","hi"] | None = None,
+            save_signal: bool = False, **공통) -> FactorReport
 
 nx.backtest(strategy: Strategy, *, capital: float | None = None, base_ccy: str | None = None,   # ISO 4217, 스냅숏에 그 통화로 가는 환율이 있어야
             clock: str | None = None,                                                     # "<MARKET>_close" | "market_local"
@@ -700,10 +701,10 @@ nx.screen(obj: Strategy | Factor | Pipeline, *, asof: str | date | None = None, 
           account: Literal["auto","none","book","backtest"] = "auto", **공통) -> Screen   # [V31-28, R3-21, R4-08]
 
 nx.live(strategy: Strategy, *, book: Book | str, asof: str | date | None = None,
-        params: Mapping[str, Any] | None = None, snapshot: str | None = None) -> Orders
+        params: Mapping[str, Any] | None = None, snapshot: str | Snapshot | None = None) -> Orders
 nx.fill(book: Book | str, orders: Orders | None = None, *, at: Literal["next_open"] = "next_open",
-        snapshot: str | None = None) -> BookUpdate
-nx.reconcile(book: Book | str, *, restate: bool = False, snapshot: str | None = None) -> ReconcileReport
+        snapshot: str | Snapshot | None = None) -> BookUpdate
+nx.reconcile(book: Book | str, *, restate: bool = False, snapshot: str | Snapshot | None = None) -> ReconcileReport
                                    # 기본: 장부가 기록한 스냅숏으로 재생. restate=True: snapshot(기본 최신)으로 재진술 비교
 
 nx.sweep(strategy: Strategy, *, grid: Mapping[str, Sequence[Any]] | None = None,

@@ -1,6 +1,5 @@
-# Spec 6.6 "Layers" and 8.4b: the layer of each error code, outside in when it spans two.
-# A code with more than one condition maps condition id → layer. `test_layers.py` checks
-# this table against the 6.6 paragraph and every example against this table.
+# Spec 6.6 "Layers" and 8.4b: code → layer, outside in when it spans two; a code with more
+# than one condition maps condition id → layer. `test_layers.py` checks it both ways.
 E1 = "your code"
 E2 = "your code"
 E3 = "data"
