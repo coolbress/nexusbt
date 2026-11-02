@@ -12,8 +12,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
+from nexusbt.config import Config, load_config
+from nexusbt.data import _snapshot_markets
+
 if TYPE_CHECKING:
-    from nexusbt.config import Config
     from nexusbt.data import Explanation, Snapshot
     from nexusbt.pipeline import BoundColumn, Factor, Filter, Pipeline, Term
 
@@ -237,7 +239,10 @@ def preregister(
 
 
 def config() -> Config:
-    raise NotImplementedError
+    """`nexusbt.toml` of the working folder, resolved against the snapshot `[data]` points at."""
+    path = Path("nexusbt.toml") if Path("nexusbt.toml").is_file() else None
+    markets = _snapshot_markets(load_config(path))
+    return load_config(path, markets=markets) if markets else load_config(path)
 
 
 def open(path: str | Path) -> Snapshot:  # noqa: A001 - the 3.1 name `nx.open`
