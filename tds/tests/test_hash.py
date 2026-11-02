@@ -136,6 +136,8 @@ def with_ts_start(unit: str) -> dict[str, pa.Table]:
     ({"partitioning": [MARKET, YEAR, {"name": "venue", "type": "code"}]}, "no value"),
     ({"partitioning": [MARKET, {"name": "year", "type": "bool"}]}, "no path rule"),
     ({"columns": [{"name": "ts_start", "type": "ts_us/ns"}]}, "no declared type"),
+    ({"key": ["instrument_id", "nope"], "columns": [{"name": "ts_start", "type": "ts_us"}]},
+     "not in the data"),
 ])  # fmt: skip
 def test_no_value_hash_without_a_rule(tmp_path: Path, change: dict[str, Any], message: str) -> None:
     with pytest.raises(HashError, match=message):
