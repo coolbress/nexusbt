@@ -31,14 +31,30 @@ class _Pack:
 PACK = _Pack()  # a default the market rules pack gives (T0.5b)
 
 
+class _Hidden:
+    def __repr__(self) -> str:
+        return "<hidden>"
+
+
+_HIDDEN = _Hidden()  # a secret key's value, never echoed in an error
+
+
 class _RejectedError(Exception):
     """A check's refusal, `(what, fix, error class)`; the caller names the key."""
 
 
 def _raise(
-    what: str, where: str, fix: str, why: str, error: type[NexusBTError] = ConfigError
+    what: str,
+    where: str,
+    fix: str,
+    why: str,
+    error: type[NexusBTError] = ConfigError,
+    value: Any = None,
 ) -> NoReturn:
-    raise error(what=what, where=f"nexusbt.toml {where}", why=why, fix=fix, more="spec 3.11")
+    """E16 or E18 at `where` (`[table] key`), layer config (6.6); TOML has no None value."""
+    layer = f"config — nexusbt.toml {where}" + ("" if value is None else f" = {value!r}")
+    where = f"nexusbt.toml {where}"
+    raise error(what=what, where=where, why=why, fix=fix, more="spec 3.11", layer=layer)
 
 
 def _apply(where: str, check: Check, value: Any, m: tuple[str, ...]) -> Any:
@@ -47,7 +63,7 @@ def _apply(where: str, check: Check, value: Any, m: tuple[str, ...]) -> Any:
     except _RejectedError as rejected:
         what, fix, error = rejected.args
         why = "v1 accepts only this value" if error is CapabilityError else "spec 3.11 limits it"
-        _raise(f"{where} = {value!r}: {what}", where, fix, why, error)
+        _raise(f"{where} = {value!r}: {what}", where, fix, why, error, value)
 
 
 def rule(ok: Callable[[Any], object], what: str, fix: str, error: type = ConfigError) -> Check:
@@ -119,7 +135,9 @@ def per_market(item: Check, *, scalar: bool = False) -> Check:
 
 
 def fields(**schema: Check) -> Check:
-    return lambda v, m: {_known(k, schema): schema[k](x, m) for k, x in is_(dict)(v, m).items()}
+    return lambda v, m: {
+        _known(k, schema, value=x): schema[k](x, m) for k, x in is_(dict)(v, m).items()
+    }
 
 
 def _fx_series(v: Any, m: tuple[str, ...]) -> Any:
@@ -244,12 +262,12 @@ SCHEMA: dict[str, dict[str, tuple[Any, Check]]] = {
 DEFAULTS = {t: {k: d for k, (d, _) in kv.items() if k != "*"} for t, kv in SCHEMA.items()}
 
 
-def _known(name: str, names: Mapping[str, Any], where: str = "") -> str:
+def _known(name: str, names: Mapping[str, Any], where: str = "", value: Any = None) -> str:
     if name not in names:
         near = difflib.get_close_matches(name, list(names), n=3)
         fix = f"did you mean: {', '.join(near)}?" if near else "remove it"
         why = "unknown keys would be silently ignored"
-        _raise(f"{where}{name} is not a key", f"{where}{name}", fix, why)
+        _raise(f"{where}{name} is not a key", f"{where}{name}", fix, why, value=value)
     return name
 
 
@@ -258,7 +276,8 @@ def _no_secrets(table: Mapping[str, Any], where: str = "") -> None:
         if SECRET.search(name):
             what = f"{where}{name}: secrets do not belong in nexusbt.toml; "
             what += "use environment variables or the OS keychain"
-            _raise(what, f"{where}{name}", "remove the key", "the file is shared (spec 2.6)")
+            why = "the file is shared (spec 2.6)"
+            _raise(what, f"{where}{name}", "remove the key", why, value=_HIDDEN)
         if isinstance(value, dict):
             _no_secrets(value, f"{where}{name}." if where else f"[{name}] ")
 
@@ -270,7 +289,8 @@ def _merge(values: dict[str, dict[str, Any]], given: Mapping[str, Any], m: tuple
             where = f"[{table}] {key}"
             if "*" in schema:
                 _apply(where, _market, key, m)
-            check = schema["*" if "*" in schema else _known(key, schema, f"[{table}] ")][1]
+            name = "*" if "*" in schema else _known(key, schema, f"[{table}] ", value)
+            check = schema[name][1]
             value = value.isoformat() if isinstance(value, date) else value
             values[table][key] = _apply(where, check, value, m)
 

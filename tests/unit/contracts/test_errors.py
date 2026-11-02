@@ -6,6 +6,7 @@ The codes, class names and kinds are read from the 6.6 table, not restated here.
 from __future__ import annotations
 
 import re
+from functools import partial
 from pathlib import Path
 
 import pytest
@@ -17,6 +18,7 @@ ROOT = Path(__file__).resolve().parents[3]
 SPEC = (ROOT / "docs" / "spec" / "engine-spec-v3.4.md").read_text(encoding="utf-8")
 ROW = re.compile(r"^\| (E\d+) \| `(\w+)`[^|]*\| ([^|]+) \|", re.MULTILINE)
 KINDS = ("block", "fail", "warning", "notice")
+LAYER = "config — argument x=1"
 
 #: 6.6 rows E1..E39: code → (class name, kinds in the order the Kind cell names them).
 TABLE = {
@@ -49,12 +51,22 @@ def test_message_has_five_parts(code: str) -> None:
     lines = str(error(code).example()).splitlines()
     assert lines[0].startswith(f"{TABLE[code][0]} [{code}]")
     labels = [line.split()[0] for line in lines[1:] if not line.startswith(" " * 9)]
-    assert labels == ["what", "where", "why", "fix", "more"]
+    assert labels == ["layer", "what", "where", "why", "fix", "more"]  # the layer line is T0.4b's
+
+
+def test_codes_E40_to_E49_present() -> None:  # noqa: N802 - the name the issue gives
+    rows = {code: (name, kind) for code, name, kind in ROW.findall(SPEC)}
+    for n in range(40, 50):
+        name, kind = rows[f"E{n}"]
+        cls: type[NexusBTError] = getattr(nx, name)
+        assert cls.code == f"E{n}"
+        assert cls.kinds == tuple(re.findall("|".join(KINDS), kind))
+        assert cls.example().kind == cls.kinds[0]
 
 
 def test_message_rejects_a_missing_part() -> None:
     with pytest.raises(ValueError, match="why"):
-        nx.UnitError(what="x", where="x", why=" ", fix="x", more="x")
+        nx.UnitError(what="x", where="x", why=" ", fix="x", more="x", layer=LAYER)
 
 
 def test_column_name_error_header_and_attribute_error() -> None:
@@ -71,7 +83,7 @@ def test_blocking_classification_matches_table(code: str) -> None:
 
 
 def test_only_listed_kinds_are_accepted() -> None:
-    parts = dict.fromkeys(("what", "where", "why", "fix", "more"), "x")
+    parts = dict.fromkeys(("what", "where", "why", "fix", "more"), "x") | {"layer": LAYER}
     assert nx.FxStaleError(**parts, kind="warning").kind == "warning"
     with pytest.raises(ValueError, match="warning"):
         nx.UnitError(**parts, kind="warning")
@@ -85,23 +97,25 @@ def test_snapshot_error_carries_tds_codes_and_hints() -> None:
         file="bars/year=2020/part-0.parquet",
         key="instrument_id=X1, session_date=2020-03-02",
         hint="cum_factor_split does not match corporate_actions",
+        snapshot_id="s1",
+        producer="synthetic",
         producer_hints={"TDS-A001": "rebuild cum factors (export step 'factors')"},
     )
     text = str(err)
     assert err.code == "E14"
-    assert "TDS-A001" in text.splitlines()[1]  # the first code leads `what`
+    assert err.layer == "data — snapshot s1 / bars / column - / producer synthetic"
+    assert "TDS-A001" in text.splitlines()[2]  # the first code leads `what`
     assert "TDS-A001 (3), TDS-M012 (1)" in text
     assert "producer hint (TDS-A001): rebuild cum factors (export step 'factors')" in text
     assert "tds check snap/2026-10-30 --level full; nexusbt doctor --full" in text
 
 
 def test_snapshot_error_without_hint_names_none() -> None:
-    err = nx.SnapshotError.from_check(
-        path="p", counts={"TDS-M001": 1}, dataset="-", file="tds.json", key="-", hint="h"
-    )
+    check = partial(nx.SnapshotError.from_check, path="p", dataset="-", file="tds.json", key="-")
+    err = check(counts={"TDS-M001": 1}, hint="h", snapshot_id="s1", producer="p")
     assert "producer hint" not in str(err)
     with pytest.raises(ValueError, match="at least one"):
-        nx.SnapshotError.from_check(path="p", counts={}, dataset="-", file="-", key="-", hint="h")
+        check(counts={}, hint="h", snapshot_id="s1", producer="p")
 
 
 def private_words() -> list[str]:

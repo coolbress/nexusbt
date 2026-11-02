@@ -66,12 +66,15 @@ def test_unknown_key_suggests(tmp_path: Path) -> None:
         load_config(write(tmp_path, "[execution]\nmax_participaton = 0.1\n"))
     assert caught.value.parts["fix"].startswith("did you mean: max_participation")
     assert caught.value.parts["where"] == "nexusbt.toml [execution] max_participaton"
+    assert caught.value.layer == "config — nexusbt.toml [execution] max_participaton = 0.1"
 
 
 def test_secret_like_keys_rejected(tmp_path: Path) -> None:
-    for text in ('[broker]\napi_key = "x"\n', '[taxes.groups.kr]\nPassword = "x"\n'):
-        with pytest.raises(ConfigError, match=r"secrets do not belong in nexusbt\.toml"):
+    for text in ('[broker]\napi_key = "sk-1"\n', '[taxes.groups.kr]\nPassword = "sk-1"\n'):
+        with pytest.raises(ConfigError, match=r"secrets do not belong in nexusbt\.toml") as caught:
             load_config(write(tmp_path, text))
+        assert "sk-1" not in str(caught.value)  # the secret is never echoed
+        assert caught.value.layer.endswith("= <hidden>")  # 6.6 config tail
 
 
 @pytest.mark.parametrize("key", RESERVED)
