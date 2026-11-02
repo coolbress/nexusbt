@@ -87,7 +87,9 @@ def fixed(value: str) -> tuple[Any, Check]:  # a reserved key: anything but `val
 
 
 def match(pattern: str) -> Check:
-    ok = lambda v: isinstance(v, str) and re.fullmatch(pattern, v)  # noqa: E731
+    def ok(v: Any) -> bool:
+        return isinstance(v, str) and re.fullmatch(pattern, v) is not None
+
     return rule(ok, f"does not match {pattern}", "write it in that form")
 
 
