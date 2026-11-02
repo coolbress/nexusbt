@@ -1,0 +1,30 @@
+# The generic pack (spec 4.7): a market without a pack, with [markets] allow_untested = true.
+# "untested market rules: {market}" goes in the report header and the manifest assumptions.
+[pack]
+market = "_generic"
+version = 1
+calendar_ids = []   # any calendar; currency and minor_unit come from the snapshot's markets
+
+# no [price_limits]: no price limits
+
+[costs]   # no provisional_bps: [costs.provisional_bps] <MARKET> is required
+min_half_spread_bps = 5
+
+[dividends]
+fallback_pay_lag_days = 30
+
+[grid]   # no tick_table, no base_unit: the currency's minor unit is the grid (F-15)
+
+[rounding]   # half_up, 1 minor unit: the spec 5.6.1 default
+proceeds = {mode = "half_up", unit = 1}
+commission = {mode = "half_up", unit = 1}
+tax = {mode = "half_up", unit = 1}
+dividend_withholding = {mode = "half_up", unit = 1}
+cash_in_lieu = {mode = "half_up", unit = 1}
+borrow_fee = {mode = "half_up", unit = 1}
+
+[shorting]   # no ban table
+allowed = true                       # not in the spec: assumed
+uptick_rule_modeled = false          # not in the spec: assumed
+borrow_availability = "assume_all"   # not in the spec: assumed
+day_count = 365   # the spec's seed 365 (header, R7-07), verified = false

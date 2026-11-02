@@ -1,0 +1,42 @@
+# Market rules pack KR (spec 4.7); "rules KR@1" in the report and manifest.
+[pack]
+market = "KR"
+version = 1
+calendar_ids = ["XKRX"]
+currency = "KRW"
+minor_unit = 0
+benchmark_hint = "KOSPI"
+
+[price_limits]
+table = "limits/kr_price_limits_v1.csv"
+open_tolerance = 0.005   # source of the default of [execution] kr_limit_tolerance
+
+[costs]
+provisional_bps = {buy = 5, sell = 25}
+min_half_spread_bps = 5
+table_market_groups = "costs/venue_groups_v1.csv"
+
+[dividends]
+fallback_pay_lag_days = 120
+
+[tradability]
+unknown_status_before = ""
+
+[grid]
+tick_table = "ticks/kr_tick_table_v1.csv"
+base_unit = 1   # 1 won [R3-02]
+
+[rounding]   # commission, tax and withholding down (a research default, verified = false) [R3-27]
+proceeds = {mode = "half_up", unit = 1}
+commission = {mode = "down", unit = 1}
+tax = {mode = "down", unit = 1}
+dividend_withholding = {mode = "down", unit = 1}
+cash_in_lieu = {mode = "half_up", unit = 1}
+borrow_fee = {mode = "half_up", unit = 1}
+
+[shorting]
+allowed = true
+ban_table = "shorting/kr_short_bans_v1.csv"
+uptick_rule_modeled = false
+borrow_availability = "assume_all"
+day_count = 365   # verified = true: broker credit-interest terms, days/365 [R7-07]
