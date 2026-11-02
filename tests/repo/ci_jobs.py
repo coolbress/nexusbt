@@ -7,15 +7,20 @@ command before it runs. A check with no tests yet passes with "no tests yet": a 
 whose file or module does not exist yet is not run, and pytest collecting nothing
 (exit 5) is not a failure. That pass is written as a `not yet confirmed:` line, because
 the milestone that makes the check required asks that it run at least one test.
+A pytest step whose `-m` expression names a marker `pyproject.toml` does not register
+fails without running, so a misspelt marker cannot pass as "no tests yet".
 """
 
 from __future__ import annotations
 
 import importlib.util
+import itertools
 import os
+import re
 import subprocess
 import sys
-from collections.abc import Callable, Sequence
+import tomllib
+from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -76,6 +81,36 @@ CHECKS: dict[str, tuple[Step, ...]] = {
 #: pytest's exit status when it collected no tests.
 NO_TESTS_COLLECTED = 5
 
+#: The words of a pytest `-m` expression that are not marker names.
+MARKER_OPERATORS = frozenset({"and", "or", "not"})
+
+
+def registered_markers(pyproject: Path) -> set[str]:
+    """The marker names `pyproject.toml` registers for pytest, without their descriptions."""
+    config = tomllib.loads(pyproject.read_text())
+    lines: list[str] = config["tool"]["pytest"]["ini_options"]["markers"]
+    return {line.split(":", 1)[0].strip() for line in lines}
+
+
+def marker_names(argv: Sequence[str]) -> set[str]:
+    """The marker names in the `-m <expression>` arguments that follow `pytest` in `argv`.
+
+    pytest's `--strict-markers` refuses an unregistered mark in code but not one in `-m`:
+    there it deselects every test and exits 5, which would read as "no tests yet" (#88).
+    """
+    if "pytest" not in argv:
+        return set()
+    args = argv[argv.index("pytest") + 1 :]
+    expressions = [expr for flag, expr in itertools.pairwise(args) if flag in ("-m", "--markexpr")]
+    for arg in args:
+        if arg.startswith("--markexpr="):
+            expressions.append(arg.removeprefix("--markexpr="))
+        elif arg.startswith("-m") and arg != "-m":
+            expressions.append(arg.removeprefix("-m"))
+    # pytest's own identifier: word characters and `:+-.[]`.
+    names = {name for e in expressions for name in re.findall(r"[\w:+\-.\[\]]+", e)}
+    return names - MARKER_OPERATORS
+
 
 def no_tests_yet(name: str, step: Step, why: str, out: Callable[[str], None]) -> str:
     """Say in the log and as an annotation that `step` checked nothing; return the line."""
@@ -94,14 +129,29 @@ def run_check(
     root: Path,
     run: Callable[[Sequence[str]], int],
     has_module: Callable[[str], bool],
+    markers: Collection[str],
     out: Callable[[str], None],
     summary: Path | None,
 ) -> int:
-    """Run the steps of check `name` in order, stopping at the first failure."""
+    """Run the steps of check `name` in order, stopping at the first failure.
+
+    `markers` are the registered pytest markers; a step whose `-m` names another fails unrun.
+    """
     lines: list[str] = []
     code = 0
     for step in CHECKS[name]:
         out(f"$ {step.command}")
+        argv = step.command.split()
+        unknown = marker_names(argv) - set(markers)
+        if unknown:
+            code = 1
+            line = (
+                f"fail: {name}, `{step.command}` names a marker not registered in "
+                f"pyproject.toml: {', '.join(sorted(unknown))}"
+            )
+            out(f"::error::{line}")
+            lines.append(line)
+            break
         if step.needs_path is not None and not (root / step.needs_path).exists():
             lines.append(no_tests_yet(name, step, f"{step.needs_path} does not exist yet", out))
             continue
@@ -109,7 +159,6 @@ def run_check(
             why = f"module {step.needs_module} does not exist yet"
             lines.append(no_tests_yet(name, step, why, out))
             continue
-        argv = step.command.split()
         code = run(argv)
         if code == NO_TESTS_COLLECTED and "pytest" in argv:
             code = 0
@@ -144,6 +193,7 @@ def main(args: Sequence[str]) -> int:
         # The commands are the constants of CHECKS, never input from outside.
         run=lambda argv: subprocess.run(argv, check=False).returncode,  # noqa: S603
         has_module=module_exists,
+        markers=registered_markers(Path.cwd() / "pyproject.toml"),
         out=lambda line: print(line, flush=True),
         summary=Path(summary) if summary else None,
     )
