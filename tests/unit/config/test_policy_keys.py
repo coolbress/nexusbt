@@ -26,7 +26,7 @@ NAMED = dict(re.findall(r"`(\w+Policy)` `(\[[^\]]+\] \w+)`", ROW))  # enum → i
 
 def toml_and_path(key: str, value: str) -> tuple[str, tuple[str, ...], list[str]]:
     """The nexusbt.toml that writes `key = value`, the path to it in `values`, the markets."""
-    table, name = re.fullmatch(r"\[([^\]]+)\] (\w+)", key).groups()  # type: ignore[union-attr]
+    table, name = key.strip("[").split("] ")
     if table == "rounding.<MARKET>":  # a market's rounding table holds named `{mode, unit}` items
         return (
             f'[rounding.KR.commission]\n{name} = "{value}"\n',
