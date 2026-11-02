@@ -33,7 +33,7 @@ def test_help_lists_the_commands(
     assert [c for c in commands if not re.search(rf"\n    {c}\s", out)] == []
 
 
-@pytest.mark.parametrize(("main", "command"), [(nexusbt_main, "backtest"), (tds_main, "check")])
+@pytest.mark.parametrize(("main", "command"), [(nexusbt_main, "backtest"), (tds_main, "hash")])
 def test_a_command_is_not_built_yet(main: Main, command: str) -> None:
     with pytest.raises(NotImplementedError, match=command):
         main([command])
