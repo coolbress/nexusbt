@@ -1,0 +1,12 @@
+{
+  "kind": "roll_calendar", "schema_version": "1.0", "status": "experimental", "section": "5.22",
+  "key": ["roll_rule_id", "root", "session_date", "rank"], "sort": null, "partitions": [],
+  "columns": [
+    {"name": "roll_rule_id", "type": null, "null": null},
+    {"name": "root", "type": null, "null": null},
+    {"name": "session_date", "type": null, "null": null},
+    {"name": "rank", "type": "i16", "null": null},
+    {"name": "instrument_id", "type": null, "null": null},
+    {"name": "ts_available", "type": null, "null": null}
+  ]
+}

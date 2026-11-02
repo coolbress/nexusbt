@@ -1,0 +1,20 @@
+{
+  "kind": "quotes", "schema_version": "1.0", "status": "experimental", "section": "5.7",
+  "key": ["instrument_id", "ts_event", "sequence"], "sort": ["instrument_id", "ts_event", "sequence"], "partitions": ["venue=/date="],
+  "columns": [
+    {"name": "instrument_id", "type": null, "null": null},
+    {"name": "session_date", "type": null, "null": null},
+    {"name": "ts_event", "type": null, "null": null},
+    {"name": "ts_recv", "type": null, "null": null},
+    {"name": "sequence", "type": null, "null": null},
+    {"name": "bid_px", "type": "fixed", "null": true},
+    {"name": "bid_sz", "type": "fixed", "null": true},
+    {"name": "ask_px", "type": "fixed", "null": true},
+    {"name": "ask_sz", "type": "fixed", "null": true},
+    {"name": "bid_ct", "type": "i32", "null": true},
+    {"name": "ask_ct", "type": "i32", "null": true},
+    {"name": "venue_mic", "type": null, "null": null},
+    {"name": "conditions", "type": null, "null": null},
+    {"name": "flags", "type": null, "null": null}
+  ]
+}

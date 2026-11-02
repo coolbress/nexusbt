@@ -1,0 +1,15 @@
+{
+  "kind": "market_statistics", "schema_version": "1.0", "status": "experimental", "section": "5.9",
+  "key": ["instrument_id", "stat_type", "ts_event"], "sort": null, "partitions": [],
+  "columns": [
+    {"name": "instrument_id", "type": null, "null": null},
+    {"name": "session_date", "type": null, "null": null},
+    {"name": "stat_type", "type": null, "null": null},
+    {"name": "value", "type": "f64", "null": null},
+    {"name": "unit", "type": null, "null": null},
+    {"name": "ts_event", "type": null, "null": null},
+    {"name": "ts_available", "type": null, "null": null},
+    {"name": "is_final", "type": "bool", "null": null},
+    {"name": "source", "type": null, "null": null}
+  ]
+}
