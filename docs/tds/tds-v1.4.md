@@ -1007,8 +1007,10 @@ tds export {zipline-bundle|nautilus-catalog|wide-parquet} ... # 9.8
 | Level | Reads | Checks performed |
 |---|---|---|
 | `manifest` | `tds.json`, file sizes | M*, presence of profile datasets, file presence and bytes |
-| `schema` | + Parquet footers and statistics | S*, partition path values, range checks possible from file statistics (T006 watermark, part of D002) |
+| `schema` | + Parquet footers and statistics, and the `dictionary/` tables | S*, partition path values, range checks possible from file statistics (T006 watermark, part of D002) |
 | `full` | + all rows | K*, R*, T*, D*, A*, V*, H* (sha256, value and semantic hashes) |
+
+- The `dictionary/` tables (4.4) describe the package rather than hold its data rows, so the `schema` level reads them: `dictionary/codes` is what S007 looks a value up in [v1.4, 2026-11-02].
 
 - **Three results** [v1.1, RV-I01]: the summary per profile is `{"declared": bool, "verified_level": "none|manifest|schema|full", "result": "pass|fail|not_checked"}`. Rules that level cannot see (e.g. row rules at the `manifest` level) are `not_checked` and are not written as "pass". The `unchecked` list holds the rule codes not checked.
 - A valid lower-profile package (declares only a smaller profile and follows it) differs from a package that breaks its declaration: the latter is an error and the consumer does not fix it with fallback behaviour. Fixing old formats is the import step's job of making a new package.
@@ -1476,3 +1478,4 @@ Reference numbers are `R4F-NN` of specification v3.4 (appendix I). **`tds_versio
 - 2026-11-01: **v1.4**, in place. `classifications` scheme `tick_rule_id` (5.19), read first in the grid source order (5.27), for the US per-instrument tick sizes of the Rule 612 amendment (maintainer decision 2026-11-01). `tds_version` stays `"1.0"` (no column changes).
 - 2026-11-02: **v1.4**, in place. 4.2 marks the required dataset fields (`name`, `kind`, `schema_version`, `path`, `files`) and file fields (`path`, `bytes`); a missing one is TDS-M003, the rest are optional (maintainer decision 2026-11-02). `tds_version` stays `"1.0"` (wording clarification).
 - 2026-11-02: **v1.4**, in place. 8.1: the CLI's default check level is `schema`, also once `full` is built; the library `check()` takes the level as a required argument (maintainer decision 2026-11-02). `tds_version` stays `"1.0"` (checker behaviour, no format change).
+- 2026-11-02: **v1.4**, in place. 8.2: the `schema` level also reads the `dictionary/` tables, which describe the package rather than hold its data rows (maintainer decision 2026-11-02). `tds_version` stays `"1.0"` (checker behaviour, no format change).

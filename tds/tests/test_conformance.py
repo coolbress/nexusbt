@@ -13,8 +13,8 @@ from nexusbt_tds.check import Level
 
 from .conformance_build import build
 
-#: The S codes the `schema` level reports; S006 and S007 are #117's.
-S_CODES = [f"TDS-S{n:03}" for n in (1, 2, 3, 4, 5, 8, 9, 10)]
+#: The S codes the `schema` level reports.
+S_CODES = [f"TDS-S{n:03}" for n in range(1, 11)]
 
 
 def codes(path: Path, level: Level = "manifest", **kwargs: Any) -> list[str]:
@@ -56,7 +56,7 @@ def test_schema_level_reports_rows_not_checked(tmp_path: Path) -> None:
         "tds:minimal-daily@1.0": ProfileStatus(True, "schema", "not_checked")
     }
     assert {"TDS-K001", "TDS-R001", "TDS-T001", "TDS-H001"} <= set(result.unchecked)  # rows
-    assert {"TDS-S006", "TDS-S007", "TDS-S009"} <= set(result.unchecked)  # values not in footers
+    assert "TDS-S009" in result.unchecked  # NaN is not in the footers
     assert not set(S_CODES) - {"TDS-S009"} & set(result.unchecked)
     broken = build.write(tmp_path / "broken", *build.package("TDS-S002", "fail"))
     assert check(broken, level="schema").profiles["tds:minimal-daily@1.0"].result == "fail"
@@ -70,6 +70,70 @@ def test_a_rule_without_statistics_is_not_checked(tmp_path: Path) -> None:
     result = check(write(tmp_path, blind), level="schema")
     assert "TDS-S003" in result.unchecked
     assert result.errors == ()
+
+
+def _classes(*values: str, **opts: Any) -> Any:
+    """The instruments file with one row per `asset_class` value."""
+    rows = pa.concat_tables([build.instruments(asset_class=pa.array([v])) for v in values])
+    return lambda m, f: build.rewrite(m, f, build.INSTRUMENTS, rows, **opts)
+
+
+@pytest.mark.parametrize(
+    ("change", "found", "unchecked"),
+    [  # a footer shows a column's minimum and maximum: its values when they are equal
+        (_classes("equity", "fund"), [], True),  # one row group: `etf` and `zzz` may lie between
+        (_classes("equity", "fund", row_group_size=1), [], False),  # every value is a min
+        (_classes("equity", "zzz"), ["TDS-S006"], True),
+        (_classes("equity", write_statistics=False), [], True),
+        (lambda m, f: build.rewrite(m, f, build.INSTRUMENTS, build.instruments(
+            asset_class=pa.array([None], pa.string()))), ["TDS-S003"], False),  # nulls only
+    ],
+)  # fmt: skip
+def test_enum_values_the_footer_cannot_show_are_not_checked(
+    change: Any, found: list[str], unchecked: bool, tmp_path: Path
+) -> None:
+    result = check(write(tmp_path, change), level="schema")
+    assert [f.code for f in result.errors] == found
+    assert ("TDS-S006" in result.unchecked) is unchecked
+
+
+def test_an_open_list_is_not_checked_alike_and_a_bad_dictionary_excuses_nothing(
+    tmp_path: Path,
+) -> None:
+    two = pa.concat_tables(  # one row group, `common` to `unit`: what lies between is unknown
+        [build.instruments(category=pa.array([v])) for v in ("common", "unit")]
+    )
+    package = write(tmp_path / "two", lambda m, f: build.rewrite(m, f, build.INSTRUMENTS, two))
+    assert "TDS-S007" in check(package, level="schema").unchecked
+
+    def bad_dictionary(m: dict[str, Any], f: Any) -> None:
+        build._instruments(codes=True, category=pa.array(["ordinary"]))(m, f)
+        rel = "dictionary/codes/part-00000.parquet"
+        f[rel] = build.parquet(pa.table({"label": ["x"]}), "dictionary/codes")  # no field, code
+        m["datasets"][-1]["files"][0]["bytes"] = len(f[rel])
+
+    result = check(write(tmp_path / "bad", bad_dictionary), level="schema")
+    assert [w.code for w in result.warnings] == ["TDS-S007"]
+
+
+@pytest.mark.parametrize(
+    ("value", "found"),
+    [("vendor:lean", []), ("vendor:", ["TDS-S007"]), ("lean", ["TDS-S007"]), ("ticker", [])],
+)
+def test_a_placeholder_in_a_value_list_is_any_name(
+    value: str, found: list[str], tmp_path: Path
+) -> None:  # `vendor:<name>`: a rule chosen in #117
+    table = pa.table({"instrument_id": ["US:AAA"], "symbol_type": [value], "symbol": ["AAA"]})
+    rel = "instrument_symbols/part-00000.parquet"
+
+    def add(m: dict[str, Any], f: Any) -> None:
+        f[rel] = build.parquet(table, "instrument_symbols")
+        m["datasets"].append({"name": "instrument_symbols", "kind": "instrument_symbols",
+                              "schema_version": "1.0", "path": "instrument_symbols",
+                              "files": [{"path": rel, "bytes": len(f[rel])}]})  # fmt: skip
+
+    result = check(write(tmp_path, add), level="schema")
+    assert [w.code for w in result.warnings] == found
 
 
 _bars, TS, VERSION_1_9 = build._bars, build.TS, build.VERSION_1_9

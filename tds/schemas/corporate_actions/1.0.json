@@ -4,7 +4,7 @@
   "columns": [
     {"name": "event_id", "type": "id", "null": false},
     {"name": "instrument_id", "type": "id", "null": false},
-    {"name": "kind", "type": "code", "enum": "closed", "null": false},
+    {"name": "kind", "type": "code", "enum": "closed", "null": false, "values": ["split", "reverse_split", "stock_dividend", "bonus_issue", "capital_reduction", "cash_dividend", "special_dividend", "return_of_capital", "rights_issue", "spinoff", "stock_merger", "cash_merger", "mixed_merger", "exchange_offer", "symbol_change", "name_change", "par_change", "other"]},
     {"name": "ex_date", "type": "date", "null": false},
     {"name": "ts_effective", "type": "ts_us", "null": false},
     {"name": "record_date", "type": "date", "null": true},

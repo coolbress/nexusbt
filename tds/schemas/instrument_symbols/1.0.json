@@ -5,7 +5,7 @@
   "partitions": [],
   "columns": [
     {"name": "instrument_id", "type": "id", "null": false},
-    {"name": "symbol_type", "type": "code", "enum": "open", "null": false},
+    {"name": "symbol_type", "type": "code", "enum": "open", "null": false, "values": ["ticker", "local_code", "name", "vendor:<name>"]},
     {"name": "symbol", "type": "string", "null": false},
     {"name": "venue_mic", "type": "code", "null": true},
     {"name": "valid_from", "type": "date", "null": false},

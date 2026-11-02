@@ -30,7 +30,7 @@ SAMPLE_DOC = """\
 | Column | Type | Null | Meaning |
 |---|---|---|---|
 | thing_id | id | no | K1 |
-| kind | code (closed) | no | `a`, `b` |
+| kind | code (closed) | no | `a` (first), `b`, `v:<name>` (e.g. `v:x`) — not `c` |
 | open, close | f64 | yes | prices |
 | ts_event, ts_recv | ts_ns | no / yes | |
 | ts_start | ts_us/ns | daily yes / intraday no | |
@@ -50,7 +50,7 @@ SAMPLE_DOC = """\
 def _things(**changes: Column) -> Schema:
     columns = {
         "thing_id": Column("thing_id", "id", False),
-        "kind": Column("kind", "code", False, enum="closed"),
+        "kind": Column("kind", "code", False, enum="closed", values=("a", "b", "v:<name>")),
         "open": Column("open", "f64", True),
         "close": Column("close", "f64", True),
         "ts_event": Column("ts_event", "ts_ns", False),
@@ -72,6 +72,18 @@ def test_a_hand_edited_type_or_null_is_a_mismatch() -> None:
     assert compare(SAMPLE_DOC, {"things": edited}) == [
         "things: column open: doc type `f64`, schema `f32`",
         "things: column ts_recv: doc null `yes`, schema `no`",
+    ]
+
+
+def test_an_enum_value_list_unlike_the_meaning_cell_is_a_mismatch() -> None:
+    # The list is the cell's backticked values outside parentheses and before ` — `.
+    edited = _things(kind=Column("kind", "code", False, enum="closed", values=("a", "c")))
+    unlisted = _things(kind=Column("kind", "code", False, enum="closed"))
+    assert compare(SAMPLE_DOC, {"things": edited}) == [
+        "things: column kind: doc values `a, b, v:<name>`, schema `a, c`"
+    ]
+    assert compare(SAMPLE_DOC, {"things": unlisted}) == [
+        "things: column kind: doc values `a, b, v:<name>`, schema ``"
     ]
 
 
