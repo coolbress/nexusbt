@@ -1,0 +1,30 @@
+{
+  "kind": "bars", "schema_version": "1.0", "status": "stable", "section": "5.5",
+  "key": {
+    "daily": ["instrument_id", "session_date"],
+    "intraday": ["instrument_id", "ts_start", "price_type"]
+  },
+  "sort": {"daily": ["session_date", "instrument_id"], "intraday": ["instrument_id", "ts_start"]},
+  "partitions": {"daily": "freq=1d/market=/year=", "intraday": "freq=/market=/date="},
+  "columns": [
+    {"name": "instrument_id", "type": "id", "null": false},
+    {"name": "session_date", "type": "date", "null": false},
+    {"name": "ts_start", "type": "ts_us/ns", "null": "daily yes / intraday no"},
+    {"name": "ts_end", "type": "ts_us/ns", "null": "daily yes / intraday no"},
+    {"name": "price_type", "type": "code", "null": true},
+    {"name": "open", "type": "f64", "null": true},
+    {"name": "high", "type": "f64", "null": true},
+    {"name": "low", "type": "f64", "null": true},
+    {"name": "close", "type": "f64", "null": true},
+    {"name": "volume", "type": "f64", "null": true},
+    {"name": "value_traded", "type": "f64", "null": true},
+    {"name": "trade_count", "type": "i64", "null": true},
+    {"name": "vwap", "type": "f64", "null": true},
+    {"name": "open_interest", "type": "f64", "null": true},
+    {"name": "obs_status", "type": "code", "enum": "closed", "null": "no if dense"},
+    {"name": "cum_factor_split", "type": "f64", "null": true},
+    {"name": "cum_factor_total", "type": "f64", "null": true},
+    {"name": "ts_available", "type": "ts_us", "null": true},
+    {"name": "source", "type": "code", "null": true}
+  ]
+}
