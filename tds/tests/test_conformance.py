@@ -151,14 +151,17 @@ def test_an_open_list_is_not_checked_alike_and_a_bad_dictionary_excuses_nothing(
     package = write(tmp_path / "two", lambda m, f: build.rewrite(m, f, build.INSTRUMENTS, two))
     assert "TDS-S007" in check(package, level="schema").unchecked
 
-    def bad_dictionary(m: dict[str, Any], f: Any) -> None:
-        build._instruments(codes=True, category=pa.array(["ordinary"]))(m, f)
-        rel = "dictionary/codes/part-00000.parquet"
-        f[rel] = build.parquet(pa.table({"label": ["x"]}), "dictionary/codes")  # no field, code
-        m["datasets"][-1]["files"][0]["bytes"] = len(f[rel])
+    no_columns = build.parquet(pa.table({"label": ["x"]}), "dictionary/codes")  # no field, code
+    for name, content in (("no-columns", no_columns), ("not-parquet", b"not parquet\n")):
 
-    result = check(write(tmp_path / "bad", bad_dictionary), level="schema")
-    assert [w.code for w in result.warnings] == ["TDS-S007"]
+        def bad_dictionary(m: dict[str, Any], f: Any, content: bytes = content) -> None:
+            build._instruments(codes=True, category=pa.array(["ordinary"]))(m, f)
+            rel = "dictionary/codes/part-00000.parquet"
+            f[rel] = content
+            m["datasets"][-1]["files"][0]["bytes"] = len(f[rel])
+
+        result = check(write(tmp_path / name, bad_dictionary), level="schema")
+        assert [w.code for w in result.warnings] == ["TDS-S007"], name
 
 
 @pytest.mark.parametrize(
