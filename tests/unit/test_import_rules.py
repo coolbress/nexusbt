@@ -45,7 +45,7 @@ PENDING_3_1 = {
     " RiskContext TargetView RiskDecision Scalar execution exits ExitRule costs ml labels"
     " LabelTerm splits",
     "Functions": "open evaluate backtest screen live fill reconcile sweep compare run_pipeline"
-    " explain check describe runs rerun book override record_fills cash_flow preregister config",
+    " explain check describe runs rerun book override record_fills cash_flow preregister",
     "Results": "FactorReport Run Screen Orders BookUpdate ReconcileReport SweepResult Comparison"
     " ValidationResult Split PipelineResult Explanation DecisionExplanation CheckReport"
     " RunTable Description Preregistration Config Snapshot Book",
