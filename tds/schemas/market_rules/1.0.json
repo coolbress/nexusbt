@@ -1,0 +1,18 @@
+{
+  "kind": "market_rules", "schema_version": "1.0", "status": "stable", "section": "5.27",
+  "key": ["rule_id", "rule_kind", "venue_group", "valid_from", "price_from"], "sort": ["rule_id", "rule_kind", "venue_group", "valid_from", "price_from"], "partitions": [],
+  "columns": [
+    {"name": "rule_id", "type": "id", "null": false},
+    {"name": "market", "type": "code", "null": false},
+    {"name": "rule_kind", "type": "code", "enum": "closed", "null": false},
+    {"name": "venue_group", "type": "code", "enum": "open", "null": false},
+    {"name": "valid_from", "type": "date", "null": false},
+    {"name": "valid_to", "type": "date", "null": true},
+    {"name": "price_from", "type": "f64", "null": true},
+    {"name": "price_to", "type": "f64", "null": true},
+    {"name": "tick_size", "type": "f64", "null": true},
+    {"name": "limit_ratio", "type": "f64", "null": true},
+    {"name": "source", "type": "string", "null": false},
+    {"name": "verified", "type": "bool", "null": false}
+  ]
+}

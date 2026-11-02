@@ -1,0 +1,22 @@
+{
+  "kind": "fundamentals_state", "schema_version": "1.0", "status": "stable", "section": "5.18",
+  "key": ["instrument_id", "item", "ts_known_from"], "sort": ["instrument_id", "item", "ts_known_from"], "partitions": ["edition=/market="],
+  "columns": [
+    {"name": "instrument_id", "type": "id", "null": false},
+    {"name": "item", "type": "code", "null": false},
+    {"name": "ts_known_from", "type": "ts_us", "null": false},
+    {"name": "ts_known_to", "type": "ts_us", "null": true},
+    {"name": "period_end", "type": "date", "null": false},
+    {"name": "period_kind", "type": "code", "null": false},
+    {"name": "statement_basis", "type": "code", "null": false},
+    {"name": "value", "type": "f64", "null": false},
+    {"name": "unit", "type": "code", "null": false, "from": "5.17"},
+    {"name": "currency", "type": "code", "null": true, "from": "5.17"},
+    {"name": "scale", "type": "i8", "null": false, "from": "5.17"},
+    {"name": "strict_eligible", "type": "bool", "null": false},
+    {"name": "vendor_input", "type": "bool", "null": false},
+    {"name": "selected_fact_id", "type": "id", "null": true},
+    {"name": "lineage_id", "type": "id", "null": true},
+    {"name": "resolution_policy", "type": "id", "null": false}
+  ]
+}

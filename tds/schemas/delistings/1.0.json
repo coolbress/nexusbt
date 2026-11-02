@@ -1,0 +1,27 @@
+{
+  "kind": "delistings", "schema_version": "1.0", "status": "stable", "section": "5.13",
+  "key": ["delisting_id"], "sort": ["instrument_id", "exit_date"], "partitions": [],
+  "columns": [
+    {"name": "delisting_id", "type": "id", "null": false},
+    {"name": "instrument_id", "type": "id", "null": false},
+    {"name": "last_trading_date", "type": "date", "null": false},
+    {"name": "exit_date", "type": "date", "null": false},
+    {"name": "ts_exit_known", "type": "ts_us", "null": true},
+    {"name": "delist_type", "type": "code", "enum": "open", "null": false},
+    {"name": "crsp_dlstcd_equiv", "type": "i16", "null": true},
+    {"name": "ref_date", "type": "date", "null": false},
+    {"name": "ref_price", "type": "f64", "null": false},
+    {"name": "exit_value_status", "type": "code", "enum": "closed", "null": false},
+    {"name": "ret_observed", "type": "f64", "null": true},
+    {"name": "ret_observed_includes_distributions", "type": "bool", "null": true},
+    {"name": "ts_value_available", "type": "ts_us", "null": true},
+    {"name": "ret_policy", "type": "f64", "null": true},
+    {"name": "ret_lo", "type": "f64", "null": false},
+    {"name": "ret_hi", "type": "f64", "null": false},
+    {"name": "policy_id", "type": "id", "null": false},
+    {"name": "pay_date", "type": "date", "null": true},
+    {"name": "handled_by_event_id", "type": "id", "null": true},
+    {"name": "reason_code", "type": "string", "null": true},
+    {"name": "evidence_id", "type": "string", "null": true}
+  ]
+}

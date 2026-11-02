@@ -77,9 +77,16 @@ def test_doc_tables_match_schema_files() -> None:
     doc = TDS_DOC.read_text(encoding="utf-8")
     schemas = load_schemas()
     assert compare(doc, schemas) == []
-    # Tables were compared, not skipped: the 5.1 to 5.5 files are here, the rest follow (#55).
-    compared = {"instruments", "instrument_symbols", "calendar_sessions", "bars"}
-    assert compared <= doc_tables(doc).keys() & schemas.keys()
+    # Tables were compared, not skipped: only the experimental tables wait for a file (#55).
+    assert doc_tables(doc).keys() - schemas.keys() == {"trades", "book_deltas"}
+
+
+def test_schema_files_cover_stable_datasets() -> None:
+    status = section_status(TDS_DOC.read_text(encoding="utf-8"))
+    stable = [kind for kind, n in CHAPTER_5.items() if status[n] == "stable"]
+    assert len(stable) == 23  # 5.1-5.5, 5.10-5.21, 5.25 and 5.27 (5.12 and 5.26 name none)
+    schemas = load_schemas()
+    assert [k for k in stable if k not in schemas or schemas[k].status != "stable"] == []
 
 
 def test_each_chapter_5_kind_is_named_in_its_section() -> None:
@@ -106,6 +113,12 @@ def test_a_status_other_than_its_sections_is_a_problem() -> None:
 def test_verify_prints_the_lists_and_the_match(capsys: pytest.CaptureFixture[str]) -> None:
     assert main() == 0
     out = capsys.readouterr().out.splitlines()
-    assert out[0] == "stable: bars, calendar_sessions, instrument_symbols, instruments"
+    assert out[0] == (
+        "stable: bars, calendar_segments, calendar_sessions, classifications, corporate_actions,"
+        " delistings, eligibility_daily, events, feature_panels, fundamentals_events,"
+        " fundamentals_state, fx_rates, instrument_symbols, instrument_xref, instruments,"
+        " label_panels, market_rules, rates, series_observations, share_counts, tradability_daily,"
+        " trading_status_events, universe_membership"
+    )
     assert out[1].startswith("experimental:")
     assert out[-1] == "doc tables match schema files"

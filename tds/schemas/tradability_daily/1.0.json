@@ -1,0 +1,22 @@
+{
+  "kind": "tradability_daily", "schema_version": "1.0", "status": "stable", "section": "5.10",
+  "key": ["instrument_id", "session_date"], "sort": ["session_date", "instrument_id"], "partitions": ["freq=1d/market=/year="],
+  "columns": [
+    {"name": "instrument_id", "type": null, "null": false},
+    {"name": "session_date", "type": null, "null": false},
+    {"name": "status_known", "type": "bool", "null": false},
+    {"name": "halted_full_day", "type": "bool", "null": true},
+    {"name": "halt_count", "type": "i32", "null": true},
+    {"name": "limit_up_close", "type": "bool", "null": true},
+    {"name": "limit_down_close", "type": "bool", "null": true},
+    {"name": "locked_up", "type": "bool", "null": true},
+    {"name": "locked_down", "type": "bool", "null": true},
+    {"name": "price_limit_ratio", "type": "f64", "null": true},
+    {"name": "up_limit_price", "type": "f64", "null": true},
+    {"name": "down_limit_price", "type": "f64", "null": true},
+    {"name": "reference_price", "type": "f64", "null": true},
+    {"name": "admin_status", "type": "code", "null": true},
+    {"name": "ts_available", "type": "ts_us", "null": true},
+    {"name": "source", "type": "code", "null": true}
+  ]
+}

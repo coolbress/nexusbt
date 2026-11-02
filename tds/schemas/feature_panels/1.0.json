@@ -1,0 +1,10 @@
+{
+  "kind": "feature_panels", "schema_version": "1.0", "status": "stable", "section": "5.25",
+  "key": ["instrument_id", "period"], "sort": null, "partitions": ["name=/edition=/year="], "more_columns": "dictionary/columns",
+  "columns": [
+    {"name": "instrument_id", "type": null, "null": null},
+    {"name": "period", "type": "date", "null": null},
+    {"name": "as_of_date", "type": "date", "null": null},
+    {"name": "ts_available", "type": null, "null": false}
+  ]
+}

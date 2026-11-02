@@ -1,0 +1,14 @@
+{
+  "kind": "fx_rates", "schema_version": "1.0", "status": "stable", "section": "5.15",
+  "key": ["base", "quote", "rate_kind", "ts_event", "source"], "sort": ["base", "quote", "rate_kind", "ts_event", "source"], "partitions": [],
+  "columns": [
+    {"name": "base", "type": "code", "null": false},
+    {"name": "quote", "type": "code", "null": false},
+    {"name": "rate_kind", "type": "code", "null": false},
+    {"name": "obs_date", "type": "date", "null": false},
+    {"name": "ts_event", "type": "ts_us", "null": false},
+    {"name": "ts_available", "type": "ts_us", "null": false},
+    {"name": "rate", "type": "f64", "null": false},
+    {"name": "source", "type": "code", "null": false}
+  ]
+}
