@@ -164,7 +164,9 @@ def _snapshot_markets(config: Config) -> dict[str, str] | None:
         raise SnapshotError(
             what=f"no readable tds.json for [data]: {error}", where="nexusbt.toml [data]",
             why="the markets come from the snapshot's tds.json", fix="check [data] path or root",
-            more="spec 4.2",
+            more=f"tds check {data['path'] or data['root']} --level full; spec 4.2",
+            layer=f"data — snapshot {data['path'] or data['root']} / tds.json / column -"
+            " / producer -",  # #52 Decisions (3): unknown parts are `-`
         ) from None  # fmt: skip
     entries = declared.items() if isinstance(declared, dict) else ()
     return {name: str(entry.get("currency")) for name, entry in entries if isinstance(entry, dict)}

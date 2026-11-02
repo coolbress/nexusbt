@@ -49,9 +49,6 @@ PENDING_3_1 = {
     "Results": "FactorReport Run Screen Orders BookUpdate ReconcileReport SweepResult Comparison"
     " ValidationResult Split PipelineResult Explanation DecisionExplanation CheckReport"
     " RunTable Description Preregistration Config Snapshot Book",
-    "Errors (6.6, E40~E49)": "ValidationNotice BlockOutputError AccountNotEvaluatedNotice"
-    " SolverFallbackNotice MLDeterminismWarning SkippedWorkNotice EngineBugError"
-    " DatasetShapeError PretrainedLeakError PretrainedOverlapWarning",
     "Types": "Term BoundColumn Param Schedule PortfolioRule Sizer RiskRule ExecutionRule"
     " CostModel Window DecisionContext",
     "Modules": "compat testing __version__",
