@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from enum import StrEnum
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, NoReturn
 
 from nexusbt.contracts import (
@@ -70,6 +71,7 @@ class _Hidden:
 
 _HIDDEN = _Hidden()  # a secret key's value, never echoed in an error
 _NONE: Any = object()  # no value to show (a key's value may itself be None)
+_NO_CODE: Mapping[str, Any] = MappingProxyType({})  # no `overrides`: every value from the file
 
 
 class _RejectedError(Exception):
@@ -84,21 +86,32 @@ def _raise(
     error: type[NexusBTError] = ConfigError,
     value: Any = _NONE,
     at: str = "",
+    code: Mapping[str, Any] = _NO_CODE,
 ) -> NoReturn:
     """E16 or E18 at `where`, layer config (6.6): `[table] key = value` names `at` (default
-    `where`) and `value`; a value not given is not shown, a secret's as `<hidden>`."""
-    layer = f"config — nexusbt.toml {at or where}" + f" = {value!r}" * (value is not _NONE)
-    where = f"nexusbt.toml {where}"
+    `where`) and `value`; a value not given is not shown, a secret's as `<hidden>`. A key that
+    `code` (the `overrides` in effect) writes is named as the 6.6 `argument overrides=…`."""
+    found = re.match(r"\[([^\]]+)\] ?(\w*)", at or where)
+    table, key = found.groups() if found else ("", "")
+    given = code.get(table)
+    if table in code and (not key or (isinstance(given, Mapping) and key in given)):
+        source, tail = "overrides", "argument overrides="
+    else:
+        source, tail = "nexusbt.toml", "nexusbt.toml "
+    layer = f"config — {tail}{at or where}" + f" = {value!r}" * (value is not _NONE)
+    where = f"{source} {where}"
     raise error(what=what, where=where, why=why, fix=fix, more="spec 3.11", layer=layer)
 
 
-def _apply(where: str, check: Check, value: Any, m: tuple[str, ...]) -> Any:
+def _apply(
+    where: str, check: Check, value: Any, m: tuple[str, ...], code: Mapping[str, Any] = _NO_CODE
+) -> Any:
     try:
         return check(value, m)
     except _RejectedError as rejected:
         what, fix, error = rejected.args
         why = "v1 accepts only this value" if error is CapabilityError else "spec 3.11 limits it"
-        _raise(f"{where} = {value!r}: {what}", where, fix, why, error, value)
+        _raise(f"{where} = {value!r}: {what}", where, fix, why, error, value, code=code)
 
 
 def rule(ok: Callable[[Any], object], what: str, fix: str, error: type = ConfigError) -> Check:
@@ -111,14 +124,18 @@ def rule(ok: Callable[[Any], object], what: str, fix: str, error: type = ConfigE
 
 
 def num(lo: float = -1e300, hi: float = 1e300, *, gt: bool = False, int_: bool = False) -> Check:
-    kind, low = (int if int_ else (int, float)), ("(" if gt else "[")
+    kind, a, span = (int if int_ else (int, float)), "an integer" if int_ else "a number", ""
+    if hi < 1e300:
+        span = f" in {'(' if gt else '['}{lo:g}, {hi:g}]"
+    elif lo > -1e300:
+        span = f" {'>' if gt else '>='} {lo:g}"
 
     def ok(v: Any) -> bool:
         if not isinstance(v, kind) or isinstance(v, bool):
             return False
         return (lo < v if gt else lo <= v) and v <= hi
 
-    return rule(ok, f"not {'an integer' if int_ else 'a number'} in {low}{lo:g}, {hi:g}]", "fix it")
+    return rule(ok, f"not {a}{span}", f"use {a}{span}")
 
 
 def one(*choices: Any) -> Check:
@@ -174,10 +191,15 @@ def per_market(item: Check, *, scalar: bool = False) -> Check:
     return lambda v, m: item(v, m) if scalar and not isinstance(v, dict) else table(v, m)
 
 
-def fields(**schema: Check) -> Check:
-    return lambda v, m: {
-        _known(k, schema, value=x): schema[k](x, m) for k, x in is_(dict)(v, m).items()
-    }
+def fields(**schema: Check) -> Check:  # an unknown key is refused, so the caller names the key
+    def table(v: Any, m: tuple[str, ...]) -> Any:
+        if unknown := [k for k in is_(dict)(v, m) if k not in schema]:
+            raise _RejectedError(
+                f"{unknown[0]} is not a key", _near(unknown[0], schema), ConfigError
+            )
+        return {k: schema[k](x, m) for k, x in v.items()}
+
+    return table
 
 
 def _clock(v: Any, m: tuple[str, ...]) -> Any:
@@ -358,14 +380,23 @@ DEFAULTS = {t: {k: d for k, (d, _) in kv.items() if k != "*"} for t, kv in SCHEM
 _MARGIN_ONLY = {"initial_margin", "maintenance_margin", "debit_rate_bps"}  # 3.11 [account] type
 
 
-def _known(name: str, names: Mapping[str, Any], where: str = "", value: Any = _NONE) -> str:
+def _known(
+    name: str,
+    names: Mapping[str, Any],
+    where: str = "",
+    value: Any = _NONE,
+    code: Mapping[str, Any] = _NO_CODE,
+) -> str:
     if name not in names:
-        near = difflib.get_close_matches(name, list(names), n=3)
-        fix = f"did you mean: {', '.join(near)}?" if near else "remove it"
         why = "unknown keys would be silently ignored"
         key = f"{where}{name}]" if where == "[" else f"{where}{name}"  # a table: `[name]`
-        _raise(f"{key} is not a key", key, fix, why, value=value)
+        _raise(f"{key} is not a key", key, _near(name, names), why, value=value, code=code)
     return name
+
+
+def _near(name: str, names: Mapping[str, Any]) -> str:  # the fix for an unknown key
+    near = difflib.get_close_matches(name, list(names), n=3)
+    return f"did you mean: {', '.join(near)}?" if near else "remove it"
 
 
 def _no_secrets(table: Mapping[str, Any], where: str = "") -> None:
@@ -379,15 +410,20 @@ def _no_secrets(table: Mapping[str, Any], where: str = "") -> None:
             _no_secrets(value, f"{where}{name}." if where else f"[{name}] ")
 
 
-def _merge(values: dict[str, dict[str, Any]], given: Mapping[str, Any], m: tuple[str, ...]) -> None:
+def _merge(
+    values: dict[str, dict[str, Any]],
+    given: Mapping[str, Any],
+    m: tuple[str, ...],
+    code: Mapping[str, Any] = _NO_CODE,  # `given` is the overrides: errors name the code
+) -> None:
     for table, keys in given.items():
-        schema = SCHEMA[_known(table, SCHEMA, "[")]
-        for key, value in _apply(f"[{table}]", is_(dict), keys, m).items():
+        schema = SCHEMA[_known(table, SCHEMA, "[", code=code)]
+        for key, value in _apply(f"[{table}]", is_(dict), keys, m, code).items():
             where = f"[{table}] {key}"
             if "*" in schema:
-                _apply(where, _market, key, m)
-            name = "*" if "*" in schema else _known(key, schema, f"[{table}] ", value)
-            values[table][key] = _apply(where, schema[name][1], _iso(value), m)
+                _apply(where, _market, key, m, code)
+            name = "*" if "*" in schema else _known(key, schema, f"[{table}] ", value, code)
+            values[table][key] = _apply(where, schema[name][1], _iso(value), m, code)
 
 
 @dataclass(frozen=True, slots=True)
@@ -413,7 +449,7 @@ def _plain(value: Any) -> Any:
     return str(value) if isinstance(value, StrEnum) else value
 
 
-def _data_root(root: str | None, package: str | None) -> str | None:
+def _data_root(root: str | None, package: str | None, code: Mapping[str, Any]) -> str | None:
     root = root or os.environ.get("NEXUSBT_DATA_ROOT")
     path = Path(root or ".")
     if (
@@ -429,14 +465,16 @@ def _data_root(root: str | None, package: str | None) -> str | None:
     ):
         what = f"[data] root = {root!r} has no snapshot folder with LATEST or tds.json"
         why = "snapshots are read there (4.2)"
-        _raise(what, "[data] root", "point it at a data root", why, value=root)
+        _raise(what, "[data] root", "point it at a data root", why, value=root, code=code)
     return root
 
 
-def _sleeves(values: dict[str, dict[str, Any]], m: tuple[str, ...]) -> dict[str, float] | None:
+def _sleeves(
+    values: dict[str, dict[str, Any]], m: tuple[str, ...], code: Mapping[str, Any]
+) -> dict[str, float] | None:
     universe = values["defaults"]["universe"]
     members = m if universe == "all" else universe.split("+")
-    members = tuple(_apply("[defaults] universe", _market, x, m) for x in members)
+    members = tuple(_apply("[defaults] universe", _market, x, m, code) for x in members)
     weights = values["sleeves"]["weights"]
     if weights is None:
         return dict.fromkeys(members, 1 / len(members)) if members else None
@@ -445,14 +483,15 @@ def _sleeves(values: dict[str, dict[str, Any]], m: tuple[str, ...]) -> dict[str,
     if abs(sum(weights.values()) - 1) > 1e-9 or total <= 0:
         what = f"[sleeves] weights sum to {sum(weights.values()):g}, {total:g} in the universe"
         why = "each sleeve's share of the capital comes from them (11.4.1)"
-        _raise(what, "[sleeves] weights", "make them sum to 1 ± 1e-9", why, value=weights)
+        fix = "make them sum to 1 ± 1e-9"
+        _raise(what, "[sleeves] weights", fix, why, value=weights, code=code)
     return {k: w / total for k, w in kept.items()}  # markets outside the universe: rescaled
 
 
 _ENDS = {"start": "0000-01-01", "latest": "9999-12-31"}  # from the beginning, to the end
 
 
-def _segments(values: dict[str, dict[str, Any]]) -> None:
+def _segments(values: dict[str, dict[str, Any]], code: Mapping[str, Any]) -> None:
     last = ""
     for name, bounds in values["split"]["segments"].items():
         first, end = (_ENDS.get(d, d) for d in bounds) if len(bounds) == 2 else ("", "")
@@ -460,11 +499,11 @@ def _segments(values: dict[str, dict[str, Any]]) -> None:
             what = f"[split] segments: {name} = {bounds} overlaps, is out of order or is not [s, e]"
             fix = "give each segment [start, end], in time order, without overlap"
             why = "a decision belongs to one segment (R-57)"
-            _raise(what, "[split] segments", fix, why, value=values["split"]["segments"])
+            _raise(what, "[split] segments", fix, why, value=values["split"]["segments"], code=code)
         last = end
 
 
-def _ties(values: dict[str, dict[str, Any]]) -> None:
+def _ties(values: dict[str, dict[str, Any]], code: Mapping[str, Any]) -> None:
     """The 3.11 Validation cells that name another key."""
     d, split, costs, account = (values[t] for t in ("defaults", "split", "costs", "account"))
     start, end = (_ENDS.get(d[k], d[k]) for k in ("start", "end"))
@@ -496,7 +535,7 @@ def _ties(values: dict[str, dict[str, Any]]) -> None:
     ):  # fmt: skip
         if not ok:
             why = "spec 3.11 limits it"
-            _raise(f"{key} = {value!r} {what}", key, fix, why, value=value)
+            _raise(f"{key} = {value!r} {what}", key, fix, why, value=value, code=code)
 
 
 def _iso(value: Any) -> Any:
@@ -563,14 +602,14 @@ def load_config(
         why = "zipline is for tests only (R-55)"
         what, fix = "[defaults] preset = 'zipline'", "pass it in test code"
         _raise(what, "[defaults] preset", fix, why, value="zipline")
-    _merge(values, code, m)
+    _merge(values, code, m, code)
     written = {k for src in (given, code) for k in src.get("account", {})} & _MARGIN_ONLY
     if written and values["account"]["type"] is AccountTypePolicy.CASH:
         what = f'margin settings need [account] type = "margin": {", ".join(sorted(written))}'
         fix, why = 'set type = "margin" or remove them', "3.11 [account] type"
         _raise(what, "[account]", fix, why, value="cash", at="[account] type")
-    _segments(values)
-    _ties(values)
+    _segments(values, code)
+    _ties(values, code)
     d = values["defaults"]
     if d["clock"] is None and m:
         d["clock"] = f"{m[0]}_close"  # the first market by UTF-8 bytes (5.1.3, R3-18)
@@ -581,12 +620,16 @@ def load_config(
         kv.update(
             {k: dict.fromkeys(m, v.value) for k, v in kv.items() if m and isinstance(v, Each)}
         )
-    values["data"]["root"] = _data_root(values["data"]["root"], values["data"]["path"])
+    values["data"]["root"] = _data_root(values["data"]["root"], values["data"]["path"], code)
     folder = (path.resolve().parent if path else Path.cwd()).name
     if not values["project"]["name"] and not re.fullmatch(NAME, folder):  # the default, checked
         what = f"[project] name defaults to the folder name {folder!r}, outside {NAME}"
         fix = "set [project] name in nexusbt.toml"
         _raise(what, "[project] name", fix, "spec 3.11 limits it", value=folder)
     values["project"]["name"] = values["project"]["name"] or folder
-    resolved = {"clock": d["clock"], "base_ccy": d["base_ccy"], "sleeves": _sleeves(values, m)}
+    resolved = {
+        "clock": d["clock"],
+        "base_ccy": d["base_ccy"],
+        "sleeves": _sleeves(values, m, code),
+    }
     return Config(values, m, resolved)
