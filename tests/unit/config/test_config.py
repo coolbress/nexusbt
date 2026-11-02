@@ -5,7 +5,6 @@ from __future__ import annotations
 import re
 import tomllib
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -35,17 +34,8 @@ def spec_rows() -> list[tuple[str, str, str]]:
     return rows
 
 
-def literal(cell: str) -> Any:
-    """The cell as a TOML value, or `ValueError` when it is prose ("0 in every market")."""
-    try:
-        return tomllib.loads("v = " + cell.strip("`").replace(chr(0x2212), "-"))["v"]
-    except tomllib.TOMLDecodeError as error:
-        raise ValueError(cell) from error
-
-
 def write(tmp_path: Path, text: str) -> Path:
-    path = tmp_path / "nexusbt.toml"
-    path.write_text(text, encoding="utf-8")
+    (path := tmp_path / "nexusbt.toml").write_text(text, encoding="utf-8")
     return path
 
 
@@ -60,9 +50,9 @@ def test_defaults_match_spec_table(tmp_path: Path) -> None:
             assert table.split(".")[0] in config.values, table
             continue
         assert key in config.values[table], f"[{table}] {key}"
-        try:
-            expected = literal(cell)
-        except ValueError:
+        try:  # the cell as a TOML value; prose ("0 in every market") is skipped
+            expected = tomllib.loads("v = " + cell.strip("`").replace(chr(0x2212), "-"))["v"]
+        except tomllib.TOMLDecodeError:
             continue
         assert config.values[table][key] == expected, f"[{table}] {key}"
         compared += 1
@@ -98,3 +88,16 @@ def test_cash_rate_default_zero(tmp_path: Path) -> None:
     for bad in ("2001", "-1", "true", "'150'"):
         with pytest.raises(ConfigError, match="cash_rate_bps"):
             load_config(write(tmp_path, f"[account]\ncash_rate_bps = {bad}\n"))
+
+
+def test_unknown_market_in_a_market_key(tmp_path: Path) -> None:
+    with pytest.raises(ConfigError, match="unknown market JP; snapshot markets: KR, US"):
+        load_config(write(tmp_path, "[sleeves]\nweights = {JP = 1}\n"), markets=["KR", "US"])
+
+
+def test_market_tables_and_table_values_are_checked(tmp_path: Path) -> None:
+    text = '[rounding.KR]\ncommission = {mode = "down", unit = 1}\n[fx]\nseries = {USDKRW = "c@x"}'
+    config = load_config(write(tmp_path, text), markets=["KR"])
+    assert config.values["rounding"] == {"KR": {"commission": {"mode": "down", "unit": 1}}}
+    assert config.values["fx"]["series"] == {"USDKRW": "c@x"}
+    assert "[live] max_price_jump = <rules pack>" in str(config)  # printing; a pack default
