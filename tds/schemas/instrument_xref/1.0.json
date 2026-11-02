@@ -1,0 +1,13 @@
+{
+  "kind": "instrument_xref", "schema_version": "1.0", "status": "stable", "section": "5.3",
+  "key": ["instrument_id", "id_type", "id_value", "valid_from"], "sort": null, "partitions": [],
+  "columns": [
+    {"name": "instrument_id", "type": null, "null": null},
+    {"name": "id_type", "type": null, "null": null},
+    {"name": "id_value", "type": "string", "null": null},
+    {"name": "valid_from", "type": "date", "null": true},
+    {"name": "valid_to", "type": "date", "null": true},
+    {"name": "link_quality", "type": "code", "null": null},
+    {"name": "source", "type": null, "null": null}
+  ]
+}

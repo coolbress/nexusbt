@@ -1,0 +1,12 @@
+{
+  "kind": "eligibility_daily", "schema_version": "1.0", "status": "stable", "section": "5.20",
+  "key": ["rule_id", "instrument_id", "session_date"], "sort": null, "partitions": ["market=/year="],
+  "columns": [
+    {"name": "rule_id", "type": null, "null": null},
+    {"name": "instrument_id", "type": null, "null": null},
+    {"name": "session_date", "type": null, "null": null},
+    {"name": "is_eligible", "type": "bool", "null": null},
+    {"name": "reason", "type": "code", "enum": "open", "null": true},
+    {"name": "ts_available", "type": null, "null": null}
+  ]
+}
