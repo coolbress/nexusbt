@@ -63,6 +63,8 @@ class Schema:
     kind: str
     status: str
     columns: tuple[Column, ...]
+    #: The file's `key`: a column list, a mapping of variants (bars), or None where unstated.
+    key: object = None
 
 
 _HEADER = "| Column | Type | Null | Meaning |"
@@ -166,7 +168,7 @@ def load_schemas(root: Path = SCHEMA_DIR) -> dict[str, Schema]:
         columns = tuple(
             Column(c["name"], c["type"], c["null"], c.get("enum")) for c in data["columns"]
         )
-        schemas[path.parent.name] = Schema(data["kind"], data["status"], columns)
+        schemas[path.parent.name] = Schema(data["kind"], data["status"], columns, data["key"])
     return schemas
 
 
