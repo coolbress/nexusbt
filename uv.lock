@@ -339,6 +339,12 @@ dev = [
 name = "nexusbt-tds"
 version = "1.0.0"
 source = { editable = "tds" }
+dependencies = [
+    { name = "pyarrow" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "pyarrow", specifier = ">=26.0.0,<27" }]
 
 [[package]]
 name = "packaging"

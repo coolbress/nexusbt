@@ -8,7 +8,8 @@ requires-python = ">=3.13"
 license = "Apache-2.0"
 authors = [{ name = "coolbress" }]
 classifiers = ["Typing :: Typed"]
-dependencies = []  # pyarrow only (2.3), added with the first module that imports it
+# pyarrow only (2.3), from the value hash (TDS 4.5) on; the engine's range (2.2).
+dependencies = ["pyarrow>=26.0.0,<27"]
 
 [project.scripts]
 tds = "nexusbt_tds.cli:main"

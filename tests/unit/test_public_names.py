@@ -54,6 +54,7 @@ STUB_CLASSES = [
 BUILT = {
     "nexusbt_tds.read_manifest",
     "nexusbt_tds.check",
+    "nexusbt_tds.value_hash",
     "nexusbt.config.load_config",
     "nexusbt.api.config",
 }
