@@ -1,14 +1,17 @@
-"""#94: the 3.11 Validation rules that tie a key to another key or to a form."""
+"""#94: the 3.11 Validation rules that tie a key to another key, to the snapshot or to a form."""
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
+from typing import Any
 
 import pytest
 
+import nexusbt as nx
 from nexusbt.config import load_config
-from nexusbt.contracts import ConfigError, TaxesBasisPolicy
+from nexusbt.contracts import ConfigError, SnapshotError, TaxesBasisPolicy
 
 KR_US = {"KR": "KRW", "US": "USD"}
 MARGIN = '[account]\ntype = "margin"\n'
@@ -116,6 +119,101 @@ def test_values_in_their_form(tmp_path: Path) -> None:
     )
     config = load_config(write(tmp_path, text), markets=KR_US)
     assert config.values["meta"]["sector"] == "gics@2"
+
+
+@pytest.mark.parametrize(
+    ("overrides", "where", "layer"),
+    [
+        ({"data": {"pins": "root"}}, "[data] pins", "[data] pins = 'root'"),  # one key's check
+        ({"foo": {"x": 1}}, "[foo]", "[foo]"),  # an unknown table: no value to show
+        ({"costs": {"sensitivity": [0]}}, "[costs] sensitivity", "[costs] sensitivity = [0]"),
+        ({"split": {"segments": {"a": ["2022-01-01", "2021-01-01"]}}}, "[split] segments",
+         "[split] segments = {'a': ['2022-01-01', '2021-01-01']}"),
+        ({"costs": {"provisional_bps": {"US": {"buyy": 1}}}}, "[costs] provisional_bps",
+         "[costs] provisional_bps = {'US': {'buyy': 1}}"),  # an unknown key one table down
+        ({"sleeves": {"weights": {"US": 0.5}}}, "[sleeves] weights",
+         "[sleeves] weights = {'US': 0.5}"),
+        ({"data": {"root": "/nope"}}, "[data] root", "[data] root = '/nope'"),
+    ],
+)  # fmt: skip
+def test_an_override_names_the_code(overrides: dict[str, Any], where: str, layer: str) -> None:
+    with pytest.raises(ConfigError) as caught:
+        load_config(overrides=overrides)
+    assert caught.value.parts["where"] == f"overrides {where}"
+    assert caught.value.layer == f"config — argument overrides={layer}"  # 6.6 `argument` tail
+
+
+def test_the_same_key_in_the_file_names_the_file(tmp_path: Path) -> None:
+    error = refused(tmp_path, "[costs]\nsensitivity = [0]\n", "[costs] sensitivity")
+    assert error.layer == "config — nexusbt.toml [costs] sensitivity = [0]"
+    text = "[costs.provisional_bps]\nUS = {buyy = 1}\n"  # an unknown key one table down
+    error = refused(tmp_path, text, "[costs] provisional_bps")
+    assert "buyy is not a key" in error.parts["what"]
+    assert error.parts["fix"] == "did you mean: buy?"
+
+
+@pytest.mark.parametrize(
+    ("text", "fix"),
+    [
+        ("[execution]\nmax_participation = 2\n", "use a number in (0, 1]"),
+        ("[costs]\nimpact_y = -1\n", "use a number >= 0"),
+        ("[validate]\nmax_fits = 0\n", "use an integer >= 1"),
+    ],
+)
+def test_a_range_error_names_the_range(tmp_path: Path, text: str, fix: str) -> None:
+    with pytest.raises(ConfigError) as caught:
+        load_config(write(tmp_path, text))
+    assert caught.value.parts["fix"] == fix
+
+
+def data_root(tmp_path: Path, latest: str) -> Path:
+    """A data root whose `LATEST` names `latest`, and a readable package beside it."""
+    (folder := tmp_path / "data" / "20261027-143144").mkdir(parents=True)
+    markets = {"markets": {"KR": {"currency": "KRW"}}}
+    (folder / "tds.json").write_text(json.dumps(markets), encoding="utf-8")
+    (tmp_path / "data" / "LATEST").write_text(latest, encoding="utf-8")
+    return tmp_path / "data"
+
+
+@pytest.mark.parametrize("latest", ["../outside", "/abs/snap", "a/../../b", ""])
+def test_latest_outside_the_data_root_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, latest: str
+) -> None:
+    root = data_root(tmp_path, latest)
+    monkeypatch.chdir(tmp_path)
+    for text, source in (
+        (f"[data]\nroot = '{root}'\n", "[data] root"),
+        (f"[data]\npath = '{root}'\n", "[data] path"),
+        ("", "$NEXUSBT_DATA_ROOT"),
+    ):
+        if not text:
+            monkeypatch.setenv("NEXUSBT_DATA_ROOT", str(root))
+        write(tmp_path, text)
+        with pytest.raises(SnapshotError, match="LATEST") as caught:
+            nx.config()
+        assert caught.value.code == "E14"
+        assert source in caught.value.parts["where"], caught.value.parts
+
+
+def test_e14_names_where_the_location_came_from(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = data_root(tmp_path, "20261027-143144")
+    (root / "20261027-143144" / "tds.json").unlink()  # unreadable: E14 as before
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("NEXUSBT_DATA_ROOT", str(root))
+    write(tmp_path, "")
+    with pytest.raises(SnapshotError) as caught:
+        nx.config()
+    assert caught.value.parts["where"] == "$NEXUSBT_DATA_ROOT"
+    monkeypatch.delenv("NEXUSBT_DATA_ROOT")
+    write(tmp_path, f"[data]\nroot = '{root}'\n")
+    with pytest.raises(SnapshotError) as caught:
+        nx.config()
+    assert caught.value.parts["where"] == "nexusbt.toml [data] root"
+    data_root(tmp_path / "ok", "20261027-143144")
+    write(tmp_path, f"[data]\nroot = '{tmp_path / 'ok' / 'data'}'\n")
+    assert nx.config().markets == ("KR",)  # a LATEST inside the root is read as before
 
 
 def test_default_project_name_is_checked(tmp_path: Path) -> None:
