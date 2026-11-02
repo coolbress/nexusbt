@@ -22,6 +22,10 @@ re-exports the 3.1 surface (2.3) and is outside the graph; the ban still applies
 from __future__ import annotations
 
 import ast
+import json
+import re
+import subprocess
+import sys
 from collections.abc import Callable
 from itertools import pairwise
 from pathlib import Path
@@ -29,7 +33,31 @@ from pathlib import Path
 import pytest
 
 Check = Callable[[tuple[str, ...], str], list[str]]
+
+#: 3.1 names a fresh `import nexusbt` does not bind yet, by the table's row (#47). A name
+#: leaves this list in the change that exports it; the spec names no single ticket for many.
+PENDING_3_1 = {
+    "Terms": "Factor Filter Classifier Pipeline factor filter classifier ops",
+    "Data": "Price Fund Meta Panel Label Trad Market Macro MacroTerm Events dataset Dataset"
+    " universe",
+    "Strategy": "Strategy param monthly weekly daily quarterly annually every on_event top bottom"
+    " long_short portfolio size sizer risk risk_rule PortfolioContext SizingContext"
+    " RiskContext TargetView RiskDecision Scalar execution exits ExitRule costs ml labels"
+    " LabelTerm splits",
+    "Functions": "open evaluate backtest screen live fill reconcile sweep compare run_pipeline"
+    " explain check describe runs rerun book override record_fills cash_flow preregister config",
+    "Results": "FactorReport Run Screen Orders BookUpdate ReconcileReport SweepResult Comparison"
+    " ValidationResult Split PipelineResult Explanation DecisionExplanation CheckReport"
+    " RunTable Description Preregistration Config Snapshot Book",
+    "Errors (6.6, E40~E49)": "ValidationNotice BlockOutputError AccountNotEvaluatedNotice"
+    " SolverFallbackNotice MLDeterminismWarning SkippedWorkNotice EngineBugError"
+    " DatasetShapeError PretrainedLeakError PretrainedOverlapWarning",
+    "Types": "Term BoundColumn Param Schedule PortfolioRule Sizer RiskRule ExecutionRule"
+    " CostModel Window DecisionContext",
+    "Modules": "compat testing __version__",
+}
 ROOT = Path(__file__).resolve().parents[2]
+SPEC = ROOT / "docs" / "spec" / "engine-spec-v3.4.md"
 TREES = (ROOT / "src", ROOT / "tds" / "src")
 
 GRAPH = """
@@ -140,6 +168,56 @@ def test_banned_imports_absent_in_src() -> None:
     files = sorted(f for tree in TREES for f in tree.rglob("*.py"))
     assert {module_of(f)[0] for f in files} == {"nexusbt", "nexusbt_tds"}
     assert findings(banned_uses, files) == []
+
+
+def spec_3_1_names() -> set[str]:
+    """The 3.1 table's names, a parenthesis's examples left out; "the subclasses of 6.6" read."""
+    text = SPEC.read_text(encoding="utf-8")
+    table = text[text.index("Every public name under `nexusbt.`") : text.index("**Identifier**")]
+    names: set[str] = set()
+    for cell in re.findall(r"^\| (?!Kind |---)[^|]+\|([^|]+)\|", table, flags=re.MULTILINE):
+        while (bare := re.sub(r"\([^()]*\)", "", cell)) != cell:
+            cell = bare
+        names |= {token.split(".")[0] for token in re.findall(r"`([^`]+)`", cell)}
+    return names | set(re.findall(r"^\| E\d+ \| `(\w+)`", text, flags=re.MULTILINE))
+
+
+def root_names() -> dict[str, bool]:
+    """What a fresh `import nexusbt` binds: public name → is it the submodule `nexusbt.<name>`."""
+    code = (
+        "import json, types, nexusbt as m; print(json.dumps({n: isinstance(v, types.ModuleType)"
+        " and v.__name__ == 'nexusbt.' + n for n, v in vars(m).items()"
+        " if not n.startswith('_') or n == '__version__'}))"
+    )
+    command = [sys.executable, "-c", code]  # this interpreter, the literal above
+    done = subprocess.run(command, capture_output=True, text=True, check=True)  # noqa: S603
+    found: dict[str, bool] = json.loads(done.stdout)
+    return found
+
+
+def outside_3_1(bound: dict[str, bool], table: set[str], packages: set[str]) -> list[str]:
+    """Bound names not in 3.1; a package of the 2.3 tree bound by importing it is layout."""
+    layout = {n for n, module in bound.items() if module and n in packages}
+    return sorted(set(bound) - table - layout)
+
+
+def test_public_names_match_spec_3_1() -> None:
+    """3.1: "a name outside this list starts with `_`"; the rest are exported or pending.
+
+    Read in a fresh interpreter: another test's import of `nexusbt.config` would bind it.
+    """
+    table, bound = spec_3_1_names(), root_names()
+    outside = outside_3_1(bound, table, engine_modules())
+    assert outside == [], f"nexusbt exports names outside the 3.1 table: {outside}"
+    pending = {n for names in PENDING_3_1.values() for n in names.split()}
+    assert pending <= table, f"PENDING_3_1 names that are not in 3.1: {pending - table}"
+    assert sorted(pending & set(bound)) == [], "exported now: take these out of PENDING_3_1"
+    assert sorted(table - set(bound) - pending) == [], "neither exported nor pending"
+
+
+def test_outside_3_1_excuses_only_a_bound_package() -> None:
+    bound = {"contracts": True, "util": True, "contracts_x": False, "open": False}
+    assert outside_3_1(bound, {"open"}, {"contracts"}) == ["contracts_x", "util"]
 
 
 @pytest.mark.parametrize(
