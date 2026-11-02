@@ -101,11 +101,24 @@ _ARROW = {"i8": pa.int8(), "i16": pa.int16(), "i32": pa.int32(), "i64": pa.int64
 _TAGS = {"bool", "f64", "date", "ts_us", "ts_ns", *_INT, *_TEXT}
 
 
+def inside(root: Path, rel: object) -> Path:
+    """`root/rel` when it is a regular file inside the package; else `HashError` (TDS-M012).
+
+    Absolute paths, `..` and symbolic links leading out are never read, nor a device such as
+    `/dev/zero`, which would not end."""
+    path = (Path(root) / str(rel)).resolve()
+    if not isinstance(rel, str) or not path.is_relative_to(Path(root).resolve()):
+        raise HashError(f"{rel} is outside the package (TDS-M012); not read")
+    if not path.is_file():
+        raise HashError(f"{rel} is not a file in the package; not read")
+    return path
+
+
 def _read(root: Path, files: list[dict[str, Any]], partitioning: list[dict[str, Any]]) -> pa.Table:
     """The dataset's files as one table, dictionaries decoded, partition columns from the path."""
     tables = []
     for entry in files:
-        table = pq.ParquetFile(root / entry["path"]).read()
+        table = pq.ParquetFile(inside(root, entry["path"])).read()
         table = table.cast(pa.schema(
             pa.field(f.name, f.type.value_type) if pa.types.is_dictionary(f.type) else f
             for f in table.schema
@@ -225,7 +238,7 @@ def _inventory(root: Path) -> tuple[dict[str, str], dict[str, dict[str, str]], l
             for f in entry["files"]:
                 if f["path"] in files:
                     raise HashError(f"{f['path']} is listed twice (TDS-M013)")
-                sha = _sha256((root / f["path"]).read_bytes())
+                sha = _sha256(inside(root, f["path"]).read_bytes())
                 files[f["path"]] = {"sha256": sha, "value_sha256": _value(root, entry, [f])}
         except (OSError, KeyError, TypeError, pa.ArrowException) as exc:
             raise HashError(f"dataset {name}: {exc!r}") from exc

@@ -246,6 +246,7 @@ def test_semantic_json_holds_every_listed_key(tmp_path: Path) -> None:
     lambda m, root: (root / m["datasets"][0]["files"][0]["path"]).write_bytes(b"not parquet"),
     lambda m, root: m["datasets"][0]["files"].append({"path": "bars/missing.parquet"}),
     lambda m, root: m["datasets"][0].update(kind="nonsense"),
+    lambda m, root: m["datasets"][0]["files"].append({"path": "/etc/hosts"}),  # outside: not read
     lambda m, root: m["datasets"][0]["files"].append(m["datasets"][0]["files"][0]),
 ])  # fmt: skip
 def test_bad_data_exits_1(tmp_path: Path, change: Any) -> None:

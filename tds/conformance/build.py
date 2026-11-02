@@ -14,6 +14,7 @@ import json
 import math
 import shutil
 import sys
+import tempfile
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -147,6 +148,33 @@ def _instruments(*, codes: bool = False, **columns: pa.Array | None) -> Change:
     return change
 
 
+WRONG = "0" * 64
+
+
+def _hashes(code: str, wrong: bool) -> Change:
+    """Write the hashes `code` compares into tds.json (TDS 4.5), the bars one `WRONG` if `wrong`."""
+
+    def change(m: dict[str, Any], files: Files) -> None:
+        from nexusbt_tds.hash import package_hashes  # the checker's own hashes, as producers use
+
+        with tempfile.TemporaryDirectory() as tmp:
+            hashes = package_hashes(write(Path(tmp), m, files))
+        for ds in m["datasets"]:
+            last = ds is bars(m) and wrong
+            if code == "TDS-H001":
+                for f in ds["files"]:
+                    f["sha256"] = WRONG if last else hashes["files"][f["path"]]["sha256"]
+            if code == "TDS-H002":
+                ds["value_sha256"] = WRONG if last else hashes["datasets"][ds["name"]]
+        if code == "TDS-H003":
+            names = ("physical_sha256", "value_sha256", "semantic_sha256")
+            m["hashes"].update({k: hashes[k] for k in names})
+            if wrong:
+                m["hashes"]["semantic_sha256"] = WRONG
+
+    return change
+
+
 TS = pa.array([0], pa.timestamp("us", "UTC"))
 VERSION_1_9 = {"tds.dataset": "bars_1d", "tds.schema_version": "1.9"}  # M011: the file says so too
 
@@ -205,6 +233,10 @@ CASES: dict[str, tuple[Change, Change]] = {
         _bars(meta={"tds.dataset": "bars", "tds.schema_version": "1.0"}),  # the kind, not the name
         _bars(meta={}),  # no key-value metadata at all
     ),
+    **{
+        code: (_hashes(code, False), _hashes(code, True))
+        for code in ("TDS-H001", "TDS-H002", "TDS-H003")
+    },
 }
 
 

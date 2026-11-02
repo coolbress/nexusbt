@@ -1,7 +1,8 @@
 """`check(path, *, level, ...) -> CheckResult`: the levels manifest, schema and full (TDS 8.2).
 
 The `manifest` level reads `tds.json` and file sizes (M001~M014); the `schema` level adds the
-Parquet footers and statistics and the `dictionary/` tables, no data rows (S001~S010). Neither
+Parquet footers and statistics and the `dictionary/` tables, no data rows (S001~S010); the `full`
+level adds, so far, the hashes (H001~H003, TDS 4.5) and verifies no profile beyond `schema`. None
 reports a profile as `pass`: the rules a level cannot see are listed in `unchecked`, and the
 profile is `not_checked`.
 """
@@ -9,6 +10,7 @@ profile is `not_checked`.
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import json
 import math
 import os
@@ -121,15 +123,15 @@ def check(
     datasets: Sequence[str] | None = None,
     max_errors: int = 1000,
 ) -> CheckResult:
-    if level == "full":
-        raise NotImplementedError(f"check level {level!r}: not built yet (T0.14a)")
     manifest: Manifest | None = None
     blind: set[str] = set()  # codes this package's files hide from the level (no statistics)
     try:
         manifest = read_manifest(path)
         found = list(_check_manifest(manifest, datasets))
-        if level == "schema":
+        if level != "manifest":
             found += _check_schema(manifest, datasets, blind)
+        if level == "full":
+            found += _check_hashes(manifest, datasets, blind)
     except ManifestError as exc:
         found = [Finding("TDS-M001", "error", str(exc))]
     declared = {profile_id(p) for p in manifest.profiles} if manifest else set()
@@ -139,9 +141,11 @@ def check(
     for name in dict.fromkeys(wanted):
         own = list(_check_profile(manifest, name)) if manifest else []
         found += own
+        # `full` checks only H001~H003 so far (#57): no profile is verified to it (spec 8.2)
+        verified: Level = "schema" if level == "full" else level
         statuses[name] = ProfileStatus(
             declared=name in declared,
-            verified_level=level if name in PROFILES else "none",
+            verified_level=verified if name in PROFILES else "none",
             result="fail" if package_failed or own else "not_checked",
         )
     hints = manifest.hints if manifest else {}
@@ -153,8 +157,54 @@ def check(
         profiles=statuses,
         unchecked=list(UNCHECKED_AT_MANIFEST)
         if level == "manifest"
-        else [c for c in UNCHECKED_AT_MANIFEST if c in blind or c in UNCHECKED_AT_SCHEMA],
+        else [
+            c
+            for c in UNCHECKED_AT_MANIFEST
+            if c in blind
+            or (c in UNCHECKED_AT_SCHEMA and (level == "schema" or c not in HASH_CODES))
+        ],
     )
+
+
+#: What the `full` level checks so far: the declared hashes against the computed ones (TDS 4.5).
+HASH_CODES = ("TDS-H001", "TDS-H002", "TDS-H003")
+
+
+def _check_hashes(m: Manifest, only: Sequence[str] | None, blind: set[str]) -> list[Finding]:
+    """H001 each declared file sha256, H002 each dataset value hash, H003 the package hashes."""
+    from .hash import HashError, inside, package_hashes
+
+    out = []
+    seen: set[object] = set()  # a path listed twice is M013's; its H001, once
+    datasets = [d for d in m.datasets if only is None or d.get("name") in only]
+    for ds in datasets:
+        for f in (f for f in ds.get("files") or [] if isinstance(f, dict) and "sha256" in f):
+            if f.get("path") in seen:
+                continue
+            seen.add(f.get("path"))
+            try:
+                actual = hashlib.sha256(inside(m.root, f.get("path")).read_bytes()).hexdigest()
+            except (HashError, OSError):
+                continue  # outside the package or missing: the manifest level's (M004, M012)
+            if actual != f["sha256"]:
+                message = f"sha256 {actual}, declared {f['sha256']}"
+                out.append(Finding("TDS-H001", "error", message, ds.get("name"), f["path"]))
+    try:
+        hashes = package_hashes(m.root)
+    except Exception:  # no value hash for this package, whatever the cause: H002, H003 not judged
+        blind.update(("TDS-H002", "TDS-H003"))
+        return out
+    for ds in datasets:
+        declared, actual = ds.get("value_sha256"), hashes["datasets"].get(ds.get("name"))
+        if declared is not None and declared != actual:
+            out.append(Finding("TDS-H002", "error", f"value hash {actual}, declared {declared}",
+                               dataset=ds.get("name")))  # fmt: skip
+    declared_hashes = m.data.get("hashes")
+    for key in ("physical_sha256", "value_sha256", "semantic_sha256"):
+        declared = declared_hashes.get(key) if isinstance(declared_hashes, dict) else None
+        if declared is not None and declared != hashes[key]:
+            out.append(Finding("TDS-H003", "error", f"{key} {hashes[key]}, declared {declared}"))
+    return out
 
 
 def _check_manifest(m: Manifest, only: Sequence[str] | None) -> Iterable[Finding]:
