@@ -1,12 +1,17 @@
 """The conformance packages: per check code, a package raising only that code (TDS 8.5, 8.4a).
 
-They are generated, never edited by hand. These are manifest-level packages: a data file holds
-placeholder bytes, since that level reads only sizes; the schema level (T0.13c) writes Parquet.
+`python tds/conformance/build.py [OUT]` writes them to `OUT/<code>/{pass,fail}/` (default: this
+folder). They are generated, never edited by hand. These are manifest-level packages: a data file
+holds placeholder bytes, since that level reads only sizes; the schema level (T0.13c) writes
+Parquet.
 """
 
 from __future__ import annotations
 
+import copy
 import json
+import shutil
+import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -127,3 +132,14 @@ def write(root: Path, manifest: dict[str, Any], files: Files) -> Path:
         (root / rel).parent.mkdir(parents=True, exist_ok=True)
         (root / rel).write_bytes(content)
     return root
+
+
+def build(out: Path) -> None:
+    for code in CASES:
+        for side in ("pass", "fail"):
+            shutil.rmtree(out / code / side, ignore_errors=True)
+            write(out / code / side, *copy.deepcopy(package(code, side)))
+
+
+if __name__ == "__main__":
+    build(Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).parent)
