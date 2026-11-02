@@ -240,7 +240,11 @@ def describe(market: str) -> str:
     ]
     lines = [f"rules {market}@{pack['pack']['version']}", f"base_unit = {base_unit}"]
     lines += [f"rounding: {rounding}", f"day_count = {pack['shorting']['day_count']}"]
-    rows = {name: seed(name) for name in tables if name}
+    rows = {  # the cost tables hold every market's rows: keep this market's
+        name: [r for r in seed(name) if r.get("country", market) == market]
+        for name in tables
+        if name
+    }
     for name, table in rows.items():
         part = rule_listing({name: table})
         lines.append(f"{name}: {part.total} rows, verified = false {part.ratio}")
