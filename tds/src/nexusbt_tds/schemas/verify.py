@@ -4,9 +4,10 @@ A schema file is `tds/schemas/<kind>/1.0.json`: `kind`, `schema_version`, `statu
 (`stable`|`experimental`), `section`, `key`, `sort`, `partitions` and `columns`. A column is
 `{"name", "type", "null"}` plus `"enum": "closed"|"open"` for a code; `type` is a TDS 3.2 name or
 null where the document does not state one, and `null` is true, false, the document's condition
-text, or null where unstated. A document cell left blank defers to another section and matches
-any value. A mismatch is reported, never fixed here: the TDS document is changed by its own pull
-request.
+text, or null where unstated. A blank document cell in a row whose meaning is a section (`5.17`)
+takes that section's row of the same name (the file marks it `"from"`); any other blank cell
+needs the file's value unstated too. A mismatch is reported, never fixed here: the TDS document
+is changed by its own pull request.
 """
 
 from __future__ import annotations
@@ -66,36 +67,52 @@ class Schema:
 
 _HEADER = "| Column | Type | Null | Meaning |"
 _NAMED = re.compile(r"^(?:### 5\.\d+ )?`(\w+)`")
+#: (name, type cell, null cell, the section a blank cell was taken from or "").
+Row = tuple[str, str, str, str]
 
 
-def doc_tables(doc: str) -> dict[str, list[tuple[str, str, str]]]:
-    """Chapter 5's column tables by kind: (name, type cell, null cell) per column, in order.
+def _chapter(doc: str) -> list[str]:
+    return f"\n{doc}".split("\n## 5. ", 1)[1].split("\n## 6. ", 1)[0].splitlines()
+
+
+def doc_tables(doc: str) -> dict[str, list[Row]]:
+    """Chapter 5's column tables by kind, one row per column, in order.
 
     A table belongs to the kind named first in the last heading, or line, that starts with one.
     A row naming several columns gives each the shared cell, or its part of a cell with one
     ` / `-separated part per column (`ts_event, ts_recv | ts_ns | no / yes`).
     """
-    chapter = f"\n{doc}".split("\n## 5. ", 1)[1].split("\n## 6. ", 1)[0]
-    tables: dict[str, list[tuple[str, str, str]]] = {}
+    tables: dict[str, list[Row]] = {}
+    by_section: dict[str, str] = {}
     kind: str | None = None
-    rows: list[tuple[str, str, str]] | None = None
-    for line in chapter.splitlines():
-        if line.startswith("### 5."):
-            kind = None
+    rows: list[Row] | None = None
+    for line in _chapter(doc):
+        if heading := re.match(r"### (5\.\d+) ", line):
+            kind, section = None, heading[1]
         if named := _NAMED.match(line):
             kind = named.group(1)
         if line.strip() == _HEADER and kind is not None:
-            rows = tables.setdefault(kind, [])
+            rows, by_section[section] = tables.setdefault(kind, []), kind
         elif rows is not None and line.startswith("|"):
             if line.startswith("|---"):
                 continue
             cells = [cell.strip() for cell in line.strip("|").split("|")]
             names = [name.strip() for name in cells[0].split(",")]
-            parts = [_spread(cells[1], len(names)), _spread(cells[2], len(names))]
-            rows.extend(zip(names, parts[0], parts[1], strict=True))
+            ref = cells[3] if re.fullmatch(r"5\.\d+", cells[3]) else ""
+            parts = zip(_spread(cells[1], len(names)), _spread(cells[2], len(names)), strict=True)
+            rows.extend((name, *part, ref) for name, part in zip(names, parts, strict=True))
         else:
             rows = None
-    return tables
+    named_rows = {k: {row[0]: row for row in rows} for k, rows in tables.items()}
+
+    def resolve(row: Row) -> Row:
+        name, type_cell, null_cell, ref = row
+        source = named_rows.get(by_section.get(ref, ""), {}).get(name)
+        if source is None or (type_cell and null_cell):
+            return name, type_cell, null_cell, ""
+        return name, type_cell or source[1], null_cell or source[2], ref
+
+    return {k: [resolve(row) for row in rows] for k, rows in tables.items()}
 
 
 def _spread(cell: str, n: int) -> list[str]:
@@ -105,23 +122,29 @@ def _spread(cell: str, n: int) -> list[str]:
 
 def compare(doc: str, schemas: dict[str, Schema]) -> list[str]:
     """Each mismatch between chapter 5's tables and the schemas of the same kind, as a line."""
-    out: list[str] = []
-    for kind, rows in doc_tables(doc).items():
+    tables = doc_tables(doc)
+    headers = sum(line.startswith("| Column |") for line in _chapter(doc))
+    out = [f"chapter 5 has {headers} column tables, {len(tables)} read"] * (headers != len(tables))
+    for kind, rows in tables.items():
         schema = schemas.get(kind)
         if schema is None:
             continue
-        doc_names = [name for name, _, _ in rows]
+        doc_names = [row[0] for row in rows]
         file_names = [column.name for column in schema.columns]
         if doc_names != file_names:
             out.append(
                 f"{kind}: doc columns {', '.join(doc_names)}; schema {', '.join(file_names)}"
             )
             continue
-        for (name, *cells), column in zip(rows, schema.columns, strict=True):
-            owns = (column.type_cell(), column.null_cell())
-            for what, cell, own in zip(("type", "null"), cells, owns, strict=True):
-                if cell and cell != own:
-                    out.append(f"{kind}: column {name}: doc {what} `{cell}`, schema `{own}`")
+        for (name, type_cell, null_cell, ref), column in zip(rows, schema.columns, strict=True):
+            via = f" ({ref})" if ref else ""
+            pairs = (
+                ("type", type_cell, column.type_cell()),
+                ("null", null_cell, column.null_cell()),
+            )
+            for what, cell, own in pairs:
+                if cell != own:
+                    out.append(f"{kind}: column {name}: doc {what} `{cell}`{via}, schema `{own}`")
     return out
 
 

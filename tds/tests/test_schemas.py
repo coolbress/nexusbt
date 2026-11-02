@@ -32,6 +32,13 @@ SAMPLE_DOC = """\
 | ts_event, ts_recv | ts_ns | no / yes | |
 | ts_start | ts_us/ns | daily yes / intraday no | |
 | unit | | | 5.17 |
+| plain | | no | |
+
+### 5.17 `facts`
+
+| Column | Type | Null | Meaning |
+|---|---|---|---|
+| unit | code | no | |
 
 ## 6. Next chapter
 """
@@ -47,6 +54,7 @@ def _things(**changes: Column) -> Schema:
         "ts_recv": Column("ts_recv", "ts_ns", True),
         "ts_start": Column("ts_start", "ts_us/ns", "daily yes / intraday no"),
         "unit": Column("unit", "code", False),
+        "plain": Column("plain", None, False),
     }
     columns.update(changes)
     return Schema("things", "stable", tuple(columns.values()))
@@ -68,9 +76,23 @@ def test_a_column_missing_or_out_of_order_is_a_mismatch() -> None:
     first, second, _open, *rest = _things().columns
     reordered = Schema("things", "stable", (second, first, *rest))
     assert compare(SAMPLE_DOC, {"things": reordered}) == [
-        "things: doc columns thing_id, kind, open, close, ts_event, ts_recv, ts_start, unit;"
-        " schema kind, thing_id, close, ts_event, ts_recv, ts_start, unit",
+        "things: doc columns thing_id, kind, open, close, ts_event, ts_recv, ts_start, unit, plain;"
+        " schema kind, thing_id, close, ts_event, ts_recv, ts_start, unit, plain",
     ]
+
+
+def test_a_blank_cell_takes_the_section_it_points_to_or_stays_blank() -> None:
+    edited = _things(unit=Column("unit", "f64", False), plain=Column("plain", "id", False))
+    assert compare(SAMPLE_DOC, {"things": edited}) == [
+        "things: column unit: doc type `code` (5.17), schema `f64`",
+        "things: column plain: doc type ``, schema `id`",
+    ]
+
+
+def test_a_table_the_parser_cannot_place_is_a_mismatch() -> None:
+    header = "| Column | Type | Null | Meaning |"
+    doc = SAMPLE_DOC.replace(header, f"{header} Checks |", 1)
+    assert compare(doc, {"things": _things()}) == ["chapter 5 has 2 column tables, 1 read"]
 
 
 def test_doc_tables_match_schema_files() -> None:
