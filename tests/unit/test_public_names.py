@@ -50,8 +50,8 @@ STUB_CLASSES = [
     "nexusbt.artifacts.RunStore",
     "nexusbt.artifacts.BookStore",
 ]
-#: Functions whose ticket has landed: no longer stubs (T0.13a, #51).
-BUILT = {"nexusbt_tds.read_manifest", "nexusbt_tds.check"}
+#: Functions whose ticket has landed: no longer stubs (T0.13a, #51; T0.5a, #53).
+BUILT = {"nexusbt_tds.read_manifest", "nexusbt_tds.check", "nexusbt.config.load_config"}
 
 #: 6.6, the classes whose kind is block or fail: the sub-errors of `NexusBTError`. The warnings
 #: and notices are checked with every E1~E39 code in `contracts/test_errors.py`.
