@@ -1,0 +1,38 @@
+# Market rules pack US (spec 4.7); "rules US@1" in the report and manifest.
+[pack]
+market = "US"
+version = 1
+calendar_ids = ["XNYS"]
+currency = "USD"
+minor_unit = 2
+
+# no [price_limits]: no price-limit rule
+
+[costs]
+provisional_bps = {buy = 5, sell = 5}
+min_half_spread_bps = 1
+table_market_groups = "costs/venue_groups_v1.csv"
+
+[dividends]
+fallback_pay_lag_days = 21
+
+[tradability]
+unknown_status_before = "2019-08-23"   # the status_known = false period
+
+[grid]
+tick_table = "ticks/us_tick_table_v1.csv"
+base_unit = 0.0001   # dollars [R3-02]
+
+[rounding]   # all half_up
+proceeds = {mode = "half_up", unit = 1}
+commission = {mode = "half_up", unit = 1}
+tax = {mode = "half_up", unit = 1}
+dividend_withholding = {mode = "half_up", unit = 1}
+cash_in_lieu = {mode = "half_up", unit = 1}
+borrow_fee = {mode = "half_up", unit = 1}
+
+[shorting]   # no ban table
+allowed = true
+uptick_rule_modeled = false   # Rule 201 is not simulated (a documented assumption)
+borrow_availability = "assume_all"
+day_count = 360   # verified = true: IBKR margin interest and borrow fee /360 [R7-07]

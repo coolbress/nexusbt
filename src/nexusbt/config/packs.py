@@ -1,15 +1,19 @@
-"""Market rules packs (spec 4.7). So far their seed tables: CSVs copied by hand from public sources.
-
-The packs themselves, `resources/markets/<MARKET>.toml`, and `--describe` follow (T0.5b)."""
+"""Market rules packs (spec 4.7): `resources/markets/<MARKET>.toml` and their seed tables, CSVs
+copied by hand from public sources. `python -m nexusbt.config.packs --describe KR` sums one up."""
 
 from __future__ import annotations
 
+import argparse
 import csv
 import re
-from collections.abc import Mapping
+import tomllib
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from importlib.resources import files
 from importlib.resources.abc import Traversable
+from typing import Any
+
+from nexusbt.contracts import RoundingModePolicy
 
 Row = dict[str, str]
 ISO_DATE = re.compile(r"\d{4}-\d\d-\d\d")
@@ -133,3 +137,122 @@ def seed(name: str, root: Traversable | None = None) -> list[Row]:
     for line, row in enumerate(rows, start=2):
         _check(name, line, row)
     return rows
+
+
+# The packs shipped, by codepoint; `_generic` runs a market under allow_untested. Read from the
+# folder, so no market name is written in code (T4.11) and a new pack is only a new file.
+PACKS = tuple(
+    sorted(
+        p.name.removesuffix(".toml")
+        for p in files("nexusbt.resources").joinpath("markets").iterdir()
+        if p.name.endswith(".toml")
+    )
+)
+Ok = Callable[[Any], bool]
+
+
+def _num(lo: float, hi: float = 1e300, *, int_: bool = False) -> Ok:
+    kinds = int if int_ else (int, float)
+    return lambda v: isinstance(v, kinds) and not isinstance(v, bool) and lo <= v <= hi
+
+
+def _is(kind: type) -> Ok:
+    return lambda v: isinstance(v, kind)
+
+
+def _table(v: Any) -> bool:
+    return v in SEEDS
+
+
+def _match(pattern: str) -> Ok:
+    return lambda v: isinstance(v, str) and re.fullmatch(pattern, v) is not None
+
+
+def _rounding(v: Any) -> bool:
+    if not isinstance(v, dict) or set(v) != {"mode", "unit"}:
+        return False
+    # unit: a multiple of the minor unit (3.11 [rounding.<MARKET>], 5.6.1)
+    return v["mode"] in set(RoundingModePolicy) and _num(1, int_=True)(v["unit"])
+
+
+def _bps(v: Any) -> bool:
+    return isinstance(v, dict) and set(v) == {"buy", "sell"} and all(map(_num(0), v.values()))
+
+
+COMPONENTS = ("proceeds", "commission", "tax", "dividend_withholding", "cash_in_lieu", "borrow_fee")
+# section → key → (required, check), the 4.7 pack; a section left out is absent from the pack.
+PACK_SCHEMA: dict[str, dict[str, tuple[bool, Ok]]] = {
+    "pack": {
+        "market": (True, _is(str)), "version": (True, _num(1, int_=True)),
+        "calendar_ids": (True, lambda v: isinstance(v, list) and all(map(_is(str), v))),
+        "currency": (False, _match("[A-Z]{3}")),
+        "minor_unit": (False, _num(0, int_=True)), "benchmark_hint": (False, _is(str)),
+    },
+    "price_limits": {"table": (True, _table), "open_tolerance": (True, _num(0, 0.05))},
+    "costs": {"provisional_bps": (False, _bps), "min_half_spread_bps": (True, _num(0)),
+              "table_market_groups": (False, _table)},
+    "dividends": {"fallback_pay_lag_days": (True, _num(1, 400, int_=True))},
+    "tradability": {"unknown_status_before": (True, _match(r"(\d{4}-\d\d-\d\d)?"))},
+    "grid": {"tick_table": (False, _table), "base_unit": (False, _num(1e-12))},
+    "rounding": dict.fromkeys(COMPONENTS, (True, _rounding)),
+    "shorting": {
+        "allowed": (True, _is(bool)), "ban_table": (False, _table),
+        "uptick_rule_modeled": (True, _is(bool)),
+        "borrow_availability": (True, lambda v: v == "assume_all"),
+        "day_count": (True, _num(1, int_=True)),
+    },
+}  # fmt: skip
+OPTIONAL_SECTIONS = {"price_limits", "tradability"}
+
+
+def load_pack(market: str, root: Traversable | None = None) -> dict[str, Any]:
+    """`resources/markets/<market>.toml`, checked against the 4.7 sections; else ValueError."""
+    root = root or files("nexusbt.resources")
+    pack = tomllib.loads(root.joinpath(f"markets/{market}.toml").read_text(encoding="utf-8"))
+    where = f"resources/markets/{market}.toml"
+    if missing := sorted(PACK_SCHEMA.keys() - OPTIONAL_SECTIONS - pack.keys()):
+        raise ValueError(f"{where}: missing [{'], ['.join(missing)}]")
+    for section, keys in pack.items():
+        if section not in PACK_SCHEMA:
+            raise ValueError(f"{where}: [{section}] is not a 4.7 section")
+        schema = PACK_SCHEMA[section]
+        if missing := sorted({k for k, (needed, _) in schema.items() if needed} - keys.keys()):
+            raise ValueError(f"{where}: [{section}] {', '.join(missing)} missing")
+        for key, value in keys.items():
+            if key not in schema or not schema[key][1](value):
+                raise ValueError(f"{where}: [{section}] {key} = {value!r} is not allowed")
+    if pack["pack"]["market"] != market:
+        raise ValueError(f"{where}: [pack] market = {pack['pack']['market']!r}, not {market!r}")
+    return pack
+
+
+def describe(market: str) -> str:
+    """The pack version, `base_unit`, rounding, `day_count` and its seed tables' rows."""
+    pack = load_pack(market)
+    base_unit = pack["grid"].get("base_unit", "the currency's minor unit (F-15)")
+    rounding = ", ".join(f"{k} {c['mode']} {c['unit']}" for k, c in pack["rounding"].items())
+    tables = [  # in pack order, with the cost table nexusbt.toml's default `[costs] table` names
+        pack.get("price_limits", {}).get("table"),
+        "costs/default_v1.csv",
+        pack["costs"].get("table_market_groups"),
+        pack["grid"].get("tick_table"),
+        pack["shorting"].get("ban_table"),
+    ]
+    lines = [f"rules {market}@{pack['pack']['version']}", f"base_unit = {base_unit}"]
+    lines += [f"rounding: {rounding}", f"day_count = {pack['shorting']['day_count']}"]
+    rows = {name: seed(name) for name in tables if name}
+    for name, table in rows.items():
+        part = rule_listing({name: table})
+        lines.append(f"{name}: {part.total} rows, verified = false {part.ratio}")
+    lines.append(f"verified = false: {rule_listing(rows).ratio}")
+    return "\n".join(lines)
+
+
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(prog="python -m nexusbt.config.packs")
+    parser.add_argument("--describe", metavar="MARKET", choices=PACKS, required=True)
+    print(describe(parser.parse_args(argv).describe))
+
+
+if __name__ == "__main__":
+    main()

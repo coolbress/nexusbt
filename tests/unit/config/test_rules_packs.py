@@ -1,15 +1,122 @@
-"""Spec T0.5b, the market rules packs' seed tables (4.7); expected rows are the 4.7 text."""
+"""Spec T0.5b, the market rules packs and their seed tables (4.7); expected values: the 4.7 text."""
 
 from __future__ import annotations
 
+from importlib.resources import files
 from pathlib import Path
 
 import pytest
 
-from nexusbt.config.packs import SEEDS, Row, in_effect, rule_listing, scope, seed
+from nexusbt.config.packs import (
+    PACKS,
+    SEEDS,
+    Row,
+    in_effect,
+    load_pack,
+    main,
+    rule_listing,
+    scope,
+    seed,
+)
 
 BANS = "shorting/kr_short_bans_v1.csv"
 KR_TICKS, US_TICKS = "ticks/kr_tick_table_v1.csv", "ticks/us_tick_table_v1.csv"
+
+
+def test_kr_us_generic_packs_valid() -> None:
+    assert PACKS == ("KR", "US", "_generic")
+    kr, us, generic = (load_pack(m) for m in PACKS)
+    assert (kr["pack"]["market"], kr["pack"]["version"], kr["pack"]["calendar_ids"]) == (
+        "KR", 1, ["XKRX"]
+    )  # fmt: skip
+    assert (us["pack"]["currency"], us["pack"]["minor_unit"], us["pack"]["calendar_ids"]) == (
+        "USD", 2, ["XNYS"]
+    )  # fmt: skip
+    assert kr["price_limits"]["table"] == "limits/kr_price_limits_v1.csv"
+    assert "price_limits" not in us
+    assert "price_limits" not in generic
+    assert kr["costs"]["provisional_bps"] == {"buy": 5, "sell": 25}
+    assert us["costs"]["provisional_bps"] == {"buy": 5, "sell": 5}
+    assert "provisional_bps" not in generic["costs"]  # [costs.provisional_bps] <M> required
+    half_spread = [p["costs"]["min_half_spread_bps"] for p in (kr, us, generic)]
+    assert half_spread == [5, 1, 5]
+    pay_lag = [p["dividends"]["fallback_pay_lag_days"] for p in (kr, us, generic)]
+    assert pay_lag == [120, 21, 30]
+    assert us["tradability"]["unknown_status_before"] == "2019-08-23"
+
+
+def test_broken_pack_is_refused(tmp_path: Path) -> None:
+    good = files("nexusbt.resources").joinpath("markets/US.toml").read_text(encoding="utf-8")
+    (tmp_path / "markets").mkdir()
+    for old, new, what in [
+        ("version = 1", "version = 0", "version"),
+        ("day_count = 360", "day_count = 0", "day_count"),
+        ('mode = "half_up"', 'mode = "up"', "mode"),
+        ("unit = 1}", "unit = 0.5}", "unit"),  # a multiple of the minor unit
+        ("day_count = 360", "# day_count = 360", "day_count missing"),
+        ('proceeds = {mode = "half_up", unit = 1}', 'proceeds = "half_up"', "proceeds"),
+        ("[dividends]", "[extra]\n[dividends]", "extra"),
+        ('market = "US"', 'market = "ZZ"', "not 'US'"),
+        ("[shorting]", "[shorts]", "shorting"),
+        ('"ticks/us_tick_table_v1.csv"', '"ticks/none.csv"', "none.csv"),
+    ]:
+        (tmp_path / "markets/US.toml").write_text(good.replace(old, new, 1), encoding="utf-8")
+        with pytest.raises(ValueError, match=what):
+            load_pack("US", tmp_path)
+
+
+def test_grid_rounding_shorting_sections() -> None:
+    components = {"proceeds", "commission", "tax", "dividend_withholding", "cash_in_lieu",
+                  "borrow_fee"}  # fmt: skip
+    for market in PACKS:
+        p = load_pack(market)
+        assert set(p["rounding"]) == components
+        assert p["shorting"]["borrow_availability"] == "assume_all"
+        assert p["shorting"]["uptick_rule_modeled"] is False
+    kr, us, generic = (load_pack(m) for m in PACKS)
+    assert (kr["grid"]["tick_table"], us["grid"]["tick_table"]) == (KR_TICKS, US_TICKS)
+    assert kr["shorting"]["ban_table"] == BANS
+    assert "ban_table" not in us["shorting"]
+    assert "ban_table" not in generic["shorting"]
+    assert [p["shorting"]["day_count"] for p in (kr, us, generic)] == [365, 360, 365]
+    assert {c["mode"] for c in us["rounding"].values()} == {"half_up"}
+    assert {c["mode"] for c in generic["rounding"].values()} == {"half_up"}  # 5.6.1 default
+
+
+def test_kr_rounding_default_down() -> None:
+    modes = {k: (c["mode"], c["unit"]) for k, c in load_pack("KR")["rounding"].items()}
+    assert modes == {
+        "proceeds": ("half_up", 1), "commission": ("down", 1), "tax": ("down", 1),
+        "dividend_withholding": ("down", 1), "cash_in_lieu": ("half_up", 1),
+        "borrow_fee": ("half_up", 1),
+    }  # fmt: skip
+
+
+def test_describe_kr(capsys: pytest.CaptureFixture[str]) -> None:
+    main(["--describe", "KR"])  # what `python -m nexusbt.config.packs --describe KR` runs
+    assert capsys.readouterr().out.splitlines() == [
+        "rules KR@1",
+        "base_unit = 1",
+        "rounding: proceeds half_up 1, commission down 1, tax down 1, "
+        "dividend_withholding down 1, cash_in_lieu half_up 1, borrow_fee half_up 1",
+        "day_count = 365",
+        "limits/kr_price_limits_v1.csv: 9 rows, verified = false 9/9",
+        "costs/default_v1.csv: 0 rows, verified = false 0/0",
+        "costs/venue_groups_v1.csv: 0 rows, verified = false 0/0",
+        "ticks/kr_tick_table_v1.csv: 31 rows, verified = false 15/31",
+        "shorting/kr_short_bans_v1.csv: 6 rows, verified = false 0/6",
+        "verified = false: 24/46",
+    ]
+    main(["--describe", "_generic"])
+    assert "base_unit = the currency's minor unit (F-15)" in capsys.readouterr().out
+
+
+def test_base_unit_per_market() -> None:
+    assert load_pack("KR")["grid"]["base_unit"] == 1  # 1 won
+    assert load_pack("US")["grid"]["base_unit"] == 0.0001  # dollars
+    generic = load_pack("_generic")["grid"]
+    assert "base_unit" not in generic
+    assert "tick_table" not in generic
 
 
 def test_ban_table_scope_grammar() -> None:
