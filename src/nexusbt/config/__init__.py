@@ -10,10 +10,41 @@ import tomllib
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date
+from enum import StrEnum
 from pathlib import Path
 from typing import Any, NoReturn
 
-from nexusbt.contracts import CapabilityError, ConfigError, NexusBTError
+from nexusbt.contracts import (
+    AccountTypePolicy,
+    BandEntriesPolicy,
+    BandModePolicy,
+    BonusSharesTradablePolicy,
+    CapabilityError,
+    ConfigError,
+    CostProfilePolicy,
+    DecimalRatioPolicy,
+    DelistingPolicy,
+    EditionPolicy,
+    EvaluateTargetPolicy,
+    ExecutionAtPolicy,
+    FallbacksPolicy,
+    LabelEntryPolicy,
+    LimitFillPolicy,
+    MissingPayDatePolicy,
+    NexusBTError,
+    OrderTypePolicy,
+    PinsPolicy,
+    RightsPolicy,
+    RoundingModePolicy,
+    TaxesBasisPolicy,
+    TaxesPayPolicy,
+    TaxesProfilePolicy,
+    TiebreakPolicy,
+    UnknownInclusionPolicy,
+    UnknownTradabilityPolicy,
+    UnsupportedPolicy,
+    VerifyPolicy,
+)
 
 Check = Callable[[Any, tuple[str, ...]], Any]
 SECRET = re.compile("key|secret|token|password", re.IGNORECASE)
@@ -96,8 +127,13 @@ def one(*choices: Any) -> Check:
     )
 
 
-def pick(*choices: Any) -> tuple[Any, Check]:  # the default is the first choice
-    return choices[0], one(*choices)
+def choice(enum: type[StrEnum]) -> Check:  # a 2.4 policy enum's values; loads the member
+    check = one(*(member.value for member in enum))
+    return lambda v, m: enum(check(v, m))
+
+
+def policy(default: StrEnum) -> tuple[Any, Check]:  # the 3.11 default: not always the first member
+    return default, choice(type(default))
 
 
 def fixed(value: str) -> tuple[Any, Check]:  # a reserved key: anything but `value` is E18
@@ -168,9 +204,9 @@ STR, BOOL = is_(str), is_(bool)
 CCY, DATE = match("[A-Z]{3}"), match(r"\d{4}-\d\d-\d\d|latest|start")
 POS, COUNT, UNIT, ANY = num(1, int_=True), num(0, int_=True), num(0, 1, gt=True), num()
 BPS, GE0, PER_STR = num(0, 2000), num(0), per_market(STR, scalar=True)
-ROUNDING = named(fields(mode=one("half_up", "half_even", "down"), unit=num(0, gt=True)))
+ROUNDING = named(fields(mode=choice(RoundingModePolicy), unit=num(0, gt=True)))
 GROUP = fields(markets=list_of(_market), gains_rate=num(0, 0.6), annual_exemption=COUNT,
-               basis=one("average", "fifo"))  # fmt: skip
+               basis=choice(TaxesBasisPolicy))  # fmt: skip
 SEGMENTS = named(list_of(DATE), match("[a-z0-9_]+"))
 SPLIT = {"train": ["start", "2021-12-31"], "validation": ["2022-01-01", "latest"]}
 
@@ -180,15 +216,15 @@ SCHEMA: dict[str, dict[str, tuple[Any, Check]]] = {
     "project": {"name": (None, match("[A-Za-z0-9_-]+"))},
     "data": {
         "root": (None, STR), "snapshot": ("latest", STR), "path": (None, STR),
-        "edition": pick("strict", "compare"), "verify": pick("manifest", "schema", "full"),
-        "require_profiles": ([], list_of(STR)), "pins": pick("index+root", "index"),
-        "fallbacks": pick("warn", "fail"), "history_mode": fixed("economic"),
+        "edition": policy(EditionPolicy.STRICT), "verify": policy(VerifyPolicy.MANIFEST),
+        "require_profiles": ([], list_of(STR)), "pins": policy(PinsPolicy.INDEX_ROOT),
+        "fallbacks": policy(FallbacksPolicy.WARN), "history_mode": fixed("economic"),
         "share_count_kinds": (["listed", "outstanding"], list_of(STR)),
     },
     "defaults": {
         "universe": ("all", STR), "base_ccy": (None, CCY), "start": ("1995-01-01", DATE),
         "capital": (1_000_000_000, num(0, gt=True)), "end": ("latest", DATE),
-        "clock": (None, _clock), "preset": pick("realistic", "zipline"),
+        "clock": (None, _clock), "preset": ("realistic", one("realistic", "zipline")),
     },
     "split": {"segments": (SPLIT, SEGMENTS), "default_segment": ("train", STR),
               "embargo_sessions": (0, COUNT)},
@@ -201,8 +237,9 @@ SCHEMA: dict[str, dict[str, tuple[Any, Check]]] = {
         "eligibility_rule": ("investable-v1", STR),
     },
     "panels": {"feature": ("factor_pit_monthly", STR), "label": ("label_monthly", STR)},
-    "portfolio": {"anchor_date": ("start", DATE), "tiebreak": pick("hash", "id"),
-                  "band_entries": pick("skip", "buy"), "max_missing_decisions": (1, POS)},
+    "portfolio": {"anchor_date": ("start", DATE), "tiebreak": policy(TiebreakPolicy.HASH),
+                  "band_entries": policy(BandEntriesPolicy.SKIP),
+                  "max_missing_decisions": (1, POS)},
     "shorting": {
         "enabled": (False, BOOL), "max_gross": (1.0, num(0, 3, gt=True)),
         "max_net": ([-1.0, 1.0], _net), "borrow_bps": (Each(0), per_market(num(0, 5000))),
@@ -210,45 +247,49 @@ SCHEMA: dict[str, dict[str, tuple[Any, Check]]] = {
         "short_rebate_bps": (Each(0), per_market(BPS)),
     },
     "account": {
-        "cash_rate_bps": (0, per_market(BPS, scalar=True)), "type": pick("cash", "margin"),
+        "cash_rate_bps": (0, per_market(BPS, scalar=True)),
+        "type": policy(AccountTypePolicy.CASH),
         "initial_margin": (PACK, per_market(UNIT)), "maintenance_margin": (PACK, per_market(UNIT)),
         "debit_rate_bps": (0, per_market(num(0, 5000), scalar=True)),
     },
     "execution": {
-        "order": pick("market", "limit"), "at": pick("open", "close"),
+        "order": policy(OrderTypePolicy.MARKET), "at": policy(ExecutionAtPolicy.OPEN),
         "limit_offset_bps": (0.0, num(-500, 500)), "max_participation": (0.05, UNIT),
         "max_bar_participation": (0.10, UNIT), "min_trade_value": (0, per_market(GE0, scalar=True)),
         "min_trade_weight": (0.0, num(0, 0.1)), "rebalance_band": (None, UNIT),
-        "band_mode": pick("edge", "target"), "adv_window": (20, num(5, int_=True)),
+        "band_mode": policy(BandModePolicy.EDGE), "adv_window": (20, num(5, int_=True)),
         "adv_min_obs": (10, POS), "max_order_age_sessions": (20, POS),
-        "limit_fill": pick("through", "touch"), "kr_limit_tolerance": (0.005, num(0, 0.05)),
-        "unknown_tradability": pick("assume_tradable", "block"),
+        "limit_fill": policy(LimitFillPolicy.THROUGH),
+        "kr_limit_tolerance": (0.005, num(0, 0.05)),
+        "unknown_tradability": policy(UnknownTradabilityPolicy.ASSUME_TRADABLE),
         "cost_reserve_bps": (0.0, num(0, 500)), "intraday_proceeds": fixed("next_phase"),
     },
     "costs": {
-        "profile": pick("provisional", "realistic", "none"), "table": ("default", STR),
+        "profile": policy(CostProfilePolicy.PROVISIONAL), "table": ("default", STR),
         "sensitivity": ([0, 1, 2], list_of(ANY)), "provisional_table": (None, STR),
         "provisional_bps": (PACK, per_market(fields(buy=GE0, sell=GE0))), "impact_y": (0.5, GE0),
         "impact_a2": (0.5, num(0, 2, gt=True)), "impact_a3": (1.0, num(0, 2, gt=True)),
         "min_half_spread_bps": (PACK, per_market(GE0)), "max_half_spread_bps": (200, GE0),
     },
     "dividends": {
-        "missing_pay_date": pick("estimate", "fail"), "estimate_window_years": (5, POS),
+        "missing_pay_date": policy(MissingPayDatePolicy.ESTIMATE),
+        "estimate_window_years": (5, POS),
         "fallback_pay_lag_days": (PACK, per_market(num(1, 400, int_=True))),
         "estimate_min_obs": (20, POS), "withholding": (Each(0.0), per_market(num(0, 0.5))),
     },
     "corporate_actions": {
-        "rights": pick("lapse", "fail"), "unsupported": pick("fail", "cash_at_adjustment"),
-        "bonus_shares_tradable": pick("at_pay_date", "at_ex"),
-        "decimal_ratio": pick("exclude_instrument", "require_exact", "literal"),
+        "rights": policy(RightsPolicy.LAPSE), "unsupported": policy(UnsupportedPolicy.FAIL),
+        "bonus_shares_tradable": policy(BonusSharesTradablePolicy.AT_PAY_DATE),
+        "decimal_ratio": policy(DecimalRatioPolicy.EXCLUDE_INSTRUMENT),
     },
     "delisting": {
-        "unknown_inclusion": pick("conservative", "error"), "scenarios": (True, BOOL),
-        "policy": pick("observed_then_policy", "observed_only", "lo", "hi"),
+        "unknown_inclusion": policy(UnknownInclusionPolicy.CONSERVATIVE),
+        "scenarios": (True, BOOL), "policy": policy(DelistingPolicy.OBSERVED_THEN_POLICY),
     },
     "settlement": {"model": fixed("immediate")},
     "taxes": {
-        "profile": pick("none", "custom"), "currency": (None, CCY), "pay": pick("report", "cash"),
+        "profile": policy(TaxesProfilePolicy.NONE), "currency": (None, CCY),
+        "pay": policy(TaxesPayPolicy.REPORT),
         "pay_month": (5, num(1, 12, int_=True)), "groups": ({}, named(GROUP)),
     },
     "fx": {"max_stale_days_decision": (10, COUNT), "max_stale_days_valuation": (10, COUNT),
@@ -256,8 +297,9 @@ SCHEMA: dict[str, dict[str, tuple[Any, Check]]] = {
     "benchmarks": {"*": ("auto", STR)}, "fund": {"max_age_days": (550, COUNT)},
     "evaluate": {
         "freq": ("monthly", STR), "quantiles": (5, num(2, 20, int_=True)),
-        "min_pairs": (20, num(3, int_=True)), "label_entry": pick("next_open", "close"),
-        "target": pick("fwd_return", "fwd_return_adj"),
+        "min_pairs": (20, num(3, int_=True)),
+        "label_entry": policy(LabelEntryPolicy.NEXT_OPEN),
+        "target": policy(EvaluateTargetPolicy.FWD_RETURN),
     },
     "meta": {"sector": ("auto", PER_STR), "industry": ("auto", PER_STR)},
     "gates": {"ic_t": (3.0, ANY), "dsr": (0.95, ANY)},
@@ -325,8 +367,17 @@ class Config:
 
     def __str__(self) -> str:
         return "\n".join(
-            f"[{t}] {k} = {v!r}" for t, kv in self.values.items() for k, v in kv.items()
+            f"[{t}] {k} = {_plain(v)!r}" for t, kv in self.values.items() for k, v in kv.items()
         )
+
+
+def _plain(value: Any) -> Any:
+    """A policy member as its 3.11 string, inside lists and tables too, for printing."""
+    if isinstance(value, dict):
+        return {k: _plain(x) for k, x in value.items()}
+    if isinstance(value, list):
+        return [_plain(x) for x in value]
+    return str(value) if isinstance(value, StrEnum) else value
 
 
 def _data_root(root: str | None, package: str | None) -> str | None:
@@ -398,7 +449,7 @@ def check_long_short(config: Config, market: str, long_weight: float, short_weig
         why = "shorting is off by default (3.7)"
         what = "short targets need [shorting] enabled = true"
         _raise(what, "[shorting] enabled", "set it", why, value=shorting["enabled"])
-    if account["type"] == "cash":
+    if account["type"] is AccountTypePolicy.CASH:
         unwritten = DEFAULTS["shorting"]["collateral_ratio"].value  # 0.5, "in every market"
         x = (
             long_weight
@@ -444,7 +495,7 @@ def load_config(
         _raise(what, "[defaults] preset", fix, why, value="zipline")
     _merge(values, code, m)
     written = {k for src in (given, code) for k in src.get("account", {})} & _MARGIN_ONLY
-    if written and values["account"]["type"] == "cash":
+    if written and values["account"]["type"] is AccountTypePolicy.CASH:
         what = f'margin settings need [account] type = "margin": {", ".join(sorted(written))}'
         fix, why = 'set type = "margin" or remove them', "3.11 [account] type"
         _raise(what, "[account]", fix, why, value="cash", at="[account] type")
