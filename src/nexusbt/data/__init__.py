@@ -8,14 +8,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from nexusbt.contracts import SnapshotError
-from nexusbt_tds.manifest import ManifestError, read_manifest
 
 if TYPE_CHECKING:
     import pyarrow as pa
 
     from nexusbt.config import Config
     from nexusbt.contracts import ResolvedActions
-    from nexusbt_tds import ProfileStatus
+    from nexusbt_tds import ProfileStatus  # a development dependency until T1.1a (#61 Decisions)
 
 
 @dataclass(frozen=True, slots=True)
@@ -140,9 +139,13 @@ def open_snapshot(cfg: DataConfig, *, required: CapabilityRequest | None = None)
 def _snapshot_markets(config: Config) -> dict[str, str] | None:
     """The `markets` object (name → currency) of the package `[data]` points at, or None.
 
-    `path` (a package, or a parent with `LATEST`) before `root` + `snapshot` (4.2, 3.11). A
-    stand-in for `nx.config()` until `open_snapshot` (T1.1a) opens and checks the package.
+    `path` (a package, or a parent with `LATEST`) before `root` + `snapshot` (4.2, 3.11).
+    T1.1a's `open_snapshot` replaces this helper. `nexusbt-tds` stays a development dependency
+    (#45 Decisions 4) and is imported here only, inside the call; it moves to the run-time
+    dependencies with T1.1a.
     """
+    from nexusbt_tds.manifest import ManifestError, read_manifest
+
     data = config.values["data"]
     try:
         if data["path"]:
