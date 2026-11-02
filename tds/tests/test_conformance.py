@@ -49,6 +49,51 @@ def test_S_codes(code: str, tmp_path: Path) -> None:
     assert codes(build.write(tmp_path / "pass", *build.package(code, "pass")), "schema") == []
 
 
+@pytest.mark.parametrize("code", ["TDS-H001", "TDS-H002", "TDS-H003"])
+def test_H_codes(code: str, tmp_path: Path) -> None:
+    fail = build.write(tmp_path / "fail", *build.package(code, "fail"))
+    assert codes(fail, "full") == [code]
+    assert codes(fail, "schema") == []  # the schema level reads no rows and hashes nothing
+    assert codes(build.write(tmp_path / "pass", *build.package(code, "pass")), "full") == []
+
+
+def test_full_level_checks_only_the_hashes_so_far(tmp_path: Path) -> None:
+    result = check(write(tmp_path / "pkg"), level="full")
+    assert (result.errors, result.warnings) == ((), ())
+    # spec 8.2, no false pass: the other full-level rules are not built, so no profile is `full`
+    assert result.profiles == {
+        "tds:minimal-daily@1.0": ProfileStatus(True, "schema", "not_checked")
+    }
+    assert {"TDS-K001", "TDS-R001", "TDS-H004"} <= set(result.unchecked)
+    assert not {"TDS-H001", "TDS-H002", "TDS-H003"} & set(result.unchecked)
+    # a column whose type is declared nowhere: no value hash, so H002 and H003 are not checked
+    untyped = check(write(tmp_path / "untyped", _bars(x_cf_note=pa.array([[1]]))), level="full")
+    assert {"TDS-H002", "TDS-H003"} <= set(untyped.unchecked)
+    assert "TDS-H001" not in untyped.unchecked
+
+
+def test_a_file_listed_twice_gets_one_H001(tmp_path: Path) -> None:
+    def twice(m: dict[str, Any], f: Any) -> None:  # M013, and the same wrong sha256 on both
+        entry = build.bars(m)["files"][0] | {"sha256": "0" * 64}
+        build.bars(m)["files"] = [entry, dict(entry)]
+
+    assert codes(write(tmp_path / "pkg", twice), "full") == ["TDS-M013", "TDS-H001"]
+
+
+def test_full_level_reads_no_file_outside_the_package(tmp_path: Path) -> None:
+    def outside(m: dict[str, Any], f: Any) -> None:  # M012's absolute path, with a sha256
+        build.bars(m)["files"].append({"path": "/etc/hosts", "bytes": 1, "sha256": "0" * 64})
+
+    result = check(write(tmp_path / "pkg", outside), level="full")
+    assert [f.code for f in result.errors] == ["TDS-M012"]  # no H001: /etc/hosts is not read
+    assert {"TDS-H002", "TDS-H003"} <= set(result.unchecked)
+
+
+def test_full_level_reports_where_the_hash_cannot_be_taken(tmp_path: Path) -> None:
+    odd = check(write(tmp_path, lambda m, f: build.bars(m).update(params=["x"])), level="full")
+    assert {"TDS-H002", "TDS-H003"} <= set(odd.unchecked)  # a result, not an exception
+
+
 def test_schema_level_reports_rows_not_checked(tmp_path: Path) -> None:
     result = check(write(tmp_path / "year=x"), level="schema")  # a folder above: no partition
     assert (result.errors, result.warnings) == ((), ())
