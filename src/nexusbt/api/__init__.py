@@ -72,7 +72,7 @@ def evaluate(
     universe: Filter | None = None,
     by: Sequence[Literal["market", "year", "segment"]] = ("market",),
     delisting: Literal["observed_then_policy", "observed_only", "lo", "hi"] | None = None,
-    save_signal: bool = False,  # 5.8: "a keyword outside the 'common' of 3.8"
+    save_signal: bool = False,  # 3.8 and 5.8 (#82)
     **common: Any,
 ) -> FactorReport:
     raise NotImplementedError
@@ -123,7 +123,7 @@ def live(
     book: Book | str,
     asof: _Day | None = None,
     params: Mapping[str, Any] | None = None,
-    snapshot: str | None = None,
+    snapshot: str | Snapshot | None = None,
 ) -> Orders:
     raise NotImplementedError
 
@@ -133,13 +133,13 @@ def fill(
     orders: Orders | None = None,
     *,
     at: Literal["next_open"] = "next_open",
-    snapshot: str | None = None,
+    snapshot: str | Snapshot | None = None,
 ) -> BookUpdate:
     raise NotImplementedError
 
 
 def reconcile(
-    book: Book | str, *, restate: bool = False, snapshot: str | None = None
+    book: Book | str, *, restate: bool = False, snapshot: str | Snapshot | None = None
 ) -> ReconcileReport:
     raise NotImplementedError
 
@@ -165,7 +165,7 @@ def explain(
     instrument_id: str,
     date: _Day,
     *,
-    snapshot: str | None = None,
+    snapshot: str | Snapshot | None = None,
     edition: Literal["strict", "compare"] | None = None,
     params: Mapping[str, Any] | None = None,
 ) -> Explanation | DecisionExplanation:
