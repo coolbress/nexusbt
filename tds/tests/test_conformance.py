@@ -24,11 +24,83 @@ def write(root: Path, change: Any = None) -> Path:
     return Path(build.write(root, manifest, files))
 
 
-@pytest.mark.parametrize("code", list(build.CASES))
+def add_bars_file(path: str, size: int = 1) -> Any:
+    return lambda m, f: build.bars(m)["files"].append({"path": path, "bytes": size})
+
+
+@pytest.mark.parametrize("code", [f"TDS-M{n:03}" for n in range(1, 15)])
 def test_M_codes(code: str, tmp_path: Path) -> None:
     package = tmp_path / "pkg"
     assert codes(build.write(package / "fail", *build.package(code, "fail"))) == [code]
     assert codes(build.write(package / "pass", *build.package(code, "pass"))) == []
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "../outside.parquet",
+        "bars/../../outside.parquet",
+        "OUTSIDE",
+        "C:\\x.parquet",
+        "link",
+        "a\0b",
+    ],
+)
+def test_M012_path_escape(path: str, tmp_path: Path) -> None:
+    outside = tmp_path / "outside.parquet"
+    outside.write_bytes(b"x")
+    package = write(tmp_path / "pkg", add_bars_file(str(outside) if path == "OUTSIDE" else path))
+    (package / "link").symlink_to(outside)  # a symbolic link leading out of the package
+    assert [c for c in codes(package) if c != "TDS-M005"] == ["TDS-M012"]
+
+
+def test_M012_link_inside_the_package_is_safe(tmp_path: Path) -> None:
+    package = write(tmp_path, add_bars_file("link", len(build.base()[1][build.INSTRUMENTS])))
+    (package / "link").symlink_to(package / build.INSTRUMENTS)
+    assert codes(package) == []
+
+
+def test_M013_duplicate_path(tmp_path: Path) -> None:
+    def twice(m: dict[str, Any], f: Any) -> None:
+        again = dict(m["datasets"][0]["files"][0])
+        again["path"] = "instruments/./part-00000.parquet"  # the same file, spelled differently
+        build.bars(m)["files"].append(again)
+
+    assert codes(write(tmp_path, twice)) == ["TDS-M013"]
+
+
+@pytest.mark.parametrize(
+    ("where", "value"),
+    [
+        ("availability", {"rule": "next_session_close"}),
+        ("availability", {"rule": "ts_end+15min"}),
+        ("availability", {"rule": 15}),
+        ("availability", "ts_end_when_ready"),  # a bare rule string is read too
+        ("hashes", {"hash_spec": ["tds-hash-1"]}),  # not a string: a finding, never a crash
+        ("params", {"freq": "1d", "availability_by_column": {"is_halted": "pre_open"}}),
+        ("hashes", {"hash_spec": "tds-hash-2"}),
+    ],
+)
+def test_M014_unknown_required_rule(where: str, value: object, tmp_path: Path) -> None:
+    def change(m: dict[str, Any], f: Any) -> None:
+        (m if where == "hashes" else build.bars(m))[where] = value
+
+    assert codes(write(tmp_path, change)) == ["TDS-M014"]
+
+
+KNOWN_RULES = "column ts_end ts_end+PT15M session_open session_close next_session_open"
+KNOWN_RULES += " next_session_open(known_on) ts_recv ts_recv+PT0.5S ts_recv_else(ts_event+PT1S)"
+
+
+@pytest.mark.parametrize("rule", KNOWN_RULES.split())
+def test_known_availability_rules_pass(rule: str, tmp_path: Path) -> None:
+    package = write(tmp_path, lambda m, f: build.bars(m).update(availability={"rule": rule}))
+    assert codes(package) == []
+
+
+def test_M010_coverage_names_an_undeclared_market(tmp_path: Path) -> None:
+    by_market: dict[str, Any] = {"coverage": {"by_market": {"US": {}, "JP": {}}}}
+    assert codes(write(tmp_path, lambda m, f: build.bars(m).update(by_market))) == ["TDS-M010"]
 
 
 def test_profiles_must_be_strings(tmp_path: Path) -> None:
@@ -39,6 +111,8 @@ def test_profiles_must_be_strings(tmp_path: Path) -> None:
 def test_M003_minimal_dataset_and_file_fields(key: str, where: str, tmp_path: Path) -> None:
     def drop(m: dict[str, Any], f: Any) -> None:
         (build.bars(m) if where == "dataset" else build.bars(m)["files"][0]).pop(key)
+        if key == "files":
+            f.pop(build.BARS)  # no longer listed: it would be M005
 
     assert codes(write(tmp_path, drop)) == ["TDS-M003"]
 
