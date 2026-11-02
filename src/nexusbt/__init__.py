@@ -1,5 +1,9 @@
 """The engine. Re-exports only the public surface of spec 3.1 (2.3), each name with its ticket."""
 
+# Functions (3.1): `config`, T0.5a (#53). `api` loads the subpackage `nexusbt.config` (2.4) first,
+# so the 3.1 function holds the name; `import nexusbt.config` still finds the module.
+from nexusbt.api import config as config
+
 # Errors (3.1): `NexusBTError` and the 6.6 classes E1~E39, T0.4 (#49).
 from nexusbt.contracts import AccountingDataError as AccountingDataError
 from nexusbt.contracts import BookConflictError as BookConflictError

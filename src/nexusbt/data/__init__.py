@@ -4,13 +4,18 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING
+
+from nexusbt.contracts import SnapshotError
+from nexusbt_tds.manifest import ManifestError, read_manifest
 
 if TYPE_CHECKING:
     import pyarrow as pa
 
+    from nexusbt.config import Config
     from nexusbt.contracts import ResolvedActions
-    from nexusbt_tds import ProfileStatus  # a development dependency until T1.1a (#61 Decisions)
+    from nexusbt_tds import ProfileStatus
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,3 +135,33 @@ class Snapshot:
 
 def open_snapshot(cfg: DataConfig, *, required: CapabilityRequest | None = None) -> Snapshot:
     raise NotImplementedError
+
+
+def _snapshot_markets(config: Config) -> dict[str, str] | None:
+    """The `markets` object (name → currency) of the package `[data]` points at, or None.
+
+    `path` (a package, or a parent with `LATEST`) before `root` + `snapshot` (4.2, 3.11). A
+    stand-in for `nx.config()` until `open_snapshot` (T1.1a) opens and checks the package.
+    """
+    data = config.values["data"]
+    try:
+        if data["path"]:
+            folder = Path(data["path"])
+            if not (folder / "tds.json").is_file() and (folder / "LATEST").is_file():
+                folder /= (folder / "LATEST").read_text(encoding="utf-8").strip()
+        elif data["root"]:
+            root, name = Path(data["root"]), data["snapshot"]
+            if name == "latest":  # resolved once per call (4.2)
+                name = (root / "LATEST").read_text(encoding="utf-8").strip()
+            folder = root / name
+        else:
+            return None
+        declared = read_manifest(folder).data.get("markets")
+    except (OSError, ManifestError) as error:
+        raise SnapshotError(
+            what=f"no readable tds.json for [data]: {error}", where="nexusbt.toml [data]",
+            why="the markets come from the snapshot's tds.json", fix="check [data] path or root",
+            more="spec 4.2",
+        ) from None  # fmt: skip
+    entries = declared.items() if isinstance(declared, dict) else ()
+    return {name: str(entry.get("currency")) for name, entry in entries if isinstance(entry, dict)}

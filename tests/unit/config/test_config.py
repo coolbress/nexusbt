@@ -2,18 +2,39 @@
 
 from __future__ import annotations
 
+import importlib
+import json
 import re
 import tomllib
 from pathlib import Path
 
 import pytest
 
-from nexusbt.config import load_config
+import nexusbt as nx
+from nexusbt.config import check_long_short, load_config
 from nexusbt.contracts import CapabilityError, ConfigError
 
 ROOT = Path(__file__).resolve().parents[3]
 SPEC = (ROOT / "docs" / "spec" / "engine-spec-v3.4.md").read_text(encoding="utf-8")
 RESERVED = ["settlement.model", "compute.precision", "data.history_mode"]  # each a fixed() key
+KR_US = {"KR": "KRW", "US": "USD"}
+MARGIN = '[account]\ntype = "margin"\ninitial_margin = {US = 0.5}\n'
+
+
+@pytest.fixture(autouse=True)
+def _no_data_root(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("NEXUSBT_DATA_ROOT", raising=False)
+
+
+def snapshot(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, markets: dict[str, str]) -> Path:
+    """A data root whose `LATEST` snapshot's tds.json declares `markets`; the cwd is `tmp_path`."""
+    (folder := tmp_path / "data" / "20261027-143144").mkdir(parents=True, exist_ok=True)
+    declared = {name: {"currency": ccy} for name, ccy in markets.items()}
+    (folder / "tds.json").write_text(json.dumps({"markets": declared}), encoding="utf-8")
+    (tmp_path / "data" / "LATEST").write_text(folder.name, encoding="utf-8")
+    monkeypatch.setenv("NEXUSBT_DATA_ROOT", str(tmp_path / "data"))
+    monkeypatch.chdir(tmp_path)
+    return folder
 
 
 def spec_rows() -> list[tuple[str, str, str]]:
@@ -91,8 +112,11 @@ def test_cash_rate_default_zero(tmp_path: Path) -> None:
 
 
 def test_unknown_market_in_a_market_key(tmp_path: Path) -> None:
-    with pytest.raises(ConfigError, match="unknown market JP; snapshot markets: KR, US"):
-        load_config(write(tmp_path, "[sleeves]\nweights = {JP = 1}\n"), markets=["KR", "US"])
+    for text in ("[sleeves]\nweights = {JP = 1}\n", "[defaults]\nclock = 'JP_close'\n"):
+        with pytest.raises(ConfigError, match="unknown market JP; snapshot markets: KR, US"):
+            load_config(write(tmp_path, text), markets=["KR", "US"])
+    with pytest.raises(CapabilityError, match="utc"):  # 3.11 clock: `utc:HH:MM` reserved, E18
+        load_config(write(tmp_path, "[defaults]\nclock = 'utc:14:00'\n"))
 
 
 def test_market_tables_and_table_values_are_checked(tmp_path: Path) -> None:
@@ -101,3 +125,140 @@ def test_market_tables_and_table_values_are_checked(tmp_path: Path) -> None:
     assert config.values["rounding"] == {"KR": {"commission": {"mode": "down", "unit": 1}}}
     assert config.values["fx"]["series"] == {"USDKRW": "c@x"}
     assert "[live] max_price_jump = <rules pack>" in str(config)  # printing; a pack default
+
+
+def test_done_means(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """#53's Done-means line, its four cases, through `nx.config()`."""
+    for markets in ({"KR": "KRW", "US": "USD"}, {"US": "USD", "KR": "KRW"}):
+        snapshot(tmp_path, monkeypatch, markets)
+        printed = str(write(tmp_path, "") and nx.config())
+        assert "[defaults] clock = 'KR_close'" in printed
+        assert "[defaults] base_ccy = 'KRW'" in printed
+        assert "[data] pins = 'index+root'" in printed
+    cases = [
+        ("[sleeves]\nweights = {JP = 1}", "unknown market JP; snapshot markets: KR, US"),
+        ('[broker]\napi_key = "x"', "secrets do not belong in nexusbt.toml"),
+        ("[shorting]\nmax_net = [0.2, 0.8]", "[shorting] max_net"),
+    ]
+    for text, message in cases:
+        write(tmp_path, text)
+        with pytest.raises(ConfigError, match=re.escape(message)):
+            nx.config()
+
+
+def test_markets_from_manifest(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    folder = snapshot(tmp_path, monkeypatch, {"US": "USD", "KR": "KRW"})
+    write(tmp_path, "")
+    assert nx.config().markets == ("KR", "US")  # UTF-8 byte order, not the object's
+    monkeypatch.delenv("NEXUSBT_DATA_ROOT")
+    write(tmp_path, f"[data]\npath = '{folder}'\n")  # a package folder directly
+    assert nx.config().resolved["base_ccy"] == "KRW"
+    write(tmp_path, "")
+    assert nx.config().markets == ()  # no data location: nothing to resolve against
+    with pytest.raises(ConfigError, match="base_ccy"):  # a market without a currency code
+        load_config(markets={"KR": "None"})
+    assert importlib.import_module("nexusbt.config").load_config is load_config  # 2.4 module
+
+
+def test_market_object_reordering_preserves_resolved_defaults(tmp_path: Path) -> None:
+    path = write(tmp_path, "")
+    for markets in ({"KR": "KRW", "US": "USD"}, {"US": "USD", "KR": "KRW"}):
+        config = load_config(path, markets=markets)
+        sleeves = {"KR": 0.5, "US": 0.5}
+        assert config.resolved == {"clock": "KR_close", "base_ccy": "KRW", "sleeves": sleeves}
+        assert config.values["shorting"]["borrow_bps"] == {"KR": 0, "US": 0}  # "in every market"
+        assert config.values["taxes"]["currency"] == "KRW"  # "the base currency"
+        assert config.values["project"]["name"] == tmp_path.name  # "the folder name"
+
+
+def test_sleeve_weights_must_sum_to_one(tmp_path: Path) -> None:
+    with pytest.raises(ConfigError, match="sum"):
+        load_config(write(tmp_path, "[sleeves]\nweights = {KR = 0.5, US = 0.6}\n"), markets=KR_US)
+    text = '[defaults]\nuniverse = "US"\n[sleeves]\nweights = {KR = 0.3, US = 0.7}\n'
+    assert load_config(write(tmp_path, text), markets=KR_US).resolved["sleeves"] == {"US": 1.0}
+    with pytest.raises(ConfigError, match="unknown market JP"):
+        load_config(write(tmp_path, '[defaults]\nuniverse = "KR+JP"\n'), markets=KR_US)
+
+
+def test_segments_must_not_overlap(tmp_path: Path) -> None:
+    for segments in (
+        '{a = ["2020-01-01", "2021-12-31"], b = ["2021-06-01", "latest"]}',  # overlap
+        '{a = ["2022-01-01", "latest"], b = ["start", "2021-12-31"]}',  # out of order
+        '{a = ["2022-01-01", "2021-01-01"]}',  # ends before it starts
+    ):
+        with pytest.raises(ConfigError, match="segments"):
+            load_config(write(tmp_path, f"[split]\nsegments = {segments}\n"))
+    text = '[split]\nsegments = {train = ["start", "2019-12-31"], b = ["2020-01-01", "latest"]}\n'
+    assert list(load_config(write(tmp_path, text)).values["split"]["segments"]) == ["train", "b"]
+    load_config(overrides={"defaults": {"start": "2023-01-01"}})  # "start": from the beginning
+
+
+def test_preset_zipline_forbidden_in_toml(tmp_path: Path) -> None:
+    with pytest.raises(ConfigError, match="zipline"):
+        load_config(write(tmp_path, '[defaults]\npreset = "zipline"\n'))
+    config = load_config(overrides={"defaults": {"preset": "zipline"}})  # code may set it
+    assert config.values["defaults"]["preset"] == "zipline"
+    with pytest.raises(ConfigError, match=r"\[defaults\]"):  # not a table: E16, not a crash
+        load_config(write(tmp_path, "defaults = 1\n"))
+
+
+def test_data_root_from_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    folder = snapshot(tmp_path, monkeypatch, KR_US)
+    assert load_config(write(tmp_path, "")).values["data"]["root"] == str(tmp_path / "data")
+    monkeypatch.setenv("NEXUSBT_DATA_ROOT", str(tmp_path / "missing"))
+    load_config(overrides={"data": {"path": str(folder)}})  # `path` comes before `root`
+    with pytest.raises(ConfigError, match="root"):
+        load_config(write(tmp_path, ""))
+
+
+def test_shorting_disabled_by_default(tmp_path: Path) -> None:
+    assert load_config(write(tmp_path, "")).values["shorting"]["enabled"] is False
+    with pytest.raises(ConfigError, match=re.escape("[shorting] enabled = true")):
+        check_long_short(load_config(markets=KR_US), "KR", 0.5, 0.5)
+
+
+def test_pins_default_index_root(tmp_path: Path) -> None:
+    assert load_config(write(tmp_path, "")).values["data"]["pins"] == "index+root"
+    with pytest.raises(ConfigError, match="pins"):
+        load_config(write(tmp_path, "[data]\npins = 'root'\n"))
+
+
+def test_net_interval_must_contain_zero(tmp_path: Path) -> None:
+    for bad in ("[0.2, 0.8]", "[-0.8, -0.2]", "[0.5, -0.5]", "[0.0]"):
+        with pytest.raises(ConfigError, match="max_net"):
+            load_config(write(tmp_path, f"[shorting]\nmax_net = {bad}\n"))
+    config = load_config(write(tmp_path, "[shorting]\nmax_net = [0.0, 0.5]\n"))
+    assert config.values["shorting"]["max_net"] == [0.0, 0.5]
+
+
+def test_margin_keys_need_margin_account(tmp_path: Path) -> None:
+    with pytest.raises(ConfigError, match=re.escape('need [account] type = "margin"')):
+        load_config(write(tmp_path, "[account]\ninitial_margin = {US = 0.5}\n"), markets=KR_US)
+    assert load_config(write(tmp_path, MARGIN), markets=KR_US).values["account"]["type"] == "margin"
+
+
+def test_long_short_feasible_region(tmp_path: Path) -> None:
+    """3.7: cash book `L + c·S ≤ 1`; 5.6.7a: margin book `L + S ≤ min(max_gross, 1/IM)`."""
+    on = "[shorting]\nenabled = true\nmax_gross = 2.0\n"
+    cash = load_config(write(tmp_path, on), markets=KR_US)
+    check_long_short(cash, "KR", 0.5, 0.5)  # 0.5 + 0.5 * 0.5 = 0.75
+    partial = {"shorting": {"enabled": True, "collateral_ratio": {"KR": 1.0}}}  # US: the 0.5
+    check_long_short(load_config(overrides=partial, markets=KR_US), "US", 0.5, 1.0)
+    sentence = f"collateral_ratio {chr(0xD7)} short_weight = 1.45 > 1"  # 3.7's E16 sentence
+    with pytest.raises(ConfigError, match=re.escape(sentence)):
+        check_long_short(cash, "KR", 1.3, 0.3)  # 130/30 in a cash account
+    margin = on + MARGIN
+    check_long_short(load_config(write(tmp_path, margin), markets=KR_US), "US", 1.3, 0.3)
+    tight = load_config(write(tmp_path, margin.replace("2.0", "1.5")), markets=KR_US)
+    with pytest.raises(ConfigError, match=re.escape("L + S = 1.6 > 1.5")):
+        check_long_short(tight, "US", 1.3, 0.3)
+    with pytest.raises(ConfigError, match="initial_margin"):  # no value for KR: E16
+        check_long_short(tight, "KR", 0.5, 0.1)
+
+
+def test_file_path_and_toml_dates(tmp_path: Path) -> None:
+    with pytest.raises(FileNotFoundError):  # a misspelt path is not read as an empty file
+        load_config(tmp_path / "nexsubt.toml")
+    text = "[split]\nsegments = {train = [1995-01-01, 2021-12-31]}\n"  # native TOML dates
+    segments = load_config(write(tmp_path, text)).values["split"]["segments"]
+    assert segments == {"train": ["1995-01-01", "2021-12-31"]}
