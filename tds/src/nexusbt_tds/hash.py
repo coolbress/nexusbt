@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import datetime as dt
 import hashlib
+import json
 import struct
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
@@ -14,6 +15,8 @@ from typing import Any
 
 import pyarrow as pa
 import pyarrow.parquet as pq
+
+from .manifest import MANIFEST, read_manifest
 
 #: (column name, TDS 3.2 type tag) in canonical column order.
 Columns = Sequence[tuple[str, str]]
@@ -142,24 +145,146 @@ def _columns(names: Sequence[str], dataset: Mapping[str, Any], schema: list[Any]
     return out
 
 
-def value_hash(path: Path, dataset: str) -> str:
-    """The dataset's `value_sha256` (TDS 4.5): sha256 of its canonical value serialisation."""
-    from .manifest import read_manifest
+def _value(root: Path, entry: Mapping[str, Any], files: list[dict[str, Any]]) -> str:
+    """The value hash of `files` of dataset `entry` (all its files: the dataset's)."""
     from .schemas.verify import load_schemas
 
-    root = Path(path)
-    (entry,) = (d for d in read_manifest(root).datasets if d.get("name") == dataset)
     schema = load_schemas()[entry["kind"]]
-    table = _read(root, entry["files"], entry.get("partitioning", []))
+    table = _read(root, files, entry.get("partitioning", []))
     columns = _columns(table.column_names, entry, list(schema.columns))
     key = entry.get("key", schema.key)
     if isinstance(key, dict):  # bars: the daily or the intraday key, by `params.freq`
         key = key["daily" if entry.get("params", {}).get("freq") == "1d" else "intraday"]
     key = key if isinstance(key, list) else []
     if missing := [k for k in key if k not in dict(columns)]:
-        raise HashError(f"{dataset}: key column {', '.join(missing)} is not in the data")
+        raise HashError(f"{entry['name']}: key column {', '.join(missing)} is not in the data")
     return hashlib.sha256(encode_table(table, columns, key)).hexdigest()
 
 
+def value_hash(path: Path, dataset: str) -> str:
+    """The dataset's `value_sha256` (TDS 4.5): sha256 of its canonical value serialisation."""
+    root = Path(path)
+    (entry,) = (d for d in read_manifest(root).datasets if d.get("name") == dataset)
+    return _value(root, entry, entry["files"])
+
+
+HASH_SPEC = "tds-hash-1"
+#: The package-level keys of the semantic hash (TDS 4.5), each `null` when tds.json has none.
+_PACKAGE_KEYS = ("markets", "id_namespaces", "editions", "policies", "currencies", "roll_rules")
+_DATASET_KEYS = ("kind", "schema_version", "params", "availability", "pit_quality", "key")
+
+
+def _sha256(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def _number(x: float) -> str:
+    """RFC 8785 3.2.2.3: the ECMAScript Number-to-String form of the double `x`."""
+    if x == 0:
+        return "0"
+    mantissa, _, exp = repr(abs(float(x))).partition("e")
+    whole, _, frac = mantissa.partition(".")
+    digits = (whole + frac).lstrip("0")
+    point = int(exp or 0) + len(whole) - (len(whole + frac) - len(digits))  # value = 0.digits·10^n
+    digits = digits.rstrip("0")
+    k, n = len(digits), point
+    if k <= n <= 21:
+        text = digits + "0" * (n - k)
+    elif 0 < n <= 21:
+        text = f"{digits[:n]}.{digits[n:]}"
+    elif -6 < n <= 0:
+        text = "0." + "0" * -n + digits
+    else:
+        text = f"{digits[0]}{'.' + digits[1:] if k > 1 else ''}e{'+' if n > 0 else '-'}{abs(n - 1)}"
+    return ("-" if x < 0 else "") + text
+
+
+def canonical_json(value: Any) -> str:
+    """RFC 8785 (JCS): keys by UTF-16 code units, its string escaping and number form."""
+    if value is None or isinstance(value, bool):
+        return json.dumps(value)
+    if isinstance(value, int | float):
+        return _number(value)
+    if isinstance(value, str):
+        return json.dumps(value, ensure_ascii=False)
+    if isinstance(value, list):
+        return "[" + ",".join(canonical_json(v) for v in value) + "]"
+    keys = sorted(value, key=lambda k: k.encode("utf-16-be"))
+    return "{" + ",".join(f"{canonical_json(k)}:{canonical_json(value[k])}" for k in keys) + "}"
+
+
+def _inventory(root: Path) -> tuple[dict[str, str], dict[str, dict[str, str]], list[Any]]:
+    """Per dataset its value hash, per file its sha256 and value hash, and the semantic entries."""
+    datasets: dict[str, str] = {}
+    files: dict[str, dict[str, str]] = {}
+    semantic = []
+    for entry in read_manifest(root).datasets:
+        name = str(entry.get("name"))  # required (TDS-M003); the manifest level reports its absence
+        try:
+            datasets[name] = _value(root, entry, entry["files"])
+            for f in entry["files"]:
+                if f["path"] in files:
+                    raise HashError(f"{f['path']} is listed twice (TDS-M013)")
+                sha = _sha256((root / f["path"]).read_bytes())
+                files[f["path"]] = {"sha256": sha, "value_sha256": _value(root, entry, [f])}
+        except (OSError, KeyError, TypeError, pa.ArrowException) as exc:
+            raise HashError(f"dataset {name}: {exc!r}") from exc
+        units = {c["name"]: c["unit"] for c in entry.get("columns", []) if "unit" in c}
+        semantic.append({"name": name, "value_sha256": datasets[name], "units": units,
+                         **{k: entry.get(k) for k in _DATASET_KEYS},
+                         "price_exponent": entry.get("price_exponent", -9),
+                         "size_exponent": entry.get("size_exponent", 0)})  # fmt: skip
+    return datasets, files, sorted(semantic, key=lambda d: d["name"])
+
+
+def _semantic(root: Path, entries: list[Any]) -> str:
+    data = read_manifest(root).data
+    doc = {"tds_version": data.get("tds_version"), "hash_spec": HASH_SPEC, "datasets": entries,
+           "profiles": data.get("profiles"), **{k: data.get(k) for k in _PACKAGE_KEYS}}  # fmt: skip
+    return canonical_json(doc)
+
+
+def semantic_json(path: Path) -> str:
+    """The canonical JSON the semantic hash is taken over (TDS 4.5)."""
+    return _semantic(Path(path), _inventory(Path(path))[2])
+
+
+def package_hashes(path: Path) -> dict[str, Any]:
+    """Every TDS 4.5 hash of the package: `physical_sha256`, `value_sha256`, `semantic_sha256`,
+    `datasets` {name: value_sha256} and `files` {path: {sha256, value_sha256}}."""
+    root = Path(path)
+    datasets, files, entries = _inventory(root)
+    return {
+        "physical_sha256": _lines({p: f["sha256"] for p, f in files.items()}),
+        "value_sha256": _lines(datasets),
+        "semantic_sha256": _sha256(_semantic(root, entries).encode("utf-8")),
+        "datasets": datasets,
+        "files": files,
+    }
+
+
+def _lines(pairs: Mapping[str, str]) -> str:
+    """sha256 of `"{key}\\t{value}\\n"` in ascending key order (the physical and value hashes)."""
+    return _sha256("".join(f"{k}\t{pairs[k]}\n" for k in sorted(pairs)).encode("utf-8"))
+
+
 def semantic_hash(path: Path) -> str:
-    raise NotImplementedError
+    """The package's `semantic_sha256` (TDS 4.5): the canonical JSON of its resolved metadata."""
+    return str(package_hashes(path)["semantic_sha256"])
+
+
+def write_hashes(path: Path) -> dict[str, Any]:
+    """`tds hash --write`: put every hash into tds.json, the rest of it unchanged (TDS 8.1)."""
+    root = Path(path)
+    hashes = package_hashes(root)
+    data = json.loads((root / MANIFEST).read_text(encoding="utf-8"))
+    for entry in (d for d in data["datasets"] if isinstance(d, dict)):  # as Manifest.datasets
+        entry["value_sha256"] = hashes["datasets"][entry["name"]]
+        for f in entry["files"]:
+            f.update(hashes["files"][f["path"]])
+    data["hashes"] = {k: hashes[k] for k in ("physical_sha256", "value_sha256", "semantic_sha256")}
+    data["hashes"]["hash_spec"] = HASH_SPEC
+    staged = root / f".{MANIFEST}.tmp"  # written whole, then swapped in: never a half tds.json
+    staged.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    staged.replace(root / MANIFEST)
+    return hashes

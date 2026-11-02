@@ -1,6 +1,6 @@
 """`tds <command>`: the commands TDS 8.1 marks implemented for nexusbt-tds 1.0.x.
 
-`check` and `describe` are built; another command raises `NotImplementedError` until its own
+`check`, `hash` and `describe` are built; another command raises `NotImplementedError` until its own
 ticket lands. Exit codes are TDS 8.1's: 0 pass, 1 errors, 2 warnings with `--strict`, 64 usage,
 66 input missing, 70 checker internal error.
 """
@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import NoReturn
 
 from .check import CheckResult, check
+from .hash import HashError, package_hashes, write_hashes
 from .manifest import ManifestError, read_manifest
 
 #: TDS 8.1, in its order; `derive` and `export` are planned there, not implemented.
@@ -52,14 +53,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         elif name == "describe":
             sub.add_argument("path", type=Path)
             sub.add_argument("dataset", nargs="?")
+        elif name == "hash":
+            sub.add_argument("path", type=Path)
+            sub.add_argument("--write", action="store_true", help="write the hashes into tds.json")
     args = parser.parse_args(argv)
-    if args.command not in ("check", "describe"):
+    run = {"check": _check, "describe": _describe, "hash": _hash}.get(args.command)
+    if run is None:
         raise NotImplementedError(f"tds {args.command}: not built yet (its ticket is in spec 10.1)")
     if not args.path.exists():
         print(f"tds {args.command}: {args.path}: no such file or folder", file=sys.stderr)
         return NO_INPUT
     try:
-        return _check(args) if args.command == "check" else _describe(args)
+        return run(args)
     except Exception as exc:  # TDS 8.1: a checker fault is 70, never a pass or a data error
         print(f"tds {args.command}: internal error: {exc!r}", file=sys.stderr)
         return INTERNAL
@@ -94,6 +99,22 @@ def _text(result: CheckResult) -> str:
         f" {len(result.unchecked)} rules not checked at this level"
     )
     return "\n".join(lines) + "\n"
+
+
+def _hash(args: argparse.Namespace) -> int:
+    """Package hashes, then `<dataset> <value_sha256>`, then `<file> <sha256> <value_sha256>`."""
+    try:
+        hashes = write_hashes(args.path) if args.write else package_hashes(args.path)
+    except (ManifestError, HashError) as exc:
+        print(f"tds hash: {exc}", file=sys.stderr)
+        return ERRORS
+    for name in ("physical_sha256", "value_sha256", "semantic_sha256"):
+        print(f"{name} {hashes[name]}")
+    for name, value in sorted(hashes["datasets"].items()):
+        print(f"{name} {value}")
+    for path, file in sorted(hashes["files"].items()):
+        print(f"{path} {file['sha256']} {file['value_sha256']}")
+    return OK
 
 
 def _describe(args: argparse.Namespace) -> int:
