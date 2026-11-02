@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import copy
 import difflib
+import os
 import re
 import tomllib
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 from typing import Any, NoReturn
@@ -140,6 +141,22 @@ def fields(**schema: Check) -> Check:
     }
 
 
+def _clock(v: Any, m: tuple[str, ...]) -> Any:
+    if isinstance(v, str) and v.startswith("utc:"):
+        raise _RejectedError("utc:HH:MM is reserved (SC-25)", "use <MARKET>_close", CapabilityError)
+    if v != "market_local":
+        _market(match(r"\w+_close")(v, m).removesuffix("_close"), m)
+    return v
+
+
+def _net(v: Any, m: tuple[str, ...]) -> Any:
+    lo_hi = list_of(num())(v, m)
+    if len(lo_hi) != 2 or not lo_hi[0] <= 0 <= lo_hi[1]:
+        what, fix = "not a closed interval [lo, hi] that contains 0", "e.g. [-1.0, 1.0]"
+        raise _RejectedError(what, fix, ConfigError)
+    return lo_hi
+
+
 def _fx_series(v: Any, m: tuple[str, ...]) -> Any:
     return named(STR)(v, m) if isinstance(v, dict) else STR(v, m)
 
@@ -168,7 +185,7 @@ SCHEMA: dict[str, dict[str, tuple[Any, Check]]] = {
     "defaults": {
         "universe": ("all", STR), "base_ccy": (None, CCY), "start": ("1995-01-01", DATE),
         "capital": (1_000_000_000, num(0, gt=True)), "end": ("latest", DATE),
-        "clock": (None, STR), "preset": pick("realistic", "zipline"),
+        "clock": (None, _clock), "preset": pick("realistic", "zipline"),
     },
     "split": {"segments": (SPLIT, SEGMENTS), "default_segment": ("train", STR),
               "embargo_sessions": (0, COUNT)},
@@ -185,7 +202,7 @@ SCHEMA: dict[str, dict[str, tuple[Any, Check]]] = {
                   "band_entries": pick("skip", "buy"), "max_missing_decisions": (1, POS)},
     "shorting": {
         "enabled": (False, BOOL), "max_gross": (1.0, num(0, 3, gt=True)),
-        "max_net": ([-1.0, 1.0], list_of(ANY)), "borrow_bps": (Each(0), per_market(num(0, 5000))),
+        "max_net": ([-1.0, 1.0], _net), "borrow_bps": (Each(0), per_market(num(0, 5000))),
         "collateral_ratio": (Each(0.5), per_market(num(0, 2))),
         "short_rebate_bps": (Each(0), per_market(BPS)),
     },
@@ -260,6 +277,7 @@ SCHEMA: dict[str, dict[str, tuple[Any, Check]]] = {
 }
 # fmt: on
 DEFAULTS = {t: {k: d for k, (d, _) in kv.items() if k != "*"} for t, kv in SCHEMA.items()}
+_MARGIN_ONLY = {"initial_margin", "maintenance_margin", "debit_rate_bps"}  # 3.11 [account] type
 
 
 def _known(name: str, names: Mapping[str, Any], where: str = "", value: Any = None) -> str:
@@ -290,9 +308,7 @@ def _merge(values: dict[str, dict[str, Any]], given: Mapping[str, Any], m: tuple
             if "*" in schema:
                 _apply(where, _market, key, m)
             name = "*" if "*" in schema else _known(key, schema, f"[{table}] ", value)
-            check = schema[name][1]
-            value = value.isoformat() if isinstance(value, date) else value
-            values[table][key] = _apply(where, check, value, m)
+            values[table][key] = _apply(where, schema[name][1], _iso(value), m)
 
 
 @dataclass(frozen=True, slots=True)
@@ -301,11 +317,104 @@ class Config:
 
     values: Mapping[str, Mapping[str, Any]]
     markets: tuple[str, ...] = ()
+    resolved: Mapping[str, Any] = field(default_factory=dict)  # clock, base_ccy, sleeves (5.1.3)
 
     def __str__(self) -> str:
         return "\n".join(
             f"[{t}] {k} = {v!r}" for t, kv in self.values.items() for k, v in kv.items()
         )
+
+
+def _data_root(root: str | None, package: str | None) -> str | None:
+    root = root or os.environ.get("NEXUSBT_DATA_ROOT")
+    path = Path(root or ".")
+    if (
+        root
+        and not package
+        and not (  # `[data] path` comes before `root` (3.11)
+            path.is_dir()
+            and (
+                (path / "LATEST").is_file()
+                or any((p / "tds.json").is_file() for p in path.iterdir())
+            )
+        )
+    ):
+        what = f"[data] root = {root!r} has no snapshot folder with LATEST or tds.json"
+        _raise(what, "[data] root", "point it at a data root", "snapshots are read there (4.2)")
+    return root
+
+
+def _sleeves(values: dict[str, dict[str, Any]], m: tuple[str, ...]) -> dict[str, float] | None:
+    universe = values["defaults"]["universe"]
+    members = m if universe == "all" else universe.split("+")
+    members = tuple(_apply("[defaults] universe", _market, x, m) for x in members)
+    weights = values["sleeves"]["weights"]
+    if weights is None:
+        return dict.fromkeys(members, 1 / len(members)) if members else None
+    kept = {k: w for k, w in weights.items() if not m or k in members}
+    total = sum(kept.values())
+    if abs(sum(weights.values()) - 1) > 1e-9 or total <= 0:
+        what = f"[sleeves] weights sum to {sum(weights.values()):g}, {total:g} in the universe"
+        why = "each sleeve's share of the capital comes from them (11.4.1)"
+        _raise(what, "[sleeves] weights", "make them sum to 1 ± 1e-9", why)
+    return {k: w / total for k, w in kept.items()}  # markets outside the universe: rescaled
+
+
+def _segments(values: dict[str, dict[str, Any]]) -> None:
+    named = {"start": "0000-01-01", "latest": "9999-12-31"}  # from the beginning, to the end
+    last = ""
+    for name, bounds in values["split"]["segments"].items():
+        first, end = (named.get(d, d) for d in bounds) if len(bounds) == 2 else ("", "")
+        if not last < first <= end:
+            what = f"[split] segments: {name} = {bounds} overlaps, is out of order or is not [s, e]"
+            fix = "give each segment [start, end], in time order, without overlap"
+            _raise(what, "[split] segments", fix, "a decision belongs to one segment (R-57)")
+        last = end
+
+
+def _iso(value: Any) -> Any:
+    """TOML dates as the 3.11 "YYYY-MM-DD" strings, inside lists and tables too."""
+    if isinstance(value, list | dict):
+        items = value.items() if isinstance(value, dict) else enumerate(value)
+        done = [(k, _iso(x)) for k, x in items]
+        return dict(done) if isinstance(value, dict) else [x for _, x in done]
+    return value.isoformat() if isinstance(value, date) else value
+
+
+def _per_market(value: Any, market: str, default: Any = None) -> Any:
+    return value.get(market, default) if isinstance(value, dict) else getattr(value, "value", value)
+
+
+def check_long_short(config: Config, market: str, long_weight: float, short_weight: float) -> None:
+    """3.7's feasible region of one sleeve's long-short book, before the run (called by T4.14)."""
+    shorting, account = config.values["shorting"], config.values["account"]
+    if short_weight > 0 and not shorting["enabled"]:
+        why = "shorting is off by default (3.7)"
+        _raise("short targets need [shorting] enabled = true", "[shorting] enabled", "set it", why)
+    if account["type"] == "cash":
+        unwritten = DEFAULTS["shorting"]["collateral_ratio"].value  # 0.5, "in every market"
+        x = (
+            long_weight
+            + _per_market(shorting["collateral_ratio"], market, unwritten) * short_weight
+        )
+        if x > 1:
+            times = chr(0xD7)  # the 3.7 sentence's multiplication sign
+            what = (
+                f"long-short book needs margin: long_weight + collateral_ratio {times} short_weight"
+            )
+            why = "longs are fully cash-funded; no margin loan; short proceeds are collateral"
+            _raise(
+                f"{what} = {x:g} > 1", f"[account] type, sleeve {market}", "lower the weights", why
+            )
+        return
+    im = _per_market(account["initial_margin"], market)
+    if not isinstance(im, int | float):
+        what = f"[account] initial_margin has no value for {market}"
+        _raise(what, "[account] initial_margin", f"write {market} = <ratio>", "5.6.7a needs it")
+    cap, x = min(shorting["max_gross"], 1 / im), long_weight + short_weight
+    if x > cap:
+        what = f"margin book exceeds buying power: L + S = {x:g} > {cap:g}"
+        _raise(what, f"[account] type, sleeve {market}", "lower the weights", "5.6.7a")
 
 
 def load_config(
@@ -316,9 +425,32 @@ def load_config(
 ) -> Config:
     """Defaults ← the file ← `overrides` (table → key → value); `markets`: names or name → ccy."""
     m = tuple(sorted(markets or (), key=lambda x: x.encode()))
-    given = tomllib.loads(path.read_text(encoding="utf-8")) if path and path.is_file() else {}
+    given = tomllib.loads(path.read_text(encoding="utf-8")) if path else {}  # missing: an error
     _no_secrets(given)
     values = copy.deepcopy(DEFAULTS)  # each Config owns its lists and tables
-    _merge(values, given, m)
-    _merge(values, {t: dict(v) for t, v in (overrides or {}).items()}, m)
-    return Config(values, m)
+    code = {t: dict(v) for t, v in (overrides or {}).items()}
+    _merge(values, given, m)  # checks the file's shape first
+    if values["defaults"]["preset"] == "zipline":
+        why = "zipline is for tests only (R-55)"
+        _raise("[defaults] preset = 'zipline'", "[defaults] preset", "pass it in test code", why)
+    _merge(values, code, m)
+    written = {k for src in (given, code) for k in src.get("account", {})} & _MARGIN_ONLY
+    if written and values["account"]["type"] == "cash":
+        what = f'margin settings need [account] type = "margin": {", ".join(sorted(written))}'
+        _raise(what, "[account]", 'set type = "margin" or remove them', "3.11 [account] type")
+    _segments(values)
+    d = values["defaults"]
+    if d["clock"] is None and m:
+        d["clock"] = f"{m[0]}_close"  # the first market by UTF-8 bytes (5.1.3, R3-18)
+    if d["base_ccy"] is None and isinstance(markets, Mapping) and m:
+        d["base_ccy"] = _apply("[defaults] base_ccy", CCY, markets[m[0]], m)
+    values["taxes"]["currency"] = values["taxes"]["currency"] or d["base_ccy"]
+    for kv in values.values():  # "the same in every market", once the markets are known
+        kv.update(
+            {k: dict.fromkeys(m, v.value) for k, v in kv.items() if m and isinstance(v, Each)}
+        )
+    values["data"]["root"] = _data_root(values["data"]["root"], values["data"]["path"])
+    folder = (path.resolve().parent if path else Path.cwd()).name
+    values["project"]["name"] = values["project"]["name"] or folder
+    resolved = {"clock": d["clock"], "base_ccy": d["base_ccy"], "sleeves": _sleeves(values, m)}
+    return Config(values, m, resolved)

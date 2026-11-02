@@ -1,4 +1,13 @@
-"""The engine. Re-exports only the public surface of spec 3.1 (2.3), each name with its ticket."""
+"""The engine. Re-exports only the public surface of spec 3.1 (2.3), each name with its ticket.
+
+`config` names both the 2.3 subpackage and the 3.1 function: the subpackage loads first, then
+the name is bound to `api.config`, so only attribute access such as `nexusbt.config.load_config`
+(and `import nexusbt.config as c`, which resolves through it) stops working (#53 Decisions).
+"""
+
+# Functions (3.1): `config`, T0.5a (#53). `api` loads the subpackage `nexusbt.config` (2.4) first,
+# so the 3.1 function holds the name; `import nexusbt.config` still finds the module.
+from nexusbt.api import config as config
 
 # Errors (3.1): `NexusBTError` and the 6.6 classes E1~E39, T0.4 (#49); E40~E49, T0.4b (#52).
 from nexusbt.contracts import AccountingDataError as AccountingDataError

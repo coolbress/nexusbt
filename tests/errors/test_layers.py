@@ -1,9 +1,6 @@
 """Spec 8.4b, the layer golden: every 6.6 code and condition has a case whose `layer` line
-matches `layers.toml`, carries its layer's tail, and has a `fix` line.
-
-A case is the class's `example()` (the 6.6 sample sentences) plus `EXTRA` for a second
-condition; the cases that run engine code arrive with each code's own ticket.
-"""
+matches `layers.toml` with its layer's tail, and a `fix` line. A case is `example()`, plus
+`EXTRA` for a second condition; cases that run engine code come with each code's ticket."""
 
 from __future__ import annotations
 
@@ -19,10 +16,7 @@ from nexusbt.contracts import NexusBTError
 HERE = Path(__file__).resolve().parent
 SPEC = (HERE.parents[1] / "docs" / "spec" / "engine-spec-v3.4.md").read_text(encoding="utf-8")
 TABLE: dict[str, str | dict[str, str]] = tomllib.loads((HERE / "layers.toml").read_text())
-CLASSES = {
-    c.code: c for c in vars(nx).values() if isinstance(c, type) and issubclass(c, NexusBTError)
-}
-del CLASSES[""]  # the root class has no code
+CLASSES = {c.code: c for c in NexusBTError.__subclasses__()}
 CODES = sorted(TABLE, key=lambda code: int(code[1:]))
 
 #: A second condition's case, where the example shows the first.
@@ -59,8 +53,7 @@ def layer(err: NexusBTError) -> tuple[list[str], list[str]]:
 
 
 def conditions(code: str) -> dict[str, str]:
-    value = TABLE[code]
-    return value if isinstance(value, dict) else {"": value}
+    return value if isinstance(value := TABLE[code], dict) else {"": value}
 
 
 def condition_of(err: NexusBTError) -> str:
