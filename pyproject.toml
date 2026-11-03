@@ -38,6 +38,9 @@ dev = [
     "mypy>=2.4.0",
     "nexusbt-tds",  # the checker, from this workspace, so `uv run tds` works beside the engine
     "pytest>=8.3",
+    # Reads the golden case files `tests/golden/cases/*.yaml` (8.2; #59 Decisions). 2.2 pins no
+    # YAML library: the newest release, 2025-09-25, exact. MIT, development only.
+    "pyyaml==6.0.3",
     "ruff>=0.17.3",
 ]
 
@@ -90,10 +93,10 @@ python_version = "3.13"
 files = ["src", "tds/src", "tests", "tds/tests", "tds/conformance"]
 
 # pyarrow 26 ships no `py.typed` and `pyarrow-stubs` targets pyarrow 20 (#61 Decisions):
-# its names are `Any` to mypy. exchange-calendars 4.13.2 ships no `py.typed` either (#58).
-# Only these module names; every other setting stays strict.
+# its names are `Any` to mypy. exchange-calendars 4.13.2 ships no `py.typed` either (#58),
+# nor does PyYAML 6.0.3 (#59). Only these module names; every other setting stays strict.
 [[tool.mypy.overrides]]
-module = ["pyarrow", "pyarrow.*", "exchange_calendars"]
+module = ["pyarrow", "pyarrow.*", "exchange_calendars", "yaml"]
 ignore_missing_imports = true
 
 # Tests, `ci / test`.
