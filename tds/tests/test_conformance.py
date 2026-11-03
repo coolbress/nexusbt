@@ -260,7 +260,10 @@ def test_M013_duplicate_path(tmp_path: Path) -> None:
         ("availability", {"rule": 15}),
         ("availability", "ts_end_when_ready"),  # a bare rule string is read too
         ("hashes", {"hash_spec": ["tds-hash-1"]}),  # not a string: a finding, never a crash
-        ("params", {"freq": "1d", "availability_by_column": {"is_halted": "pre_open"}}),
+        (
+            "params",
+            {"freq": "1d", "price_basis": "raw", "availability_by_column": {"is_halted": "x"}},
+        ),
         ("hashes", {"hash_spec": "tds-hash-2"}),
     ],
 )
@@ -269,6 +272,53 @@ def test_M014_unknown_required_rule(where: str, value: object, tmp_path: Path) -
         (m if where == "hashes" else build.bars(m))[where] = value
 
     assert codes(write(tmp_path, change)) == ["TDS-M014"]
+
+
+#: TDS 5.5's lists; closed and affecting execution by the maintainer's decision (#80 Decisions).
+BARS_PARAMS = {
+    "price_basis": ("raw", "split_adjusted", "total_adjusted"),
+    "density": ("dense", "sparse"),
+    "bar_time": ("session", "utc_day", "interval"),
+}
+
+
+@pytest.mark.parametrize(
+    ("param", "value"),
+    [(param, value) for param, values in BARS_PARAMS.items() for value in values],
+)
+def test_listed_bars_params_pass(param: str, value: str, tmp_path: Path) -> None:
+    assert codes(write(tmp_path, lambda m, f: build.bars(m)["params"].update({param: value}))) == []
+
+
+@pytest.mark.parametrize(
+    ("param", "value"),
+    [
+        ("price_basis", "dividend_adjusted"),
+        ("density", "Dense"),
+        ("bar_time", 1),
+    ],
+)
+def test_M014_unknown_closed_bars_param(param: str, value: object, tmp_path: Path) -> None:
+    result = check(
+        write(tmp_path, lambda m, f: build.bars(m)["params"].update({param: value})),
+        level="manifest",
+    )
+    assert [(f.code, f.dataset) for f in result.errors] == [("TDS-M014", "bars_1d")]
+    assert param in result.errors[0].message
+
+
+def test_a_null_closed_param_is_no_value(tmp_path: Path) -> None:
+    # JSON null is not declared, not a new value: no M014 (#80 Decisions, item 1)
+    package = write(tmp_path, lambda m, f: build.bars(m)["params"].update(density=None))
+    assert codes(package) == []
+
+
+def test_closed_params_belong_to_bars_only(tmp_path: Path) -> None:
+    # TDS 5.5 lists them for `bars`; another kind's `params` are not read for them
+    package = write(tmp_path, lambda m, f: m["datasets"][0].update(params={"density": "x"}))
+    assert codes(package) == []
+    odd = write(tmp_path / "odd", lambda m, f: build.bars(m).update(kind=["bars"]))
+    assert "TDS-M014" not in codes(odd)  # a kind that is not a string: findings, not a crash
 
 
 KNOWN_RULES = "column ts_end ts_end+PT15M session_open session_close next_session_open"
