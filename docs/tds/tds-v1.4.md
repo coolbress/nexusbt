@@ -12,6 +12,7 @@ This is the canonical English text; a Korean translation is in tds-v1.4.ko.md.
 > Version history (continued): **v1.4, 2026-11-01 addition**: `classifications` scheme `tick_rule_id`, a dated per-instrument tick rule, read first in the grid source order (5.19, 5.27; maintainer decision 2026-11-01 for the US Rule 612 amendment, compliance from the first business day of November 2027). No column changes and the standard is a draft, so `tds_version` stays `"1.0"`.
 > Version history (continued): **v1.4, 2026-11-02 clarification**: 4.2 marks which dataset and file fields of `tds.json` are required — per dataset `name`, `kind`, `schema_version`, `path`, `files`; per file `path`, `bytes`; a missing one is TDS-M003 and the rest are optional (maintainer decision 2026-11-02). Wording only, so `tds_version` stays `"1.0"`.
 > Version history (continued): **v1.4, 2026-11-03 clarification**: 5.5 marks the `bars` params `price_basis`, `density` and `bar_time` as closed enums that affect execution (outside the list = TDS-M014; absent or `null` is not a value) and says what `freq<1d` means (`<n><unit>` with unit `h`, `m` or `s`, under one day; maintainer decision 2026-11-03). Wording only, so `tds_version` stays `"1.0"`.
+> Version history (continued): **v1.4, 2026-11-03 clarification**: 8.3's TDS-M008 row also covers a required dataset that is present when none of the datasets present has `params` that meet the profile's condition (chapter 7, 5.5), as the checker already reports. Wording only, so `tds_version` stays `"1.0"`.
 > Relation: this document is **the canonical input definition referenced by chapter 4** of the engine specification v3.4 (`engine-spec-v3.4-2026-10-28.md`). Where the two differ, this document is right about the input format (difference list in chapter 12). Maintainer decisions (design document 9.0) take precedence over this document.
 > Public: this standard and the checker (`nexusbt-tds`, import `nexusbt_tds`, command `tds`) are public (Apache-2.0). Chapter 11 of the working draft (producer-specific mapping) is not normative and is not part of this public edition.
 > Examples: example rows for every dataset the engine reads (including events and macro series) are in `tds-examples.md` (same folder).
@@ -1029,7 +1030,7 @@ Severity: E = error (profile fails), W = warning.
 | TDS-M005 | W | A file in the folder that is not listed |
 | TDS-M006 | E | File byte count differs |
 | TDS-M007 | E | Unknown profile |
-| TDS-M008 | E | Required dataset of a profile missing |
+| TDS-M008 | E | Required dataset of a profile missing, or present but none of them has `params` that meet the profile's condition (chapter 7, 5.5) |
 | TDS-M009 | E | Dataset `schema_version` MAJOR not supported |
 | TDS-M010 | E | Data differs from the `markets`, `id_namespaces` or `editions` declarations (use of an undeclared market, namespace or edition) |
 | TDS-M011 | W | Dataset `schema_version` MINOR is newer than the checker (continue, ignoring unknown columns) |
