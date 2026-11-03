@@ -185,6 +185,22 @@ HASH_SPEC = "tds-hash-1"
 #: The package-level keys of the semantic hash (TDS 4.5), each `null` when tds.json has none.
 _PACKAGE_KEYS = ("markets", "id_namespaces", "editions", "policies", "currencies", "roll_rules")
 _DATASET_KEYS = ("kind", "schema_version", "params", "availability", "pit_quality", "key")
+#: The stable fields of a `markets` entry, the only ones the semantic hash takes (TDS 4.5): the
+#: watermark fields of 4.2 change on every publish (spec 5.3.9 keys its L0 cache on these three).
+_MARKET_KEYS = ("calendar_id", "currency", "timezone")
+
+
+def _markets(markets: Any) -> Any:
+    """Each entry of `markets` cut to its stable fields; absent ones stay absent.
+
+    A `markets` that is not an object, or an entry that is not one, is kept as it is: the
+    manifest level reports that shape, and the hash still sees it."""
+    if not isinstance(markets, dict):
+        return markets
+    return {
+        name: {k: e[k] for k in _MARKET_KEYS if k in e} if isinstance(e, dict) else e
+        for name, e in markets.items()
+    }
 
 
 def _sha256(data: bytes) -> str:
@@ -254,6 +270,7 @@ def _semantic(root: Path, entries: list[Any]) -> str:
     data = read_manifest(root).data
     doc = {"tds_version": data.get("tds_version"), "hash_spec": HASH_SPEC, "datasets": entries,
            "profiles": data.get("profiles"), **{k: data.get(k) for k in _PACKAGE_KEYS}}  # fmt: skip
+    doc["markets"] = _markets(doc["markets"])
     return canonical_json(doc)
 
 
