@@ -2,11 +2,13 @@
 
 `tiny` is a table set by hand: the holidays, listings, tickers and prices below are literals or
 fixed cycles, with no random numbers. `small` follows 4.8's generation rules (1) to (3) with
-`numpy.random.Generator(PCG64(seed))`. Both write `instruments`, `instrument_symbols`, an empty
-`instrument_xref`, `calendar_sessions` and dense daily `bars` (cumulative factors 1.0). The
-hashes in `tds.json` and `--validate`'s check are the `tds` command's, run as a separate
-process: spec 2.5 draws no arrow from `testing` to `nexusbt_tds`, so this module does not
-import it.
+`numpy.random.Generator(PCG64(seed))`, except that its prices and volumes come from integer
+draws and + - x / instead of 4.8 (3)'s exp, normal and lognormal draws, so that its bytes do
+not depend on the platform's math library (#128). Both write `instruments`,
+`instrument_symbols`, an empty `instrument_xref`, `calendar_sessions` and dense daily `bars`
+(cumulative factors 1.0). The hashes in `tds.json` and `--validate`'s check are the `tds`
+command's, run as a separate process: spec 2.5 draws no arrow from `testing` to
+`nexusbt_tds`, so this module does not import it.
 """
 
 from __future__ import annotations
@@ -53,6 +55,7 @@ KR_CLOSE = dt.date(2016, 8, 1)  # KRX closes at 06:30Z from this day, at 06:00Z 
 COUNT, RENAMED, TICKER_CHANGE, LATE_LISTING = 6, 2, dt.date(2020, 2, 14), dt.date(2020, 2, 18)
 CYCLE = (100, 101, 102, 101)  # close = base x CYCLE[k % 4] / 100 on the k-th listed session
 YEAR = 252  # sessions: small draws listings over 8 such years before its start, to its end
+BP, DRIFT = 10_000, 3  # small's price steps: basis points, log drift 3 bp (4.8 (3)'s 0.0003)
 PRODUCER = "nexusbt-synth"
 HINTS = {
     "TDS-M008": "nexusbt-synth declares tds:minimal-daily only until it generates corporate"
@@ -207,18 +210,27 @@ def _small(market: str, n: int, sessions: Table, rng: np.random.Generator) -> di
         late.remove(k)
         freed = [f for f in freed if f[1] != old]
     bars: dict[str, list[Any]] = {}
-    for k in range(n):  # 4.8 (3): log returns, open from the previous close, OHLC enclosed
+    for k in range(n):  # 4.8 (3): open from the previous close, OHLC enclosed
         i, j = first[k], last[k] + 1
-        sigma = rng.uniform(0.01, 0.04)
-        price = rng.uniform(1e3, 1e6) if market == "KR" else rng.uniform(2, 500)
-        close = price * np.exp(np.cumsum(rng.normal(0.0003, sigma, j - i)))
-        open_ = np.concatenate([[price], close[:-1]]) * np.exp(rng.normal(0, sigma / 2, j - i))
-        wick = np.exp(np.abs(rng.normal(0, sigma / 2, (2, j - i))))
+        # Integer draws in basis points and + - x / only: IEEE 754 rounds these the same on
+        # every platform, where exp and the normal draw need not (#128). A daily step is
+        # uniform on mean +- half; half = sigma x 1.732 (~sqrt 3) gives it the sd sigma, 1%..4%,
+        # and mean = DRIFT + sigma^2 / 2 keeps the log return's mean near 4.8 (3)'s 0.0003.
+        sigma = int(rng.integers(100, 400, endpoint=True))
+        half, mean = sigma * 1732 // 1000, DRIFT + sigma * sigma // (2 * BP)
+        low, high, unit = (1_000, 1_000_000, 1) if market == "KR" else (200, 50_000, 100)
+        price = rng.integers(low, high, endpoint=True) / unit  # whole won, or US cents
+        step = rng.integers(mean - half, mean + half, j - i, endpoint=True)
+        close = price * np.multiply.accumulate((BP + step) / BP)
+        gap = rng.integers(-(half // 2), half // 2, j - i, endpoint=True)  # sd ~ sigma / 2
+        open_ = np.concatenate([[price], close[:-1]]) * ((BP + gap) / BP)
+        wick = (BP + rng.integers(0, half // 2, (2, j - i), endpoint=True)) / BP  # >= 1
         for name, values in {
             ID: [ids[k]] * (j - i), "session_date": days[i:j], "ts_start": opens[i:j],
             "ts_end": closes[i:j], "open": open_, "high": np.maximum(open_, close) * wick[0],
             "low": np.minimum(open_, close) / wick[1], "close": close,
-            "volume": np.floor(rng.lognormal(10, 1, j - i)), "obs_status": ["traded"] * (j - i),
+            "volume": rng.integers(1_000, 100_000, j - i, endpoint=True).astype(np.float64),
+            "obs_status": ["traded"] * (j - i),
             "cum_factor_split": np.ones(j - i), "cum_factor_total": np.ones(j - i),
         }.items():  # fmt: skip
             bars.setdefault(name, []).append(values)

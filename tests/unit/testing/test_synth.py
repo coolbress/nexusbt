@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import ast
 import csv
 import datetime as dt
+import inspect
 import json
 import sysconfig
+import textwrap
 from importlib.resources import files
 from pathlib import Path
 from typing import Any
@@ -13,6 +16,7 @@ from typing import Any
 import pyarrow.parquet as pq
 import pytest
 
+from nexusbt.testing import synth
 from nexusbt.testing.synth import main, make_snapshot
 
 UTC = dt.UTC
@@ -257,6 +261,39 @@ def test_small_is_seeded_and_byte_identical(tmp_path: Path) -> None:
     assert files_of(a) != files_of(other)
     us = "bars/freq=1d/market=US/year=2015/part-00000.parquet"  # US rows without KR alongside
     assert files_of(make_snapshot(tmp_path / "u", markets=("US",), **args))[us] == files_of(a)[us]
+
+
+def test_small_hashes_match_on_macos_and_linux(tmp_path: Path) -> None:
+    # printed by a macOS arm64 run; `ci / test` on Linux must reach the same literals (#139)
+    package = make_snapshot(tmp_path / "d", preset="small")  # default markets KR, US; seed 0
+    hashes = json.loads((package / "tds.json").read_text())["hashes"]
+    assert (hashes["value_sha256"], hashes["semantic_sha256"]) == (
+        "114817d0832a818f632c16031de7563aa43a563646a376584829d2c6a0f0444b",
+        "0b97da8375e5caf9162ac244eea59a4f5e4c119d8c31c9e2d33980a3327a3dfe",
+    )
+
+
+#: Calls that go through platform code (SIMD paths, the system libm), so their last bits can
+#: differ between machines: none of them may reach a column of `small` (#128, #139).
+PLATFORM_MATH = {"exp", "log", "normal", "lognormal", "sqrt", "power"}
+
+
+def called_names(source: str) -> set[str]:
+    """The names of the functions and methods the code in `source` calls; `**` is `power`."""
+    nodes = list(ast.walk(ast.parse(textwrap.dedent(source))))
+    calls = (n.func for n in nodes if isinstance(n, ast.Call))
+    names = {f.id if isinstance(f, ast.Name) else f.attr for f in calls
+             if isinstance(f, ast.Name | ast.Attribute)}  # fmt: skip
+    ops = (n.op for n in nodes if isinstance(n, ast.BinOp | ast.AugAssign))
+    pow_ = any(isinstance(op, ast.Pow) for op in ops)
+    return names | ({"power"} if pow_ else set())
+
+
+def test_small_value_path_uses_no_platform_math() -> None:
+    assert not called_names(inspect.getsource(synth._small)) & PLATFORM_MATH
+    # the check refuses what it is for, so the pass above is not vacuous
+    bad = "def f(rng, p):\n    return np.exp(rng.normal(0, 1)) * p.sqrt() + math.log(2) ** 2\n"
+    assert called_names(bad) & PLATFORM_MATH == {"exp", "normal", "sqrt", "log", "power"}
 
 
 def test_small_takes_a_short_period(tmp_path: Path) -> None:
