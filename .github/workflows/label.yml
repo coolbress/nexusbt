@@ -15,4 +15,4 @@ permissions:
 
 jobs:
   label:
-    uses: coolbress/plinth/.github/workflows/pr-label.yml@60bd68f5de72007e6efe73be9f67f847af929108
+    uses: coolbress/plinth/.github/workflows/pr-label.yml@e57fb4126214a480ec47202b0e09b79791fdb49c

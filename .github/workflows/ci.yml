@@ -45,7 +45,7 @@ permissions:
 
 jobs:
   ci:
-    uses: coolbress/plinth/.github/workflows/python-ci.yml@60bd68f5de72007e6efe73be9f67f847af929108
+    uses: coolbress/plinth/.github/workflows/python-ci.yml@e57fb4126214a480ec47202b0e09b79791fdb49c
     with:
       # pyproject declares `requires-python = ">=3.12"`; testing one version
       # claims support that was never exercised. Not a matrix: a matrix would
