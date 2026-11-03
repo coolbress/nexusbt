@@ -24,7 +24,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from .manifest import MANIFEST, Manifest, ManifestError, read_manifest
-from .profiles import PROFILES, profile_id
+from .profiles import PROFILES, Need, describe, meets, profile_id
 
 Level = Literal["manifest", "schema", "full"]
 Severity = Literal["error", "warning"]
@@ -63,6 +63,15 @@ RULE = re.compile(
     rf"column|ts_end|ts_end\+{_DUR}|session_open|session_close|next_session_open(\({_COL}\))?"
     rf"|ts_recv|ts_recv\+{_DUR}|ts_recv_else\({_COL}\+{_DUR}\)"
 )
+#: TDS 5.5's `params` lists, closed and affecting execution: a value outside them is M014. TDS
+#: does not mark them closed or open; chosen with the maintainer (#80 Decisions, 2026-11-03).
+CLOSED_PARAMS: Mapping[str | None, Mapping[str, tuple[str, ...]]] = {
+    "bars": {
+        "price_basis": ("raw", "split_adjusted", "total_adjusted"),
+        "density": ("dense", "sparse"),
+        "bar_time": ("session", "utc_day", "interval"),
+    }
+}
 _VERSION = re.compile(r"(\d+)\.(\d+)")
 _PROFILE = re.compile(r"tds:[a-z0-9-]+@\d+\.\d+")
 
@@ -98,10 +107,16 @@ class CheckResult:
     warnings: tuple[Finding, ...]
     profiles: dict[str, ProfileStatus] = field(default_factory=dict)
     unchecked: list[str] = field(default_factory=list)
+    #: Every error found; `errors` holds at most `max_errors` of them (TDS 8.4 summary, #80).
+    error_count: int = 0
+
+    @property
+    def failed(self) -> bool:
+        return self.error_count > 0 or bool(self.errors)
 
     def summary(self) -> dict[str, object]:
         return {
-            "errors": len(self.errors),
+            "errors": max(self.error_count, len(self.errors)),
             "warnings": len(self.warnings),
             "level": self.level,
             "profiles": {name: asdict(status) for name, status in self.profiles.items()},
@@ -150,9 +165,11 @@ def check(
         )
     hints = manifest.hints if manifest else {}
     found = [f if f.hint or f.code not in hints else replace(f, hint=hints[f.code]) for f in found]
+    errors = tuple(f for f in found if f.severity == "error")
     return CheckResult(
         level=level,
-        errors=tuple(f for f in found if f.severity == "error")[:max_errors],
+        error_count=len(errors),
+        errors=errors[: max(max_errors, 0)],
         warnings=tuple(f for f in found if f.severity == "warning"),
         profiles=statuses,
         unchecked=list(UNCHECKED_AT_MANIFEST)
@@ -274,6 +291,13 @@ def _check_dataset(
     for rule in _rules(ds):
         if not isinstance(rule, str) or not RULE.fullmatch(rule):
             yield Finding("TDS-M014", "error", f"unknown availability rule {rule!r}", dataset=name)
+    params = ds["params"] if isinstance(ds.get("params"), dict) else {}
+    kind = ds.get("kind") if isinstance(ds.get("kind"), str) else None  # `["bars"]`: no crash
+    for key, values in CLOSED_PARAMS.get(kind, {}).items():
+        # absent and null are no value, not a new one (#80 Decisions, item 1)
+        if params.get(key) is not None and params[key] not in values:
+            msg = f"params.{key} {params[key]!r} is not one of {', '.join(values)}"
+            yield Finding("TDS-M014", "error", msg, dataset=name)
     if isinstance(ds.get("path"), str) and (why := _unsafe(root, ds["path"])):
         yield Finding("TDS-M012", "error", f"dataset path {why}", dataset=name, file=ds["path"])
     files = ds.get("files")
@@ -511,18 +535,17 @@ def _check_profile(m: Manifest, name: str) -> Iterable[Finding]:
     if isinstance(markets, dict) and len(markets) > 1:
         needs += profile.requires_multi_market
     for group in needs:
-        if not any(_has(m.datasets, kind, params) for kind, params in group):
-            wanted = " or ".join(kind for kind, _ in group)
+        if not any(all(_has(m.datasets, need) for need in alt) for alt in group):
+            wanted = " or ".join(describe(alt) for alt in group)
             yield Finding("TDS-M008", "error", f"{name} requires dataset {wanted}")
 
 
-def _has(
-    datasets: Iterable[Mapping[str, Any]], kind: str, params: Sequence[tuple[str, str]]
-) -> bool:
+def _has(datasets: Iterable[Mapping[str, Any]], need: Need) -> bool:
+    kind, conditions = need
     for ds in datasets:
         own = ds.get("params")
         own = own if isinstance(own, dict) else {}
-        if kind in (ds.get("kind"), ds.get("path")) and all(own.get(k) == v for k, v in params):
+        if kind in (ds.get("kind"), ds.get("path")) and all(meets(own, *c) for c in conditions):
             return True
     return False
 

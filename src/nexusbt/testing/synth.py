@@ -37,6 +37,9 @@ MARKETS = {
     "US": {"calendar_id": "XNYS", "currency": "USD", "timezone": "America/New_York"},
     "ZZ": {"calendar_id": "XZZZ", "currency": "XTS", "timezone": "America/New_York"},
 }
+#: The `instruments.venue_mic` values per market, rows of `costs/venue_groups_v1.csv` (no
+#: KONEX). ZZ has no row there, so its `venue_mic` is null.
+VENUES = {"KR": ("XKRX", "XKOS"), "US": ("XNYS", "XNAS")}
 NAMESPACES = {"KR": "synthetic KR", "US": "synthetic US", "ZZ": "synthetic test market"}
 #: The period's weekday holidays, set by hand; XZZZ copies the XNYS sessions (4.8).
 HOLIDAYS = {
@@ -99,10 +102,14 @@ def _symbols(spans: Sequence[tuple[str, str, dt.date, dt.date | None]]) -> Table
     ])  # fmt: skip
 
 
-def _instruments(market: str, ids: Sequence[str], listed: Sequence[dt.date], **more: Any) -> Table:
+def _instruments(
+    market: str, ids: Sequence[str], mics: Sequence[str | None], listed: Sequence[dt.date],
+    **more: Any,
+) -> Table:  # fmt: skip
     calendar, currency = MARKETS[market]["calendar_id"], MARKETS[market]["currency"]
     return {ID: list(ids), "asset_class": ["equity"] * len(ids), "category": ["common"] * len(ids),
-            "market": [market] * len(ids), "calendar_id": [calendar] * len(ids),
+            "market": [market] * len(ids), "venue_mic": list(mics),
+            "calendar_id": [calendar] * len(ids),
             "currency": [currency] * len(ids), "name": [f"synthetic {i}" for i in ids],
             "listed_on": list(listed), **more, "lot_size": [1.0] * len(ids),
             "multiplier": [1.0] * len(ids), "is_synthetic": [False] * len(ids)}  # fmt: skip
@@ -112,7 +119,9 @@ def _tiny(market: str) -> dict[str, Table]:
     calendar = MARKETS[market]["calendar_id"]
     ids = [(n, f"{market}:T{n:05d}") for n in range(1, COUNT + 1)]
     renamed, late = ids[RENAMED - 1][1], ids[COUNT - 1][1]
-    instruments = _instruments(market, [i for _, i in ids], [_listed_on(n) for n, _ in ids])
+    venues = VENUES.get(market)  # by hand: odd numbers on the first MIC, even on the second
+    mics = [venues[(n - 1) % 2] if venues else None for n, _ in ids]
+    instruments = _instruments(market, [i for _, i in ids], mics, [_listed_on(n) for n, _ in ids])
     old, new = _ticker(market, RENAMED), _ticker(market, RENAMED * 11)
     spans: list[tuple[str, str, dt.date, dt.date | None]]
     spans = [(iid, _ticker(market, n), START, None) for n, iid in ids if iid not in (renamed, late)]
@@ -177,11 +186,6 @@ def _small(market: str, n: int, sessions: Table, rng: np.random.Generator) -> di
             last.append(min(exit_, len(days) - 1))
     ids = [f"{market}:T{k:05d}" for k in range(1, n + 1)]
     gone = [j < len(days) - 1 for j in last]
-    instruments = _instruments(
-        market, ids, [days[i].item() for i in first],
-        listed_on_censored=[i == 0 for i in first],
-        last_session=[days[j].item() if g else None for j, g in zip(last, gone, strict=True)],
-    )  # fmt: skip
     end = [days[j + 1].item() if g else None for j, g in zip(last, gone, strict=True)]
     tickers = [f"Q{market}{k:04d}" for k in range(1, n + 1)]
     spans = {k: [(ids[k], tickers[k], days[first[k]].item(), end[k])] for k in range(n)}
@@ -218,6 +222,13 @@ def _small(market: str, n: int, sessions: Table, rng: np.random.Generator) -> di
             "cum_factor_split": np.ones(j - i), "cum_factor_total": np.ones(j - i),
         }.items():  # fmt: skip
             bars.setdefault(name, []).append(values)
+    venues = VENUES.get(market)  # drawn last, so the draws above stay as they were
+    mics = rng.choice(venues, n).tolist() if venues else [None] * n
+    instruments = _instruments(
+        market, ids, mics, [days[i].item() for i in first],
+        listed_on_censored=[i == 0 for i in first],
+        last_session=[days[j].item() if g else None for j, g in zip(last, gone, strict=True)],
+    )  # fmt: skip
     table = pa.table({c: np.concatenate(v) for c, v in bars.items()})
     order = [("session_date", "ascending"), (ID, "ascending")]
     return {"instruments": instruments, "bars_1d": table.sort_by(order),
