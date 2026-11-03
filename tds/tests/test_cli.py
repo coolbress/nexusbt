@@ -60,6 +60,25 @@ def test_jsonl_output_schema(capsys: pytest.CaptureFixture[str]) -> None:
     assert "TDS-K001" in summary["unchecked"]
 
 
+def test_summary_counts_errors_max_errors_does_not_print(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    manifest, files = build.base()
+    for key in ("snapshot_id", "writer", "hashes"):  # three TDS-M003 errors
+        manifest.pop(key)
+    path = str(build.write(tmp_path, manifest, files))
+    argv = ["check", path, "--level", "manifest", "--format", "json", "--max-errors", "1"]
+    assert run(argv) == 1
+    *findings, last = (json.loads(line) for line in capsys.readouterr().out.splitlines())
+    assert [f["code"] for f in findings] == ["TDS-M003"]
+    assert last["summary"]["errors"] == 3
+    assert run([*argv[:-1], "0", "--format", "text"]) == 1  # none printed, still a failure
+    assert capsys.readouterr().out.splitlines()[-1].startswith("3 errors, 0 warnings")
+    assert run([*argv[:-1], "-1"]) == 1  # a negative limit prints none, never "all but one"
+    *findings, last = (json.loads(line) for line in capsys.readouterr().out.splitlines())
+    assert (findings, last["summary"]["errors"]) == ([], 3)
+
+
 @pytest.mark.parametrize("code", ["TDS-S002", "TDS-S006"])
 def test_schema_level_done_means(code: str, capsys: pytest.CaptureFixture[str]) -> None:
     # spec 10.1 T0.13c "done means": `tds check tds/conformance/TDS-S002/fail --format json`;

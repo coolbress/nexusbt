@@ -79,7 +79,7 @@ def _check(args: argparse.Namespace) -> int:
         max_errors=args.max_errors,
     )
     sys.stdout.write(result.to_jsonl() if args.format == "json" else _text(result))
-    if result.errors:
+    if result.failed:
         return ERRORS
     return WARNINGS if result.warnings and args.strict else OK
 
@@ -95,7 +95,7 @@ def _text(result: CheckResult) -> str:
         declared = "declared" if s.declared else "not declared"
         lines.append(f"{name}: {declared}, verified to {s.verified_level}, {s.result}")
     lines.append(
-        f"{len(result.errors)} errors, {len(result.warnings)} warnings at level {result.level};"
+        f"{result.error_count} errors, {len(result.warnings)} warnings at level {result.level};"
         f" {len(result.unchecked)} rules not checked at this level"
     )
     return "\n".join(lines) + "\n"

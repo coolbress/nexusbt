@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
+
+import pytest
 
 from nexusbt_tds import PROFILES, ProfileStatus, check
 from nexusbt_tds.profiles import profile_id
@@ -27,10 +31,11 @@ def test_a_name_without_version_means_1_0() -> None:
 
 def test_core_stacks_on_minimal_with_raw_dense_daily_bars() -> None:
     minimal, core = PROFILES["tds:minimal-daily@1.0"], PROFILES["tds:equity-daily-core@1.0"]
-    assert minimal.requires == ((("instruments", ()),), (("bars", (("freq", "1d"),)),))
-    raw_dense = ("bars", (("freq", "1d"), ("price_basis", "raw"), ("density", "dense")))
-    assert core.requires[:2] == ((("instruments", ()),), (raw_dense,))
-    assert [group[0][0] for group in core.requires[2:]] == [
+    daily = ("bars", (("freq", "=1d"), ("price_basis", "")))  # "" : declared, any value
+    assert minimal.requires == (((("instruments", ()),),), ((daily,),))
+    raw_dense = ("bars", (("freq", "=1d"), ("price_basis", "=raw"), ("density", "=dense")))
+    assert core.requires[:2] == (((("instruments", ()),),), ((raw_dense,),))
+    assert [group[0][0][0] for group in core.requires[2:]] == [
         "calendar_sessions",
         "corporate_actions",
         "delistings",
@@ -39,13 +44,16 @@ def test_core_stacks_on_minimal_with_raw_dense_daily_bars() -> None:
 
 def test_research_needs_fx_rates_only_with_more_than_one_market() -> None:
     research = PROFILES["tds:equity-daily-research@1.0"]
-    assert research.requires_multi_market == ((("fx_rates", ()),),)
-    assert ("dictionary/columns", ()) in {need for group in research.requires for need in group}
+    assert research.requires_multi_market == (((("fx_rates", ()),),),)
+    assert (("dictionary/columns", ()),) in {alt for group in research.requires for alt in group}
 
 
 def test_alternatives_and_experimental_status() -> None:
     l2 = PROFILES["tds:l2-book@1.0"]
-    assert l2.requires == ((("book_deltas", (("depth_kind", "mbp"),)), ("book_snapshots", ())),)
+    mbp = ("book_deltas", (("depth_kind", "=mbp"),))
+    assert l2.requires == (((mbp,), (("book_snapshots", ()),)),)
+    together = (("instruments", ()), ("bars", ()))  # TDS 7: `instruments(fx_spot)` + bars
+    assert PROFILES["tds:fx@1.0"].requires == (((("fx_rates", ()),), together),)
     assert l2.status == "experimental"
     assert PROFILES["tds:minimal-daily@1.0"].status == "stable"
 
@@ -76,6 +84,70 @@ def test_manifest_level_never_reports_unchecked_as_pass(tmp_path: Path) -> None:
     summary = result.summary()
     assert summary["level"] == "manifest"
     assert "pass" not in str(summary["profiles"])
+
+
+def _m008(tmp_path: Path, profile: str, change: Callable[[dict[str, Any]], object]) -> list[str]:
+    manifest, files = build.base()
+    change(manifest)
+    package = Path(build.write(tmp_path, manifest, files))
+    result = check(package, level="manifest", profiles=[profile])
+    return [f.message for f in result.errors if f.code == "TDS-M008"]
+
+
+def _bars_params(**params: str) -> Callable[[dict[str, Any]], object]:
+    return lambda m: build.bars(m).update(params=params, path="bars")
+
+
+def _add(kind: str) -> Callable[[dict[str, Any]], object]:
+    entry = {"name": kind, "kind": kind, "schema_version": "1.0", "path": kind, "files": []}
+    return lambda m: m["datasets"].append(dict(entry))
+
+
+@pytest.mark.parametrize(
+    ("freq", "met"),
+    [(f, True) for f in ("1h", "30m", "1s", "23h")]
+    + [(f, False) for f in ("1d", "24h", "1440m", "0h", "1w", "1mo", "1 h", "")],
+)
+def test_intraday_bars_need_bars_under_one_day(freq: str, met: bool, tmp_path: Path) -> None:
+    # TDS 7 `bars(freq<1d)`; #80 Decisions: `<n>h`, `<n>m` or `<n>s` under one day
+    def change(m: dict[str, Any]) -> None:
+        _add("calendar_sessions")(m)
+        _bars_params(freq=freq)(m)
+
+    found = _m008(tmp_path, "tds:intraday-bars@1.0", change)
+    assert found == ([] if met else ["tds:intraday-bars@1.0 requires dataset bars(freq<1d)"])
+
+
+def test_intraday_bars_without_freq_is_not_met(tmp_path: Path) -> None:
+    def change(m: dict[str, Any]) -> None:
+        _add("calendar_sessions")(m)
+        build.bars(m)["params"] = {}
+
+    assert _m008(tmp_path, "tds:intraday-bars@1.0", change)
+
+
+def test_fx_is_fx_rates_or_instruments_with_bars(tmp_path: Path) -> None:
+    # TDS 7: "`fx_rates` or `instruments(fx_spot)` + bars"; fx_spot is a row value (full level)
+    fx = "tds:fx@1.0"
+    assert _m008(tmp_path / "a", fx, lambda m: None) == []  # instruments + bars
+    no_bars = _m008(tmp_path / "b", fx, lambda m: m["datasets"].pop(1))
+    assert no_bars == [f"{fx} requires dataset fx_rates or instruments + bars"]
+
+    def only_fx_rates(m: dict[str, Any]) -> None:
+        m["datasets"].clear()
+        _add("fx_rates")(m)
+
+    assert _m008(tmp_path / "c", fx, only_fx_rates) == []
+
+
+def test_minimal_daily_needs_a_declared_price_basis(tmp_path: Path) -> None:
+    # TDS 7: "Any `price_basis` (declaration required)"
+    minimal = "tds:minimal-daily@1.0"
+    adjusted = _bars_params(freq="1d", price_basis="total_adjusted")
+    assert _m008(tmp_path / "a", minimal, adjusted) == []
+    assert _m008(tmp_path / "b", minimal, _bars_params(freq="1d")) == [
+        f"{minimal} requires dataset bars(freq=1d, price_basis)"
+    ]
 
 
 def test_a_package_error_fails_every_profile(tmp_path: Path) -> None:
