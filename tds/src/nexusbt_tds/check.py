@@ -294,7 +294,8 @@ def _check_dataset(
     params = ds["params"] if isinstance(ds.get("params"), dict) else {}
     kind = ds.get("kind") if isinstance(ds.get("kind"), str) else None  # `["bars"]`: no crash
     for key, values in CLOSED_PARAMS.get(kind, {}).items():
-        if key in params and params[key] not in values:  # absent is no value; null is one
+        # absent and null are no value, not a new one (#80 Decisions, item 1)
+        if params.get(key) is not None and params[key] not in values:
             msg = f"params.{key} {params[key]!r} is not one of {', '.join(values)}"
             yield Finding("TDS-M014", "error", msg, dataset=name)
     if isinstance(ds.get("path"), str) and (why := _unsafe(root, ds["path"])):

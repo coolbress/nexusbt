@@ -296,7 +296,6 @@ def test_listed_bars_params_pass(param: str, value: str, tmp_path: Path) -> None
         ("price_basis", "dividend_adjusted"),
         ("density", "Dense"),
         ("bar_time", 1),
-        ("density", None),  # JSON null is a value, and not a listed one
     ],
 )
 def test_M014_unknown_closed_bars_param(param: str, value: object, tmp_path: Path) -> None:
@@ -306,6 +305,12 @@ def test_M014_unknown_closed_bars_param(param: str, value: object, tmp_path: Pat
     )
     assert [(f.code, f.dataset) for f in result.errors] == [("TDS-M014", "bars_1d")]
     assert param in result.errors[0].message
+
+
+def test_a_null_closed_param_is_no_value(tmp_path: Path) -> None:
+    # JSON null is not declared, not a new value: no M014 (#80 Decisions, item 1)
+    package = write(tmp_path, lambda m, f: build.bars(m)["params"].update(density=None))
+    assert codes(package) == []
 
 
 def test_closed_params_belong_to_bars_only(tmp_path: Path) -> None:

@@ -60,9 +60,9 @@ _FREQ = re.compile(r"(\d+)([hms])")
 
 def meets(params: Mapping[str, Any], key: str, condition: str) -> bool:
     """Whether a dataset's `params` meet one condition of a `Need`."""
-    if key not in params:
+    value = params.get(key)
+    if value is None:  # null is not declared (#80 Decisions, item 1)
         return False
-    value = params[key]
     if condition == "<1d":  # TDS 7 `bars(freq<1d)`; read as chosen in #80 Decisions
         match = _FREQ.fullmatch(value) if isinstance(value, str) else None
         return match is not None and 0 < int(match[1]) * _SECONDS[match[2]] < _DAY_SECONDS
