@@ -1,0 +1,4 @@
+# The golden answers (spec 8.2) are the person's: a pull request that changes them asks for this
+# review. tests/repo/test_golden_guard.py is the other half: it refuses the change outside a
+# `test(golden): …` pull request.
+/tests/golden/ @coolbress
