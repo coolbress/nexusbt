@@ -17,3 +17,13 @@ tds = "nexusbt_tds.cli:main"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+# The schema files are `schemas/` (spec 9.1, T0.13b) and the checker reads them as package data
+# `nexusbt_tds/schemas/data` (#145), a link to `schemas/` in a checkout. A build walks a folder
+# once, so the link is left out and the wheel takes the files from `schemas/` itself: built
+# straight from the checkout or from the sdist, which carries `schemas/` and not the link.
+[tool.hatch.build.targets.wheel]
+exclude = ["/src/nexusbt_tds/schemas/data"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"schemas" = "nexusbt_tds/schemas/data"

@@ -19,11 +19,15 @@ import json
 import re
 import sys
 from dataclasses import dataclass
+from importlib.resources import files
+from importlib.resources.abc import Traversable
 from pathlib import Path
 
-#: The repository: this file is `tds/src/nexusbt_tds/schemas/verify.py`.
+#: The schema files, read from the installed package (#145): `nexusbt_tds/schemas/data`, which a
+#: wheel carries and which in a checkout links to `tds/schemas`, where the files are.
+SCHEMA_DIR: Traversable = files("nexusbt_tds.schemas") / "data"
+#: The repository, for the TDS document this check compares against (a checkout only).
 ROOT = Path(__file__).resolve().parents[4]
-SCHEMA_DIR = ROOT / "tds" / "schemas"
 DOC = ROOT / "docs" / "tds" / "tds-v1.4.md"
 VERSION = "1.0"
 
@@ -176,17 +180,23 @@ def section_status(doc: str) -> dict[str, str]:
     return {n: "experimental" if "experimental" in text else "stable" for n, text in headings}
 
 
-def load_schemas(root: Path = SCHEMA_DIR) -> dict[str, Schema]:
-    """Every `<kind>/1.0.json` under `root`, by kind."""
+def load_schemas(root: Traversable = SCHEMA_DIR) -> dict[str, Schema]:
+    """Every `<kind>/1.0.json` under `root`, by kind; none found is an error, not an empty map
+    (a checker without its schemas would check nothing at the `schema` level, #145)."""
     schemas: dict[str, Schema] = {}
-    for path in sorted(root.glob(f"*/{VERSION}.json")):
+    for folder in sorted(root.iterdir(), key=lambda p: p.name) if root.is_dir() else []:
+        path = folder / f"{VERSION}.json"
+        if not path.is_file():
+            continue
         data = json.loads(path.read_text(encoding="utf-8"))
         columns = tuple(
             Column(c["name"], c["type"], c["null"], c.get("enum"), values)
             for c in data["columns"]
             for values in [tuple(c["values"]) if "values" in c else None]
         )
-        schemas[path.parent.name] = Schema(data["kind"], data["status"], columns, data["key"])
+        schemas[folder.name] = Schema(data["kind"], data["status"], columns, data["key"])
+    if not schemas:
+        raise FileNotFoundError(f"no schema file `<kind>/{VERSION}.json` under {root}")
     return schemas
 
 
@@ -203,7 +213,7 @@ def file_problems(schemas: dict[str, Schema], status: dict[str, str]) -> list[st
     return out
 
 
-def main(schema_dir: Path = SCHEMA_DIR) -> int:
+def main(schema_dir: Traversable = SCHEMA_DIR) -> int:
     doc = DOC.read_text(encoding="utf-8")
     schemas = load_schemas(schema_dir)
     for status in ("stable", "experimental"):
