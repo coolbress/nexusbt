@@ -220,6 +220,45 @@ def test_semantic_hash_resolves_defaults_and_dataset_order(tmp_path: Path) -> No
     assert semantic_hash(changed) != semantic_hash(a)
 
 
+def with_markets(src: Path, dst: Path, **us: Any) -> Path:
+    """A copy of `src` whose tds.json has markets US (the stable fields, then `us`) and KR."""
+    stable = {"calendar_id": "XNYS", "currency": "USD", "timezone": "America/New_York"}
+    kr = {"calendar_id": "XKRX", "currency": "KRW", "timezone": "Asia/Seoul"}
+    return edited(src, dst, lambda m: m.update(markets={"US": {**stable, **us}, "KR": kr}))
+
+
+def test_semantic_hash_ignores_watermark(tmp_path: Path) -> None:
+    a = package(tmp_path / "a", BARS_TWO, PARTS)
+    old = with_markets(a, tmp_path / "old", complete_through_session="2024-01-03",
+                       complete_through="2024-01-03T21:00:00Z")  # fmt: skip
+    new = with_markets(a, tmp_path / "new", complete_through_session="2024-01-04",
+                       complete_through="2024-01-04T21:00:00Z")  # fmt: skip
+    plain = with_markets(a, tmp_path / "b")
+    assert semantic_hash(old) == semantic_hash(new) == semantic_hash(plain)
+
+
+def test_semantic_hash_ignores_unknown_market_key(tmp_path: Path) -> None:
+    a = package(tmp_path / "a", BARS_TWO, PARTS)
+    extra = with_markets(a, tmp_path / "x", x_published_by="nightly")
+    assert semantic_hash(extra) == semantic_hash(with_markets(a, tmp_path / "b"))
+
+
+def test_semantic_hash_sees_market_currency(tmp_path: Path) -> None:
+    a = package(tmp_path / "a", BARS_TWO, PARTS)
+    plain = with_markets(a, tmp_path / "b")
+    for field, value in (("currency", "EUR"), ("calendar_id", "XNAS"), ("timezone", "UTC")):
+        assert semantic_hash(with_markets(a, tmp_path / field, **{field: value})) != (
+            semantic_hash(plain)
+        )
+
+
+def test_semantic_json_keeps_absent_market_fields_absent(tmp_path: Path) -> None:
+    a = package(tmp_path / "a", BARS_TWO, PARTS)
+    us = {"currency": "USD", "complete_through": "2024-01-03T21:00:00Z"}
+    pkg = edited(a, tmp_path / "b", lambda m: m.update(markets={"US": us}))
+    assert '"markets":{"US":{"currency":"USD"}}' in semantic_json(pkg)
+
+
 def test_canonical_json_is_rfc_8785() -> None:
     numbers = [1.0, -9.0, 1e16, 1e21, 1e-7, 2e-3, -0.0, 333333333.33333329, 1e-27, 5]
     doc = {"": 1, "\U0001f600": 2, "é": 3, "a": numbers, "s": 'a"b\\c\n\x01é', "n": None}
