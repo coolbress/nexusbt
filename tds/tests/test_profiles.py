@@ -58,6 +58,14 @@ def test_alternatives_and_experimental_status() -> None:
     assert PROFILES["tds:minimal-daily@1.0"].status == "stable"
 
 
+def test_a_typo_in_the_profile_table_fails_loudly() -> None:
+    # a condition the table cannot read must not drop out and loosen the profile
+    from nexusbt_tds.profiles import _needs
+
+    with pytest.raises(ValueError, match="Freq"):
+        _needs("bars:Freq=1d")
+
+
 def test_profile_three_results(tmp_path: Path) -> None:
     package = Path(build.write(tmp_path, *build.base()))  # declares tds:minimal-daily@1.0
     asked = ["tds:minimal-daily", "tds:equity-daily-core@1.0", "tds:no-such@1.0"]
