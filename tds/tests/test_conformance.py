@@ -184,6 +184,32 @@ def test_a_placeholder_in_a_value_list_is_any_name(
     assert [w.code for w in result.warnings] == found
 
 
+@pytest.mark.parametrize(
+    ("value", "found"),
+    [("committee", ["TDS-S006"]), ("board", []), ("meeting", []), (None, [])],
+)
+def test_resolution_body_is_a_closed_list(
+    value: str | None, found: list[str], tmp_path: Path
+) -> None:  # TDS 5.11, #140: `meeting` or `board`, null when the producer does not know
+    table = pa.table({
+        "event_id": ["E1"], "instrument_id": ["KR:AAA"], "kind": ["cash_dividend"],
+        "ex_date": pa.array([build.TS[0].as_py().date()], pa.date32()), "ts_effective": build.TS,
+        "pay_date_status": ["observed"], "resolution_body": pa.array([value], pa.string()),
+        "affects": ["total_only"], "factor_method": ["cash_prev_close"], "status": ["effective"],
+    })  # fmt: skip
+    rel = "corporate_actions/part-00000.parquet"
+
+    def add(m: dict[str, Any], f: Any) -> None:
+        f[rel] = build.parquet(table, "corporate_actions")
+        m["datasets"].append({"name": "corporate_actions", "kind": "corporate_actions",
+                              "schema_version": "1.0", "path": "corporate_actions",
+                              "files": [{"path": rel, "bytes": len(f[rel])}]})  # fmt: skip
+
+    result = check(write(tmp_path, add), level="schema")
+    assert [f.code for f in (*result.errors, *result.warnings)] == found
+    assert "TDS-S006" not in result.unchecked
+
+
 _bars, TS, VERSION_1_9 = build._bars, build.TS, build.VERSION_1_9
 
 
