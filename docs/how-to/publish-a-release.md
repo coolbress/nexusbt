@@ -109,7 +109,11 @@ Do not add a secret here: Trusted Publishing needs none.
    release page with its notes is under **Releases** on GitHub. On PyPI,
    open the file under **Download files** and **View details**: the
    provenance shown there is the signed record that this repository's
-   workflow built it.
+   workflow built it. The GitHub release page also carries
+   `sbom.spdx.json`, a software bill of materials (SBOM): the package and
+   every package installing it brings, at the versions `uv.lock` names. A
+   scanner reads it to tell whether a newly published vulnerability touches
+   a release.
 
 ## When a release fails
 
@@ -117,17 +121,20 @@ Nothing is uploaded until every check before the upload has passed. The run
 says which step stopped, in its summary.
 
 - **"The tag and the version differ."** The tag says one version,
-  `pyproject.toml` another. Decide which one is right. If the file is right,
-  delete the tag and push the right one. If the tag is right, change the
-  version in a pull request first, merge it, then delete the tag and push it
-  again. To delete a tag: `git push origin --delete v0.2.0`, then
-  `git tag -d v0.2.0`.
+  `pyproject.toml` another. The wrong tag stays: the repository's tag
+  ruleset (when plinth set one up) refuses to move or delete a `v*` tag, so
+  its version number is used up. If the file's version has no tag yet, tag
+  `origin/main` with it as in step 4. Otherwise raise the version in a pull
+  request to one with no tag, merge it, and tag that.
 - **"The tag is not on main."** The tag points at a commit that never went
-  through a pull request. Delete it and tag `origin/main` as in step 4.
+  through a pull request. It stays, as above: tag `origin/main` as in step
+  4, with a version that has no tag yet.
 - **"PyPI did not accept this release" and `invalid-publisher` in the log.**
   PyPI has no publisher that matches. Check every field of step 2 against
   this repository, for the right site (PyPI or TestPyPI), fix the one that
-  differs, then delete the tag and push it again.
+  differs, then open the failed run and press **Re-run jobs** > **Re-run
+  failed jobs** (or `gh run rerun <run id> --failed`). The tag stays as it
+  is.
 - **"File already exists".** That version was published before, and PyPI
   never takes the same version twice, even after a deletion. Raise the
   version (step 4.1) and tag again.
