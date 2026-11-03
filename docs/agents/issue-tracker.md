@@ -24,6 +24,16 @@ anything. Writing into someone else's repository, use theirs.
 
 ## Four kinds of issue
 
+Pick the kind before you create the issue. A bug report or a feature request
+takes its own label (`bug`, `enhancement`); any other issue takes its kind from
+its result. When the result is a decision, an answer or a map, the issue is a
+record (`wayfinder:research`, `wayfinder:grilling`, `wayfinder:map`, or
+`spec`); when the result changes code or documents, it is a `task`. When work
+waits on a decision, open the record first, and open the task after the
+decision, from it. Every issue carries a
+kind label: after `gh issue create`, read it back with
+`gh issue view <n> --json labels` and add the label if it is missing.
+
 The forms are in `.github/ISSUE_TEMPLATE`. The CLI does not render a form, so
 from `gh` write the body under the form's field labels as headings and add the
 form's label yourself.
