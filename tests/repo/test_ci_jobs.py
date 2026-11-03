@@ -5,11 +5,15 @@ A fake runner stands in for the commands; the folder is a temporary one.
 
 from __future__ import annotations
 
+import json
 import re
+import shutil
+import subprocess
 from collections.abc import Collection, Sequence
 from pathlib import Path
 
-from ci_jobs import CHECKS, marker_names, registered_markers, run_check
+import pytest
+from ci_jobs import ACTIVATED, CHECKS, marker_names, registered_markers, run_check
 
 PYPROJECT = Path(__file__).parents[2] / "pyproject.toml"
 
@@ -121,15 +125,25 @@ CONFORMANCE = (
 )
 
 
-def test_a_step_whose_path_or_module_is_missing_is_shown_but_not_run(tmp_path: Path) -> None:
+def test_a_step_whose_path_is_missing_is_shown_but_not_run(tmp_path: Path) -> None:
+    """`engine / parity` is not required yet: its two parity-project steps pass unrun."""
     fake = FakeRunner()
-    code, log, summary = run_one("tds / conformance", tmp_path, fake)
+    code, log, summary = run_one("engine / parity", tmp_path, fake)
+    assert code == 0
+    assert fake.ran == ["uv run pytest -m parity"]
+    assert "$ uv sync --project tests/parity --locked" in log
+    assert summary.count("not yet confirmed: engine / parity runs no tests yet") == 2
+    assert "tests/parity/pyproject.toml does not exist" in summary
+
+
+def test_a_step_whose_module_is_missing_is_shown_but_not_run(tmp_path: Path) -> None:
+    fake = FakeRunner()
+    code, log, summary = run_one("engine / property-deep", tmp_path, fake)
     assert code == 0
     assert fake.ran == []
-    assert f"$ {CONFORMANCE[0]}" in log
-    assert f"$ {CONFORMANCE[1]}" in log
-    assert "tds/tests does not exist yet" in summary
-    assert "module nexusbt.testing.synth does not exist yet" in summary
+    assert "$ uv run pytest -m property --hypothesis-profile=deep" in log
+    assert summary.startswith("- not yet confirmed: engine / property-deep runs no tests yet")
+    assert "module hypothesis does not exist" in summary
 
 
 def test_the_step_runs_once_its_path_and_module_exist(tmp_path: Path) -> None:
@@ -157,6 +171,88 @@ def test_exit_5_from_a_command_that_is_not_pytest_is_a_failure(tmp_path: Path) -
     code, _, summary = run_one("engine / release", tmp_path, fake)
     assert code == 5
     assert summary.startswith("- fail: engine / release")
+
+
+GOLDEN_GUARD = "uv run pytest tests/repo/test_golden_guard.py"
+
+
+def test_a_required_check_whose_test_file_is_missing_fails(tmp_path: Path) -> None:
+    fake = FakeRunner()
+    code, log, summary = run_one("engine / golden-guard", tmp_path, fake)
+    assert code != 0
+    assert fake.ran == []
+    assert "::error::fail: engine / golden-guard is required and runs no tests" in log
+    assert summary == (
+        "- fail: engine / golden-guard is required and runs no tests, "
+        f"`{GOLDEN_GUARD}`: tests/repo/test_golden_guard.py does not exist\n"
+    )
+
+
+def test_a_required_check_whose_pytest_collects_nothing_fails(tmp_path: Path) -> None:
+    (tmp_path / "tests" / "repo").mkdir(parents=True)
+    (tmp_path / "tests" / "repo" / "test_golden_guard.py").touch()
+    fake = FakeRunner({GOLDEN_GUARD: 5})
+    code, _, summary = run_one("engine / golden-guard", tmp_path, fake)
+    assert code != 0
+    assert fake.ran == [GOLDEN_GUARD]
+    assert summary == (
+        "- fail: engine / golden-guard is required and runs no tests, "
+        f"`{GOLDEN_GUARD}`: pytest collected no tests\n"
+    )
+
+
+def test_a_required_check_stops_at_its_first_step_that_runs_nothing(tmp_path: Path) -> None:
+    """`tds / conformance` without `tds/tests`: it fails there and does not run the synth step."""
+    fake = FakeRunner()
+    code, log, summary = run_one("tds / conformance", tmp_path, fake, {"nexusbt.testing.synth"})
+    assert code != 0
+    assert fake.ran == []
+    assert f"$ {CONFORMANCE[1]}" not in log
+    assert summary == (
+        "- fail: tds / conformance is required and runs no tests, "
+        f"`{CONFORMANCE[0]}`: tds/tests does not exist\n"
+    )
+
+
+def test_a_required_check_whose_module_is_missing_fails(tmp_path: Path) -> None:
+    code, _, summary = run_one("tds / schemas", tmp_path, FakeRunner())
+    assert code != 0
+    assert summary.startswith("- fail: tds / schemas is required and runs no tests")
+    assert "module nexusbt_tds.schemas.verify does not exist" in summary
+
+
+def test_the_activated_checks_are_the_three_required_at_the_end_of_m0() -> None:
+    """Spec T0.10: `tds / *` and `engine / golden-guard` joined the required list on 2026-11-03."""
+    assert {"tds / schemas", "tds / conformance", "engine / golden-guard"} == ACTIVATED
+    assert set(CHECKS) >= ACTIVATED
+
+
+def test_the_activated_checks_are_the_engine_and_tds_checks_the_live_ruleset_requires() -> None:
+    """Read the ruleset with `gh api` only where `gh` is signed in; else skip, calling nothing.
+
+    A local check for the person: CI has no `gh` sign-in, so there it makes no network call.
+    """
+    gh = shutil.which("gh")
+    if gh is None:
+        pytest.skip("gh is not installed, so the live ruleset is not read")
+    signed_in = subprocess.run([gh, "auth", "status"], capture_output=True, check=False)  # noqa: S603
+    if signed_in.returncode != 0:
+        pytest.skip("gh is not signed in, so the live ruleset is not read")
+    rules = json.loads(
+        subprocess.run(  # noqa: S603
+            [gh, "api", "repos/{owner}/{repo}/rules/branches/main"],
+            capture_output=True,
+            check=True,
+            cwd=PYPROJECT.parent,
+        ).stdout
+    )
+    required = {
+        check["context"]
+        for rule in rules
+        if rule["type"] == "required_status_checks"
+        for check in rule["parameters"]["required_status_checks"]
+    }
+    assert {c for c in required if c.startswith(("engine / ", "tds / "))} == ACTIVATED
 
 
 def test_the_checks_are_the_spec_table_with_its_commands() -> None:

@@ -3,10 +3,11 @@
 From the repository root: `uv run python tests/repo/ci_jobs.py "<check>"`.
 
 Each check runs the local command of the 9.1 table, step by step, and prints each
-command before it runs. A check with no tests yet passes with "no tests yet": a step
-whose file or module does not exist yet is not run, and pytest collecting nothing
-(exit 5) is not a failure. That pass is written as a `not yet confirmed:` line, because
-the milestone that makes the check required asks that it run at least one test.
+command before it runs. A step whose file or module does not exist is not run, and
+pytest collecting nothing (exit 5) means the step ran no tests. For a check in ACTIVATED,
+one a milestone has made required, that is a failure (#146). Any other check passes with
+"no tests yet", written as a `not yet confirmed:` line, because the milestone that makes
+the check required asks that it run at least one test.
 A pytest step whose `-m` expression names a marker `pyproject.toml` does not register
 fails without running, so a misspelt marker cannot pass as "no tests yet".
 """
@@ -78,6 +79,20 @@ CHECKS: dict[str, tuple[Step, ...]] = {
 }
 
 
+#: The checks a milestone has put on the ruleset's required list (spec T0.10, 9.1 table):
+#: for them, running no tests is a failure. Kept by hand: a pull request that changes the
+#: ruleset's required list changes this list too. `test_ci_jobs.py` compares it with the
+#: live ruleset as a local check only, where `gh` is signed in; elsewhere, CI included,
+#: that test skips without a network call.
+ACTIVATED: frozenset[str] = frozenset(
+    {
+        # Required since 2026-11-03, the end of M0.
+        "tds / schemas",
+        "tds / conformance",
+        "engine / golden-guard",
+    }
+)
+
 #: pytest's exit status when it collected no tests.
 NO_TESTS_COLLECTED = 5
 
@@ -112,15 +127,22 @@ def marker_names(argv: Sequence[str]) -> set[str]:
     return names - MARKER_OPERATORS
 
 
-def no_tests_yet(name: str, step: Step, why: str, out: Callable[[str], None]) -> str:
-    """Say in the log and as an annotation that `step` checked nothing; return the line."""
+def no_tests_yet(name: str, step: Step, why: str, out: Callable[[str], None]) -> tuple[int, str]:
+    """Say in the log and as an annotation that `step` checked nothing; return exit code and line.
+
+    For a check in ACTIVATED that is a failure; for any other it passes as "no tests yet".
+    """
+    if name in ACTIVATED:
+        line = f"fail: {name} is required and runs no tests, `{step.command}`: {why}"
+        out(f"::error::{line}")
+        return 1, line
     out(f"no tests yet: {why}")
     line = (
         f"not yet confirmed: {name} runs no tests yet, `{step.command}`: {why}; the milestone "
         "that makes this check required needs it to run at least one test (spec 9.1)"
     )
     out(f"::warning::{line}")
-    return line
+    return 0, line
 
 
 def run_check(
@@ -152,22 +174,25 @@ def run_check(
             out(f"::error::{line}")
             lines.append(line)
             break
+        why = None
         if step.needs_path is not None and not (root / step.needs_path).exists():
-            lines.append(no_tests_yet(name, step, f"{step.needs_path} does not exist yet", out))
-            continue
-        if step.needs_module is not None and not has_module(step.needs_module):
-            why = f"module {step.needs_module} does not exist yet"
-            lines.append(no_tests_yet(name, step, why, out))
-            continue
-        code = run(argv)
-        if code == NO_TESTS_COLLECTED and "pytest" in argv:
-            code = 0
-            lines.append(no_tests_yet(name, step, "pytest collected no tests", out))
-        elif code != 0:
-            lines.append(f"fail: {name}, `{step.command}` exited {code}")
+            why = f"{step.needs_path} does not exist"
+        elif step.needs_module is not None and not has_module(step.needs_module):
+            why = f"module {step.needs_module} does not exist"
+        if why is None:
+            code = run(argv)
+            if code == NO_TESTS_COLLECTED and "pytest" in argv:
+                why = "pytest collected no tests"
+            elif code != 0:
+                lines.append(f"fail: {name}, `{step.command}` exited {code}")
+                break
+            else:
+                lines.append(f"pass: {name}, `{step.command}`")
+                continue
+        code, line = no_tests_yet(name, step, why, out)
+        lines.append(line)
+        if code != 0:
             break
-        else:
-            lines.append(f"pass: {name}, `{step.command}`")
     if summary is not None:
         with summary.open("a") as f:
             f.writelines(f"- {line}\n" for line in lines)
