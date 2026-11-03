@@ -27,10 +27,14 @@ settings:
   # half_up with unit 1.
   rounding: {proceeds: half_up, provisional: half_up, unit: 1}
   execution: {at: open, order: market, tif: day}
-  # Off on purpose (#59 Decisions): the 5.6.6 defaults 0.05 and 0.10 against a volume of
-  # 1,000 would cap the buy below 100 shares, and G-01 is not a volume-cap case. With the
-  # default adv_min_obs 10, the one session before 2020-01-03 leaves ADV unknown and the buy
-  # fills 0 (blocked(capacity_unknown)); at 1, ADV = 1,000 and the cap is 1,000 >= 990.
+  # Not the 5.6.6 defaults, for one reason: G-01 is not a volume-cap case (#59 Decisions).
+  # The tiny bars trade 1,000 shares a session from 2020-01-02. With the defaults, the
+  # 2020-01-03 buy would not be 990 shares:
+  #   max_participation 0.05, max_bar_participation 0.10: capped below 100 shares;
+  #   adv_min_obs 10: one past session leaves ADV unknown, 0 filled (blocked(capacity_unknown)).
+  # With these three, ADV = 1,000 and the cap is 1,000 >= 990. A later case that is not about
+  # the volume cap and fills in the first sessions of tiny meets the same defaults; the cap
+  # itself has its own cases (G-56 among them).
   max_participation: 1.0
   max_bar_participation: 1.0
   adv_min_obs: 1
