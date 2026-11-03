@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import csv
 import datetime as dt
 import json
 import sysconfig
+from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
@@ -86,6 +88,9 @@ def test_tiny_is_hand_authored_no_rng(tiny: Path, tmp_path: Path) -> None:
     ]
     us = [r["close"] for r in rows(tiny, "bars") if r["instrument_id"] == "US:T00002"][:4]
     assert us == [20.0, 20.2, 20.4, 20.2]
+    mics = {r["instrument_id"]: r["venue_mic"] for r in rows(tiny, "instruments")}
+    assert [mics[f"KR:T0000{n}"] for n in (1, 2)] == ["XKRX", "XKOS"]  # fixed: odd, even
+    assert [mics[f"US:T0000{n}"] for n in (1, 2)] == ["XNYS", "XNAS"]
 
 
 def test_bars_dense_per_listing(tiny: Path) -> None:
@@ -227,6 +232,21 @@ def test_small_tickers_change_and_are_reused(small: Path) -> None:
         per_id[r["instrument_id"]] = per_id.get(r["instrument_id"], 0) + 1
     assert any(len(ids) > 1 for ids in holders.values())  # an old ticker on another id
     assert any(count > 1 for count in per_id.values())  # a ticker history that changes
+
+
+@pytest.mark.parametrize("preset", ["tiny", "small"])
+def test_emitted_mics_are_in_venue_groups(preset: str, small: Path, tmp_path: Path) -> None:
+    table = files("nexusbt.resources") / "costs/venue_groups_v1.csv"
+    with table.open(encoding="utf-8") as f:
+        listed = {(r["country"], r["venue_mic"]) for r in csv.DictReader(f)}
+    package = small if preset == "small" else make_snapshot(
+        tmp_path / "t", preset="tiny", markets=("KR", "US", "ZZ"))  # fmt: skip
+    mics: dict[str, set[str | None]] = {}
+    for r in rows(package, "instruments"):
+        mics.setdefault(r["market"], set()).add(r["venue_mic"])
+        if r["market"] != "ZZ":  # every KR and US MIC is a row for its country
+            assert (r["market"], r["venue_mic"]) in listed, r["instrument_id"]
+    assert mics == {"KR": {"XKRX", "XKOS"}, "US": {"XNYS", "XNAS"}, "ZZ": {None}}
 
 
 def test_small_is_seeded_and_byte_identical(tmp_path: Path) -> None:
