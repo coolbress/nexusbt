@@ -1,4 +1,7 @@
-"""TDS 5, 10.3: the schema files `tds/schemas/<kind>/1.0.json` and `nexusbt_tds.schemas.verify`."""
+"""TDS 5, 10.3: the schema files `tds/schemas/<kind>/1.0.json` and `nexusbt_tds.schemas.verify`.
+
+The package's `nexusbt_tds/schemas/data` links to `tds/schemas`, where the files are (#145).
+"""
 
 from __future__ import annotations
 
@@ -143,10 +146,23 @@ def test_experimental_schemas_flagged() -> None:
 def test_a_kind_without_a_file_fails_verify(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    shutil.copytree(SCHEMA_DIR, tmp_path, dirs_exist_ok=True)
+    shutil.copytree(str(SCHEMA_DIR), tmp_path, dirs_exist_ok=True)
     shutil.rmtree(tmp_path / "quotes")
     assert main(tmp_path) == 1
     assert "quotes: no schema file" in capsys.readouterr().out.splitlines()
+
+
+@pytest.mark.parametrize(
+    "made", [[], ["bars"], None], ids=["empty", "a folder without 1.0.json", "no folder"]
+)
+def test_no_schema_file_is_an_error_not_an_empty_registry(
+    tmp_path: Path, made: list[str] | None
+) -> None:
+    # An installed checker that found none would check nothing at the schema level (#145).
+    for name in made or []:
+        (tmp_path / name).mkdir()
+    with pytest.raises(FileNotFoundError, match="no schema file"):
+        load_schemas(tmp_path if made is not None else tmp_path / "missing")
 
 
 def test_schema_files_cover_stable_datasets() -> None:
