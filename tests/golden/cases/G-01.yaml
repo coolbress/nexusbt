@@ -1,0 +1,57 @@
+# Golden case G-01 (spec 8.2): market buy at the open, provisional costs, integer minor units.
+# Expected numbers are literals. `check/G-01.py` reaches them by arithmetic only, and
+# `tests/golden/test_handcalc_self.py` compares the two. An implementation pull request does
+# not change this file (`tests/repo/test_golden_guard.py`); a wrong number reopens the golden
+# ticket ("spec deviation").
+id: G-01
+description: >-
+  One KR sleeve of 10,000,000 won in cash is given a canonical target of weight 0.99 in
+  KR:T00001 at the 2020-01-02 close decision. The market buy fills at the 2020-01-03 open
+  with the provisional buy cost of 5 bp, and the holding is marked at the next two closes.
+spec: "8.2 G-01; 5.6.3 phases, 5.6.4 market at open, 5.6.7 quantities and cash, 5.6.8 costs"
+
+# The rows of the hand-set `tiny` preset (spec 4.8) the case reads, as the generator writes
+# them: KR:T00001, sessions of XKRX, prices in won. Volume 1,000 shares a session.
+tiny:
+  market: KR
+  calendar_id: XKRX
+  bars_1d:
+    - {instrument_id: "KR:T00001", session_date: "2020-01-02", open: 10000, high: 10000, low: 10000, close: 10000, volume: 1000}
+    - {instrument_id: "KR:T00001", session_date: "2020-01-03", open: 10000, high: 10100, low: 10000, close: 10100, volume: 1000}
+    - {instrument_id: "KR:T00001", session_date: "2020-01-06", open: 10100, high: 10200, low: 10100, close: 10200, volume: 1000}
+
+settings:
+  capital_minor: 10000000            # KRW, minor unit 1 won (KR pack minor_unit = 0)
+  costs: {profile: provisional, provisional_bps: {buy: 5, sell: 25}, sensitivity: 1}
+  # KR pack [rounding]: proceeds half_up; provisional has no key there, so 5.6.1's default
+  # half_up with unit 1.
+  rounding: {proceeds: half_up, provisional: half_up, unit: 1}
+  execution: {at: open, order: market, tif: day}
+  # Off on purpose (#59 Decisions): the 5.6.6 defaults 0.05 and 0.10 against a volume of
+  # 1,000 would cap the buy below 100 shares, and G-01 is not a volume-cap case. With the
+  # default adv_min_obs 10, the one session before 2020-01-03 leaves ADV unknown and the buy
+  # fills 0 (blocked(capacity_unknown)); at 1, ADV = 1,000 and the cap is 1,000 >= 990.
+  max_participation: 1.0
+  max_bar_participation: 1.0
+  adv_min_obs: 1
+  cost_reserve_bps: 0
+
+# Test-execution input: the canonical target, given directly.
+input:
+  targets:
+    - {decision: "2020-01-02", instrument_id: "KR:T00001", weight: 0.99}
+
+# One row per session and phase. Columns not meaningful in a phase are null.
+# value_minor = decision_value at a decision, nav_economic at close_mark.
+#
+# Hand-checked by the person 2026-11-03 (#59 Decisions):
+#   2020-01-02 decision: T = floor(0.99 x 10,000,000 / 10,000) = 990 shares
+#   2020-01-03 open:     990 x 10,000 = 9,900,000 + cost 4,950 = 9,904,950 <= cash, nothing
+#                        cancelled; cash 10,000,000 - 9,904,950 = 95,050
+#   2020-01-03 close:    990 x 10,100 = 9,999,000 + 95,050 = NAV 10,094,050
+#   2020-01-06 close:    990 x 10,200 = 10,098,000 + 95,050 = NAV 10,193,050
+expected:
+  - {session: "2020-01-02", phase: decision, order_qty: 990, fill_qty: null, fill_price: null, notional_minor: null, cost_minor: null, cash_minor: 10000000, qty: 0, value_minor: 10000000}
+  - {session: "2020-01-03", phase: open, order_qty: null, fill_qty: 990, fill_price: 10000, notional_minor: 9900000, cost_minor: 4950, cash_minor: 95050, qty: 990, value_minor: null}
+  - {session: "2020-01-03", phase: close_mark, order_qty: null, fill_qty: null, fill_price: null, notional_minor: null, cost_minor: null, cash_minor: 95050, qty: 990, value_minor: 10094050}
+  - {session: "2020-01-06", phase: close_mark, order_qty: null, fill_qty: null, fill_price: null, notional_minor: null, cost_minor: null, cash_minor: 95050, qty: 990, value_minor: 10193050}
