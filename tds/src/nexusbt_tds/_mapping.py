@@ -163,7 +163,7 @@ def _token(text: str, i: int, n: int, stops: str) -> tuple[str, int]:
         end = i + 1
         while (end := text.find("'", end)) != -1 and text[end + 1 : end + 2] == "'":
             end += 2
-        if end == -1:
+        if end == -1:  # pragma: no cover (`_strip_comment` refused an unclosed quote first)
             raise _error(n, "a quote is not closed")
         return text[i + 1 : end].replace("''", "'"), end + 1
     _reject_unsupported(text, i, n)

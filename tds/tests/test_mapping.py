@@ -80,6 +80,11 @@ datasets:
         ("a\n", 1),
         ('a: b\nc: "C:\\dir"\n', 2),  # an escape JSON does not read
         ("a: {b: c, b: d}\n", 1),  # a key twice, in flow form too
+        ("a:\n\tb: c\n", 2),  # a tab in the indentation
+        ("a: {b: c} d\n", 1),  # text after a flow form
+        ("a: {b, c: d}\n", 1),  # a flow key with no `:`
+        ('a: "b\\"\n', 1),  # the closing quote escaped
+        ("a: {b: }\n", 1),  # an empty flow value
     ],
 )
 def test_outside_the_subset_names_the_line(text: str, line: int) -> None:
