@@ -39,6 +39,7 @@ Daily returns of T = 252 × years observations, candidates K ∈ {1, 10, 100, 1,
 | N3 | AR(2) with φ1 = 0, φ2 = 0.3 (so ρ1 = 0, ρ2 = 0.3) | dependence the `ρ1` trigger misses |
 | N4 | overlapping holdings: sums of h = 5 IID days (an MA(4)) | the label overlap of 5.8 |
 | N5 | two-state regime switch in volatility, mean 0 | non-stationarity |
+| N6 | GARCH(1,1) with α = 0.1, β = 0.85, mean 0: returns serially uncorrelated, squared returns dependent | changing volatility without dependence in the returns |
 | C1 | K candidates with one common factor, pairwise correlation ρ ∈ {0, 0.5, 0.9}; and exact duplicates | the cohort's N against effectively fewer trials |
 | A1 | one candidate of K with a true mean (annualised Sharpe 0.5 and 1.0) on top of N0–N5 | power |
 
@@ -58,6 +59,7 @@ Panel rows are not independent evidence: a scenario with many instruments per da
 | S8 | PSR(0) and MinTRL under N1–N5 for one candidate | rejection rate | measured; the IID assumption's cost under N2–N4 is the point |
 | S9 | PBO under N0 with K noise candidates; and with one A1 candidate | PBO distribution | near 0.5 under the null (the IS winner's OOS rank is uniform); lower with a real candidate |
 | S10 | tuning on a 2 % subsample of rows versus all rows, inside the allowed training range | agreement of parameter ranks, tail metrics, rare-event coverage | measured; no claim that a subsample preserves ranks or tails |
+| S11 | the "dependence visible" rule of spec 5.7 (Ljung–Box Q over lags 1–10, p < 0.05) on one return series, T = 252 and 252 × 5 | how often the label appears under N0 and N6, and how often it catches N2 and N3 | near the nominal 5 % under N0; measured, likely higher, under N6 (the label text says it may reflect changing volatility); the 5 % is checked here, not assumed (#197) |
 
 A scenario fails the procedure, not the strategy: a final test that does not reject is not proof that a strategy is false. Low power, a small economic effect, a violated assumption and a regime change are reported as separate possibilities.
 
