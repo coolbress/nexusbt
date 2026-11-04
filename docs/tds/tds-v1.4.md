@@ -523,9 +523,10 @@ Key (`calendar_id`, `session_date`). Sort same.
 | session_ord | i32 | yes | Consecutive number from 0 within the calendar (checked by K011 if present) |
 | is_half_day | bool | yes | |
 | session_kind | code | no | `regular`, `continuous_24h` (crypto UTC day), `special` |
-| calendar_version | string | yes | Session table version |
+| calendar_version | string | yes | Version of the session table the row was published under (informational; see below) |
 | source | string | yes | e.g. `exchange_calendars+prices` |
 
+- `calendar_version` is informational: the producer writes it and may rewrite it on every row at every publish, also on a row whose other fields did not change. A consumer does not key on it (the engine leaves it out of its cache keys, specification 5.3.9), and no check watches it [maintainer decision 2026-11-04].
 - The session table is built by reconciling schedule data with prices. A session is not removed because some instrument has no price (specification 4.6).
 - 24/7: `session_date` = UTC date, `ts_open` = 00:00Z, `ts_close` = 00:00Z of the next day.
 - Futures overnight trading: the session of trading day D may start on the evening of D−1 (`ts_open < session_date 00:00 local`). This is normal.
