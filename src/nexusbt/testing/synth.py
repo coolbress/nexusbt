@@ -586,7 +586,12 @@ def make_snapshot(
             "columns": [{"name": c, "type": "ts_us"} for c in ("ts_start", "ts_end")]}  # fmt: skip
     unstated = ((ID, "id"), ("id_type", "code"), ("link_quality", "code"), ("source", "string"))
     xref = {"columns": [{"name": c, "type": t} for c, t in unstated]}  # types 5.3 leaves out
-    actions = {"availability": {"effect": "ts_effective", "terms": "ts_terms_available"}}  # 6.2
+    named = {  # TDS 4.2, 6.2: availability as the columns that hold it (#276)
+        "instrument_symbols": {"availability": {"column": "ts_known_from"}},
+        "corporate_actions": {"availability": {"effect": "ts_effective",
+                                               "terms": "ts_terms_available"}},
+        "delistings": {"availability": {"exit": "ts_exit_known", "value": "ts_value_available"}},
+    }  # fmt: skip
     manifest = {
         "tds_version": "1.0", "name": f"synth-{preset}", "created": f"{final}T00:00:00Z",
         "snapshot_id": snapshot_id, "producer": {"name": PRODUCER, "hints": HINTS},
@@ -595,8 +600,8 @@ def make_snapshot(
         "markets": {m: MARKETS[m] for m in chosen},
         "datasets": [
             {"name": name, "kind": name, "path": name, "schema_version": "1.0",
-             **{"bars_1d": bars, "instrument_xref": xref, "corporate_actions": actions}.get(
-                 name, {}), "files": entries}
+             **({"bars_1d": bars, "instrument_xref": xref} | named).get(name, {}),
+             "files": entries}
             for name, entries in files.items()
         ],
         "hashes": {"hash_spec": "tds-hash-1"},

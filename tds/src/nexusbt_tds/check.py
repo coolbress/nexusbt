@@ -307,6 +307,11 @@ def _check_dataset(
     for rule in _rules(ds):
         if not isinstance(rule, str) or not RULE.fullmatch(rule):
             yield Finding("TDS-M014", "error", f"unknown availability rule {rule!r}", dataset=name)
+    availability = ds.get("availability")  # a rule, `{"rule": …}`, or a 6.2 form (#276)
+    known = availability is None or isinstance(availability, str) or _named(ds)
+    if not known and not (isinstance(availability, dict) and "rule" in availability):
+        msg = f"availability {availability!r} is neither a 6.2 rule nor a 6.2 column form"
+        yield Finding("TDS-M014", "error", msg, dataset=name)
     params = ds["params"] if isinstance(ds.get("params"), dict) else {}
     kind = ds.get("kind") if isinstance(ds.get("kind"), str) else None  # `["bars"]`: no crash
     for key, values in CLOSED_PARAMS.get(kind, {}).items():
@@ -569,14 +574,11 @@ def _check_ranges(m: Manifest, only: Sequence[str] | None, blind: set[str]) -> l
     calendars = _reference(m, root, "calendar_sessions", ("calendar_id", "session_date"))
     listings = _reference(m, root, "instruments", ("instrument_id", "listed_on", "delisted_on"))
     for ds in (d for d in m.datasets if only is None or d.get("name") in only):
-        availability, kind = ds.get("availability"), ds.get("kind")
-        rules = list(_rules(ds))
-        if availability == {"column": "ts_available"}:  # 4.2's other spelling of `column`
-            rules.append("column")
-        elif isinstance(availability, dict) and "rule" not in availability:
-            rules.append(None)  # 6.2's `{"effect": …, "terms": …}`: not one instant per file
+        kind, named = ds.get("kind"), _named(ds)
+        # (rule, the column rule `column` reads): a 4.2 form reads each column it names (#276)
+        rules = [(r, "ts_available") for r in _rules(ds)] + [("column", n) for n in named]
         if not rules:  # bars default to `ts_end` (5.5); a kind not timeless: rule unknown
-            rules = ["ts_end"] if kind == "bars" else [] if kind in TIMELESS else [None]
+            rules = [("ts_end", "")] if kind == "bars" else [] if kind in TIMELESS else [(None, "")]
         params = ds["params"] if isinstance(ds.get("params"), dict) else {}
         daily = kind == "bars" and params.get("freq") == "1d"
         for rel, meta in _footers(root, ds):
@@ -587,8 +589,14 @@ def _check_ranges(m: Manifest, only: Sequence[str] | None, blind: set[str]) -> l
             market = markets.get(parts.get("market"))
             market = market if isinstance(market, dict) else {}
             through = _instant(market.get("complete_through"))
-            for rule in rules:
-                if through is None or meta is None or (last := _available(meta, rule)) is None:
+            have = [meta.schema.column(i).path for i in range(meta.num_columns)] if meta else []
+            for name in named if meta else []:  # T002's part: the footer has the column (#276)
+                if name not in have and name not in parts:
+                    msg = f"availability names column {name}, which the file does not have"
+                    out.append(Finding("TDS-T002", "error", msg, ds.get("name"), rel))
+            for rule, column in rules:
+                last = _available(meta, rule, column) if meta is not None else None
+                if through is None or last is None:
                     blind.add(T006)  # no watermark, no statistics, or a rule they cannot apply
                 elif last > through:
                     msg = f"available until {last.isoformat()}, after the market's"
@@ -693,16 +701,17 @@ def _lookup(groups: list[Any], key: str, value: object, column: str) -> Stat | N
 _DELAY = re.compile(r"P(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?)?")
 
 
-def _available(meta: Any, rule: object) -> dt.datetime | None:
-    """The latest availability instant under 6.2 `rule` from the statistics; None when they
-    cannot say: a rule on the calendar or with a fallback, a null in its column (a daily bar's
-    null `ts_end` is its session close), a delay in years or months."""
+def _available(meta: Any, rule: object, column: str) -> dt.datetime | None:
+    """The latest availability instant under 6.2 `rule` from the statistics, rule `column`
+    reading `column`; None when they cannot say: a rule on the calendar or with a fallback, a
+    null in its column (a daily bar's null `ts_end` is its session close; a null in a named
+    column has its dataset's fallback, 5.2, 5.11, 5.13), a delay in years or months."""
     match = re.fullmatch(rf"(column|ts_end|ts_recv)(?:\+({_DUR}))?", str(rule))
     delay = _DELAY.fullmatch(match[2] or "P") if match and RULE.fullmatch(str(rule)) else None
     if match is None or delay is None:
         return None
     w, d, h, minutes, s = (float(x or 0) for x in delay.groups())
-    span = _span(meta, "ts_available" if match[1] == "column" else match[1], dt.datetime)
+    span = _span(meta, column if match[1] == "column" else match[1], dt.datetime)
     if span is None:
         return None
     if not span:  # no rows: nothing after any watermark
@@ -757,6 +766,20 @@ def _rules(ds: Mapping[str, Any]) -> Iterable[object]:
     by_column = params.get("availability_by_column") if isinstance(params, dict) else None
     if isinstance(by_column, dict):
         yield from by_column.values()
+
+
+#: TDS 4.2, 6.2: the availability objects that name columns instead of a rule, by their keys:
+#: one column, `corporate_actions`' effect and terms, `delistings`' exit and value (#276).
+FORMS = ({"column"}, {"effect", "terms"}, {"exit", "value"})
+
+
+def _named(ds: Mapping[str, Any]) -> list[str]:
+    """The columns a dataset's availability names in one of the FORMS; [] for any other."""
+    availability = ds.get("availability")
+    if not isinstance(availability, dict) or set(availability) not in FORMS:
+        return []
+    names = list(availability.values())
+    return names if all(isinstance(n, str) and re.fullmatch(_COL, n) for n in names) else []
 
 
 def _unsafe(root: Path, rel: str) -> str | None:
