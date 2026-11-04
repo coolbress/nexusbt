@@ -53,10 +53,10 @@ Generated from `docs/spec/engine-spec-v3.4.md` (chapter 10) by the spec checker 
 | T0.16a | `feat(testing): degraded synthetic packages for core fallbacks` | 4.5, 4.8 | — | T0.7, T0.15b |
 | T1.G | `test(golden): time and pipeline cases for M1 (T-07, T-09..T-12, T-15, T-20, T-23)` | 8.2 | T-07, T-09, T-12, T-15, T-20, T-23 | T0.9, T0.7 |
 | T1.1a | `feat(data): open TDS snapshots with checker, producer-neutral errors and market rules packs` | 4.1–4.4, 4.7 | — | T0.3, T0.4, T0.5b, T0.13c, T0.14c, T0.6 |
-| T1.1b | `feat(data): capabilities, profile results, core fallbacks and pins` | 4.3–4.5, 4.2 | — | T1.1a, T0.16a |
+| T1.1b | `feat(data): capabilities, profile results, core fallbacks and pins` | 4.3–4.5, 4.2 | G-TIME-LATE | T1.1a, T0.16a |
 | T1.2 | `feat(cli): nexusbt init and doctor` | 3.10 | — | T1.1b |
-| T1.3 | `feat(data): calendars, session rounding, ready times, phases and decision grids` | 5.1.2, 5.1.3, 5.1.6, 5.6.3, 3.7 | T-10 | T1.1b, T1.G |
-| T1.4 | `feat(data): dense market blocks from daily bars` | 5.3.1, 4.6, 5.3.9 | — | T1.3 |
+| T1.3 | `feat(data): calendars, session rounding, ready times, phases and decision grids` | 5.1.2, 5.1.3, 5.1.6, 5.6.3, 3.7 | T-10, G-TIME-LATE | T1.1b, T1.G |
+| T1.4 | `feat(data): dense market blocks from daily bars` | 5.3.1, 4.6, 5.3.9 | G-TIME-LATE | T1.3 |
 | T1.5 | `feat(pipeline): term value objects, operators, graph hash and captured constants` | 3.3, 5.3.9, 6.5 | — | T0.2a |
 | T1.6 | `feat(pipeline): datasets from TDS dictionaries and type stubs` | 3.2 | — | T1.1b, T1.5 |
 | T1.7a | `feat(compute): planner with window and shift row propagation` | 5.3.2 | — | T1.4, T1.5 |
