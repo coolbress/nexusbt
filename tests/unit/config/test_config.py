@@ -184,6 +184,15 @@ def test_market_object_reordering_preserves_resolved_defaults(tmp_path: Path) ->
         assert config.values["project"]["name"] == tmp_path.name  # "the folder name"
 
 
+def test_research_family_id_is_a_uuid4(tmp_path: Path) -> None:
+    assert load_config(write(tmp_path, "")).values["research"]["family_id"] is None
+    good = "0b7c3e9a-5d2f-4c1e-9a8b-3f6d2e1c0a95"
+    text = f'[research]\nfamily_id = "{good}"\n'
+    assert load_config(write(tmp_path, text)).values["research"]["family_id"] == good
+    with pytest.raises(ConfigError, match="does not match"):
+        load_config(write(tmp_path, '[research]\nfamily_id = "my-study"\n'))
+
+
 def test_sleeve_weights_must_sum_to_one(tmp_path: Path) -> None:
     with pytest.raises(ConfigError, match="sum") as e:
         load_config(write(tmp_path, "[sleeves]\nweights = {KR = 0.5, US = 0.6}\n"), markets=KR_US)
