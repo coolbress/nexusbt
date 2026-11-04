@@ -1,0 +1,13 @@
+{
+  "kind": "dictionary/items", "schema_version": "1.0", "status": "stable", "section": "4.4",
+  "key": ["item"], "sort": null, "partitions": [],
+  "columns": [
+    {"name": "item", "type": "string", "null": null},
+    {"name": "std_item", "type": "string", "null": null},
+    {"name": "statement", "type": "string", "null": null},
+    {"name": "flow_or_stock", "type": "string", "null": null},
+    {"name": "unit", "type": "string", "null": null},
+    {"name": "description", "type": "string", "null": null},
+    {"name": "source_concepts", "type": "string", "null": null}
+  ]
+}

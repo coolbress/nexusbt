@@ -40,7 +40,8 @@ UNCHECKED_AT_MANIFEST = tuple(f"TDS-{c}" for c in _ROW_CODES.split())
 #: What the `schema` level judges from footers. S006 and S007 see only a column's minimum and
 #: maximum; S009 sees ±Inf in the statistics but never NaN, which writers leave out of them, so
 #: it stays unchecked.
-#: TDS 4.4: the tables that describe the package; they have no schema file and hide no S code.
+#: TDS 4.4: the tables that describe the package; their schema files (`dictionary_schemas`) give
+#: the value hash its types, and the schema level checks no S code on them, nor hides one.
 DICTIONARIES = frozenset({"dictionary/columns", "dictionary/items", "dictionary/codes"})
 #: TDS 8.2's range checks from file statistics: T006 here; D002's part stays `unchecked`, since
 #: a non-session day between the minimum and the maximum is in the rows (#181).
@@ -114,6 +115,9 @@ class CheckResult:
     unchecked: list[str] = field(default_factory=list)
     #: Every error found; `errors` holds at most `max_errors` of them (TDS 8.4 summary, #80).
     error_count: int = 0
+    #: Why codes in `unchecked` were not judged here, e.g. the dataset with no value hash; the
+    #: text output prints them, TDS 8.4's JSON Lines do not carry them.
+    notes: tuple[str, ...] = ()
 
     @property
     def failed(self) -> bool:
@@ -145,6 +149,7 @@ def check(
 ) -> CheckResult:
     manifest: Manifest | None = None
     blind: set[str] = set()  # codes this package's files hide from the level (no statistics)
+    notes: list[str] = []  # why, where the checker can say
     try:
         manifest = read_manifest(path)
         found = list(_check_manifest(manifest, datasets))
@@ -152,7 +157,7 @@ def check(
             found += _check_schema(manifest, datasets, blind)
             found += _check_ranges(manifest, datasets, blind)
         if level == "full":
-            found += _check_hashes(manifest, datasets, blind)
+            found += _check_hashes(manifest, datasets, blind, notes)
     except ManifestError as exc:
         found = [Finding("TDS-M001", "error", str(exc))]
     declared = {profile_id(p) for p in manifest.profiles} if manifest else set()
@@ -186,6 +191,7 @@ def check(
             if c in blind
             or (c in UNCHECKED_AT_SCHEMA and (level == "schema" or c not in HASH_CODES))
         ],
+        notes=tuple(notes),
     )
 
 
@@ -193,8 +199,11 @@ def check(
 HASH_CODES = ("TDS-H001", "TDS-H002", "TDS-H003")
 
 
-def _check_hashes(m: Manifest, only: Sequence[str] | None, blind: set[str]) -> list[Finding]:
-    """H001 each declared file sha256, H002 each dataset value hash, H003 the package hashes."""
+def _check_hashes(
+    m: Manifest, only: Sequence[str] | None, blind: set[str], notes: list[str]
+) -> list[Finding]:
+    """H001 each declared file sha256, H002 each dataset value hash, H003 the package hashes;
+    `notes` gets the dataset that stopped the value hash, when one did."""
     from .hash import HashError, inside, package_hashes
 
     out = []
@@ -214,8 +223,9 @@ def _check_hashes(m: Manifest, only: Sequence[str] | None, blind: set[str]) -> l
                 out.append(Finding("TDS-H001", "error", message, ds.get("name"), f["path"]))
     try:
         hashes = package_hashes(m.root)
-    except Exception:  # no value hash for this package, whatever the cause: H002, H003 not judged
-        blind.update(("TDS-H002", "TDS-H003"))
+    except Exception as exc:  # no value hash for this package, whatever the cause: not judged
+        blind.update(HASH_CODES[1:])
+        notes.append(f"{', '.join(HASH_CODES[1:])} not checked: {str(exc) or repr(exc)}")
         return out
     for ds in datasets:
         declared, actual = ds.get("value_sha256"), hashes["datasets"].get(ds.get("name"))

@@ -58,6 +58,23 @@ def test_H_codes(code: str, tmp_path: Path) -> None:
     assert codes(build.write(tmp_path / "pass", *build.package(code, "pass")), "full") == []
 
 
+@pytest.mark.parametrize("code", ["TDS-H002", "TDS-H003"])
+def test_H002_H003_are_judged_on_a_package_with_a_dictionary(code: str, tmp_path: Path) -> None:
+    manifest, files = build.package(code, "pass")
+    assert "dictionary/codes" in {d["kind"] for d in manifest["datasets"]}  # TDS 4.4, 4.5
+    result = check(build.write(tmp_path, manifest, files), level="full")
+    assert not {"TDS-H002", "TDS-H003"} & set(result.unchecked)
+
+
+def test_a_wrong_dictionary_value_hash_is_H002(tmp_path: Path) -> None:
+    manifest, files = build.package("TDS-H002", "pass")  # every value hash right, then one wrong
+    next(d for d in manifest["datasets"] if d["kind"] == "dictionary/codes")["value_sha256"] = (
+        "0" * 64
+    )
+    result = check(build.write(tmp_path, manifest, files), level="full")
+    assert [(f.code, f.dataset) for f in result.errors] == [("TDS-H002", "dictionary/codes")]
+
+
 def test_full_level_checks_only_the_hashes_so_far(tmp_path: Path) -> None:
     result = check(write(tmp_path / "pkg"), level="full")
     assert (result.errors, result.warnings) == ((), ())

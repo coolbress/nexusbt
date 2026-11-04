@@ -200,6 +200,14 @@ def load_schemas(root: Traversable = SCHEMA_DIR) -> dict[str, Schema]:
     return schemas
 
 
+def dictionary_schemas(root: Traversable = SCHEMA_DIR) -> dict[str, Schema]:
+    """TDS 4.4's tables, `dictionary/<table>/1.0.json`, by kind (`dictionary/columns`).
+
+    Apart from `load_schemas`: they are not chapter 5 kinds, so `main` and the schema level do
+    not read these files; the value hash takes their column types (TDS 4.5)."""
+    return {f"dictionary/{k}": s for k, s in load_schemas(root / "dictionary").items()}
+
+
 def file_problems(schemas: dict[str, Schema], status: dict[str, str]) -> list[str]:
     """A file naming another folder's kind or no chapter 5 kind, or unlike its section's status."""
     out: list[str] = []
