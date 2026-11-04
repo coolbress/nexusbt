@@ -523,9 +523,10 @@
 | session_ord | i32 | 예 | 달력 안 0부터 연속 번호(있으면 검사 K011) |
 | is_half_day | bool | 예 | |
 | session_kind | code | 아니오 | `regular`, `continuous_24h`(코인 UTC 하루), `special` |
-| calendar_version | string | 예 | 세션 표 판 |
+| calendar_version | string | 예 | 그 행이 공개될 때의 세션 표 판(정보용; 아래 참조) |
 | source | string | 예 | 예 `exchange_calendars+prices` |
 
+- `calendar_version`은 정보용이다: 생산자가 쓰고, 공개할 때마다 모든 행에서 다시 쓸 수 있으며, 다른 필드가 바뀌지 않은 행에서도 그렇다. 소비자는 이 열을 열쇠로 쓰지 않고(엔진은 캐시 열쇠에서 뺀다, 명세서 5.3.9), 이 열을 지켜보는 검사는 없다 [사용자 결정 2026-11-04].
 - 세션 표는 일정 자료와 가격을 대조해 만든다. 어떤 종목 가격이 없다고 세션을 지우지 않는다(명세서 4.6).
 - 24/7: `session_date` = UTC 날짜, `ts_open` = 00:00Z, `ts_close` = 다음 날 00:00Z.
 - 선물 야간 거래: 거래일 D의 세션은 D−1 저녁에 시작할 수 있다(`ts_open < session_date 00:00 현지`). 정상이다.
