@@ -672,7 +672,7 @@ nx.execution.limit(offset_bps: float = 0.0, *, ref: Literal["decision_close"] = 
 
 ### 3.8 Function signatures and returns
 
-Common keywords ("common" in the table below): `snapshot: str | Snapshot | None = None` (default toml), `edition: Literal["strict","compare"] | None = None`, `segment: str | None = None` (default toml `[split] default_segment`), `start`, `end` (only to narrow further inside the segment; `ConfigError` outside it), `study: str | None = None`, `save: bool = True`. v3.2's reserved argument `splits=` was removed: splitting is a value of `backtest(method=…)` (6.3a; `evaluate` is linear only) [SC-21, R4-20].
+Common keywords ("common" in the table below): `snapshot: str | Snapshot | None = None` (default toml), `edition: Literal["strict","compare"] | None = None`, `segment: str | None = None` (default toml `[split] default_segment`), `start`, `end` (only to narrow further inside the segment; `ConfigError` outside it), `study: str | None = None`, `purpose: Literal["research","debug","seed_comparison"] = "research"` (the run kind of 6.2; user decision 2026-11-04, #196), `save: bool = True`. v3.2's reserved argument `splits=` was removed: splitting is a value of `backtest(method=…)` (6.3a; `evaluate` is linear only) [SC-21, R4-20].
 
 ```python
 nx.evaluate(term: Factor | Mapping[str, Factor], *, target: str | BoundColumn = "fwd_return",   # "fwd_return" (economic label) | "fwd_return_adj" | Label.*
@@ -744,7 +744,8 @@ nx.cash_flow(book: Book | str, amount: float, *, ccy: str, sleeve: str, session:
                note: str = "") -> BookUpdate                       # deposit (+) / withdrawal (−) [V31-19]
 nx.acknowledge(book: Book | str, divergence_id: str, note: str, *, by: str | None = None) -> BookUpdate   # 5.9.6 rule 3
 nx.preregister(strategy: Strategy | Factor, *, metric: Literal["net_sharpe","cagr","ic_mean","dsr"], threshold: float,
-               segment: str = "validation", note: str = "") -> Preregistration
+               segment: str = "validation", exposed_elsewhere: bool | None = None,   # was the segment seen outside the engine? (6.4)
+               note: str = "") -> Preregistration
 nx.config() -> Config                                            # the resolved nexusbt.toml
 nx.open(path: str | Path) -> Snapshot   # one package path (or a parent folder with `LATEST` → that snapshot) [V31-PUB-03]; the result can be given to `snapshot=` of every function
 ```
@@ -787,6 +788,7 @@ Every result object gives **the same lines** from `__str__` (terminal) and `_rep
 ```
 {expr}        study: {study}   factor trial #{k} in study ({n_candidates} candidates)
 data {snapshot_id} · {edition} · {freq} · {start} → {end} · segment {segment}
+family {family6}: studies {s} · candidates explored {n} (factor {a} · strategy {b}) · selection events {e} · segments seen train {a} · validation {b} · test {c}
 label {fwd_return: holding return, dividends reinvested at ex-date close, pre-withholding | …}
 
                               KR                     US
@@ -843,7 +845,8 @@ orders                filled {a} · partial {b} · expired {c} · cancelled {d} 
 dividends             paid {n} · pay date estimated {m}/{n}
 PSR(0) {x:.2f} · DSR {x:.2f} (N={N} candidates in cohort {cohort6}, V[SR] from cohort) | DSR n/a ({reason}) · MinTRL(95%) {y:.1f}y
 {Sharpe (Lo, ρ1={r:.2f}, lags ≤ 10) {x:.2f}}   (only when |ρ1| > 0.1)
-segments seen in study  train {a} · validation {b} · test {c}
+family {family6}: studies {s} · candidates explored {n} (factor {a} · strategy {b}) · selection events {e} · segments seen train {a} · validation {b} · test {c}
+evaluation {research data | independent final test (look {n}) | independence not established ({reason}) | {k} predeclared candidates on the final data (look {n}) | exploratory on reused final data (seen {m} times before)} · comparison set: cohort {cohort6}, {N} candidates, with returns {a}/{b}   (6.2) [#196]
 warnings {n} (run.warnings) · data fallbacks {k} · reconciled: {yes|NO}
 ```
 
@@ -910,7 +913,7 @@ write: orders.to_csv("orders/{date}.csv")   apply to paper book: nx.fill(book, o
 
 | Command | Arguments |
 |---|---|
-| `nexusbt init [--data-root PATH] [--demo] [--lang en\|ko]` | writes a commented `nexusbt.toml` template (part 1 "check these" and part 2 "advanced", the two tiers of 3.11; the default English comments are canonical, `--lang ko` is a variant with the same keys and values and only the comments in Korean; the templates are `nexusbt/templates/nexusbt.toml.{en,ko}`, and a test matches their key set with the table of 3.11) [R4G-CFG-02]. With `--demo`, it unpacks the small synthetic KR+US snapshot shipped in the wheel (the `demo` preset of `nx.testing.synth`, a few MB) and writes its path — step 0 of data preparation [R4-13]. Creates `nexusbt.toml`. Without `--data-root`, it uses the environment variable `NEXUSBT_DATA_ROOT`, and without that it explains how to make a synthetic snapshot (no personal paths go into the repository, 2.7) |
+| `nexusbt init [--data-root PATH] [--demo] [--lang en\|ko] [--new-family REASON]` | `--new-family` in an existing project replaces `[research] family_id` with a new one and records the old one as its parent with the reason (6.2, #196); otherwise writes a commented `nexusbt.toml` template (part 1 "check these" and part 2 "advanced", the two tiers of 3.11; the default English comments are canonical, `--lang ko` is a variant with the same keys and values and only the comments in Korean; the templates are `nexusbt/templates/nexusbt.toml.{en,ko}`, and a test matches their key set with the table of 3.11) [R4G-CFG-02]. With `--demo`, it unpacks the small synthetic KR+US snapshot shipped in the wheel (the `demo` preset of `nx.testing.synth`, a few MB) and writes its path — step 0 of data preparation [R4-13]. Creates `nexusbt.toml`. Without `--data-root`, it uses the environment variable `NEXUSBT_DATA_ROOT`, and without that it explains how to make a synthetic snapshot (no personal paths go into the repository, 2.7) |
 | `nexusbt config check [--file PATH]` | checks only the config file and runs nothing: unknown keys, types and ranges (E16) and **contradictions** (margin keys in a cash account, short keys with `[shorting] enabled = false`, groups with `[taxes] profile = "none"`, a `max_net` that does not contain 0, and so on), in plain words in the format of 6.6 as it is (`layer  config`, a fix line). With no problem, one line "config ok: {n} keys set, {m} defaults", exit code 0/1 [R4G-CFG-03] |
 | `nexusbt config show [--all] [--file PATH]` | a table of the values in effect now and their **source** (`default` / `file` / `CLI` / `code` — a value overridden by an argument in the strategy code). By default only the part 1 keys and the keys not at their default; `--all` is the whole table of 3.11. It is the same function as the resolver `load_config` the run uses (the 2.x module table), so the values equal the config written in the manifest [R4G-CFG-04] |
 | `nexusbt doctor [--full]` | snapshot id, semantic hash, edition, the three profile results (declared / check level / supported), items not checked, counts per TDS code, **the list of fallbacks (4.5)**, per market the rules pack (present / untested), period, instrument count and daily row count, column count, free disk, L0/L1 cache sizes, whether the stubs are current. A line with the number of runs whose root pin could not be written, "pins not visible to producer" [R3-17]. When the data root has the publishing mark `<root>/.publishing` (a general distribution convention, outside TDS), it shows only "publishing in progress" and says to wait for the new snapshot [blueprint 12.5, RV-I09] |
@@ -945,6 +948,7 @@ Validation: an unknown key → `ConfigError` (suggesting similar keys). A key wh
 | Key | Type | Default | Validation | Basis |
 |---|---|---|---|---|
 | `[project] name` | str | the folder name | `[A-Za-z0-9_-]+` | |
+| `[research] family_id` | str | written by `nexusbt init` (a new UUID4) | a UUID4; changed only by `nexusbt init --new-family` (6.2) | user decision 2026-11-04, #196 |
 | `[data] root` | path | (written by init; otherwise `$NEXUSBT_DATA_ROOT`) | the folder exists and has at least one snapshot folder with `LATEST` or `tds.json` | R-20, 2.7 |
 | `[data] snapshot` | str | `"latest"` | `"latest"` or an existing id. `latest` is resolved once per call | 11.7 |
 | `[data] path` | path | none | points directly at one package folder (where `tds.json` is). When present, it comes before `root` and `snapshot`. A parent folder is resolved through `LATEST` [V31-PUB-03] | V31-PUB-03 |
@@ -2064,17 +2068,21 @@ SQLite (WAL). Append only: `BEFORE UPDATE/DELETE` triggers guard the tables belo
 
 | Table | Columns |
 |---|---|
-| `studies` | study_id(UUID) PK, name UNIQUE, ts_created, hypothesis |
-| `runs` | run_id PK, kind, study_id, name, ts_created, created_by, snapshot_id, snapshot_semantic_hash, edition, segment, graph_hash, params_json, settings_hash, candidate_key, status(running/sealed/aborted/pruned), path, metrics_json, derived_from |
+| `families` | family_id(UUID) PK, parent_family_id(nullable), reason(`init` / `new family: {text}` / `linked at migration`), ts_created [#196] |
+| `studies` | study_id(UUID) PK, name UNIQUE, family_id, ts_created, hypothesis |
+| `runs` | run_id PK, kind, run_kind(research/debug/seed_comparison/rerun/preview/failed/pruned, 6.2), family_id, study_id, name, ts_created, created_by, snapshot_id, snapshot_semantic_hash, edition, segment, graph_hash, params_json, settings_hash, candidate_key, status(running/sealed/aborted/pruned), path, metrics_json, derived_from |
 | `candidates` | candidate_key PK, study_id, kind(factor/strategy), segment, graph_hash, params_hash, settings_hash, first_run_id (identity only; no statistics columns) [RV-C12] |
 | `observations` | observation_id PK, run_id, candidate_key, snapshot_semantic_hash, segment, start, end, target(label name; `net_return` for strategies), horizon, freq, n_obs, sr_daily, skew, kurt, nw_t(factors), method(`linear`/`walk_forward`/`cpcv`/`cscv`), split_hash(nullable), fidelity(`full`/`preview`) [R4F-21, R4F-15], ts_created |
 | `cohorts` | cohort_sha256 PK, study_id, kind, segment, target, horizon, freq, members_json(sorted list of (candidate_key, observation_id)), ts_frozen — when a report produces statistics, the cohort of that moment is frozen and stored |
-| `exposures` | run_id, study_id, segment, start, end |
-| `preregistrations` | id PK, study_id, graph_hash, metric, threshold, segment, note, ts_created |
+| `exposures` | run_id, family_id, study_id, segment, start, end |
+| `preregistrations` | id PK, family_id, study_id, graph_hash, metric, threshold, segment, exposed_elsewhere(nullable), note, ts_created |
+| `selection_events` | event_id PK, family_id, run_id, source(`to_strategy` / `grid` / `preregister`), from_cohort_sha256(nullable), from_count, chosen_candidate_key, segment, ts_created [#196] |
 | `pins` | snapshot_id, holder_id, holder_kind(run/book), ts_created, ts_released |
 | `books` | book_id PK, kind(paper|manual) [V31-18], ts_created, base_ccy, sleeves_json, definition_sha256 |
 
 `nexusbt runs --prune` deletes folders and changes only `status = pruned`. Attempt counts do not go down [R-34].
+
+**Migration to families** [#196]: an index without `families` is migrated once when it is first opened: one family is created with reason `linked at migration` and the project's `[research] family_id` (a new one if the toml has none; then every run's warnings carry the line "add `[research] family_id = "{id}"` to nexusbt.toml" until it is written, and the engine never edits the toml itself), and every existing study, run, exposure and preregistration gets that family. Nothing else changes: sealed reports keep their text, cohorts and `cohort_sha256`.
 
 #### 5.9.6 Paper ledger [R-49, 11.8 M5]
 - `runs/books/<name>/`: `book.json` (**the unchanging ledger definition**: strategy `graph_hash`, parameter hash, `SimConfig` hash, sleeves, base currency, initial capital, `anchor_decision_id`, engine version, `definition_sha256`), `events/events-<seq>.parquet` (append fragments), `checkpoint-<seq>/` (Arrow IPC of the 5.6.1 arrays + meta JSON), `HEAD` (the last checkpoint name and `state_version`, replaced atomically), `snapshots.parquet` (a record of the `snapshot_id` and semantic hash used at each decision and fill), `book.lock`. Pins of snapshots the ledger used are not released while the ledger exists (4.2) [R3-17].
@@ -2130,11 +2138,15 @@ For decision d (on a day not in the schedule, a preview decision for that date),
 ### 6.1 Splitting into segments (no future lock) [9.0 Q26, R-57]
 - Segments are set by the user in `nexusbt.toml [split] segments`. Default `train = [start, 2021-12-31]`, `validation = [2022-01-01, latest]`. Adding `test` takes one line (`test = ["2025-01-01", "latest"]`; then pull in the end of validation). Segments do not overlap.
 - Run period = the chosen segment (`segment=`, default `default_segment`) ∩ `[start, end]`. `segment="all"` is the union of all segments.
-- **Not blocked.** Any segment can be run right away. Instead, (1) each run records the segments it computed in `exposures`, (2) the report header shows "segments seen in study: train a · validation b · test c", and (3) the first time a segment other than the default segment is seen, the notice `SegmentNotice` (error E10) is raised. A real future lock (prospective lock) is not built [9.0 Q26, A-07].
+- **Not blocked.** Any segment can be run right away. Instead, (1) each run records the segments it computed in `exposures`, (2) the report shows "segments seen train a · validation b · test c" counted over the **research family** (6.2), so renaming a file or starting a new study does not reset it, and (3) the first time in the family a segment other than the default segment is seen, the notice `SegmentNotice` (error E10) is raised (user decision 2026-11-04, #196). A real future lock (prospective lock) is not built [9.0 Q26, A-07].
 - In each segment the backtest starts with new capital (it does not take over the previous segment's account). Labels are purged at the segment end (5.8). Validation methods that split again **inside** a segment (walk-forward, CPCV, CSCV) and their account rules are in 6.3a [R4-20].
 
 ### 6.2 Study, candidates, attempt counts [R-34, R-35, Q19, 9.3 Q27]
-- `study` name default = the entry file name (without the extension; for a notebook, the notebook file name; if unknown, `"interactive"`) [Q19]. For a name used for the first time a `study_id` (UUID4) is created, and from then on records are stored under that id. Renaming the file makes a new study (it can be continued with `study="old_name"`) [A-04].
+- `study` name default = the entry file name (without the extension; for a notebook, the notebook file name; if unknown, `"interactive"`) [Q19]. For a name used for the first time a `study_id` (UUID4) is created, and from then on records are stored under that id. Renaming the file makes a new study (it can be continued with `study="old_name"`) [A-04]. A study is only the cohort grouping; what was tried and seen is kept per research family (next item).
+- **Research family** (user decision 2026-11-04, #196): `[research] family_id` (3.11), created once per project by `nexusbt init`, is above every study. No file name, study name or experiment name sets it; an independent new family is made only by `nexusbt init --new-family REASON` (3.10), which records the old family as parent. Per family: exposures (6.1), candidates explored, selection events, preregistrations and looks. DSR's N stays the raw candidate count of the cohort (below); the family's counts are shown beside it as lineage, not added to N.
+  - **Selection events** are what the engine sees: `FactorReport.to_strategy` (the factor cohort chosen from, its size, the chosen candidate), a `grid` choice of a validation run (6.3a), and a set of preregistrations (6.4). Choices made by hand elsewhere are not seen; the line says "recorded by the engine".
+  - **Evaluation label** of a run on segment S other than the default segment: let P be the family's preregistrations for S made before S's first exposure in the family, and m the exposures of S before this run (reruns excluded). If this graph is in P and every earlier exposure of S came from a graph in P: with one preregistration and `exposed_elsewhere = False`, "independent final test"; with `exposed_elsewhere` `None` or `True`, "independence not established (exposure outside the engine not declared / declared)"; with k > 1 preregistrations, "k predeclared candidates on the final data"; each shows its look number. Otherwise, m > 0 gives "exploratory on reused final data (seen m times before)" and m = 0 gives "independence not established (no preregistration before first exposure)". A run on the default segment is "research data". The label describes the data's history; it does not block the run, and no statistic restores an untouched status.
+  - **Run kinds** (`runs.run_kind`): `research` (default), `debug` and `seed_comparison` (the `purpose=` keyword, 3.8), `rerun` (`nexusbt rerun`), `preview` (6.2 below), `failed` (stopped by an error before results) and `pruned` (stopped on purpose before results). They are counted separately in the attempts line; a failed or pruned run is never given returns, and its candidate counts in the denominator of "with returns a/b" of the comparison-set line (3.9).
 - `candidate_key = sha256(kind, study_id, graph_hash, canonical params, settings_hash, segment)`. `settings_hash` holds the universe, costs, execution, exits, sleeves, clock, edition and label names, and leaves out the snapshot id and fine adjustments of `start`/`end` (a rerun on new data is not a new candidate) [C10].
 - **Candidate / observation / cohort** [RV-C12]: a candidate is identity only (`candidates`). One run adds one observation (`observations`: snapshot, period, statistics). Running again with another snapshot or period does not overwrite the earlier observation. When statistics are computed, a **cohort** is fixed: among the observations with the same study, kind, segment, target, horizon and freq, the one most recent observation per candidate. If observations with different periods (`start`/`end`) are mixed, the report warns "mixed periods". The report freezes the cohort at that moment, stores it in `cohorts` and records `cohort_sha256` (the DSR and BHY of a sealed report reproduce unchanged even when more candidates are added later).
 - Four counts are recorded and shown separately: the number of runs (`runs`), the number of distinct candidates (`candidates`), the number of observations (`observations`), and the assumed number of independent trials (= the number of candidates in the cohort, stating that it was assumed; N is the recorded candidate count as the user decided, N_eff is a v1.x auxiliary) [11.4.5].
@@ -2206,7 +2218,7 @@ There is one entry point: the familiar `nx.backtest(strategy, start=, end=, meth
 **Cost**: rerunning the state machine is cheap (Pipeline reuse). Most of the CPCV cost is ML training, C(`n_groups`, k) × the refit count; above `[validate] max_fits`, E40 before the run (not blocking). Training time is reported separately, outside the chapter 7 budget.
 
 ### 6.4 Preregistration [design 3.9]
-`nx.preregister(strategy, metric=, threshold=, segment=)` only records (graph hash, criterion, time). A report that ran that segment with that graph shows "preregistered {metric} ≥ {threshold}: pass/fail · registered before first {segment} exposure: yes/no".
+`nx.preregister(strategy, metric=, threshold=, segment=, exposed_elsewhere=)` only records (graph hash, criterion, time, family). A report that ran that segment with that graph shows "preregistered {metric} ≥ {threshold}: pass/fail · registered before first {segment} exposure in family: yes/no". `exposed_elsewhere` is the user's statement whether the segment's data was seen outside the engine (`None` = not stated). Several preregistrations for one segment before its first exposure form a predeclared set, recorded as one selection event; the evaluation label of 6.2 follows from them (#196). Registering again after the first exposure is a new criterion and does not make the segment untouched.
 
 ### 6.5 Future-information checks [R-15, R-40, R-51, R-54, C8]
 
@@ -2273,7 +2285,7 @@ Layers (`layers.toml`, [R4-15]): E1·E2·E4·E5·E7·E8·E17·E24·E29·E32·E34
 | E7 | `ColumnNameError` (subclass of `AttributeError`) | fail | missing column | "Fund has no column '{x}'. Did you mean: {a}, {b}?" / "nx.describe(Fund)" |
 | E8 | `WindowError` | fail | indexing outside the window, wrong return shape or dtype | "{f} reads close[-{k}] but window={W}" / "@nx.factor(window={k}, ...)" |
 | E9 | `SessionNotice` | notice | start or end is not a session | "start {x} is not a {m} session; using {y}" / "start='{y}'" [R4F-22] |
-| E10 | `SegmentNotice` | notice | the first computation in a study of a segment other than the default segment | "this run computes performance on segment '{s}' ({start} → {end}); exposures in study: {n}" / "nx.preregister(...) before looking, if you want a recorded criterion" |
+| E10 | `SegmentNotice` | notice | the first computation in a research family of a segment other than the default segment (6.1) | "this run computes performance on segment '{s}' ({start} → {end}); exposures in family: {n}" / "nx.preregister(...) before looking, if you want a recorded criterion" |
 | E11 | `FillWarning` | warning | limit and stop orders judged on daily bars | "daily-bar fills for limit/stop orders are approximations" / "see [execution] fill_model note; use at='open' market orders to avoid" [R4F-22] |
 | E12 | `UnsupportedCorporateActionError` | fail | an unsupported event on a held instrument (policy fail), an event whose quantity effect cannot be determined (5.3.3a) | "{instrument_id} has a {kind} on {date} while held ({q} shares)" / "[corporate_actions] unsupported = 'cash_at_adjustment' (recorded), or exclude the security from the universe before {date}" |
 | E13 | `AccountingDataError` | fail | required accounting data missing (policy value null, no merger target, pay date fail), exact ratio missing or wrong (4.4-4; fix "ask the producer for ratio_num/ratio_den, or use the default [corporate_actions] decimal_ratio = 'exclude_instrument' (5.6.1 "events without an exact ratio"), or 'literal' (recorded)"; E13 for this cause only when decimal_ratio = 'require_exact') [R4F-01], whether a delisting distribution is included unknown + `[delisting] unknown_inclusion = "error"` (5.6.13) [R4F-05], a short net dividend whose pre-tax amount cannot be determined (5.6.11) [R3-06, R3-09] | table, key, column / "the snapshot lacks {column} for {key}; choose a policy ({fix}) or use a snapshot that provides it" (+ the `producer.hints` sentence if there is one) |
@@ -4140,6 +4152,8 @@ These are what the teardown of existing engines (`teardown/MATRIX.md` chapter 2)
 | DR16-1 | Expert protocols for a user splitter, selector, diagnostic and optimizer (design review 2026-11-04, item D16) | v1.x (decision 2026-11-04, #207). v1 keeps the closed `method` set (6.3a) and the built-in statistics (6.3). Each protocol enters with a minimal contract first: inputs, outputs, decision time, state, version | v1.x |
 | DR16-2 | An entry point for an external or opaque strategy (design review 2026-11-04, item D16) | v1.x (decision 2026-11-04, #207). It enters as a `TargetFrame` with a declared information cut-off and is reported "declared, not audited" (ADR-0041 point 7); v1 has no such entry point | v1.x |
 | R4G-MG-10 | Margin extensions: per-instrument broker add-on requirements (house requirement), portfolio margin, intraday margin calls, the exact order of KR forced selling (D+2 etc.), loan limits | v1.x. v1 has one requirement ratio per market (`R(ρ)`), a close check → proportional reduction at the next open. User decision 2026-10-28 | v1.x |
+| RL-01 | Structured import of exploration done outside the engine (counts, candidate sets, exposed periods) into a research family | v1.x (user decision 2026-11-04, #196). v1 has only `preregister(exposed_elsewhere=)` | v1.x |
+| RL-02 | A predeclared sequential procedure for repeated looks at a final segment (confidence sequences, alpha spending) | v1.x, optional, after its assumptions for dependent returns are stated (#196). v1 shows the look number only | v1.x |
 
 **Dropped** (not reopened): V31-47 the LEAN comparison preset (TD-LEAN-10) — it conflicts with the user decision that zipline is the one comparison baseline engine and that comparison goes through the preset only (9.0 Q35, OI-20). LEAN regression statistics are not used even as comparison values (kurtosis convention suspected, V31-07).
 

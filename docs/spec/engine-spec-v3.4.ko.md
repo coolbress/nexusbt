@@ -673,7 +673,7 @@ nx.execution.limit(offset_bps: float = 0.0, *, ref: Literal["decision_close"] = 
 
 ### 3.8 함수 서명과 반환
 
-공통 키워드(아래 표의 "공통"): `snapshot: str | Snapshot | None = None`(기본 toml), `edition: Literal["strict","compare"] | None = None`, `segment: str | None = None`(기본 toml `[split] default_segment`), `start`, `end`(구간 안으로 더 좁힐 때만; 구간 밖이면 `ConfigError`), `study: str | None = None`, `save: bool = True`. v3.2의 예약 인자 `splits=`는 없앴다: 분할은 `backtest(method=…)`의 값이다(6.3a; `evaluate`는 선형만) [SC-21, R4-20].
+공통 키워드(아래 표의 "공통"): `snapshot: str | Snapshot | None = None`(기본 toml), `edition: Literal["strict","compare"] | None = None`, `segment: str | None = None`(기본 toml `[split] default_segment`), `start`, `end`(구간 안으로 더 좁힐 때만; 구간 밖이면 `ConfigError`), `study: str | None = None`, `purpose: Literal["research","debug","seed_comparison"] = "research"`(6.2의 실행 종류; 사용자 결정 2026-11-04, #196), `save: bool = True`. v3.2의 예약 인자 `splits=`는 없앴다: 분할은 `backtest(method=…)`의 값이다(6.3a; `evaluate`는 선형만) [SC-21, R4-20].
 
 ```python
 nx.evaluate(term: Factor | Mapping[str, Factor], *, target: str | BoundColumn = "fwd_return",   # "fwd_return"(경제 정답) | "fwd_return_adj" | Label.*
@@ -745,7 +745,8 @@ nx.cash_flow(book: Book | str, amount: float, *, ccy: str, sleeve: str, session:
                note: str = "") -> BookUpdate                       # 입금(+)·출금(−) [V31-19]
 nx.acknowledge(book: Book | str, divergence_id: str, note: str, *, by: str | None = None) -> BookUpdate   # 5.9.6 규칙 3
 nx.preregister(strategy: Strategy | Factor, *, metric: Literal["net_sharpe","cagr","ic_mean","dsr"], threshold: float,
-               segment: str = "validation", note: str = "") -> Preregistration
+               segment: str = "validation", exposed_elsewhere: bool | None = None,   # 엔진 밖에서 그 구간을 봤는가 (6.4)
+               note: str = "") -> Preregistration
 nx.config() -> Config                                            # 해석된 nexusbt.toml
 nx.open(path: str | Path) -> Snapshot   # 패키지 경로 하나(또는 `LATEST`가 있는 상위 폴더 → 그 스냅숏) [V31-PUB-03]; 결과를 모든 함수의 `snapshot=`에 줄 수 있음
 ```
@@ -788,6 +789,7 @@ nx.open(path: str | Path) -> Snapshot   # 패키지 경로 하나(또는 `LATEST
 ```
 {expr}        study: {study}   factor trial #{k} in study ({n_candidates} candidates)
 data {snapshot_id} · {edition} · {freq} · {start} → {end} · segment {segment}
+family {family6}: studies {s} · candidates explored {n} (factor {a} · strategy {b}) · selection events {e} · segments seen train {a} · validation {b} · test {c}
 label {fwd_return: holding return, dividends reinvested at ex-date close, pre-withholding | …}
 
                               KR                     US
@@ -844,7 +846,8 @@ orders                filled {a} · partial {b} · expired {c} · cancelled {d} 
 dividends             paid {n} · pay date estimated {m}/{n}
 PSR(0) {x:.2f} · DSR {x:.2f} (N={N} candidates in cohort {cohort6}, V[SR] from cohort) | DSR n/a ({reason}) · MinTRL(95%) {y:.1f}y
 {Sharpe (Lo, ρ1={r:.2f}, lags ≤ 10) {x:.2f}}   (|ρ1| > 0.1일 때만)
-segments seen in study  train {a} · validation {b} · test {c}
+family {family6}: studies {s} · candidates explored {n} (factor {a} · strategy {b}) · selection events {e} · segments seen train {a} · validation {b} · test {c}
+evaluation {research data | independent final test (look {n}) | independence not established ({reason}) | {k} predeclared candidates on the final data (look {n}) | exploratory on reused final data (seen {m} times before)} · comparison set: cohort {cohort6}, {N} candidates, with returns {a}/{b}   (6.2) [#196]
 warnings {n} (run.warnings) · data fallbacks {k} · reconciled: {yes|NO}
 ```
 
@@ -911,7 +914,7 @@ write: orders.to_csv("orders/{date}.csv")   apply to paper book: nx.fill(book, o
 
 | 명령 | 인자 |
 |---|---|
-| `nexusbt init [--data-root PATH] [--demo] [--lang en\|ko]` | 주석 달린 `nexusbt.toml` 틀을 쓴다(1부 "꼭 확인할 것"·2부 "고급", 3.11 두 층; 기본 영어 주석이 정본, `--lang ko`는 같은 키·같은 값에 한국어 주석만 다른 변형; 틀은 `nexusbt/templates/nexusbt.toml.{en,ko}`이고 시험이 3.11 표와 키 집합을 맞춤) [R4G-CFG-02]. `--demo`면 바퀴에 든 작은 합성 KR+US 스냅숏(`nx.testing.synth` `demo` 프리셋, 수 MB)을 풀고 그 경로를 적는다 — 자료 준비 0단계 [R4-13]. `nexusbt.toml` 생성. `--data-root`가 없으면 환경 변수 `NEXUSBT_DATA_ROOT`를 쓰고, 그것도 없으면 합성 스냅숏 만들기를 안내한다(저장소에 개인 경로를 넣지 않음, 2.7) |
+| `nexusbt init [--data-root PATH] [--demo] [--lang en\|ko] [--new-family REASON]` | 이미 있는 프로젝트에서 `--new-family`는 `[research] family_id`를 새것으로 바꾸고 옛것을 이유와 함께 부모로 기록한다(6.2, #196); 그 밖에는 주석 달린 `nexusbt.toml` 틀을 쓴다(1부 "꼭 확인할 것"·2부 "고급", 3.11 두 층; 기본 영어 주석이 정본, `--lang ko`는 같은 키·같은 값에 한국어 주석만 다른 변형; 틀은 `nexusbt/templates/nexusbt.toml.{en,ko}`이고 시험이 3.11 표와 키 집합을 맞춤) [R4G-CFG-02]. `--demo`면 바퀴에 든 작은 합성 KR+US 스냅숏(`nx.testing.synth` `demo` 프리셋, 수 MB)을 풀고 그 경로를 적는다 — 자료 준비 0단계 [R4-13]. `nexusbt.toml` 생성. `--data-root`가 없으면 환경 변수 `NEXUSBT_DATA_ROOT`를 쓰고, 그것도 없으면 합성 스냅숏 만들기를 안내한다(저장소에 개인 경로를 넣지 않음, 2.7) |
 | `nexusbt config check [--file PATH]` | 설정 파일만 검사하고 실행하지 않는다: 알 수 없는 키·형·범위(E16)와 **모순**(현금 계좌에 증거금 키, `[shorting] enabled = false`인데 숏 키, `[taxes] profile = "none"`인데 묶음, `max_net`이 0을 안 포함 등)을 6.6 서식 그대로 쉬운 말로 낸다(`layer  config`, fix 줄). 문제 없으면 "config ok: {n} keys set, {m} defaults" 한 줄, 종료 코드 0/1 [R4G-CFG-03] |
 | `nexusbt config show [--all] [--file PATH]` | 지금 적용되는 값과 **출처**(`default` / `file` / `CLI` / `code` — 전략 코드 인자가 덮은 값)를 표로. 기본은 1부 키와 기본값이 아닌 키만, `--all`은 3.11 표 전부. 실행이 쓰는 해석기 `load_config`(2.x 모듈 표)와 같은 함수라 매니페스트에 적히는 설정과 같은 값 [R4G-CFG-04] |
 | `nexusbt doctor [--full]` | 스냅숏 id·의미 해시·판·프로필 셋 결과(선언 / 검사 단계 / 지원)·검사 안 한 항목·TDS 코드별 건수·**대체 동작 목록(4.5)**·시장별 규칙 팩(있음 / untested)·기간·종목 수·일간 행 수·칼럼 수·디스크 여유·L0/L1 캐시 크기·스텁 최신 여부. 루트 핀을 못 쓴 실행 수 줄 "pins not visible to producer" [R3-17]. 자료 루트에 게시 중 표시 `<root>/.publishing`(일반 배포 관례, TDS 밖)이 있으면 "publishing in progress"만 보이고 새 스냅숏을 기다리라고 함 [청사진 12.5, RV-I09] |
@@ -946,6 +949,7 @@ write: orders.to_csv("orders/{date}.csv")   apply to paper book: nx.fill(book, o
 | 키 | 형 | 기본 | 검증 | 근거 |
 |---|---|---|---|---|
 | `[project] name` | str | 폴더 이름 | `[A-Za-z0-9_-]+` | |
+| `[research] family_id` | str | `nexusbt init`이 씀(새 UUID4) | UUID4; `nexusbt init --new-family`로만 바뀜(6.2) | 사용자 결정 2026-11-04, #196 |
 | `[data] root` | path | (init이 적음; 없으면 `$NEXUSBT_DATA_ROOT`) | 폴더가 있고 `LATEST`나 `tds.json`이 있는 스냅숏 폴더 1개 이상 | R-20, 2.7 |
 | `[data] snapshot` | str | `"latest"` | `"latest"` 또는 있는 id. `latest`는 호출 때 한 번 해석 | 11.7 |
 | `[data] path` | path | 없음 | 패키지 폴더(`tds.json`이 있는 곳) 하나를 바로 가리킴. 있으면 `root`·`snapshot`보다 먼저. 상위 폴더면 `LATEST`로 해석 [V31-PUB-03] | V31-PUB-03 |
@@ -2065,17 +2069,21 @@ SQLite(WAL). 덧붙이기만: 아래 표는 `BEFORE UPDATE/DELETE` 트리거가 
 
 | 표 | 칼럼 |
 |---|---|
-| `studies` | study_id(UUID) PK, name UNIQUE, ts_created, hypothesis |
-| `runs` | run_id PK, kind, study_id, name, ts_created, created_by, snapshot_id, snapshot_semantic_hash, edition, segment, graph_hash, params_json, settings_hash, candidate_key, status(running/sealed/aborted/pruned), path, metrics_json, derived_from |
+| `families` | family_id(UUID) PK, parent_family_id(nullable), reason(`init` / `new family: {text}` / `linked at migration`), ts_created [#196] |
+| `studies` | study_id(UUID) PK, name UNIQUE, family_id, ts_created, hypothesis |
+| `runs` | run_id PK, kind, run_kind(research/debug/seed_comparison/rerun/preview/failed/pruned, 6.2), family_id, study_id, name, ts_created, created_by, snapshot_id, snapshot_semantic_hash, edition, segment, graph_hash, params_json, settings_hash, candidate_key, status(running/sealed/aborted/pruned), path, metrics_json, derived_from |
 | `candidates` | candidate_key PK, study_id, kind(factor/strategy), segment, graph_hash, params_hash, settings_hash, first_run_id (정체성만; 통계 칼럼 없음) [RV-C12] |
 | `observations` | observation_id PK, run_id, candidate_key, snapshot_semantic_hash, segment, start, end, target(정답 이름; 전략은 `net_return`), horizon, freq, n_obs, sr_daily, skew, kurt, nw_t(팩터), method(`linear`/`walk_forward`/`cpcv`/`cscv`), split_hash(null 가능), fidelity(`full`/`preview`) [R4F-21, R4F-15], ts_created |
 | `cohorts` | cohort_sha256 PK, study_id, kind, segment, target, horizon, freq, members_json(정렬된 (candidate_key, observation_id) 목록), ts_frozen — 보고서가 통계를 낼 때 그 순간의 집단을 얼려 저장 |
-| `exposures` | run_id, study_id, segment, start, end |
-| `preregistrations` | id PK, study_id, graph_hash, metric, threshold, segment, note, ts_created |
+| `exposures` | run_id, family_id, study_id, segment, start, end |
+| `preregistrations` | id PK, family_id, study_id, graph_hash, metric, threshold, segment, exposed_elsewhere(nullable), note, ts_created |
+| `selection_events` | event_id PK, family_id, run_id, source(`to_strategy` / `grid` / `preregister`), from_cohort_sha256(nullable), from_count, chosen_candidate_key, segment, ts_created [#196] |
 | `pins` | snapshot_id, holder_id, holder_kind(run/book), ts_created, ts_released |
 | `books` | book_id PK, kind(paper|manual) [V31-18], ts_created, base_ccy, sleeves_json, definition_sha256 |
 
 `nexusbt runs --prune`은 폴더를 지우고 `status = pruned`만 바꾼다. 시도 수는 줄지 않는다 [R-34].
+
+**가족으로 옮기기** [#196]: `families`가 없는 색인은 처음 열 때 한 번 옮긴다. 이유 `linked at migration`과 프로젝트의 `[research] family_id`(toml에 없으면 새로 만들고, 쓸 때까지 실행마다 경고에 "add `[research] family_id = "{id}"` to nexusbt.toml" 줄을 싣는다; 엔진은 toml을 직접 고치지 않는다)로 가족 하나를 만들고, 기존 study·실행·노출·사전 등록 모두에 그 가족을 붙인다. 그 밖에는 바뀌지 않는다: 봉인된 보고서는 글, 집단, `cohort_sha256`을 그대로 둔다.
 
 #### 5.9.6 모의 장부 [R-49, 11.8 M5]
 - `runs/books/<name>/`: `book.json`(**바뀌지 않는 장부 정의**: 전략 `graph_hash`, 파라미터 해시, `SimConfig` 해시, 슬리브·기준 통화·처음 자본, `anchor_decision_id`, 엔진 판, `definition_sha256`), `events/events-<seq>.parquet`(덧붙이기 조각), `checkpoint-<seq>/`(5.6.1 배열 Arrow IPC + 메타 JSON), `HEAD`(마지막 체크포인트 이름과 `state_version`, 원자적 교체), `snapshots.parquet`(판단·체결마다 쓴 `snapshot_id`·의미 해시 기록), `book.lock`. 장부가 쓴 스냅숏의 핀은 장부가 있는 동안 풀지 않는다(4.2) [R3-17].
@@ -2131,11 +2139,15 @@ SQLite(WAL). 덧붙이기만: 아래 표는 `BEFORE UPDATE/DELETE` 트리거가 
 ### 6.1 구간 나누기 (미래 잠금 없음) [9.0 Q26, R-57]
 - 구간은 `nexusbt.toml [split] segments`에서 사용자가 정한다. 기본 `train = [start, 2021-12-31]`, `validation = [2022-01-01, latest]`. `test`를 더하려면 한 줄(`test = ["2025-01-01", "latest"]`, 이때 validation 끝을 당긴다). 구간은 겹치지 않는다.
 - 실행 기간 = 고른 구간(`segment=`, 기본 `default_segment`) ∩ `[start, end]`. `segment="all"`은 모든 구간의 합.
-- **막지 않는다.** 어떤 구간이든 바로 돌릴 수 있다. 대신 (1) 실행마다 계산한 구간을 `exposures`에 남기고 (2) 보고서 머리에 "segments seen in study: train a · validation b · test c"를 보이고 (3) 기본 구간이 아닌 구간을 처음 볼 때 알림 `SegmentNotice`(오류 E10)를 낸다. 진짜 미래 잠금(전향적 잠금)은 만들지 않는다 [9.0 Q26, A-07].
+- **막지 않는다.** 어떤 구간이든 바로 돌릴 수 있다. 대신 (1) 실행마다 계산한 구간을 `exposures`에 남기고 (2) 보고서에 "segments seen train a · validation b · test c"를 **연구 가족**(6.2) 기준으로 세어 보이므로 파일 이름을 바꾸거나 새 study를 시작해도 0으로 돌아가지 않고 (3) 가족 안에서 기본 구간이 아닌 구간을 처음 볼 때 알림 `SegmentNotice`(오류 E10)를 낸다(사용자 결정 2026-11-04, #196). 진짜 미래 잠금(전향적 잠금)은 만들지 않는다 [9.0 Q26, A-07].
 - 구간마다 백테스트는 새 자본으로 시작한다(앞 구간의 계좌를 이어받지 않음). 정답은 구간 끝에서 정화한다(5.8). 구간 **안**을 다시 나누는 검증 방법(walk-forward·CPCV·CSCV)과 그 계좌 규칙은 6.3a [R4-20].
 
 ### 6.2 study, 후보, 시도 수 [R-34, R-35, Q19, 9.3 Q27]
-- `study` 이름 기본 = 진입 파일 이름(확장자 뺌; 노트북은 노트북 파일 이름, 알 수 없으면 `"interactive"`) [Q19]. 처음 쓰는 이름이면 `study_id`(UUID4)를 만들고, 이후 그 id로 저장한다. 파일 이름을 바꾸면 새 study다(`study="옛이름"`으로 이어 갈 수 있음) [A-04].
+- `study` 이름 기본 = 진입 파일 이름(확장자 뺌; 노트북은 노트북 파일 이름, 알 수 없으면 `"interactive"`) [Q19]. 처음 쓰는 이름이면 `study_id`(UUID4)를 만들고, 이후 그 id로 저장한다. 파일 이름을 바꾸면 새 study다(`study="옛이름"`으로 이어 갈 수 있음) [A-04]. study는 집단을 묶는 단위일 뿐이고, 무엇을 시도하고 보았는지는 연구 가족마다 남는다(다음 항목).
+- **연구 가족**(사용자 결정 2026-11-04, #196): `nexusbt init`이 프로젝트마다 한 번 만드는 `[research] family_id`(3.11)가 모든 study 위에 있다. 파일 이름·study 이름·실험 이름은 그것을 정하지 않는다. 독립된 새 가족은 `nexusbt init --new-family REASON`(3.10)으로만 만들며, 옛 가족을 부모로 기록한다. 가족마다: 노출(6.1), 탐색한 후보, 선택 사건, 사전 등록과 확인 횟수. DSR의 N은 집단의 원시 후보 수 그대로이고(아래), 가족의 수는 계보로 그 옆에 보일 뿐 N에 더하지 않는다.
+  - **선택 사건**은 엔진이 보는 것이다: `FactorReport.to_strategy`(고른 팩터 집단, 그 크기, 고른 후보), 검증 실행의 `grid` 선택(6.3a), 사전 등록 묶음(6.4). 다른 곳에서 손으로 한 선택은 보이지 않으므로 줄에 "recorded by the engine"이라 쓴다.
+  - 기본 구간이 아닌 구간 S를 돌린 실행의 **평가 표시**: P = S가 가족에서 처음 노출되기 전에 만든 S의 사전 등록, m = 이 실행 전 S의 노출 수(rerun 제외). 이 그래프가 P에 있고 S의 이전 노출이 모두 P의 그래프에서 왔다면: 사전 등록이 하나이고 `exposed_elsewhere = False`이면 "independent final test", `exposed_elsewhere`가 `None`이나 `True`이면 "independence not established (exposure outside the engine not declared / declared)", 사전 등록이 k > 1개이면 "k predeclared candidates on the final data"이고 각각 확인 번호를 보인다. 그 밖에 m > 0이면 "exploratory on reused final data (seen m times before)", m = 0이면 "independence not established (no preregistration before first exposure)". 기본 구간 실행은 "research data". 표시는 자료의 이력을 말할 뿐 실행을 막지 않으며, 어떤 통계도 손대지 않은 상태를 되돌리지 않는다.
+  - **실행 종류**(`runs.run_kind`): `research`(기본), `debug`와 `seed_comparison`(`purpose=` 키워드, 3.8), `rerun`(`nexusbt rerun`), `preview`(아래 6.2), `failed`(결과 전에 오류로 멈춤), `pruned`(결과 전에 일부러 멈춤). 시도 줄에서 따로 센다. failed·pruned 실행에는 수익을 주지 않으며, 그 후보는 비교 집합 줄(3.9)의 "with returns a/b" 분모에 든다.
 - `candidate_key = sha256(kind, study_id, graph_hash, 정규 params, settings_hash, segment)`. `settings_hash`는 유니버스·비용·집행·탈출·슬리브·시계·판·정답 이름을 담고 스냅숏 id·`start`/`end` 미세 조정은 뺀다(새 자료로 다시 돌린 것은 새 후보가 아님) [C10].
 - **후보 / 관측 / 집단** [RV-C12]: 후보는 정체성만이다(`candidates`). 실행 하나는 관측 하나를 더한다(`observations`: 스냅숏·기간·통계). 다른 스냅숏이나 기간으로 다시 돌려도 앞 관측을 덮지 않는다. 통계를 낼 때는 **집단**을 정한다: 같은 study·kind·segment·target·horizon·freq의 관측들 중 후보마다 가장 최근 관측 하나. 기간(`start`/`end`)이 다른 관측이 섞이면 보고서에 "mixed periods" 경고. 보고서는 그 순간 집단을 얼려 `cohorts`에 저장하고 `cohort_sha256`을 남긴다(봉인한 보고서의 DSR·BHY는 나중 후보가 늘어도 그대로 재현됨).
 - 네 가지 수를 따로 기록하고 보인다: 실행 수(`runs`), 서로 다른 후보 수(`candidates`), 관측 수(`observations`), 가정한 독립 시도 수(= 집단의 후보 수, 그렇게 가정했다고 적음; N은 사용자 결정대로 기록된 후보 수, N_eff는 v1.x 보조) [11.4.5].
@@ -2207,7 +2219,7 @@ SQLite(WAL). 덧붙이기만: 아래 표는 `BEFORE UPDATE/DELETE` 트리거가 
 **비용**: 상태 기계 재실행은 싸다(Pipeline 재사용). CPCV 비용의 대부분은 ML 학습 C(`n_groups`, k) × 재학습 수다; `[validate] max_fits`를 넘으면 실행 전 E40(막지 않음). 학습 시간은 7장 예산 밖으로 따로 보고한다.
 
 ### 6.4 사전 등록 [설계 3.9]
-`nx.preregister(strategy, metric=, threshold=, segment=)`는 기록만 한다(그래프 해시, 기준, 시각). 그 구간을 그 그래프로 돌린 보고서는 "preregistered {metric} ≥ {threshold}: pass/fail · registered before first {segment} exposure: yes/no"를 보인다.
+`nx.preregister(strategy, metric=, threshold=, segment=, exposed_elsewhere=)`는 기록만 한다(그래프 해시, 기준, 시각, 가족). 그 구간을 그 그래프로 돌린 보고서는 "preregistered {metric} ≥ {threshold}: pass/fail · registered before first {segment} exposure in family: yes/no"를 보인다. `exposed_elsewhere`는 그 구간 자료를 엔진 밖에서 보았는지에 대한 사용자의 진술이다(`None` = 진술 없음). 한 구간의 첫 노출 전에 만든 여러 사전 등록은 사전 선언 묶음이 되어 선택 사건 하나로 기록되고, 6.2의 평가 표시가 그것을 따른다(#196). 첫 노출 뒤 다시 등록하면 새 기준이며 그 구간을 손대지 않은 상태로 만들지 않는다.
 
 ### 6.5 미래 정보 검사 [R-15, R-40, R-51, R-54, C8]
 
@@ -2274,7 +2286,7 @@ SQLite(WAL). 덧붙이기만: 아래 표는 `BEFORE UPDATE/DELETE` 트리거가 
 | E7 | `ColumnNameError`(`AttributeError` 하위) | 실패 | 없는 칼럼 | "Fund has no column '{x}'. Did you mean: {a}, {b}?" / "nx.describe(Fund)" |
 | E8 | `WindowError` | 실패 | 창 밖 인덱싱, 반환 모양·dtype 틀림 | "{f} reads close[-{k}] but window={W}" / "@nx.factor(window={k}, ...)" |
 | E9 | `SessionNotice` | 알림 | 시작·끝이 세션이 아님 | "start {x} is not a {m} session; using {y}" / "start='{y}'" [R4F-22] |
-| E10 | `SegmentNotice` | 알림 | study에서 기본 구간이 아닌 구간을 처음 계산 | "this run computes performance on segment '{s}' ({start} → {end}); exposures in study: {n}" / "nx.preregister(...) before looking, if you want a recorded criterion" |
+| E10 | `SegmentNotice` | 알림 | 연구 가족에서 기본 구간이 아닌 구간을 처음 계산(6.1) | "this run computes performance on segment '{s}' ({start} → {end}); exposures in family: {n}" / "nx.preregister(...) before looking, if you want a recorded criterion" |
 | E11 | `FillWarning` | 경고 | 지정가·손절을 일봉으로 판정 | "daily-bar fills for limit/stop orders are approximations" / "see [execution] fill_model note; use at='open' market orders to avoid" [R4F-22] |
 | E12 | `UnsupportedCorporateActionError` | 실패 | 보유 종목에 지원 안 하는 사건(정책 fail), 수량 효과를 정할 수 없는 사건(5.3.3a) | "{instrument_id} has a {kind} on {date} while held ({q} shares)" / "[corporate_actions] unsupported = 'cash_at_adjustment' (recorded), or exclude the security from the universe before {date}" |
 | E13 | `AccountingDataError` | 실패 | 필요한 회계 자료 없음(정책값 null, 합병 대상 없음, 지급일 fail), 정확 비율 없음·잘못됨(4.4-4; fix "ask the producer for ratio_num/ratio_den, or use the default [corporate_actions] decimal_ratio = 'exclude_instrument' (5.6.1 "정확 비율이 없는 사건"), or 'literal' (recorded)"; E13 for this cause only when decimal_ratio = 'require_exact') [R4F-01], 폐지 분배 포함 여부 모름 + `[delisting] unknown_inclusion = "error"`(5.6.13) [R4F-05], 세전 금액을 정할 수 없는 숏 net 배당(5.6.11) [R3-06, R3-09] | 표·열쇠·칼럼 / "the snapshot lacks {column} for {key}; choose a policy ({fix}) or use a snapshot that provides it" (+ `producer.hints`가 있으면 그 문장) |
@@ -4141,6 +4153,8 @@ v1 명세의 O1~O11, 청사진 OQ-1~OQ-15, TDS Q1~Q16을 하나로 모았고, v3
 | DR16-1 | 사용자 분할기·선택기·진단·최적화기의 전문가용 프로토콜(설계 검수 2026-11-04, 항목 D16) | v1.x(결정 2026-11-04, #207). v1은 닫힌 `method` 집합(6.3a)과 내장 통계(6.3)를 유지한다. 각 프로토콜은 최소 계약을 먼저 갖고 들어온다: 입력, 출력, 판단 시각, 상태, 판 | v1.x |
 | DR16-2 | 외부·불투명 전략의 진입점(설계 검수 2026-11-04, 항목 D16) | v1.x(결정 2026-11-04, #207). 선언된 정보 마감 시각을 가진 `TargetFrame`으로 들어오고 "선언됨, 감사 안 됨"으로 보고한다(ADR-0041 7항); v1에는 이런 진입점이 없다 | v1.x |
 | R4G-MG-10 | 증거금 확장: 종목별 증권사 가산 요구(house requirement)·포트폴리오 마진·장중 마진 콜·KR 반대매매의 정확한 순서(D+2 등)·대출 한도 | v1.x. v1은 시장별 요구율 하나(`R(ρ)`), 종가 검사 → 다음 시가 비례 축소. 사용자 결정 2026-10-28 | v1.x |
+| RL-01 | 엔진 밖에서 한 탐색(수, 후보 묶음, 노출 기간)을 연구 가족으로 구조화해 가져오기 | v1.x(사용자 결정 2026-11-04, #196). v1에는 `preregister(exposed_elsewhere=)`만 있다 | v1.x |
+| RL-02 | 최종 구간을 여러 번 볼 때의 사전 선언 순차 절차(confidence sequence, alpha spending) | v1.x, 선택; 의존적 수익에 대한 가정을 밝힌 뒤(#196). v1은 확인 번호만 보인다 | v1.x |
 
 **버림** (다시 열지 않음): V31-47 LEAN 대조 프리셋(TD-LEAN-10) — 대조 기준 엔진은 zipline 하나이고 프리셋으로만 대조한다는 사용자 결정(9.0 Q35, OI-20)과 부딪힌다. LEAN 회귀 통계는 대조값으로도 쓰지 않는다(첨도 관례 의심, V31-07).
 
