@@ -6,18 +6,22 @@ import ast
 import csv
 import datetime as dt
 import inspect
+import itertools
 import json
+import re
 import sysconfig
 import textwrap
 from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
+import pyarrow as pa
+import pyarrow.compute as pc
 import pyarrow.parquet as pq
 import pytest
 
 from nexusbt.testing import synth
-from nexusbt.testing.synth import main, make_snapshot
+from nexusbt.testing.synth import a001, main, make_snapshot, read
 
 UTC = dt.UTC
 
@@ -157,14 +161,19 @@ def test_command_prints_counts_and_hashes_then_checks(
     assert code == 0, printed.out + printed.err
     lines = printed.out.splitlines()
     # 2 markets x (5 instruments x 62 sessions + 1 listed on 02-18 x 31 sessions)
-    assert lines[:5] == [
+    assert lines[:8] == [
         "instruments 12 rows", "instrument_symbols 14 rows", "instrument_xref 0 rows",
-        "calendar_sessions 124 rows", "bars_1d 682 rows",
+        "calendar_sessions 124 rows", "corporate_actions 0 rows", "delistings 0 rows",
+        "bars_1d 682 rows", "corporate_actions revisions 0, cancellations 0",
     ]  # fmt: skip
     hashes = json.loads((out / "tds.json").read_text(encoding="utf-8"))["hashes"]
-    assert lines[5:7] == [f"value_sha256 {hashes['value_sha256']}",
-                          f"semantic_sha256 {hashes['semantic_sha256']}"]  # fmt: skip
+    assert lines[8:11] == [
+        f"value_sha256 {hashes['value_sha256']}",
+        f"semantic_sha256 {hashes['semantic_sha256']}",
+        "TDS-A001: 0",
+    ]
     assert "0 errors, 0 warnings at level full" in printed.out
+    assert "tds:equity-daily-core@1.0: declared" in printed.out  # with empty events (TDS 7)
 
 
 def test_command_without_validate_prints_and_does_not_check(
@@ -268,8 +277,8 @@ def test_small_hashes_match_on_macos_and_linux(tmp_path: Path) -> None:
     package = make_snapshot(tmp_path / "d", preset="small")  # default markets KR, US; seed 0
     hashes = json.loads((package / "tds.json").read_text())["hashes"]
     assert (hashes["value_sha256"], hashes["semantic_sha256"]) == (
-        "114817d0832a818f632c16031de7563aa43a563646a376584829d2c6a0f0444b",
-        "0b97da8375e5caf9162ac244eea59a4f5e4c119d8c31c9e2d33980a3327a3dfe",
+        "dd083d85c7968dad0a1d9e145afa55cec225f1f8638b666c314043f7d16b241a",
+        "2bca42dda815aa99b50a8e51934197af52f5d7f927bfb525b50ac1d80e7ccbaa",
     )
 
 
@@ -290,7 +299,9 @@ def called_names(source: str) -> set[str]:
 
 
 def test_small_value_path_uses_no_platform_math() -> None:
-    assert not called_names(inspect.getsource(synth._small)) & PLATFORM_MATH
+    for step in (synth._small, synth._actions, synth._terms, synth._dividend, synth._revise,
+                 synth._move, synth._delistings, synth._exit_value):  # fmt: skip
+        assert not called_names(inspect.getsource(step)) & PLATFORM_MATH, step.__name__
     # the check refuses what it is for, so the pass above is not vacuous
     bad = "def f(rng, p):\n    return np.exp(rng.normal(0, 1)) * p.sqrt() + math.log(2) ** 2\n"
     assert called_names(bad) & PLATFORM_MATH == {"exp", "normal", "sqrt", "log", "power"}
@@ -302,3 +313,110 @@ def test_small_takes_a_short_period(tmp_path: Path) -> None:
     assert len(rows(week, "instruments")) == 6
     with pytest.raises(ValueError, match="small only"):
         make_snapshot(tmp_path / "t", preset="tiny", n_kr=0)
+
+
+def steps(package: Path, basis: str) -> dict[tuple[str, dt.date], float]:
+    """cum_factor_<basis>[s] / [s-1] of each bar after an instrument's first."""
+    bars = sorted(rows(package, "bars"), key=lambda b: (b["instrument_id"], b["session_date"]))
+    key, col = "instrument_id", f"cum_factor_{basis}"
+    return {(b[key], b["session_date"]): b[col] / a[col]
+            for a, b in itertools.pairwise(bars) if a[key] == b[key]}  # fmt: skip
+
+
+def test_factor_event_reconciliation(small: Path) -> None:
+    actions = read(small, "corporate_actions")
+    assert a001(actions, read(small, "bars_1d")) == 0
+    revised = {r["revision_of"]: r for r in actions.to_pylist()
+               if r["revision_of"] and r["status"] == "effective"}  # fmt: skip
+    total = steps(small, "total")
+    for old in (r for r in actions.to_pylist() if r["event_id"] in revised):
+        new = revised[old["event_id"]]  # the bars move by the amended factor, not the first
+        assert new["price_factor"] != old["price_factor"]
+        assert total[new["instrument_id"], new["ex_date"]] == pytest.approx(new["price_factor"])
+    # counter-example: without its amendments the first versions are the latest, and A001 sees it
+    amendments = pa.array([r["event_id"] for r in revised.values()])
+    stale = actions.filter(pc.invert(pc.is_in(actions["event_id"], amendments)))
+    assert a001(stale, read(small, "bars_1d")) == len(revised) + sum(
+        r["kind"] != "cash_dividend" for r in revised.values()
+    )  # a share event: split and total
+
+
+def test_reverse_split_makes_factor_non_monotonic(small: Path) -> None:
+    split = steps(small, "split")
+    reverse = [r for r in rows(small, "corporate_actions") if r["kind"] == "reverse_split"]
+    assert reverse
+    for r in reverse:  # 1:10 → x10, 1:3 → x3: up, where a split or a dividend goes down
+        assert r["price_factor"] == r["ratio_den"] / r["ratio_num"] > 1
+    ups = [r for r in reverse if split[r["instrument_id"], r["ex_date"]] > 1]
+    assert ups  # a rising factor is data, not an error: A001 above and tds check below hold
+    assert min(split.values()) < 1
+    assert "0 errors" in synth._tds("check", str(small), "--level", "full").stdout
+
+
+def test_revisions_and_cancellations_present(
+    small: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    actions = rows(small, "corporate_actions")
+    by_id = {r["event_id"]: r for r in actions}
+    later = [(by_id[r["revision_of"]], r) for r in actions if r["revision_of"]]
+    amended = [(a, b) for a, b in later if b["status"] == "effective"]
+    assert any(a["cash_per_share"] < b["cash_per_share"] for a, b in amended
+               if a["cash_per_share"])  # an amount  # fmt: skip
+    assert any(a["ratio_num"] != b["ratio_num"] for a, b in amended if a["ratio_num"])  # a ratio
+    assert any(b["ts_announced"].date() > b["pay_date"] for _, b in amended)  # after payment
+    cancelled = [(a, b) for a, b in later if b["status"] == "cancelled"]
+    assert cancelled
+    for a, b in cancelled:  # cancelled after the announcement, before it took effect
+        assert a["status"] == "announced"
+        assert a["ts_announced"] < b["ts_announced"] < b["ts_effective"]
+    for r in (r for r in actions if r["kind"] in synth.SHARE_EVENTS):  # exact ratios (#220 (2))
+        quotient = r["ratio_num"] / r["ratio_den"]
+        assert quotient == r["share_factor"] == pytest.approx(1 / r["price_factor"], rel=1e-12)
+    dividends = [r for r in actions if r["kind"] == "cash_dividend"]
+    assert {r["resolution_body"] for r in dividends} == {"meeting", "board", None}  # #220 (1)
+    assert all(r["ex_date"].month >= 10 for r in dividends if r["resolution_body"] == "meeting")
+    late = [(r["ts_terms_available"].date() - r["ex_date"]).days for r in dividends
+            if r["ts_terms_available"]]  # fmt: skip
+    assert late
+    assert {r["instrument_id"][:3] for r in dividends if r["ts_terms_available"]} == {"KR:"}
+    assert 30 <= min(late) <= max(late) <= 61  # 30~60 days after the ex-date's close
+    code = main(["--preset", "small", "--out", str(tmp_path / "cli"), "--validate"])
+    printed = capsys.readouterr().out
+    assert code == 0, printed
+    assert "TDS-A001: 0" in printed.splitlines()
+    assert re.search(r"^corporate_actions revisions [1-9]\d*, cancellations [1-9]", printed, re.M)
+
+
+def test_delisted_on_matches_delistings(small: Path) -> None:
+    exits = {r["instrument_id"]: r for r in rows(small, "delistings")}
+    instruments = rows(small, "instruments")
+    for r in instruments:  # one exit per listing that ends in the period, at delisted_on (R008)
+        out = exits.get(r["instrument_id"])
+        assert (out and out["exit_date"], out and out["last_trading_date"]) == (
+            r["delisted_on"], r["last_session"]), r["instrument_id"]  # fmt: skip
+    assert len(exits) == sum(r["delisted_on"] is not None for r in instruments) > 0
+    closes = {(b["instrument_id"], b["session_date"]): b["close"] for b in rows(small, "bars")}
+    for r in exits.values():
+        assert r["ref_price"] == closes[r["instrument_id"], r["ref_date"]]
+        assert r["last_trading_date"] < r["exit_date"]
+        assert r["ret_lo"] <= r["ret_hi"]
+        assert r["ts_exit_known"] < dt.datetime.combine(r["exit_date"], dt.time(), UTC)
+    status = [r["exit_value_status"] for r in exits.values()]
+    assert set(status) == {"observed", "estimated", "unobserved"}
+    late = [(r["ts_value_available"].date() - r["exit_date"]).days for r in exits.values()
+            if r["ts_value_available"]]  # fmt: skip
+    assert late
+    assert 20 <= min(late) <= max(late) <= 90  # INV-01: an observed value published late
+    unobserved = [r["ret_policy"] for r in exits.values() if r["exit_value_status"] == "unobserved"]
+    assert None in unobserved  # 5.6.13's E13 path: no policy value for a holding
+    assert -0.3 in unobserved
+    # 4.8 (4): a liquidating distribution between the last trading day and the exit
+    payouts = [r for r in rows(small, "corporate_actions") if r["kind"] == "return_of_capital"]
+    assert payouts
+    for p in payouts:
+        out = exits[p["instrument_id"]]
+        assert out["last_trading_date"] < p["ex_date"] < out["exit_date"]
+        assert out["delist_type"] == "liquidation"
+        assert out["ret_observed_includes_distributions"] is not None  # no A011
+    assert all(r["ret_observed_includes_distributions"] is None for r in exits.values()
+               if r["delist_type"] != "liquidation")  # fmt: skip

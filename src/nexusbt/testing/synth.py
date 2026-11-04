@@ -5,16 +5,18 @@ fixed cycles, with no random numbers. `small` follows 4.8's generation rules (1)
 `numpy.random.Generator(PCG64(seed))`, except that its prices and volumes come from integer
 draws and + - x / instead of 4.8 (3)'s exp, normal and lognormal draws, so that its bytes do
 not depend on the platform's math library (#128). Both write `instruments`,
-`instrument_symbols`, an empty `instrument_xref`, `calendar_sessions` and dense daily `bars`
-(cumulative factors 1.0). The hashes in `tds.json` and `--validate`'s check are the `tds`
-command's, run as a separate process: spec 2.5 draws no arrow from `testing` to
-`nexusbt_tds`, so this module does not import it.
+`instrument_symbols`, an empty `instrument_xref`, `calendar_sessions`, `corporate_actions`
+and `delistings` (both empty in `tiny`; in `small` 4.8 (4) and (6)) and dense daily `bars`
+whose raw prices and cumulative factors follow the events (all 1.0 in `tiny`). The hashes in
+`tds.json` and `--validate`'s check are the `tds` command's, run as a separate process: spec
+2.5 draws no arrow from `testing` to `nexusbt_tds`, so this module does not import it.
 """
 
 from __future__ import annotations
 
 import argparse
 import datetime as dt
+import itertools
 import json
 import subprocess
 import sys
@@ -58,17 +60,49 @@ YEAR = 252  # sessions: small draws listings over 8 such years before its start,
 BP, DRIFT = 10_000, 3  # small's price steps: basis points, log drift 3 bp (4.8 (3)'s 0.0003)
 PRODUCER = "nexusbt-synth"
 HINTS = {
-    "TDS-M008": "nexusbt-synth declares tds:minimal-daily only until it generates corporate"
-    " actions and delistings (spec 4.8 (4), (6))",
     "TDS-K011": "nexusbt-synth numbers each calendar's sessions from 0 within the preset period",
 }
 ROW_GROUP = 100_000
 _TS = pa.timestamp("us", tz="UTC")
 Table = dict[str, Any]  # column name → values, in schema order
+_D, _S, _F, _I = pa.date32(), pa.string(), pa.float64(), pa.int64()
+#: The TDS 5.11 `corporate_actions` columns the generator writes; the others are all null.
+CA = pa.schema({
+    "event_id": _S, ID: _S, "kind": _S, "ex_date": _D, "ts_effective": _TS, "record_date": _D,
+    "declared_date": _D, "pay_date": _D, "pay_date_status": _S, "resolution_date": _D,
+    "resolution_body": _S, "ts_announced": _TS, "ts_terms_available": _TS, "ratio_num": _I,
+    "ratio_den": _I, "ratio_new_per_old": _F, "cash_per_share": _F, "currency": _S,
+    "gross_or_net": _S, "price_factor": _F, "share_factor": _F, "affects": _S,
+    "factor_method": _S, "factor_ref_price": _F, "revision_of": _S, "status": _S, "source": _S,
+})  # fmt: skip
+#: The TDS 5.13 `delistings` columns the generator writes.
+DL = pa.schema({
+    "delisting_id": _S, ID: _S, "last_trading_date": _D, "exit_date": _D, "ts_exit_known": _TS,
+    "delist_type": _S, "ref_date": _D, "ref_price": _F, "exit_value_status": _S,
+    "ret_observed": _F, "ret_observed_includes_distributions": pa.bool_(),
+    "ts_value_available": _TS, "ret_policy": _F, "ret_lo": _F, "ret_hi": _F, "policy_id": _S,
+    "pay_date": _D,
+})  # fmt: skip
+STATUS = {"revised": "effective", "cancelled": "cancelled"}  # a later version's status
+#: 4.8 (6): the exit value status by a draw from 0 to 9, and the type each status gets.
+EXIT = ("observed",) * 5 + ("estimated",) * 3 + ("unobserved",) * 2
+EXIT_TYPE = {"observed": "acquisition_cash", "estimated": "performance", "unobserved": "unknown"}
+#: 4.8 (4): each share event's yearly rate and its ratios, (new, old) shares; a bonus issue
+#: of 0.29 is 129 shares for 100.
+SHARE_EVENTS = {
+    "split": (0.005, ((2, 1), (5, 1), (7, 1))),
+    "reverse_split": (0.002, ((1, 10), (1, 3))),
+    "bonus_issue": (0.001, ((129, 100), (21, 20))),
+}
 
 
 def _at(day: dt.date, hour: int, minute: int) -> dt.datetime:
     return dt.datetime(day.year, day.month, day.day, hour, minute, tzinfo=dt.UTC)
+
+
+def _utc(value: Any) -> dt.datetime:  # a numpy datetime64[us] in UTC
+    naive: dt.datetime = value.item()
+    return naive.replace(tzinfo=dt.UTC)
 
 
 def _sessions(calendar: str) -> list[dt.date]:
@@ -147,7 +181,8 @@ def _tiny(market: str) -> dict[str, Table]:
             close = price
     bars.sort(key=lambda b: (b["session_date"], b[ID]))
     return {"instruments": instruments, "instrument_symbols": _symbols(spans),
-            "bars_1d": _columns(bars)}  # fmt: skip
+            "bars_1d": _columns(bars), "corporate_actions": CA.empty_table(),
+            "delistings": DL.empty_table()}  # fmt: skip
 
 
 def _tiny_calendar(calendar: str) -> Table:
@@ -236,20 +271,216 @@ def _small(market: str, n: int, sessions: Table, rng: np.random.Generator) -> di
             bars.setdefault(name, []).append(values)
     venues = VENUES.get(market)  # drawn last, so the draws above stay as they were
     mics = rng.choice(venues, n).tolist() if venues else [None] * n
+    actions = _actions(market, ids, first, last, sessions, bars, rng)  # moves `bars` too
+    exits, payouts, delisted = _delistings(market, ids, first, last, sessions, bars, rng)
     instruments = _instruments(
         market, ids, mics, [days[i].item() for i in first],
         listed_on_censored=[i == 0 for i in first],
         last_session=[days[j].item() if g else None for j, g in zip(last, gone, strict=True)],
+        delisted_on=delisted,
     )  # fmt: skip
     table = pa.table({c: np.concatenate(v) for c, v in bars.items()})
     order = [("session_date", "ascending"), (ID, "ascending")]
     return {"instruments": instruments, "bars_1d": table.sort_by(order),
-            "instrument_symbols": _symbols([s for v in spans.values() for s in v])}  # fmt: skip
+            "instrument_symbols": _symbols([s for v in spans.values() for s in v]),
+            "corporate_actions": pa.concat_tables([actions, payouts]),
+            "delistings": exits}  # fmt: skip
+
+
+def _terms(kind: str, term: int, ref: float, unit: int, currency: str) -> dict[str, Any]:
+    """The terms of one version: `term` is a SHARE_EVENTS index, or for any other kind (a
+    dividend, a liquidating return of capital) a cash amount in bp of the previous close."""
+    if kind == "cash_dividend":  # whole won or cents, at least one; m = 1 - D / close[e-1]
+        cash = max(1, round(ref * term / BP * unit)) / unit
+        return {"cash_per_share": cash, "currency": currency, "gross_or_net": "gross",
+                "price_factor": 1 - cash / ref, "share_factor": 1.0, "affects": "total_only",
+                "factor_method": "cash_prev_close", "factor_ref_price": ref}  # fmt: skip
+    num, den = SHARE_EVENTS[kind][1][term]
+    return {"ratio_num": num, "ratio_den": den, "price_factor": den / num,
+            "ratio_new_per_old": (num - den) / den if kind == "bonus_issue" else num / den,
+            "share_factor": num / den, "affects": "split_and_total", "factor_method": "ratio",
+            "factor_ref_price": ref}  # fmt: skip
+
+
+def _actions(
+    market: str, ids: Sequence[str], first: Sequence[int], last: Sequence[int],
+    sessions: Table, bars: dict[str, list[Any]], rng: np.random.Generator,
+) -> pa.Table:  # fmt: skip
+    """4.8 (4): share events and quarterly cash dividends, ~1 % amended and ~0.5 % cancelled.
+
+    The latest version of each event moves the raw prices and volumes in `bars` from its
+    ex-date on, and its price factor the cumulative factors (TDS 5.11's A001 at c = +inf).
+    """
+    days, opens, closes = sessions["session_date"], sessions["ts_open"], sessions["ts_close"]
+    keys, drawn, fate = _draw(first, last, rng)
+    unit, currency = 1 if market == "KR" else 100, MARKETS[market]["currency"]
+    rows, later = [], []
+    for x, (k, e) in enumerate(keys):  # by instrument, then ex-date: close[e-1] moved already
+        (kind, term), a = drawn[k, e], max(first[k], e - 10)  # announced 10 sessions before
+        ref, ex, effective = float(bars["close"][k][e - first[k] - 1]), days[e].item(), opens[e]
+        row = dict.fromkeys(CA.names) | {
+            "event_id": f"{market}:E{x + 1:06d}", ID: ids[k], "kind": kind, "ex_date": ex,
+            "ts_effective": _utc(effective), "declared_date": days[a].item(), "pay_date": ex,
+            "pay_date_status": "observed", "ts_announced": _utc(closes[a]), "source": PRODUCER,
+            "status": "announced" if fate.get(x) == "cancelled" else "effective",
+        } | _terms(kind, term, ref, unit, currency)  # fmt: skip
+        midway = _utc(closes[a] + (effective - closes[a]) // 2)  # after the first, before ex
+        if kind == "cash_dividend":
+            row |= _dividend(row, e, sessions, market == "KR", rng)
+        rows.append(row)
+        final = term
+        if fate.get(x) == "revised":
+            final, midway = _revise(kind, term, row["pay_date"], midway, rng)
+        latest = row | _terms(kind, final, ref, unit, currency)
+        terms = row["ts_terms_available"]  # a later version does not publish the amount earlier
+        if x in fate:
+            later.append(latest | {"revision_of": row["event_id"], "ts_announced": midway,
+                                   "ts_terms_available": terms if terms and terms > midway
+                                   else None, "status": STATUS[fate[x]]})  # fmt: skip
+        if fate.get(x) != "cancelled":
+            _move(bars, k, e - first[k], latest, kind in SHARE_EVENTS)
+    for x, row in enumerate(later, len(rows) + 1):  # numbered after every first version
+        row["event_id"] = f"{market}:E{x:06d}"
+    return pa.Table.from_pylist(rows + later, schema=CA)
+
+
+def _draw(
+    first: Sequence[int], last: Sequence[int], rng: np.random.Generator
+) -> tuple[list[tuple[int, int]], dict[tuple[int, int], tuple[str, int]], dict[int, str]]:
+    """4.8 (4)'s events, (instrument, ex-date index) → (kind, term) in key order, and the fate
+    of the amended and cancelled ones by their position."""
+    live = [k for k in range(len(first)) if last[k] > first[k]]  # an ex-date needs close[e-1]
+    years = sum(last[k] - first[k] + 1 for k in live) / YEAR
+    drawn: dict[tuple[int, int], tuple[str, int]] = {}  # (k, ex-date index) → kind, term
+    for kind, (rate, ratios) in SHARE_EVENTS.items():
+        for _ in range(max(1, round(rate * years)) if live else 0):
+            k = live[int(rng.integers(len(live)))]
+            e = int(rng.integers(first[k] + 1, last[k], endpoint=True))
+            drawn.setdefault((k, e), (kind, int(rng.integers(len(ratios)))))
+    for k in rng.choice(live, round(0.3 * len(live)), replace=False).tolist():
+        for e in range(first[k] + int(rng.integers(1, 63, endpoint=True)), last[k] + 1, 63):
+            drawn.setdefault((k, e), ("cash_dividend", int(rng.integers(20, 150, endpoint=True))))
+    keys, order = sorted(drawn), rng.permutation(len(drawn)).tolist()
+    revised, cancelled = max(1, round(0.01 * len(keys))), max(1, round(0.005 * len(keys)))
+    shares = [x for x in order if drawn[keys[x]][0] in SHARE_EVENTS][:1]  # a ratio amended too
+    order = shares + [x for x in order if x not in shares]
+    fate = dict.fromkeys(order[:revised], "revised")
+    fate |= dict.fromkeys(order[revised : revised + cancelled], "cancelled")
+    return keys, drawn, fate
+
+
+def _dividend(
+    row: Mapping[str, Any], e: int, sessions: Table, kr: bool, rng: np.random.Generator
+) -> dict[str, Any]:
+    """A cash dividend's dates, its late terms and `resolution_body` (4.8 (4))."""
+    terms = None  # half of KR dividends publish their amount 30~60 days after ex
+    if kr and rng.integers(2):
+        late = dt.timedelta(int(rng.integers(30, 60, endpoint=True)))
+        terms = _utc(sessions["ts_close"][e]) + late
+    # #220 Decisions: a year-end dividend (ex-date in Q4) meeting 0.8 / board 0.2, any other
+    # board, and 5 % of all of them null
+    body = None if rng.integers(100) < 5 else "board"
+    if body and row["ex_date"].month >= 10 and rng.integers(10) < 8:
+        body = "meeting"
+    fixed = terms.date() if terms else row["declared_date"]  # the amount's resolution
+    days = sessions["session_date"]
+    return {"pay_date": fixed + dt.timedelta(30),  # 5.6.11: a month after it
+            "record_date": days[e + 1].item() if e + 1 < len(days) else None,
+            "resolution_body": body, "ts_terms_available": terms,
+            "resolution_date": fixed if body else None}  # fmt: skip
+
+
+def _revise(
+    kind: str, term: int, paid: dt.date, midway: dt.datetime, rng: np.random.Generator
+) -> tuple[int, dt.datetime]:
+    """An amendment's term and announcement: the next ratio, or 5~30 bp more, half of those
+    announced a week after payment."""
+    ratios = SHARE_EVENTS.get(kind, (0, ()))[1]
+    if ratios:
+        return (term + 1) % len(ratios), midway
+    final = term + int(rng.integers(5, 30, endpoint=True))
+    return final, _at(paid + dt.timedelta(7), 0, 0) if rng.integers(2) else midway
+
+
+def _move(
+    bars: dict[str, list[Any]], k: int, s: int, version: Mapping[str, Any], share: bool
+) -> None:
+    """Instrument `k`'s bars from its `s`-th on, moved by one event's factors."""
+    for name in ("open", "high", "low", "close", "cum_factor_total") + (
+        ("cum_factor_split",) if share else ()
+    ):  # fmt: skip
+        bars[name][k][s:] *= version["price_factor"]
+    bars["volume"][k][s:] = np.round(bars["volume"][k][s:] * version["share_factor"])
+
+
+def _delistings(
+    market: str, ids: Sequence[str], first: Sequence[int], last: Sequence[int],
+    sessions: Table, bars: dict[str, list[Any]], rng: np.random.Generator,
+) -> tuple[pa.Table, pa.Table, list[dt.date | None]]:  # fmt: skip
+    """4.8 (6): a `delistings` row for every listing that ends in the period, with 4.8 (4)'s
+    liquidating distribution, ex-date between the last trading day and the exit, on ~10 %.
+
+    Returns those rows, the distributions' `corporate_actions` rows and each `delisted_on`.
+    """
+    days, opens, closes = sessions["session_date"], sessions["ts_open"], sessions["ts_close"]
+    gone = [k for k in range(len(ids)) if last[k] < len(days) - 1]
+    room = [k for k in gone if last[k] + 2 < len(days)]  # a session for the ex-date
+    count = min(len(room), max(1, round(0.1 * len(gone))))
+    paid = set(rng.choice(room, count, replace=False).tolist()) if count else set()
+    unit, currency = 1 if market == "KR" else 100, MARKETS[market]["currency"]
+    delisted: list[dt.date | None] = [None] * len(ids)
+    rows, payouts, policy_left = [], [], True  # the first unobserved row keeps ret_policy null
+    for n, k in enumerate(gone, 1):
+        x, ref = last[k] + (2 if k in paid else 1), float(bars["close"][k][-1])  # exit session
+        status = EXIT[int(rng.integers(10))]
+        ret, policy = _exit_value(status, policy_left, rng)
+        policy_left = policy_left and status != "unobserved"
+        known = None  # half of the observed values publish 20~90 days after the exit
+        if status == "observed" and rng.integers(2):
+            known = _utc(opens[x]) + dt.timedelta(int(rng.integers(20, 90, endpoint=True)))
+        out: dt.date = days[x].item()
+        delisted[k], told = out, max(first[k], x - 10)  # known 10 sessions before
+        rows.append({
+            "delisting_id": f"{market}:D{n:05d}", ID: ids[k], "exit_date": out,
+            "last_trading_date": days[last[k]].item(), "ts_exit_known": _utc(closes[told]),
+            "delist_type": "liquidation" if k in paid else EXIT_TYPE[status],
+            "ref_date": days[last[k]].item(), "ref_price": ref, "exit_value_status": status,
+            "ret_observed": ret, "ts_value_available": known, "ret_policy": policy,
+            "ret_observed_includes_distributions": bool(rng.integers(2)) if k in paid else None,
+            "ret_lo": -1.0, "ret_hi": 0.0, "policy_id": "exit-value-v1",
+            "pay_date": out + dt.timedelta(30) if status == "observed" else None,
+        })  # fmt: skip
+        if k in paid:  # a return of capital of 20~80 % of the last close, ex-date the next day
+            ex = days[last[k] + 1].item()
+            payouts.append(dict.fromkeys(CA.names) | {
+                "event_id": f"{market}:L{n:05d}", ID: ids[k], "kind": "return_of_capital",
+                "ex_date": ex, "ts_effective": _utc(opens[last[k] + 1]), "pay_date": ex
+                + dt.timedelta(30), "declared_date": days[told].item(), "status": "effective",
+                "pay_date_status": "observed", "ts_announced": _utc(closes[told]),
+                "source": PRODUCER,
+            } | _terms("cash_dividend", int(rng.integers(2000, 8000, endpoint=True)), ref,
+                       unit, currency))  # fmt: skip
+    return (pa.Table.from_pylist(rows, schema=DL), pa.Table.from_pylist(payouts, schema=CA),
+            delisted)  # fmt: skip
+
+
+def _exit_value(
+    status: str, policy_left: bool, rng: np.random.Generator
+) -> tuple[float | None, float | None]:
+    """`ret_observed` and `ret_policy`: an observed -50 %~+30 %, an estimate -50 %~0, and an
+    unobserved -30 %, but null for the first, so a holding meets 5.6.13's E13."""
+    if status == "observed":
+        ret = int(rng.integers(-5000, 3000, endpoint=True)) / BP
+        return ret, ret
+    if status == "estimated":
+        return None, int(rng.integers(-5000, 0, endpoint=True)) / BP
+    return None, None if policy_left else -0.3
 
 
 _TYPES = {
     "listed_on": pa.date32(), "session_date": pa.date32(), "valid_from": pa.date32(),
-    "valid_to": pa.date32(), "last_session": pa.date32(), "ts_known_from": _TS,
+    "valid_to": pa.date32(), "last_session": pa.date32(), "delisted_on": pa.date32(),
+    "ts_known_from": _TS,
     "ts_known_to": _TS, "ts_start": _TS, "ts_end": _TS, "ts_open": _TS, "ts_close": _TS,
     "session_ord": pa.int32(), "venue_mic": pa.string(), "listed_on_censored": pa.bool_(),
 }  # fmt: skip
@@ -268,8 +499,11 @@ def _arrow(table: Table | pa.Table) -> pa.Table:
 def _write(root: Path, rel: str, name: str, table: pa.Table) -> dict[str, Any]:
     path = root / rel
     path.parent.mkdir(parents=True, exist_ok=True)
-    meta = {"tds.dataset": name, "tds.schema_version": "1.0"}
-    pq.write_table(table.replace_schema_metadata(meta), path, row_group_size=ROW_GROUP)
+    table = table.replace_schema_metadata({"tds.dataset": name, "tds.schema_version": "1.0"})
+    if table.num_rows:
+        pq.write_table(table, path, row_group_size=ROW_GROUP)
+    else:  # no row group: an empty one has no statistics, so S003 and S006 would go unchecked
+        pq.ParquetWriter(path, table.schema).close()
     return {"path": rel, "rows": table.num_rows, "bytes": path.stat().st_size}
 
 
@@ -335,6 +569,8 @@ def make_snapshot(
             ("instrument_symbols", joined("instrument_symbols", [ID, "valid_from"])),
             ("instrument_xref", pa.schema(XREF).empty_table()),
             ("calendar_sessions", sessions),
+            ("corporate_actions", joined("corporate_actions", [ID, "ex_date", "event_id"])),
+            ("delistings", joined("delistings", [ID, "exit_date"])),
         )
     }  # fmt: skip
     files["bars_1d"] = []
@@ -350,15 +586,17 @@ def make_snapshot(
             "columns": [{"name": c, "type": "ts_us"} for c in ("ts_start", "ts_end")]}  # fmt: skip
     unstated = ((ID, "id"), ("id_type", "code"), ("link_quality", "code"), ("source", "string"))
     xref = {"columns": [{"name": c, "type": t} for c, t in unstated]}  # types 5.3 leaves out
+    actions = {"availability": {"effect": "ts_effective", "terms": "ts_terms_available"}}  # 6.2
     manifest = {
         "tds_version": "1.0", "name": f"synth-{preset}", "created": f"{final}T00:00:00Z",
         "snapshot_id": snapshot_id, "producer": {"name": PRODUCER, "hints": HINTS},
-        "profiles": ["tds:minimal-daily@1.0"],
+        "profiles": ["tds:minimal-daily@1.0", "tds:equity-daily-core@1.0"],
         "id_namespaces": {m: NAMESPACES[m] for m in chosen},
         "markets": {m: MARKETS[m] for m in chosen},
         "datasets": [
             {"name": name, "kind": name, "path": name, "schema_version": "1.0",
-             **{"bars_1d": bars, "instrument_xref": xref}.get(name, {}), "files": entries}
+             **{"bars_1d": bars, "instrument_xref": xref, "corporate_actions": actions}.get(
+                 name, {}), "files": entries}
             for name, entries in files.items()
         ],
         "hashes": {"hash_spec": "tds-hash-1"},
@@ -369,6 +607,49 @@ def make_snapshot(
     if done.returncode != 0:
         raise RuntimeError(f"tds hash --write {root} exited {done.returncode}: {done.stderr}")
     return root
+
+
+def read(root: Path, name: str) -> pa.Table:
+    """The rows of dataset `name` from the files its tds.json entry lists."""
+    manifest = json.loads((Path(root) / "tds.json").read_text(encoding="utf-8"))
+    (ds,) = (d for d in manifest["datasets"] if d["name"] == name)
+    return pa.concat_tables([pq.read_table(Path(root) / f["path"]) for f in ds["files"]])
+
+
+def a001(actions: pa.Table, bars: pa.Table) -> int:
+    """TDS 5.11's A001 count: bars whose `cum_factor_*` step from the instrument's previous bar
+    is not, to 1e-12 relative, the product of the price factors effective that session.
+
+    Resolved at c = +inf: per `revision_of` chain only the version known last (5.11 step 2,
+    ties to the last `event_id`), none when it is cancelled or only announced. The generator's
+    own count until `tds check` runs A001 through `nexusbt_tds.actions` (#226, #227), which
+    this module may not import (spec 2.5).
+    """
+    parent = {r["event_id"]: r["revision_of"] for r in actions.to_pylist()}
+    latest: dict[str, tuple[Any, dict[str, Any]]] = {}
+    for r in sorted(actions.to_pylist(), key=lambda r: r["event_id"]):
+        root = r["event_id"]
+        while parent[root]:
+            root = parent[root]
+        known = [t for t in (r["ts_announced"], r["ts_terms_available"]) if t is not None]
+        when = min(known, default=r["ts_effective"])
+        if root not in latest or when >= latest[root][0]:
+            latest[root] = (when, r)
+    want: dict[tuple[str, dt.date, str], float] = {}
+    for _, r in latest.values():
+        bases = {"split_and_total": ("total", "split"), "total_only": ("total",)}
+        for basis in bases.get(r["affects"], ()) if r["status"] == "effective" else ():
+            key = (r[ID], r["ex_date"], basis)
+            want[key] = want.get(key, 1.0) * r["price_factor"]
+    rows = bars.select([ID, "session_date", "cum_factor_split", "cum_factor_total"])
+    rows = rows.sort_by([(ID, "ascending"), ("session_date", "ascending")]).to_pylist()
+    bad = 0
+    for before, now in itertools.pairwise(rows):
+        for basis in ("total", "split") if before[ID] == now[ID] else ():
+            step = now[f"cum_factor_{basis}"] / before[f"cum_factor_{basis}"]
+            m = want.get((now[ID], now["session_date"], basis), 1.0)
+            bad += abs(step - m) > 1e-12 * abs(m)
+    return bad
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -386,14 +667,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     manifest = json.loads((root / "tds.json").read_text(encoding="utf-8"))
     for ds in manifest["datasets"]:
         print(f"{ds['name']} {sum(f['rows'] for f in ds['files'])} rows")
+    actions = read(root, "corporate_actions")
+    status, revision = actions["status"].to_pylist(), actions["revision_of"].to_pylist()
+    revised = sum(r is not None and s != "cancelled" for r, s in zip(revision, status, strict=True))
+    print(f"corporate_actions revisions {revised}, cancellations {status.count('cancelled')}")
     for name in ("value_sha256", "semantic_sha256"):
         print(f"{name} {manifest['hashes'][name]}")
     if not args.validate:
         return 0
+    bad = a001(actions, read(root, "bars_1d"))
+    print(f"TDS-A001: {bad}")
     done = _tds("check", str(root), "--level", "full")
     sys.stdout.write(done.stdout)
     sys.stderr.write(done.stderr)
-    return done.returncode
+    return done.returncode or int(bad > 0)
 
 
 if __name__ == "__main__":  # pragma: no cover - run by `python -m`, a separate process

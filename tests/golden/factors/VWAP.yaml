@@ -1,0 +1,13 @@
+# T-25 (spec 8.2, 3.4): a built-in factor by hand over 5 rows. `check/T-25.py` reaches the same
+# literals; implementation pull requests do not change this file. `expected` per row:
+# null = warm-up (no full window in the 5 rows), .nan = the factor gives NaN.
+factor: VWAP
+spec: "3.4: nansum(close * volume)/nansum(volume), NaN left out; warm-up W-1"
+cases:
+  - term: "VWAP(3)"
+    # A row's close and volume are NaN together, or only its volume: both readings of "NaN left
+    # out" (zipline's literal formula, or pairs only) give the same values. A NaN close with a
+    # volume is not a case here.
+    inputs: {close: [10, .nan, 12, 11, 10], volume: [100, .nan, 300, .nan, 100]}
+    # Worked by hand, not yet checked by the person:(1000 + 3600)/400 = 11.5; 3600/300 = 12.0; (3600 + 1000)/400 = 11.5.
+    expected: [null, null, 11.5, 12.0, 11.5]
