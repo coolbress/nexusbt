@@ -46,9 +46,7 @@ PUBLIC = {
 #: Classes whose public members are stubs too, each called through the class.
 STUB_CLASSES = [
     "nexusbt.data.Snapshot",
-    "nexusbt.artifacts.RunTxn",
-    "nexusbt.artifacts.RunStore",
-    "nexusbt.artifacts.BookStore",
+    "nexusbt.artifacts.BookStore",  # RunStore and RunTxn landed with T1.14a (#247)
 ]
 #: Functions whose ticket has landed: no longer stubs (T0.13a, #51; T0.5a, #53).
 BUILT = {
@@ -113,7 +111,7 @@ def test_column_name_error_is_an_attribute_error() -> None:
     assert issubclass(ColumnNameError, AttributeError)
 
 
-@pytest.mark.parametrize("name", ["RunStore", "Index", "BookStore"])
+@pytest.mark.parametrize("name", ["Index", "BookStore"])
 def test_store_constructor_raises_not_implemented(name: str, tmp_path: Path) -> None:
     with pytest.raises(NotImplementedError):  # 2.4 `RunStore(root)`, `Index(root)`, ...
         getattr(importlib.import_module("nexusbt.artifacts"), name)(tmp_path)
