@@ -75,7 +75,8 @@ ENGINE_COLUMNS: Mapping[str, frozenset[str]] = MappingProxyType(
             " up_limit_price down_limit_price reference_price admin_status",
             # every column, TDS 5.11
             "corporate_actions": f"event_id {ID_COLUMN} kind ex_date ts_effective record_date"
-            " declared_date pay_date pay_date_status resolution_date ts_announced"
+            " declared_date pay_date pay_date_status resolution_date resolution_body"
+            " ts_announced"
             " ts_terms_available ratio_num ratio_den ratio_new_per_old new_instrument_id"
             " cash_per_share currency gross_or_net subscription_price price_factor share_factor"
             " affects factor_method factor_ref_price revision_of status source evidence_id",
