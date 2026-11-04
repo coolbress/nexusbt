@@ -1,0 +1,16 @@
+# T-25 (spec 8.2, 3.4): a built-in factor by hand over 5 rows. `check/T-25.py` reaches the same
+# literals; implementation pull requests do not change this file. `expected` per row:
+# null = warm-up (no full window in the 5 rows), .nan = the factor gives NaN.
+factor: ExponentialWeightedMovingAverage
+spec: "3.4: average(x, weights=decay^(W-1-i)), any NaN -> NaN; warm-up W-1. 8.2: 1, 2, 3 -> 2.428571; 1, NaN, 3 -> NaN"
+cases:
+  - term: "EWMA(3, decay_rate=0.5)"
+    inputs: {close: [1, 2, 3, .nan, 5]}
+    # Worked by hand, not yet checked by the person:weights 0.25, 0.5, 1 -> (0.25 + 1 + 3)/1.75 = 2.428571; rows 4 and 5 hold
+    # the NaN.
+    expected: [null, null, 2.428571, .nan, .nan]
+  - term: "EWMA(3, decay_rate=0.5)"
+    inputs: {close: [5, 1, .nan, 3, 4]}
+    # Worked by hand, not yet checked by the person: every window holds the NaN, row 4 is 8.2's
+    # 1, NaN, 3 -> NaN.
+    expected: [null, null, .nan, .nan, .nan]
