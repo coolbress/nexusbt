@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 from pathlib import Path
 from typing import Any
 
@@ -41,7 +42,7 @@ def test_M_codes(code: str, tmp_path: Path) -> None:
     assert codes(package / "fail", "schema") == [code]  # also at the CLI's default level
 
 
-@pytest.mark.parametrize("code", S_CODES)
+@pytest.mark.parametrize("code", [*S_CODES, "TDS-T006", "TDS-D002"])  # T, D: statistics (8.2)
 def test_S_codes(code: str, tmp_path: Path) -> None:
     fail = build.write(tmp_path / "fail", *build.package(code, "fail"))
     assert codes(fail, "schema") == [code]
@@ -273,6 +274,118 @@ def test_resolution_body_is_a_closed_list(
     result = check(write(tmp_path, add), level="schema")
     assert [f.code for f in (*result.errors, *result.warnings)] == found
     assert "TDS-S006" not in result.unchecked
+
+
+END, TICK, HOUR = build.THROUGH, dt.timedelta(microseconds=1), dt.timedelta(hours=1)
+
+
+def _ts(value: dt.datetime | None, unit: str = "us") -> pa.Array:
+    return pa.array([value], pa.timestamp(unit, "UTC"))
+
+
+def _rule(rule: str, through: bool = True, opts: Any = None, **columns: Any) -> Any:
+    """The bars under availability `rule`, US `complete_through` END unless not `through`."""
+
+    def change(m: dict[str, Any], f: Any) -> None:
+        if through:
+            m["markets"]["US"]["complete_through"] = END.isoformat()
+        build.bars(m)["availability"] = {"rule": rule}
+        build.rewrite(m, f, build.BARS, build.bars_table(**columns), **(opts or {}))
+
+    return change
+
+
+def _custom(m: dict[str, Any], f: Any) -> None:
+    """Bars T006 can pass, and a US dataset of a kind with no rule: its instants are unknown."""
+    _rule("ts_end", ts_end=_ts(END))(m, f)
+    rel = "x_custom/market=US/part-00000.parquet"
+    f[rel] = build.parquet(pa.table({"ts_end": _ts(END + HOUR)}), "x_custom")
+    entry = {"path": rel, "bytes": len(f[rel])}
+    m["datasets"].append({"name": "x_custom", "kind": "x_custom", "schema_version": "1.0",
+                          "path": "x_custom", "files": [entry]})  # fmt: skip
+
+
+@pytest.mark.parametrize(
+    ("change", "found", "unchecked"),
+    [  # #181 Decisions (1): the availability instant from the statistics, against the watermark
+        (_rule("ts_end", ts_end=_ts(END)), [], False),  # at the watermark: not after it
+        (_rule("ts_end", ts_end=_ts(END + TICK)), ["TDS-T006"], False),
+        (_rule("ts_end", ts_end=_ts(END + TICK, "ns")), ["TDS-T006"], False),
+        (_rule("ts_end+PT1H", ts_end=_ts(END - HOUR)), [], False),
+        (_rule("ts_end+PT1H", ts_end=_ts(END - HOUR + TICK)), ["TDS-T006"], False),
+        (_rule("column", ts_available=_ts(END + TICK)), ["TDS-T006"], False),
+        (lambda m, f: (_rule("ts_end", ts_end=_ts(END), ts_available=_ts(END + TICK))(m, f),
+                       build.bars(m).update(availability={"column": "ts_available"})),
+         ["TDS-T006"], False),  # 4.2's `{"column": "ts_available"}`, the same rule
+        (_custom, [], True),
+        (_rule("ts_end", through=False, ts_end=_ts(END + HOUR)), [], True),  # no watermark
+        (_rule("ts_end", opts={"write_statistics": False}, ts_end=_ts(END + HOUR)), [], True),
+        (_rule("ts_end", ts_end=_ts(None)), [], True),  # null: the session close (TDS 6.2)
+        (_rule("ts_end"), [], True),  # no ts_end column at all: every bar's is the close
+        (_rule("session_close"), [], True),  # the calendar's rows, not a footer
+        (_rule("ts_end+P1M", ts_end=_ts(END - HOUR)), [], True),  # a month has no fixed length
+    ],
+)  # fmt: skip
+def test_T006_from_the_statistics(
+    change: Any, found: list[str], unchecked: bool, tmp_path: Path
+) -> None:
+    result = check(write(tmp_path, change), level="schema")
+    assert [f.code for f in result.errors] == found
+    assert ("TDS-T006" in result.unchecked) is unchecked
+    assert ("TDS-T006" in check(tmp_path, level="full").unchecked) is unchecked
+
+
+def _days(*days: dt.date, ids: tuple[str, ...] = ("US:AAA",), **listing: Any) -> Any:
+    """Bars on `days` of `ids`, instruments (`listing`: their columns) and an XNYS calendar."""
+    sessions = pa.table({
+        "calendar_id": ["XNYS", "XNYS"], "session_date": [dt.date(2024, 1, 2), dt.date(2024, 1, 4)],
+        "ts_open": _ts(END).take([0, 0]), "ts_close": _ts(END).take([0, 0]),
+        "session_kind": ["regular", "regular"],
+    })  # fmt: skip
+    rel = "calendar_sessions/part-00000.parquet"
+
+    def change(m: dict[str, Any], f: Any) -> None:
+        bars = [(pa.array([i]), pa.array([d])) for i in ids for d in days]
+        rows = [build.bars_table(instrument_id=i, session_date=d) for i, d in bars]
+        build.rewrite(m, f, build.BARS, pa.concat_tables(rows))
+        rows = [build.instruments(instrument_id=pa.array([i]), **listing) for i in ids]
+        build.rewrite(m, f, build.INSTRUMENTS, pa.concat_tables(rows))
+        f[rel] = build.parquet(sessions, "calendar_sessions")
+        m["datasets"].append({"name": "calendar_sessions", "kind": "calendar_sessions",
+                              "schema_version": "1.0", "path": "calendar_sessions",
+                              "files": [{"path": rel, "bytes": len(f[rel])}]})  # fmt: skip
+
+    return change
+
+
+JAN = [dt.date(2024, 1, d) for d in range(1, 9)]  # JAN[2]: listed_on; 2..4: calendar sessions
+JAN.insert(0, dt.date(2023, 12, 31))  # JAN[d] is January d
+
+
+@pytest.mark.parametrize(
+    ("change", "found"),
+    [  # #181 Decisions (2): the calendar's first and last session, one instrument's listing
+        (_days(JAN[2], JAN[4]), []),
+        (_days(JAN[3]), []),  # not a session, inside the range: the rows', the full level's
+        (_days(JAN[2], JAN[5]), ["TDS-D002"]),  # after the calendar's last session
+        (_days(JAN[1], ids=("US:AAA", "US:BBB")), ["TDS-D002"]),  # before its first: any ids
+        (_days(JAN[2], listed_on=pa.array([JAN[3]])), ["TDS-D002"]),  # before listed_on
+        (_days(JAN[4], delisted_on=pa.array([JAN[3]])), ["TDS-D002"]),  # after delisted_on
+        (_days(JAN[3], delisted_on=pa.array([JAN[3]])), []),  # on delisted_on
+        (_days(JAN[2], ids=("US:AAA", "US:BBB"), listed_on=pa.array([JAN[3]])), []),  # two ids
+        (lambda m, f: (_days(JAN[2], listed_on=pa.array([JAN[3]]))(m, f), build.rewrite(
+            m, f, build.INSTRUMENTS, pa.concat_tables([build.instruments(listed_on=pa.array(
+                [JAN[3]])), build.instruments(instrument_id=pa.array(["US:BBB"]))]))), []),
+        # ^ the instruments' one row group holds two ids: its listed_on is not one instrument's
+        (build._bars(session_date=pa.array([JAN[1]])), ["TDS-D002"]),  # no calendar: listing
+        (lambda m, f: build.rewrite(m, f, build.BARS, build.bars_table(
+            session_date=pa.array([JAN[1]])), write_statistics=False), []),
+    ],
+)  # fmt: skip
+def test_D002_from_the_statistics(change: Any, found: list[str], tmp_path: Path) -> None:
+    result = check(write(tmp_path, change), level="schema")
+    assert [f.code for f in result.errors] == found
+    assert "TDS-D002" in result.unchecked  # its rows: a non-session day inside the range
 
 
 _bars, TS, VERSION_1_9 = build._bars, build.TS, build.VERSION_1_9

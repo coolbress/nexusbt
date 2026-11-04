@@ -79,10 +79,10 @@ def test_summary_counts_errors_max_errors_does_not_print(
     assert (findings, last["summary"]["errors"]) == ([], 3)
 
 
-@pytest.mark.parametrize("code", ["TDS-S002", "TDS-S006"])
+@pytest.mark.parametrize("code", ["TDS-S002", "TDS-S006", "TDS-T006", "TDS-D002"])
 def test_schema_level_done_means(code: str, capsys: pytest.CaptureFixture[str]) -> None:
     # spec 10.1 T0.13c "done means": `tds check tds/conformance/TDS-S002/fail --format json`;
-    # #117 asks the same of TDS-S006 (its fail package: the code and exit code 1)
+    # #117 asks the same of TDS-S006, #181 of TDS-T006 and TDS-D002 (the code, exit code 1)
     argv = ["check", str(CONFORMANCE / code / "fail"), "--format", "json"]
     assert run(argv) == 1  # as written: no `--level`, the CLI's default is `schema` (TDS 8.1)
     *findings, last = (json.loads(line) for line in capsys.readouterr().out.splitlines())
