@@ -691,6 +691,7 @@ nx.backtest(strategy: Strategy, *, capital: float | None = None, base_ccy: str |
             offsets: int | None = None,                                                   # 리밸런싱 날짜 운 [V31-26]
             scenarios: bool | Sequence[Literal["gross","cost0x","cost2x","delist_lo","delist_hi","capacity"]] = True,   # gross = cost0x (같은 재생 하나)
             save_signal: bool = False,
+            save_detail: bool = False,                                                    # 3단계 산출물, 5.9.1 [#206]
             method: Literal["linear","walk_forward","cpcv","cscv"] | Split = "linear",      # 검증 방법, 6.3a [R4-20]
             grid: Mapping[str, Sequence[Any]] | None = None,                                # 폴드마다 고를 후보 (method ≠ linear)
             select: Literal["net_sharpe","cagr","calmar"] = "net_sharpe",
@@ -917,7 +918,7 @@ write: orders.to_csv("orders/{date}.csv")   apply to paper book: nx.fill(book, o
 | `nexusbt doctor [--full]` | 스냅숏 id·의미 해시·판·프로필 셋 결과(선언 / 검사 단계 / 지원)·검사 안 한 항목·TDS 코드별 건수·**대체 동작 목록(4.5)**·시장별 규칙 팩(있음 / untested)·기간·종목 수·일간 행 수·칼럼 수·디스크 여유·L0/L1 캐시 크기·스텁 최신 여부. 루트 핀을 못 쓴 실행 수 줄 "pins not visible to producer" [R3-17]. 자료 루트에 게시 중 표시 `<root>/.publishing`(일반 배포 관례, TDS 밖)이 있으면 "publishing in progress"만 보이고 새 스냅숏을 기다리라고 함 [청사진 12.5, RV-I09] |
 | `nexusbt new factor NAME` / `nexusbt new strategy NAME [--template T]` / `nexusbt new --list` | 바로 돌아가는 파일 생성(기본 템플릿 `monthly-topn`). 템플릿 22개(각각 실행 예제 + 출력 시험, 8.5; 아직 못 쓰는 템플릿은 `--list`에 "(available after T7.1)"처럼 표시 [R4F-14]): `monthly-topn`, `value-quality-composite`, `momentum-12-1`, `low-vol`, `dividend-yield`, `sector-neutral`, `kr-us-sleeves`, `long-short`, `inverse-vol-weight`, `erc-vol-target`, `drawdown-brake`, `exits-stop-trail`, `buffer-hold`, `custom-factor`, `custom-sizer`, `custom-risk-rule`, `factor-evaluate-only`, `walk-forward-cpcv`, `ml-factor`, `zipline-port` [R4-13], `event-driven-earnings`(실적 발표 뒤 `on_event` + `time_stop`), `macro-regime`(`Macro.series` 국면 필터) [R4F-EV-05] |
 | `nexusbt evaluate FILE[:VAR]` | `--segment --start --end --freq --quantiles --set k=v` |
-| `nexusbt backtest FILE[:VAR]` | `--segment --start --end --set k=v --preset --no-scenarios --scenarios a,b --offsets K --preview --method linear|walk_forward|cpcv|cscv --method-opt k=v --grid k=v1,v2` [R4-12, R4-20] |
+| `nexusbt backtest FILE[:VAR]` | `--segment --start --end --set k=v --preset --no-scenarios --scenarios a,b --offsets K --preview --method linear|walk_forward|cpcv|cscv --method-opt k=v --grid k=v1,v2 --save-detail` [R4-12, R4-20; `--save-detail` = `save_detail=True`, 5.9.1, #206] |
 | `nexusbt screen FILE[:VAR]` | `--asof --top --anchor --show selected|held+near|all --near K --html --ledger BOOK --as-backtest` [V31-28, R4-08] |
 | `nexusbt explain FILE[:VAR] ID DATE` | 항이면 값 설명, 전략이면 판단 경로(5.9.9) |
 | `nexusbt sweep FILE[:VAR]` | `--grid k=v1,v2` (= `backtest --method cscv --grid`) [R4-21] |
@@ -928,8 +929,8 @@ write: orders.to_csv("orders/{date}.csv")   apply to paper book: nx.fill(book, o
 | `nexusbt book record-fills BOOK CSV` | 사람이 한 체결 기록(`manual:` 장부) [V31-18] |
 | `nexusbt book flow BOOK AMOUNT --ccy C --sleeve M [--session D]` | 입금·출금 [V31-19] |
 | `nexusbt book acknowledge BOOK DIVERGENCE_ID --note T [--by NAME]` | `reconciled: NO`의 차이를 확인 기록; 그 뒤 `live`가 다시 주문표를 냄(5.9.6 규칙 3) |
-| `nexusbt runs [--study S] [--html] [--prune]` | `--prune`은 실행 폴더만 지우고 색인 기록과 시도 수는 남김 [R-34] |
-| `nexusbt rerun RUN_ID [--new-snapshot] [--trust]` | 다른 기계에서 만든 실행 폴더는 `--trust` 없이 거절(E31) |
+| `nexusbt runs [--study S] [--html] [--prune] [--prune-detail]` | `--prune`은 실행 폴더만 지우고 색인 기록과 시도 수는 남김 [R-34]; `--prune-detail`은 실행마다 3단계 `detail/` 폴더만 지우고 지웠다고 기록(5.9.5, #206) |
+| `nexusbt rerun RUN_ID [--new-snapshot] [--trust] [--save-detail]` | 다른 기계에서 만든 실행 폴더는 `--trust` 없이 거절(E31); `--save-detail`은 3단계 산출물도 다시 만들어 대조(5.9.4, #206) |
 | `nexusbt stubs` | `.pyi` 다시 생성 |
 | `nexusbt check FILE[:VAR] [--probes K] [--start-probe]` | |
 
@@ -2029,10 +2030,13 @@ runs/<run_id>/
                            칼럼 [R4F-20]: split.json = {method, params, split_hash, groups[{group, first, last}], splits[{split, test_groups}]}; folds = fold, train_first, train_last, test_first, test_last, selected_params_json, is_sharpe, is_cagr, oos_sharpe, oos_cagr, oos_mdd, n_purged, n_embargoed, n_fits; paths = path, cagr, sharpe, mdd, turnover, ruined, n_days; path_daily = session_date, nav, ret_net, ret_gross, group, split; selection = fold, grid_point, candidate_key, is_metric, is_n_decisions, n_purged, n_embargoed, rank; stats.json = distribution, pbo{value, k, n}, psr, dsr, min_trl, degradation{slope, n}, selection_stability
   signal.parquet           (save_signal=True; evaluate에도) decision_id, instrument_id, term, value
   candidates.parquet       (sweep만) candidate_key, date, ret
+  detail/                  (save_detail=True) 3단계 산출물, 아래: 모든 격자 점과 고르지 않은 모든 후보의 predictions.parquet
   source/                  잡은 소스 (아래)
   report.html
   SEALED
 ```
+
+**산출물의 세 단계**(결정 2026-11-04, #206). (1) **늘 씀**: 출처와 요약 — `manifest.json`, `pred_sha256`가 있는 `fits.parquet`, `validation/split.json`, `folds`·`paths`·`selection` 요약, `stats.json`, `candidates.parquet` 수익률, 그리고 (2)·(3)에 이름이 없는 위의 모든 표. (2) **기본으로 씀**: 계좌에 닿은 예측과 계열 — 선형 실행과 폴드마다 고른 후보의 `predictions.parquet`, 모든 CPCV 경로의 `path_daily/`. (3) **`save_detail=True`일 때만 씀**(CLI `--save-detail`): 모든 격자 점과 고르지 않은 모든 후보의 예측을 담은 `detail/predictions.parquet`(열은 `predictions.parquet`에 `candidate_key`를 더함). 3단계 파일을 썼든 안 썼든 매니페스트가 값 해시와 `written` 표시로 적으므로, `rerun`이 다시 만들어 대조할 수 있고(5.9.4) 봉인이 그 내용을 고정한다. 어떤 단계도 통째로 메모리에 두지 않는다: 예측은 만들어지는 대로 적합마다·청크마다 쓴다(7장 설계 수단 6).
 
 `orders.parquet` 정규 칼럼 [11.6]: `event_id, event_kind(created|accepted|triggered|fill|qty_cancelled|exit_resized|order_rebased|price_rounded|status), phase, order_id, decision_id, ts_event, session_date, sleeve_id, instrument_id, purpose, order_type, side, tif, limit_price, stop_price, trigger_state, requested_qty, filled_qty, cancelled_qty, remaining_qty, fill_qty, fill_price, currency, fill_value_minor, commission_minor, tax_minor, spread_cost_minor, impact_cost_minor, other_cost_minor, provisional_cost_minor, cost_unrounded, status, reason, snapshot_id, model_version, fill_resolution, fill_rule, decision_price, arrival_price, price_unrounded, capacity_bound_reason, effective_price, outside_range, slip_vs_decision_bps, slip_vs_arrival_bps` [SC-11, RV-C05, RV-C07, V31-03, V31-05, V31-14]. `side` 값은 buy / sell / sell_short / buy_to_cover [V31-LS-06].
 
@@ -2050,15 +2054,16 @@ runs/<run_id>/
 #### 5.9.4 해시와 결정성 [R-31, INV-09]
 - 물리 해시 = 파일 sha256. 값 해시 = TDS 4.5의 정규 값 직렬화(같은 함수 `tds.value_hash`를 쓴다; Arrow 판·쓰기 도구와 무관). 실행 산출물의 "논리 비교"는 값 해시다 [RV-C10].
 - 같은 고정 환경(같은 `uv.lock`, 같은 기계 종류)에서 `rerun`은 출력 물리 해시까지 같아야 한다. 환경이 다르면 논리 비교를 허용 오차(8.1 표의 L2 기준)로 한다.
+- 3단계 산출물(5.9.1, #206)은 있는 파일이 아니라 매니페스트가 적은 값 해시로 대조한다: 쓰지 않았거나 지운 `detail/` 파일은 `rerun --save-detail`이 다시 만들어 그 해시와 대조하고, `--save-detail` 없는 `rerun`은 1·2단계만 대조하고 3단계는 대조하지 않았다고 말한다.
 - Parquet 쓰기: pyarrow, zstd 3, row group 131,072행, 통계 켬, 문자열 dictionary, 메타데이터에 시각 없음.
 
 #### 5.9.5 색인 `runs/index.sqlite` [R-34, 11.7 (8)]
-SQLite(WAL). 덧붙이기만: 아래 표는 `BEFORE UPDATE/DELETE` 트리거가 막는다(허용: `runs.status`의 running→sealed|aborted, sealed→pruned, `pins.ts_released` 채우기). 핀의 정본이 이 `pins` 표다(4.2).
+SQLite(WAL). 덧붙이기만: 아래 표는 `BEFORE UPDATE/DELETE` 트리거가 막는다(허용: `runs.status`의 running→sealed|aborted, sealed→pruned, `runs.detail_pruned` 0→1(#206), `pins.ts_released` 채우기). 핀의 정본이 이 `pins` 표다(4.2).
 
 | 표 | 칼럼 |
 |---|---|
 | `studies` | study_id(UUID) PK, name UNIQUE, ts_created, hypothesis |
-| `runs` | run_id PK, kind, study_id, name, ts_created, created_by, snapshot_id, snapshot_semantic_hash, edition, segment, graph_hash, params_json, settings_hash, candidate_key, status(running/sealed/aborted/pruned), path, metrics_json, derived_from |
+| `runs` | run_id PK, kind, study_id, name, ts_created, created_by, snapshot_id, snapshot_semantic_hash, edition, segment, graph_hash, params_json, settings_hash, candidate_key, status(running/sealed/aborted/pruned), detail_pruned(0/1, 5.9.1의 3단계), path, metrics_json, derived_from |
 | `candidates` | candidate_key PK, study_id, kind(factor/strategy), segment, graph_hash, params_hash, settings_hash, first_run_id (정체성만; 통계 칼럼 없음) [RV-C12] |
 | `observations` | observation_id PK, run_id, candidate_key, snapshot_semantic_hash, segment, start, end, target(정답 이름; 전략은 `net_return`), horizon, freq, n_obs, sr_daily, skew, kurt, nw_t(팩터), method(`linear`/`walk_forward`/`cpcv`/`cscv`), split_hash(null 가능), fidelity(`full`/`preview`) [R4F-21, R4F-15], ts_created |
 | `cohorts` | cohort_sha256 PK, study_id, kind, segment, target, horizon, freq, members_json(정렬된 (candidate_key, observation_id) 목록), ts_frozen — 보고서가 통계를 낼 때 그 순간의 집단을 얼려 저장 |
@@ -2067,7 +2072,7 @@ SQLite(WAL). 덧붙이기만: 아래 표는 `BEFORE UPDATE/DELETE` 트리거가 
 | `pins` | snapshot_id, holder_id, holder_kind(run/book), ts_created, ts_released |
 | `books` | book_id PK, kind(paper|manual) [V31-18], ts_created, base_ccy, sleeves_json, definition_sha256 |
 
-`nexusbt runs --prune`은 폴더를 지우고 `status = pruned`만 바꾼다. 시도 수는 줄지 않는다 [R-34].
+`nexusbt runs --prune`은 폴더를 지우고 `status = pruned`만 바꾼다. 시도 수는 줄지 않는다 [R-34]. `nexusbt runs --prune-detail`은 실행의 `detail/` 폴더(3단계, 5.9.1)만 지우고 그 `runs` 행에 `detail_pruned = 1`을 둔다; 폴더의 나머지, 봉인, 상태, 시도 수는 그대로다(결정 2026-11-04, #206).
 
 #### 5.9.6 모의 장부 [R-49, 11.8 M5]
 - `runs/books/<name>/`: `book.json`(**바뀌지 않는 장부 정의**: 전략 `graph_hash`, 파라미터 해시, `SimConfig` 해시, 슬리브·기준 통화·처음 자본, `anchor_decision_id`, 엔진 판, `definition_sha256`), `events/events-<seq>.parquet`(덧붙이기 조각), `checkpoint-<seq>/`(5.6.1 배열 Arrow IPC + 메타 JSON), `HEAD`(마지막 체크포인트 이름과 `state_version`, 원자적 교체), `snapshots.parquet`(판단·체결마다 쓴 `snapshot_id`·의미 해시 기록), `book.lock`. 장부가 쓴 스냅숏의 핀은 장부가 있는 동안 풀지 않는다(4.2) [R3-17].
@@ -2355,7 +2360,7 @@ M6 전의 **cold와 warm**은 그 마일스톤에 있는 캐시로 정한다: co
 3. **칼럼 가지치기**: 그래프가 쓰는 칼럼만 Parquet에서 읽고(열 단위), 연도 파티션·행 그룹 통계로 필요 없는 연도를 건너뛴다.
 4. **연도·시장 조각 캐시**: L0·L1(5.3.9), 같은 L1 값을 `offsets`·`scenarios`·검증 경로가 재사용.
 5. **시장·팩터 단위 병렬**: 작업자는 (시장, 연도 묶음, 노드 묶음) 단위로 독립 계산하고 결과는 정렬 색인 순서로 모아 비트가 같다(INV-03·INV-04). 작업자 수·메모리 예산은 `[compute]`(5.3.8).
-6. **메모리 상한**: 연도 묶음으로 처리하고 줄이기를 바로 한다 — `evaluate`는 판단마다 IC·분위 통계로 줄여 팩터 값 행렬 전체(300 × 360 × 약 12,000 × 8 B ≈ 10 GB)를 메모리에 두지 않고, 합성 점수는 판단 하나의 300 × n 행렬(약 30 MB)만 든다. [새]
+6. **메모리 상한**(산출물도, 결정 2026-11-04, #206: 5.9.1의 어떤 산출물 단계도 통째로 메모리에 두지 않는다; 예측은 만들어지는 대로 적합마다·청크마다 쓴다): 연도 묶음으로 처리하고 줄이기를 바로 한다 — `evaluate`는 판단마다 IC·분위 통계로 줄여 팩터 값 행렬 전체(300 × 360 × 약 12,000 × 8 B ≈ 10 GB)를 메모리에 두지 않고, 합성 점수는 판단 하나의 300 × n 행렬(약 30 MB)만 든다. [새]
 7. **Rust 이음새**: 창·단면 커널과 줄이기는 Arrow 입출력 뒤에 있어(2.4) 측정이 Numba로 목표를 못 지킨다고 보이면 바꿔 끼운다(ADR-0016, 비트 같음 시험). [이음새는 v3.2, P11 측정이 새 근거]
 P11 (a)는 M3a가 구조를 굳히기 전에 잰다(결정 2026-11-04, #175): M2 끝에 M1 칼럼으로 줄여서(T2.24), M3a 끝에 전체로(T3.18), 둘 다 위의 이른 측정 표에 있다. 둘 다 5.3.2의 계획(같은 항 공유, 판단 행만; T1.7a) 위에서 돌지만 T6.26의 칼럼 가지치기와 묶은 줄이기 전이므로, 엔진이 처음 구현한 구조의 비용을 보인다. 설계 수단을 갖춘 (a)(b)(c) 엔진 실측은 T6.26(합성 `full` 위 P11)이고 그 결과로 관문을 ADR(0038 갱신)에 적어 이 표를 고친다.
 
