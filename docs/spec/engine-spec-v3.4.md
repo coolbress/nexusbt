@@ -2044,7 +2044,7 @@ Valuation series: the combined `nav_economic`, daily (valuation calendar); the p
 - `run_id = f"{YYYYMMDD-HHMMSS}-{kind}-{name}-{h6}"`. The time is the local time of the computing machine, `h6` = the first 6 characters of sha256(canonical JSON{graph_hash, params, settings, snapshot_semantic_hash}). If it already exists, `-2`, `-3`.
 - Writing: everything is written to `runs/.tmp-<uuid>/`; on success it is `rename`d to `runs/<run_id>/`, the files are made read-only (`chmod a-w`), and `SEALED` (content = the sha256 of `manifest.json`) is written last. On failure the temporary folder is deleted and `status = aborted` is recorded in the index. A write failure is a run failure [R-30, 11.7 (3)(4)].
 - At start, (snapshot_id, run_id) is put into the index `pins` (the root `PINS/` when configured, 4.2) [11.7 (9), RV-I04].
-- **Seal recovery** [RV-I04]: at every open, among `runs/.tmp-*`, those with `status = running` in the index and no process are deleted and marked `aborted`; if `runs/<id>/` exists without `SEALED` (stopped after the rename and before the seal), `SEALED` is recomputed and written, or, if the content hash differs from the manifest, it is moved to `aborted`. Test `test_runstore.py::test_interrupted_seal_recovers` (forced stop at every commit boundary).
+- **Seal recovery** [RV-I04]: at every open, among `runs/.tmp-*`, those with `status = running` in the index and no process are deleted and marked `aborted`; if `runs/<id>/` exists without `SEALED` (stopped after the rename and before the seal), `SEALED` is recomputed and written, or, if the content hash differs from the manifest, it is moved to `runs/.aborted-<run_id>/` (kept for inspection, never read as a result) and marked `aborted`, its index `path` pointing there (decision 2026-11-04, #247). Test `test_runstore.py::test_interrupted_seal_recovers` (forced stop at every commit boundary).
 
 ```
 runs/<run_id>/
@@ -2105,7 +2105,7 @@ In `source/`: the entry file, every file inside the project folder among the mod
 - Parquet writing: pyarrow, zstd 3, row group 131,072 rows, statistics on, string dictionary, no time in the metadata.
 
 #### 5.9.5 Index `runs/index.sqlite` [R-34, 11.7 (8)]
-SQLite (WAL). Append only: `BEFORE UPDATE/DELETE` triggers guard the tables below (allowed: `runs.status` running→sealed|aborted, sealed→pruned, `runs.detail_pruned` 0→1 (#206), filling `pins.ts_released`). The canonical record of pins is this `pins` table (4.2).
+SQLite (WAL). Append only: `BEFORE UPDATE/DELETE` triggers guard the tables below (allowed: `runs.status` running→sealed|aborted, sealed→pruned, `runs.path` to `runs/.aborted-<run_id>/` together with running→aborted when seal recovery moves the folder (5.9.1, #247), `runs.detail_pruned` 0→1 (#206), filling `pins.ts_released`). The canonical record of pins is this `pins` table (4.2).
 
 | Table | Columns |
 |---|---|
