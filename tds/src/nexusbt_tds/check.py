@@ -575,8 +575,10 @@ def _check_ranges(m: Manifest, only: Sequence[str] | None, blind: set[str]) -> l
     listings = _reference(m, root, "instruments", ("instrument_id", "listed_on", "delisted_on"))
     for ds in (d for d in m.datasets if only is None or d.get("name") in only):
         kind, named = ds.get("kind"), _named(ds)
-        # (rule, the column rule `column` reads): a 4.2 form reads each column it names (#276)
-        rules = [(r, "ts_available") for r in _rules(ds)] + [("column", n) for n in named]
+        # (rule, the column rule `column` reads): a 6.2 form, each availability column it names;
+        # `effect` is when a corporate action takes effect, not when it became available (#276)
+        instants = [n for k, n in ds["availability"].items() if k != "effect"] if named else []
+        rules = [(r, "ts_available") for r in _rules(ds)] + [("column", n) for n in instants]
         if not rules:  # bars default to `ts_end` (5.5); a kind not timeless: rule unknown
             rules = [("ts_end", "")] if kind == "bars" else [] if kind in TIMELESS else [(None, "")]
         params = ds["params"] if isinstance(ds.get("params"), dict) else {}

@@ -389,6 +389,43 @@ def test_T006_reads_the_named_column(
     assert ("TDS-T006" in result.unchecked) is unchecked
 
 
+def _action(terms: dt.datetime | None, announced: dt.datetime | None = None) -> Any:
+    """A US cash dividend effective an hour after END, its terms public at `terms`."""
+
+    def change(m: dict[str, Any], f: Any) -> None:
+        _rule("ts_end", ts_end=_ts(END))(m, f)  # bars T006 can pass
+        rel = "corporate_actions/market=US/part-00000.parquet"
+        row = {"event_id": ["US:E1"], "instrument_id": ["US:AAA"], "kind": ["cash_dividend"],
+               "ex_date": build.DAY, "ts_effective": _ts(END + HOUR),
+               "ts_terms_available": _ts(terms), "ts_announced": _ts(announced),
+               "pay_date_status": ["confirmed"], "affects": ["cash"], "factor_method": ["none"],
+               "status": ["active"]}  # fmt: skip
+        f[rel] = build.parquet(pa.table(row), "corporate_actions")
+        form = {"effect": "ts_effective", "terms": "ts_terms_available"}
+        m["datasets"].append({"name": "corporate_actions", "kind": "corporate_actions",
+                              "schema_version": "1.0", "path": "corporate_actions",
+                              "availability": form,
+                              "files": [{"path": rel, "bytes": len(f[rel])}]})  # fmt: skip
+
+    return change
+
+
+@pytest.mark.parametrize(
+    ("change", "found", "unchecked"),
+    [  # 6.2: the effect instant is not an availability instant; T006 reads the terms only
+        (_action(terms=END), [], False),  # announced, effective after the watermark: no T006
+        (_action(terms=END + TICK), ["TDS-T006"], False),
+        (_action(terms=None, announced=END), [], True),  # the fallback is in the rows
+    ],
+)
+def test_T006_reads_the_terms_of_a_corporate_action(
+    change: Any, found: list[str], unchecked: bool, tmp_path: Path
+) -> None:
+    result = check(write(tmp_path, change), level="schema")
+    assert [f.code for f in result.errors] == found
+    assert ("TDS-T006" in result.unchecked) is unchecked
+
+
 def _days(*days: dt.date, ids: tuple[str, ...] = ("US:AAA",), **listing: Any) -> Any:
     """Bars on `days` of `ids`, instruments (`listing`: their columns) and an XNYS calendar."""
     sessions = pa.table({
