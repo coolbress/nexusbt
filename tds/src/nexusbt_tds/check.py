@@ -443,8 +443,11 @@ def _check_file(
             yield Finding("TDS-S008", "error", f"partition {key}={value!r} is not a {tag}")
         if key in arrow.names:
             yield Finding("TDS-S008", "error", f"partition column {key} is also inside the file")
-    known = {c.name for c in schema.columns}
-    for column in schema.columns:
+    from .hash import resolved_columns
+
+    columns = resolved_columns(ds, schema.columns)  # the value hash's set too (#144)
+    known = {c.name for c in columns}
+    for column in columns:
         if column.name not in arrow.names:
             if column.name not in parts and _required(column.null, params):
                 yield Finding("TDS-S001", "error", f"required column {column.name} is missing")

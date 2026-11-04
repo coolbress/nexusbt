@@ -205,6 +205,10 @@ _bars, TS, VERSION_1_9 = build._bars, build.TS, build.VERSION_1_9
         (lambda m, f: (build.bars(m).update(partitioning=[{"name": "year", "type": "date"}])),
          ["TDS-S008"]),  # a declared partition type comes first
         (_bars(meta={"tds.dataset": b"\xff", "tds.schema_version": "1.0"}), ["TDS-S010"]),
+        (lambda m, f: (build.bars(m).update(columns=[{"name": "momentum", "type": "f64"}]),
+                       _bars(momentum=pa.array(["1"]))(m, f)), ["TDS-S002"]),  # #144: declared
+        (lambda m, f: (build.bars(m).update(columns=[{"name": "momentum", "type": "f64"}]),
+                       _bars(momentum=pa.array([1.0]))(m, f)), []),  # a declared column is known
         (lambda m, f: build.rewrite(m, f, build.BARS, build.bars_table().append_column(
             "close", pa.array([1.0]))), []),  # a column written twice: no crash
         (lambda m, f: (build.bars(m).update(schema_version="1.9"),

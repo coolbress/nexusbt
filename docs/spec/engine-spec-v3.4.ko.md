@@ -842,7 +842,31 @@ segments seen in study  train {a} · validation {b} · test {c}
 warnings {n} (run.warnings) · data fallbacks {k} · reconciled: {yes|NO}
 ```
 
-노출 표·위험 지표(낙폭 기간·회복 기간·최악 월)·귀속 표·BHY·N_eff(v1.x)는 첫 화면에 넣지 않고 `report()` HTML의 "hygiene"·"attribution"·"exposures" 칸에 둔다 [청사진 10장 위험(1)]. v3.1 HTML 칸 추가: "monthly"(달력 월 × 연 수익 표, 행 끝에 벤치마크 초과 [V31-15]), "rolling"(1년·3년 창 초과 수익 분위 표 [V31-26]), "trades"(청산 이유별 건수·승률·평균 보유 기간·MAE/MFE [V31-20]), "execution"(목표 차이 원인 분해, 체결가 대 판단가·도착가 bp, 봉 범위 밖 실효가 건수 [V31-14]), "cost tiers"(유동성 구간별 비용 [V31-27]).
+노출 표·위험 지표(낙폭 기간·회복 기간·최악 월)·귀속 표·BHY·N_eff(v1.x)는 첫 화면에 넣지 않고 `report()` HTML의 "hygiene"·"attribution"·"exposures" 칸에 둔다 [청사진 10장 위험(1)]. v3.1 HTML 칸 추가: "monthly"(달력 월 × 연 수익 표, 행 끝에 벤치마크 초과 [V31-15]), "rolling"(1년·3년 창 초과 수익 분위 표 [V31-26]), "trades"(청산 이유별 건수·승률·평균 보유 기간·MAE/MFE [V31-20]), "execution"(목표 차이 원인 분해, 체결가 대 판단가·도착가 bp, 봉 범위 밖 실효가 건수 [V31-14]), "cost tiers"(유동성 구간별 비용 [V31-27]). 이 칸들은 저마다 아래 목록에서 자기가 답하는 질문 밑에 놓인다.
+
+**Run의 `report.html`: 여덟 질문** (사용자 결정 2026-11-04). 페이지는 첫 화면(위의 Run 줄들과 6.3a의 hygiene 상자, 글만)으로 시작한다. 그 아래에 투자자가 백테스트에 묻는 질문 하나에 칸 하나씩, 이 순서로 칸이 온다. 빠지는 칸이나 칸의 일부도 자리는 지킨다: 제목과 한 줄 `{part}: n/a ({reason})`. 그래서 순서는 바뀌지 않고 읽는 사람은 왜 빠졌는지 본다.
+
+| # | 질문 | 칸 id | 차트와 표 | 출처 | 빠지는 때 |
+|---|---|---|---|---|---|
+| 1 | 얼마 벌었나 | `nav` | 누적 NAV, net·gross·벤치마크, 기준 통화; 그린 값이 모두 0보다 크면 로그 축, 아니면 선형 축 | `daily.parquet` NAV, gross 재생(5.7 gross 수익), 벤치마크(5.7) | 빠지지 않음; 스냅샷에 지수가 없으면 벤치마크 선(`benchmark: n/a (not in snapshot)`) |
+| 2 | 얼마 잃었나 | `drawdown` | 수면 아래 낙폭 차트; 가장 큰 낙폭 다섯 개의 표(고점일, 바닥일, 회복일 또는 "not recovered", 깊이, 5.7이 정의한 낙폭 기간과 회복 기간, 달력일) | 최대 낙폭·낙폭 기간(5.7), 1의 net 계열 기준 | 빠지지 않음; 낙폭이 다섯 개보다 적으면 표의 행도 적음 |
+| 3 | 언제 잘 됐나 | `monthly` | 월 × 연 수익 히트맵과, 같은 칸에서 그 바로 아래 연도 표(수익, 변동성, Sharpe, 최대 낙폭, 벤치마크 초과); 평가 구간(6.1) 음영 | 월간 표(5.7, V31-15); 연도 행은 각 달력 연도의 일 수익에 5.7 식을 씀 | 빠지지 않음; 일부만 있는 달(실행이 그 달 안에서 시작·끝남), 평가일이 없는 달, 거래가 없는 달은 칸에 저마다 다른 표시 |
+| 4 | 어떤 위험을 졌나 | `exposures` | 롱·숏 노출은 면, gross·net 노출은 선; 통화별 노출 | `exposures.parquet`(5.7 노출, V31-LS-10), 5.6.9 | 숏을 들지 않은 실행이면 숏 면; 통화가 하나인 실행이면 통화별 차트 |
+| 5 | 무엇이 수익을 먹었나 | `attribution` | 비용 분해 표(수수료, 세금, 스프레드, 충격, 차입, 환전)와 직접 비용·경로 효과; 시나리오 표(비용 민감도, 용량); "cost tiers" 표; 1년 이동 Sharpe와 1년 이동 벤치마크 초과 수익 차트, "rolling" 분위 표 | `attribution.parquet`(T3.14), 비용 끌림과 비용 민감도(5.7); 이동 차트의 점 하나는 최근 일 수익 252개의 5.7 Sharpe(또는 5.7 산술 연 초과 수익)이고 평가일마다 점 하나; "rolling" 표는 5.7 이동 창(V31-26) | 일 수익이 252개보다 적으면 이동 차트(`rolling 1y: n/a (run shorter than 252 valuation days)`); 벤치마크가 없으면 초과 차트; 숏이 없으면 차입 행; T6.18 전에는 "rolling" 표 |
+| 6 | 거래가 될 수 있었나 | `execution` | 주문 줄과 막힌 날 건수; 원인별 목표 차이 분해; "trades"·"execution" 표 | `orders` 줄(3.9), 목표 차이·체결 품질(5.7, V31-14), `trades.parquet`(V31-20) | 빠지지 않음; `trades.parquet`가 생기기 전에는 "trades" 표 |
+| 7 | 데이터가 충분했나 | `data` | 연도별 유니버스 크기, 필드별 커버리지, 보유 중 상장폐지 요약 | `coverage.parquet`(5.9.1), `exits while held` 줄; 생존 편향·커버리지 출력이 생기면 그것 | 실행이 그 표를 갖지 않은 부분마다, 한 줄에 이름을 적음 |
+| 8 | 믿을 수 있나 | `hygiene` | 첫 화면 hygiene 상자(6.3a, T6.22)의 사본이 아니라 그 뒤의 근거: 기록된 시도 범위(study, cohort, `cohort_sha256`, 6.2)와 시도 기록; 그다음 가정 줄(3.9) | 6.3a, 6.2, `assumptions` 줄 | 빠지지 않음; T6.22 전에는 시도 줄과 가정 줄만 |
+
+**FactorReport의 `report.html`**은 페이지 틀(맨 위의 첫 화면, 맨 끝의 hygiene 줄과 가정 줄)과 아래 시각 규칙을 같이 쓰고, 칸은 자기 것을 이 순서로 둔다: `summary`(FactorReport 줄), `ic`(IC 계열), `quantiles`(분위 누적 수익, 가중·리밸런스·비용 조건을 차트에 적음), `by_year`(연도별 IC 막대), `turnover`, `coverage`, `hygiene`, `assumptions`. n/a 규칙도 같다.
+
+**시각 규칙** (하나하나가 시험이나 읽는 사람이 확인할 수 있는 문장):
+- 순서: 칸은 위 목록의 순서로 온다; Run 리포트의 첫 차트는 벤치마크와 함께 그린 누적 NAV, 둘째는 낙폭이다.
+- 차트 하나에 기준 통화 하나: 금액 차트는 통화 하나를 쓰고 제목에 그 이름을 적는다; 슬리브별 현지 통화 값은 자기 차트를 따로 갖는다.
+- 단위: 모든 축에 단위가 있는 이름표가 있다(`%`, `KRW`, `USD`, `days`, `x`).
+- 손실은 색만으로 보이지 않는다: 음수 값은 모든 표와 히트맵 칸에서 빼기 부호를 달고, 손실 면(수면 아래, 숏 노출)은 색과 함께 무늬나 이름표 붙은 0 선을 단다.
+- 외부 파일 없음: 페이지는 URL도 다른 파일도 가리키지 않는다(페이지 밖을 가리키는 `src`·`href` 없음, 웹 글꼴 없음). 그래서 네트워크가 없는 브라우저에서도 모든 차트가 그려진다.
+- 예산: 합성 `full_ci` 스냅샷에서 `report.html`은 5 MB 이하이고(시험이 파일 크기를 확인), 네트워크가 없는 요즘 브라우저에서 2초 안에 첫 차트를 보인다(사람이 10.0 마일스톤 행에서 확인). 대표 리포트는 M2부터 팩터 예제 `examples/factors/momentum.py`, M3a부터 롱온리 예제 `examples/strategies/mom_kr.py`다.
+- 그리는 수단: 여기서 정하지 않는다. T2.10b가 대표 리포트의 크기와 생성 시간을 잰 뒤 템플릿의 인라인 SVG, 넣어 둔 matplotlib 그림, 인라인한 일부 Plotly 묶음 가운데서 고르고, 고른 것과 잰 값을 ADR에 적는다. 상호작용 차트, 실행 간 겹쳐 그리기, PDF는 v1.x(`nexusbt[viz]` 선택 추가 패키지).
 
 **Screen** (속성 `table`, `scheduled`, `asof`):
 
@@ -2705,10 +2729,10 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 |---|---|---|---|---|
 | M0 규범 계약 | E1 (엔진 쪽) | 없음(바탕) — `tds check --level manifest|schema`, `tds hash` | 명세 v3.4·TDS v1.4 공개판·CONTEXT·ADR 0001~0040 [R6-03]·LICENSE 병합; 모든 R·SC·TDS-D·RV·V31·R3·R4 항목이 `docs/requirements.md`에 매핑(R4F·R4G·R4H·R5·R6·R7은 부록 B에 매핑하지 않음); 티켓 그래프 시험 통과; TDS 검사기 manifest·schema 단계 + 세 결과 + 경로 안전 + 해시 시험 벡터; 손으로 정한 `tiny` 합성이 `schema` 통과; golden 틀 + G-01 | `uv run python -m nexusbt.testing.synth --preset tiny --out .scratch/snap --validate` → 데이터셋별 행 수, `value_sha256`·`semantic_sha256`, 프로필 세 결과(검사 안 한 것은 `not_checked`); `uv run tds check .scratch/snap --level schema` → 종료 코드 0 |
 | M1 스냅숏 + Pipeline 조각 + 공개 첫 경로 | E2 | `run_pipeline`, 팩터 스크리닝, 실행 기록·재실행, `tds import csv`, 영어 빠른 시작(분석) | 검사기 full(K·R·T·D·A·V·H) + 해석기; 합성 small(사건·정정 포함)과 core `degrade`가 `full` 통과; T-07, T-09~T-12, T-15, T-20, T-23; P-CHUNK(1년 미만 묶음 포함)·P-PERM·P-FUT·P-DET·P-KERNEL(참조)·P-START·M-SCALE·M-DUMMY·M-SPLIT-NEUTRAL(전제·반례 포함); L1-a(기본 입력끼리)·L1-b·L1-d; F-02~F-04 시험; 단계별 첫 측정(열기·블록·조정·창 커널·단면)이 `bench/results`에 | `uv run python examples/m1_screen.py` → 기준일 시장별 모멘텀 상위 10; `uv run nexusbt rerun <id>` → "outputs identical"; `uv run nexusbt doctor` → 프로필 세 결과·대체 목록·규칙 팩; `uv run python bench/run.py --stages m1 --snapshot synth-small` |
-| M2 PIT + 팩터 평가 | E2 | `evaluate`(경제 정답·정답 시각 셋·단순 폭·집단 BHY), `explain`(값), 구간, `preregister` | T-01~T-06, T-08, T-13, T-14, T-16~T-19, T-21, T-22; 엄격판 계보; 구간 넘는 정답 제외(`ts_label_available`); 후보·관측·집단; L1-c; F-06~F-08·F-11·F-14 시험; (실제 내보내기가 있으면) 월간 패널과 일치; P3 측정; 영어 빠른 시작 시험 | `uv run nexusbt evaluate examples/factors/momentum.py` → FactorReport(정답 정의 줄·naive breadth·BHY(cohort) 줄) |
-| M3a 한 시장 시장가 끝-끝 | E3 | `backtest`(한 시장, 시장가), 전략 `screen`, 정수 회계·NAV 다리 | G-01, G-10~G-26, G-30, G-31, G-34, G-35, G-41~G-49; P-NAV, P-BRIDGE, P-QTY, P-RESUME, P-STATE, P-PARITY13, P-DERIVED; L2-a·b·c; F-01·F-05·F-09·F-13 시험; 상태 기계 단계 측정(`full_ci`, 계산 기계 `full`) | `uv run nexusbt backtest examples/strategies/mom_kr.py` → Run 요약(가정 줄·직접 비용/경로 효과·reconciled: yes) |
+| M2 PIT + 팩터 평가 | E2 | `evaluate`(경제 정답·정답 시각 셋·단순 폭·집단 BHY), `explain`(값), 구간, `preregister` | T-01~T-06, T-08, T-13, T-14, T-16~T-19, T-21, T-22; 엄격판 계보; 구간 넘는 정답 제외(`ts_label_available`); 후보·관측·집단; L1-c; F-06~F-08·F-11·F-14 시험; (실제 내보내기가 있으면) 월간 패널과 일치; P3 측정; 영어 빠른 시작 시험; 사람이 대표 팩터 결과(`examples/factors/momentum.py`)의 `report.html`을 열어 3.9 FactorReport 목록과 2초 예산에 대어 읽음 | `uv run nexusbt evaluate examples/factors/momentum.py` → FactorReport(정답 정의 줄·naive breadth·BHY(cohort) 줄) |
+| M3a 한 시장 시장가 끝-끝 | E3 | `backtest`(한 시장, 시장가), 전략 `screen`, 정수 회계·NAV 다리 | G-01, G-10~G-26, G-30, G-31, G-34, G-35, G-41~G-49; P-NAV, P-BRIDGE, P-QTY, P-RESUME, P-STATE, P-PARITY13, P-DERIVED; L2-a·b·c; F-01·F-05·F-09·F-13 시험; 상태 기계 단계 측정(`full_ci`, 계산 기계 `full`); 사람이 대표 롱온리 결과(`examples/strategies/mom_kr.py`)의 `report.html`을 열어 3.9 Run 목록과 2초 예산에 대어 읽음(롱숏 결과는 공매도가 들어오는 M4에서 봄) | `uv run nexusbt backtest examples/strategies/mom_kr.py` → Run 요약(가정 줄·직접 비용/경로 효과·reconciled: yes) |
 | M3b 주문 종류 | E3 | 지정가·손절·손절지정가·탈출 주문, `explain(strategy)`, MinTRL·신호-비중 상관 | G-02~G-09, G-32, G-33, G-37~G-40; P-STATE(탈출 만료 금지)·P-QTY; L2-d(프리셋 의미); (선택) 사용자가 한 전략 3개월을 손으로 재현한 요약 증거 [RV-D10] | `uv run nexusbt explain examples/strategies/mom_kr_exits.py KR:T00007 2019-06-28` → 판단 경로와 탈출 주문 사건 |
-| M4 다중 시장 | E3 | 여러 슬리브 백테스트·스크리닝, 통화 귀속, 시장 규칙 팩 | G-27~G-29, G-36, G-50~G-52; M-CCY·M-SLEEVE(전제·반례); 한국 판단이 나중 미국 종가를 못 씀; 환율 방향·묵음; 규칙 경계; `ZZ` 시장 E18/팩 넣으면 돎; 두 슬리브 단계 측정 | `uv run nexusbt backtest examples/strategies/value_mom.py` → 시장별 열과 `fx contribution` 줄이 있는 Run 요약 |
+| M4 다중 시장 | E3 | 여러 슬리브 백테스트·스크리닝, 통화 귀속, 시장 규칙 팩 | G-27~G-29, G-36, G-50~G-52; M-CCY·M-SLEEVE(전제·반례); 한국 판단이 나중 미국 종가를 못 씀; 환율 방향·묵음; 규칙 경계; `ZZ` 시장 E18/팩 넣으면 돎; 두 슬리브 단계 측정; 사람이 대표 롱숏 결과(`examples/strategies/long_short_kr.py --set shorting.enabled=true`)의 `report.html`을 열어 3.9 Run 목록에 대어 읽음 | `uv run nexusbt backtest examples/strategies/value_mom.py` → 시장별 열과 `fx contribution` 줄이 있는 Run 요약 |
 | M5 모의 운용 | E3 뒤(live) | `live`, 모의 장부(트랜잭션), `reconcile`(재생/재진술), `status.json`, `compare`, `Run.why`, 어댑터, CLI 전체 | 같은 판단·장부 → 같은 멱등 열쇠; `live → fill → live`에서 주문 한 번; 커밋 경계 강제 종료 복구(P-BOOK); 동시 작성자 E35; 자료 전 미래 시가 체결 없음; P-RECON | `uv run nexusbt live examples/strategies/value_mom.py --book paper:demo --fill next_open` 두 번 → 두 번째는 IdempotencyNotice; `uv run nexusbt reconcile --book paper:demo` → `reconciled: yes (replay)` |
 | M6 성능·연구 도구·출시 관문 | E3 성능 | `sweep`, DSR·PBO(집단), 탐침, 시작일 탐침, L0·L1 캐시, 용량 시나리오, 깨끗한 설치 | 빠른 커널 = 참조(같은 환경 비트); P-CACHE(L0·L1, 해석 메타·잡힌 상수); 프로세스 트리 RSS·USS ≤ 4 GB; P-STAT; 7장 관문 측정 JSON; `engine / release` 통과(깨끗한 wheel + 독립 생산자) | `uv run nexusbt sweep examples/strategies/value_mom.py` → 후보 표 + PBO + DSR(cohort) + 최종 후보 capacity 줄 |
 | v1.x | v1 직후 | N_eff, Brinson·`first_divergence` (v3.3: 그룹 상한 → T3.29, `time_stop` → T3.33, v1로 [R4-27]) | T7.x 각 티켓의 시험 | 티켓별 |
@@ -3116,9 +3140,9 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 - Acceptance: `tests/unit/api/test_evaluate.py::test_report_lines_match_template`, `::test_counts_next_to_rates`, `::test_saved_run_folder`, `::test_hygiene_block`, `::test_mapping_terms_are_separate_candidates`, `::test_minimal_daily_adj_label_only`.
 
 **T2.10b `feat(artifacts): report.html template with structural test`** **[v3]** · `M2` `artifacts` · S · Blocked by: T2.10a · §3.9 *(v3: T2.10을 나눔; 눈 확인 대신 구조 시험, 눈 확인은 마일스톤 끝 체크리스트)*
-- Context: jinja2 한 장 템플릿(외부 파일 없음), 칸 id(`summary`, `ic`, `quantiles`, `coverage`, `hygiene`, `assumptions`).
-- Done means: 생성된 HTML에 필수 칸 id가 모두 있고 외부 자원 요청이 없다.
-- Acceptance: `tests/unit/artifacts/test_report_html.py::test_required_sections_present`, `::test_no_external_resources`.
+- Context: FactorReport와 Run이 같이 쓰는 jinja2 한 장 템플릿(외부 파일 없음, 3.9 페이지 틀), 3.9 FactorReport 칸과 그 순서, 빠진 칸의 n/a 줄, 재어 보고 고른 뒤 ADR에 적는 그리는 수단(3.9 시각 규칙).
+- Done means: 생성된 FactorReport HTML에 3.9 FactorReport 칸이 3.9 순서로 있고, 시험이 확인할 수 있는 3.9 시각 규칙을 지킨다(외부 자원 없음, 모든 축에 단위, 부호나 무늬가 붙은 손실, 크기 예산 안). 사람이 보는 일은 10.0의 M2 행이며, 목록 없는 눈 확인이 아니라 3.9 목록에 대어 본다.
+- Acceptance: `tests/unit/artifacts/test_report_html.py::test_required_sections_present`, `::test_sections_in_3_9_order`, `::test_no_external_resources`, `::test_axes_have_units`, `::test_losses_not_by_colour_alone`, `::test_size_budget`.
 
 **T2.11 `feat(api): explain values down to source facts`** · `M2` `api` · S · Blocked by: T2.2 · §3.9 Explanation, §4.5 F-11
 - Done means: `nx.explain(Fund.equity.latest, "KR:T00003", "2020-02-28")`가 `fundamentals_state` 구간과 `fundamentals_events` `fact_id`/`doc_id`를 출력; 사건 표가 없으면 "lineage not in snapshot".
@@ -3255,8 +3279,8 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 - Acceptance: `tests/unit/api/test_backtest.py::test_gross_replayed_once`, `::test_cost_sensitivity_rows`, `::test_scenarios_named_list`, `::test_capacity_not_yet_E18`.
 
 **T3.14 `feat(artifacts): backtest outputs, event schemas, derived tables, NAV bridge and cost attribution`** · `M3a` `artifacts` · M · Blocked by: T3.13a · §5.9.1, INV-06, INV-16 [SC-07 비용, SC-23, RV-C07, RV-I04] *(v3.2: `daily`에 `bridge_financing`·`bridge_external_flows`(값 0이어도 늘), `coverage.rounding_gap`·`n_unknown_by_leaf`, `account_events.shortfall` [R3-11, R3-20, R3-13, R3-09])* *(v3: `nexusbt-events/1`, 다리 칼럼, 비용 귀속 기준 바꿈)*
-- Done means: `runs/<id>/orders.parquet`·`account_events.parquet`를 polars로 열면 5.9.1 정규 칼럼; `daily.parquet`의 다리 행 합 = NAV 변화; `attribution.parquet`의 비용 행 합 = 주문 비용 칼럼 합(gross − net은 \"직접 + 경로\"로 표시); `report.html`에 비용 분해·시나리오·주문 상태 표.
-- Acceptance: `tests/unit/artifacts/test_backtest_outputs.py::test_orders_schema`, `::test_account_events_schema_v1`, `::test_pnl_bridge_closes`, `::test_costs_equal_order_costs`, `::test_G49_fee_reduces_quantity`, `::test_coverage_columns`, `::test_daily_has_financing_and_flow_bridge_columns`, `tests/property/test_execution_invariants.py::test_P_DERIVED`.
+- Done means: `runs/<id>/orders.parquet`·`account_events.parquet`를 polars로 열면 5.9.1 정규 칼럼; `daily.parquet`의 다리 행 합 = NAV 변화; `attribution.parquet`의 비용 행 합 = 주문 비용 칼럼 합(gross − net은 \"직접 + 경로\"로 표시); `report.html`에 비용 분해·시나리오·주문 상태 표, 그리고 3.9의 Run 칸이 3.9 순서로(나중 티켓이 표를 더하는 칸은 n/a 줄을 보임) 3.9 크기 예산 안에서.
+- Acceptance: `tests/unit/artifacts/test_report_html.py::test_run_sections_in_3_9_order`, `::test_run_size_budget`, `tests/unit/artifacts/test_backtest_outputs.py::test_orders_schema`, `::test_account_events_schema_v1`, `::test_pnl_bridge_closes`, `::test_costs_equal_order_costs`, `::test_G49_fee_reduces_quantity`, `::test_coverage_columns`, `::test_daily_has_financing_and_flow_bridge_columns`, `tests/property/test_execution_invariants.py::test_P_DERIVED`.
 
 **T3.15a `feat(execution): zipline parity preset (market orders, costs, sizing)`** **[v3]** · `M3a` `execution` · S · Blocked by: T3.12 · §5.6.15 [SC-12] *(v3: T3.15를 나눔; 발동 규칙은 T3.15b)*
 - Done means: `preset="zipline"` 실행 보고서 머리에 "parity preset (not a realistic model)".

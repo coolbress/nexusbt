@@ -144,6 +144,35 @@ def test_no_value_hash_without_a_rule(tmp_path: Path, change: dict[str, Any], me
         value_hash(package(tmp_path, {**BARS, **change}, with_ts_start("us")), "bars_1d")
 
 
+#: TDS 5.25: the schema file has the key and time columns; the values are declared in tds.json.
+FEATURES = {"name": "features", "kind": "feature_panels", "path": "features",
+            "columns": [{"name": "instrument_id", "type": "id"},
+                        {"name": "ts_available", "type": "ts_us"},
+                        {"name": "momentum", "type": "f64"}]}  # fmt: skip
+
+
+def features(momentum: float) -> pa.Table:
+    return pa.table({
+        "instrument_id": ["US:B"], "period": [dt.date(2024, 1, 31)],
+        "as_of_date": [dt.date(2024, 1, 31)], "ts_available": pa.array([0], ARROW["ts_us"]),
+        "momentum": [momentum],
+    })  # fmt: skip
+
+
+def test_value_hash_sees_declared_feature_column(tmp_path: Path) -> None:
+    one, other = (
+        package(tmp_path / str(m), FEATURES, {"features/p.parquet": features(m)})
+        for m in (1.0, 999.0)
+    )
+    assert value_hash(one, "features") != value_hash(other, "features")
+
+
+def test_declared_column_vector(tmp_path: Path) -> None:
+    (vector,) = (v for v in VECTORS["vectors"] if v["name"] == "declared_non_schema_column")
+    parts = {"features/p.parquet": arrow_table(vector)}
+    assert value_hash(package(tmp_path, FEATURES, parts), "features") == vector["sha256"]
+
+
 def test_a_declared_unit_sets_the_bytes(tmp_path: Path) -> None:
     declared = {**BARS, "columns": [{"name": "ts_start", "type": "ts_ns"}]}
     us, ns = (package(tmp_path / u, declared, with_ts_start(u)) for u in ("us", "ns"))
