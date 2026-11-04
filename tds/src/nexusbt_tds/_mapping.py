@@ -149,23 +149,19 @@ def _flow(text: str, i: int, n: int) -> tuple[Any, int]:
 def _token(text: str, i: int, n: int, stops: str) -> tuple[str, int]:
     """A quoted or plain string at `i`; a plain one ends at a stop (`:` only before a space)."""
     i = _skip(text, i)
-    if text[i : i + 1] == '"':
+    if (quote := text[i : i + 1]) in ('"', "'"):
+        escape = "\\" if quote == '"' else "''"  # what is not the end: `\x`, or `''`
         end = i + 1
-        while end < len(text) and text[end] != '"':
-            end += 2 if text[end] == "\\" else 1
+        while end < len(text) and (text[end] != quote or text.startswith(escape, end)):
+            end += 2 if text.startswith(escape, end) else 1
         if end >= len(text):
             raise _error(n, "a quote is not closed")
+        if quote == "'":
+            return text[i + 1 : end].replace("''", "'"), end + 1
         try:
             return json.loads(text[i : end + 1]), end + 1
         except json.JSONDecodeError as exc:
             raise _error(n, f"a double-quoted string JSON does not read ({exc.msg})") from None
-    if text[i : i + 1] == "'":
-        end = i + 1
-        while (end := text.find("'", end)) != -1 and text[end + 1 : end + 2] == "'":
-            end += 2
-        if end == -1:  # pragma: no cover (`_strip_comment` refused an unclosed quote first)
-            raise _error(n, "a quote is not closed")
-        return text[i + 1 : end].replace("''", "'"), end + 1
     _reject_unsupported(text, i, n)
     start = i
     while i < len(text) and text[i] not in stops.replace(":", ""):

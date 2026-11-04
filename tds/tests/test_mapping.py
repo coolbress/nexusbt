@@ -21,6 +21,12 @@ def test_an_empty_file_is_none() -> None:
     assert read_mapping("# only a comment\n\n") is None
 
 
+def test_quotes() -> None:  # each quote has its own escape, and only its own
+    assert read_mapping("a: [\"x'\", 'y\\', 'it''s', \"q\\\"\"]\n") == {
+        "a": ["x'", "y\\", "it's", 'q"']
+    }
+
+
 def test_list_forms() -> None:
     assert read_mapping("a:\n- b\n- c\nd: e\n") == {"a": ["b", "c"], "d": "e"}
     assert read_mapping("a:\n  -\n  -\n    b: c\n") == {"a": [None, {"b": "c"}]}
