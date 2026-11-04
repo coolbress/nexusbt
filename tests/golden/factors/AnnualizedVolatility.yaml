@@ -1,0 +1,11 @@
+# T-25 (spec 8.2, 3.4): a built-in factor by hand over 5 rows. `check/T-25.py` reaches the same
+# literals; implementation pull requests do not change this file. `expected` per row:
+# null = warm-up (no full window in the 5 rows), .nan = the factor gives NaN.
+factor: AnnualizedVolatility
+spec: "3.4: nanstd(DailyReturns window, ddof=0) * sqrt(a), NaN left out, minimum observations 1; warm-up W"
+cases:
+  - term: "AnnualizedVolatility(3, annualization_factor=252)"
+    inputs: {close_tr: [100, 110, 99, .nan, 108.9]}
+    # Worked by hand, not yet checked by the person:daily returns 0.1, -0.1, NaN, NaN (rows 2 to 5). Row 4: std(0.1, -0.1)
+    # = 0.1, x sqrt(252) = 1.587451. Row 5: one return left, std 0.
+    expected: [null, null, null, 1.587451, 0.0]

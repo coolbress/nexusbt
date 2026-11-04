@@ -3,7 +3,9 @@
 A case is `cases/<id>.yaml`: its expected numbers are literals a person checked by hand. Next
 to it, `check/<id>.py` reaches the same numbers by plain arithmetic and rounding, with no loops,
 classes or engine imports, so it cannot grow into a second engine whose errors follow the
-engine's. These tests hold the check files to that shape and each case to its check.
+engine's. T-25 is the exception in layout: one `factors/<name>.yaml` per built-in factor, all
+checked by `check/T-25.py`. These tests hold the check files to that shape and each case to its
+check.
 """
 
 from __future__ import annotations
@@ -83,12 +85,39 @@ def nan_as_text(value: Any) -> Any:
     return value
 
 
-#: The v3.1 cases M1 uses (T1.Gb): T-24 three-valued Filter, T-27 hash tie-break.
-V31_M1 = ("T-24", "T-27")
+#: The v3.1 cases M1 uses (T1.Gb): T-24 three-valued Filter, T-25 built-in factors, T-27 hash
+#: tie-break. T-25 is one `factors/<name>.yaml` per built-in factor with `check/T-25.py`.
+V31_M1 = ("T-24", "T-25", "T-27")
+#: The 12 built-in factors of spec 3.4, each a file name under `factors/`.
+BUILTIN_FACTORS = frozenset({
+    "Returns", "DailyReturns", "SimpleMovingAverage", "ExponentialWeightedMovingAverage",
+    "AverageDollarVolume", "AverageTradedValue", "AnnualizedVolatility", "RollingStd", "VWAP",
+    "RSI", "MaxDrawdown", "Latest",
+})  # fmt: skip
+
+
+def _factor_cases() -> list[dict[str, Any]]:
+    """T-25's expected rows: every case of every `factors/<name>.yaml`, its factor added."""
+    rows: list[dict[str, Any]] = []
+    for path in sorted((GOLDEN / "factors").glob("*.yaml")):
+        doc = yaml.safe_load(path.read_text())
+        assert doc["factor"] == path.stem, f"{path.name} names {doc['factor']}"
+        rows.extend({"factor": doc["factor"], **case} for case in doc["cases"])
+    return rows
+
+
+def _by_term(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return sorted(rows, key=lambda row: (row["factor"], row["term"]))
 
 
 @pytest.mark.parametrize("case_id", V31_M1)
 def test_cases_v31_M1_expected_present(case_id: str) -> None:  # noqa: N802 - spec 10.1's name
+    if case_id == "T-25":
+        expected = _factor_cases()
+        assert {row["factor"] for row in expected} == BUILTIN_FACTORS
+        rows = runpy.run_path(str(GOLDEN / "check" / "T-25.py"), run_name="golden_check")["ROWS"]
+        assert nan_as_text(_by_term(list(rows))) == nan_as_text(_by_term(expected))
+        return
     case, rows = _case(case_id)
     assert case["id"] == case_id
     assert case["expected"], f"{case_id} has no expected rows"

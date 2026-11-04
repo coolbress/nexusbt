@@ -1,0 +1,11 @@
+# T-25 (spec 8.2, 3.4): a built-in factor by hand over 5 rows. `check/T-25.py` reaches the same
+# literals; implementation pull requests do not change this file. `expected` per row:
+# null = warm-up (no full window in the 5 rows), .nan = the factor gives NaN.
+factor: DailyReturns
+spec: "3.4: DailyReturns() = Returns(2); warm-up 1"
+cases:
+  - term: "DailyReturns()"
+    inputs: {close_tr: [100, 110, .nan, 121, 133.1]}
+    # Worked by hand, not yet checked by the person:110/100 - 1 = 0.1; NaN at the end of row 3 and the start of row 4;
+    # 133.1/121 - 1 = 0.1.
+    expected: [null, 0.1, .nan, .nan, 0.1]
