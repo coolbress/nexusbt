@@ -16,6 +16,7 @@ from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
@@ -466,6 +467,15 @@ def test_kr_prices_on_grid_with_halts_and_limits(small: Path) -> None:
     over = {r["kind"] for r in rows(small, "corporate_actions")
             if (r["instrument_id"], r["ex_date"]) in halted}  # fmt: skip
     assert {"split", "cash_dividend"} <= over  # G-54: a split and an ex-dividend in a halt
+
+
+def test_a_halt_never_hides_a_close_a_factor_uses() -> None:
+    rng, split = np.random.Generator(np.random.PCG64(0)), [(0, 3, "split")]  # G-54: from 3
+    for refs in ({(0, 3)}, set()):  # another event's factor uses session 3's close, or none
+        bars: dict[str, list[Any]] = {n: [np.full(6, 100.0)] for n in (*synth.OHLC, "volume")}
+        bars["obs_status"] = [["traded"] * 6]
+        halted = synth._halts([0], [5], split, refs, bars, rng)
+        assert (bars["obs_status"][0][3] == "halted") == bool(halted) == (not refs)
 
 
 def test_tradability_rows_by_market(small: Path) -> None:
