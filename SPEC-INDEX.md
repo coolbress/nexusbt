@@ -9,7 +9,7 @@ Generated from `docs/spec/engine-spec-v3.4.md` (chapter 10) by the spec checker 
 
 ## Counts
 
-221 engine tickets: M0 16, M1 41, M2 31, M3a 37, M3b 11, M4 28, M5 24, M6 31, v1.x 2 (T7.G, T7.1 and T7.V are part of M6; T7.2 and T7.5 are v1.x). 107 golden cases (G-01..G-107), 34 property tests, 49 error codes (E1..E49), 40 ADRs.
+222 engine tickets: M0 16, M1 41, M2 31, M3a 37, M3b 12, M4 28, M5 24, M6 31, v1.x 2 (T7.G, T7.1 and T7.V are part of M6; T7.2 and T7.5 are v1.x). 107 golden cases (G-01..G-107), 34 property tests, 49 error codes (E1..E49), 40 ADRs.
 
 ## Dependency graph (summary)
 
@@ -178,7 +178,8 @@ Generated from `docs/spec/engine-spec-v3.4.md` (chapter 10) by the spec checker 
 | T3.Gf | `test(golden): price grid cases (G-57)` | 5.6.4a, 8.2 | G-57 | T0.9 |
 | T3.24 | `feat(execution): market price grid for order prices and minimum-unit integer comparisons` | 5.6.4a, 4.7, 4.5 | G-57 | T3.6, T3.Gf, T0.16c, T0.5b |
 | T3.33 | `feat(execution): time stop exit in the OCO group and no-reentry rule` | 3.7, 5.5.2a | — | T3.7, T3.30 |
-| T3.35 | `feat(schedule): nx.on_event trigger schedule with incremental decisions and event templates` | 3.7, 5.3.12, 3.10 | G-97 | T2.23, T3.27, T3.33, T3.34 |
+| T5.16a | `feat(portfolio): strategy state record with checkpoint save and restore` | 5.5.3, 5.6.1 | — | T3.12 |
+| T3.35 | `feat(schedule): nx.on_event trigger schedule with incremental decisions and event templates` | 3.7, 5.3.12, 3.10 | G-97 | T2.23, T3.27, T3.33, T3.34, T5.16a |
 
 ## M4 — Multi-market (KR/US synthetic, market rules packs) + shorting, long-short, margin account
 
@@ -235,7 +236,7 @@ Generated from `docs/spec/engine-spec-v3.4.md` (chapter 10) by the spec checker 
 | T5.13 | `feat(accounting): external cash flows and time-weighted returns in books` | 5.6.9, 5.7, 5.9.6 | G-65 | T5.1, T5.G |
 | T5.14 | `feat(artifacts): round-trip trades table derived from events` | 5.9.1, 3.9 | G-64 | T3.14, T4.15c, T5.G |
 | T5.15 | `feat(api): screen x-ray over the whole universe` | 3.8, 3.9, 5.9.9 | — | T3.19, T2.20, T2.21, T2.22, T5.1 |
-| T5.16 | `feat(portfolio): target-state plumbing for checkpoints, books and screens` | 5.5.3, 5.6.1, 5.9.6 | — | T5.1, T3.12 |
+| T5.16 | `feat(portfolio): strategy state record in paper books and screens` | 5.5.3, 5.9.6 | — | T5.1, T5.16a |
 | T5.17 | `feat(api): screen account modes for account-reading risk rules` | 3.8, 3.10 | — | T3.30, T5.1, T5.4 |
 | T5.18 | `feat(cli): strategy templates, demo snapshot and the 30-minute path` | 3.10, 8.5 | — | T5.4, T3.34, T3.33, T5.17, T3.35 |
 | T5.19 | `docs: zipline to NexusBT mapping page and zipline-port template` | 8.5 | — | T5.18 |
