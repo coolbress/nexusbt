@@ -201,7 +201,7 @@ NexusBT는 이 다섯을 한 엔진에 모은다. 각 엔진에서 가져온 장
 
 | # | 불변식 | 시험 |
 |---|---|---|
-| INV-01 | **정보 시점**: 판단 d가 쓰는 모든 관측 x는 `ts_available(x) <= decision_ts(d)`. 신호 입력뿐 아니라 **주문 크기를 정하는 계좌 입력**(평가가, 금액 아는 미수금, 종료 회수액, 환율)도 같다 [11.4.1, C1, RV-C01]. 기업행동은 존재 시각부터 보이고 조건 시각 전에는 금액 모르는 권리다(5.3.3a) [R3-01]. **체결 인과성**: 체결 가격·비용 구성요소는 그 체결 단계까지 알 수 있는 값만 쓴다(시가 단계 체결 가격은 그 세션 H·L·C·거래량에 기대지 않음, 비용 입력은 t−1까지). 체결 **수량**은 그 세션 실현 거래량을 **사후 실행 가능성 상한**으로 쓴다(5.6.6): 판단 입력이 아니고, 결과를 어느 방향으로도 바꿀 수 있는 근사다(v3.1의 "줄이는 쪽뿐이라 결과를 좋게 만들 수 없음"은 거짓이라 뺐다; 가정 문장으로 알림) [V31-22, V31-03, R3-03] | 성질 시험 P-FUT, P-FILLCAUSAL, 손계산 G-TIME, G-42 예외는 하나뿐: 사전학습 모형의 `allow_overlap=True`(5.3.11, 사용자가 선언·표시·기록) [R5-03]. |
+| INV-01 | **정보 시점**: 판단 d가 쓰는 모든 관측 x는 `ts_available(x) <= decision_ts(d)`. 신호 입력뿐 아니라 **주문 크기를 정하는 계좌 입력**(평가가, 금액 아는 미수금, 종료 회수액, 환율)과 계좌 규칙이 읽는 NAV 계열(`nav_decision`, 5.6.9)도 같다 [11.4.1, C1, RV-C01]. 기업행동은 존재 시각부터 보이고 조건 시각 전에는 금액 모르는 권리다(5.3.3a) [R3-01]. **체결 인과성**: 체결 가격·비용 구성요소는 그 체결 단계까지 알 수 있는 값만 쓴다(시가 단계 체결 가격은 그 세션 H·L·C·거래량에 기대지 않음, 비용 입력은 t−1까지). 체결 **수량**은 그 세션 실현 거래량을 **사후 실행 가능성 상한**으로 쓴다(5.6.6): 판단 입력이 아니고, 결과를 어느 방향으로도 바꿀 수 있는 근사다(v3.1의 "줄이는 쪽뿐이라 결과를 좋게 만들 수 없음"은 거짓이라 뺐다; 가정 문장으로 알림) [V31-22, V31-03, R3-03] | 성질 시험 P-FUT, P-FILLCAUSAL, 손계산 G-TIME, G-TIME-LATE, G-42 예외는 하나뿐: 사전학습 모형의 `allow_overlap=True`(5.3.11, 사용자가 선언·표시·기록) [R5-03]. |
 | INV-02 | **미래 자료 불변**: 스냅숏에 시각 τ 뒤의 자료를 더해도 `decision_ts <= τ`인 판단의 정규 목표·주문은 그대로 [11.8] | P-FUT |
 | INV-03 | **묶음 불변**: 같은 환경(같은 `uv.lock`, 같은 CPU 종류)에서 기간 묶음 크기·병렬 순서를 바꿔도 결과 같음. 선택 종목·목표 비중은 정확히, **등록 커널 노드** 값은 비트 단위, **사용자 함수 노드**는 "같은 창 입력 → 같은 출력"(창 입력 자체는 묶음과 무관하므로 결과도 같음). 다른 환경 사이 비트 약속은 없다 [11.7, SC-03, RV-C11] | P-CHUNK |
 | INV-04 | **색인 순열 불변**: 메모리 안 밀집 색인 순서를 바꿔도 결과 비트 단위로 같음(단면 줄이기는 5.3.10의 정렬 색인 순서로 하므로) [11.8, SC-03] | P-PERM |
@@ -1325,7 +1325,8 @@ def make_snapshot(root: Path, *, preset: Literal["tiny","small","full","full_ci"
 
 #### 5.1.2 쓸 수 있음의 규칙 하나 [C1, R-17, INV-01]
 - 관측 x는 판단 d에서 `ts_available(x) <= decision_ts(d)`일 때만 쓸 수 있다. 예외 없음(월말 예외 없음, 통화가 시점을 바꾸지 않음) [11.4.1, Q10].
-- **시장 축 값의 기준 시각** [RV-C02]: 시장 m의 행 s는 **굳는 시각** `ready_m(s) = ts_close(s) + Δ_m`에 굳는다. `Δ_m`은 자료에서 정해지는 상수다: 봉의 공개 규칙이 `ts_end`면 0, `ts_end+<기간>`이면 그 기간, 칼럼 규칙(`{"column": "ts_available"}`)이면 그 데이터셋의 `params.ready_delay`(TDS v1.1, 없으면 0). 행 s의 항 값은 `cutoff(s) = ready_m(s)`에 쓸 수 있는 정보만 쓴다. 그 봉의 `ts_available > ready_m(s)`인 종목은 행 s에서 결측(NaN, 진단 `LateBar` 건수)이고 다음 행부터 창에 들어간다 — 이미 굳은 행의 값은 늦게 온 자료로 바뀌지 않는다. 판단 d가 시장 m의 값을 읽을 때는 `ready_m(s) <= decision_ts(d)`인 가장 늦은 행 `s = row_m(d)`를 쓴다. `ready`가 자료 값이 아니라 선언된 상수라 τ 뒤 자료를 지워도 행 선택이 바뀌지 않는다(INV-02). `decision_ts >= cutoff(s)`이므로 INV-01이 성립한다.
+- **시장 축 값의 기준 시각** [RV-C02]: 시장 m의 행 s는 **굳는 시각** `ready_m(s) = ts_close(s) + Δ_m`에 굳는다. `Δ_m`은 자료에서 정해지는 상수다: 봉의 공개 규칙이 `ts_end`면 0, `ts_end+<기간>`이면 그 기간, 칼럼 규칙(`{"column": "ts_available"}`)이면 그 데이터셋의 `params.ready_delay`(TDS v1.1, 없으면 0). 행 s의 항 값은 `cutoff(s) = ready_m(s)`에 쓸 수 있는 정보만 쓴다. 그 봉의 `ts_available > ready_m(s)`인 종목은 행 s의 항 값에서 결측(NaN, 진단 `LateBar` 건수)이다 — 이미 굳은 행의 값은 늦게 온 자료로 바뀌지 않는다. 어느 재실행에서도, 어느 나중 스냅숏으로도 그렇다. 그 봉을 어디에 두고 어느 독자가 보는지는 다음 항목이다. 판단 d가 시장 m의 값을 읽을 때는 `ready_m(s) <= decision_ts(d)`인 가장 늦은 행 `s = row_m(d)`를 쓴다. `ready`가 자료 값이 아니라 선언된 상수라 τ 뒤 자료를 지워도 행 선택이 바뀌지 않는다(INV-02). `decision_ts >= cutoff(s)`이므로 INV-01이 성립한다.
+- **세 시각, 저장과 보임** [결정 2026-11-04]: 관측에는 세 시각이 있다 — **관측 시각**(그 관측이 속한 세션 s), **공개 시각**(그 `ts_available`), 독자의 **기준 시각**(그 독자가 자료를 알아도 되는 시각; 해석기가 받는 기준 시각과 같다, 5.3.3a). 블록은 세션 s의 관측을 그 `ts_available`과 함께 행 s에 둔다(5.3.1). s의 관측을 행 s+1에 두는 일은 없다. 행 t의 항 값은 칸(창 항이면 창의 각 칸)의 `ts_available <= ready_m(t)`일 때만 그 칸을 본다: 행 t의 모든 항 값의 기준 시각은 `ready_m(t)`다. 그래서 s의 늦은 봉은 항 값에서 행 s에 NaN이고, `ready_m(t)`가 그 `ts_available`에 이른 뒤 행 t의 창은 그 봉을 제자리 s에서 읽는다(G-TIME-LATE, 8.4). 기준 시각이 더 늦은 독자 — 보고서와 `reconcile` — 는 저장된 그대로 그 칸을 본다. 스냅숏의 모든 앎으로 읽는 블록 조회 정책(`latest`)은 v1에 없다.
 - 그래서 판단 시각과 행 시각 사이(예: 한국 마감 기준 판단에서 미국 전날 행)에 새로 공개된 재무는 쓰지 않는다. 보수적이고 미래를 보지 않는다 [A-02].
 
 #### 5.1.3 판단 시각: 기준 시계와 슬리브 [9.0 Q23, R-62, Q1]
@@ -1398,6 +1399,7 @@ class DecisionContext:
 
 #### 5.3.1 시장 축과 블록 [D2, 설계 4.4.2]
 - 시장마다 밀집 블록 `X[m]: (세션 수, 종목 수) float64`. 종목 축 = 그 묶음 기간에 한 번이라도 상장한 `asset_class = equity ∧ is_synthetic = false` 종목(`instrument_id` 정렬; 지수·합성 종목은 블록에 넣지 않고 벤치마크 경로로만, 3.3) [RV-Q06]. 상장 전·폐지 뒤 칸은 "없음"(값 NaN, 존재 마스크 False).
+- **저장** [결정 2026-11-04]: 블록은 값 칼럼 옆에 칸마다 `ts_available`을 둔다. 세션 s의 관측은 행 s에 머문다. 늦은 관측을 뒤 행으로 옮기지 않는다. 행 t의 항 값이 어느 칸을 보는지는 5.1.2의 보임 규칙(`ts_available <= ready_m(t)`)이고, 블록을 만들 때가 아니라 창을 읽을 때 적용하므로 블록 하나가 모든 행과 모든 독자를 받는다. L0 항목(5.3.9)도 같은 `ts_available` 배열을 둔다.
 - 묶음 = 세션 범위(기본 연도 단위, 메모리 예산이 모자라면 1년보다 작게; 5.3.8). 앞 묶음 꼬리 `W_max − 1`행을 겹쳐 읽는다.
 - 블록은 `instrument_id → 열 번호`, `session_ord → 행 번호` 매핑을 메모리에서 만든다. 파일에 정수 열쇠가 없으므로, Parquet dictionary 색인을 블록 열 번호로 한 번 바꾸고(사전 크기만큼의 작은 표), `session_date`는 `searchsorted`로 행 번호를 얻는다 [A-05].
 
@@ -1488,7 +1490,7 @@ class DecisionContext:
 
 #### 5.3.9 캐시 [R-12, C9, INV-05, SC-15]
 세 층이다: **L0** 원 블록 캐시, **L1** 항 값 캐시, **L2** 실행 산출물(`runs/`, 5.9).
-- **L0** (구현 M6, 열쇠 규칙은 M1부터 고정): 시장 × 칼럼 × 연도의 밀집 `float64` 행렬(존재 마스크·`obs_status` 코드·`C_split`·`C_total`·`Q` 포함)을 압축 없는 Arrow IPC 파일로 `<runs.dir>/.cache/l0/`에 둔다. 열쇠 = sha256(정규 JSON{**그 데이터셋의 해석 메타 해시**(`tds.json`의 그 데이터셋 `kind`·`schema_version`·`params`·`availability`·`pit_quality`·`key`·칼럼 단위와 패키지 `policies`, 그리고 `markets`의 **안정 필드**만 — 그 시장의 `calendar_id`·`currency`·`timezone`; 워터마크 `complete_through*`는 넣지 않는다(매일 바뀌어 v3.1에서 적중률을 0으로 만들었다)), **그 (시장, 연도) 파티션 파일들의 파일 sha256**(`files[].sha256`; 선택 `value_sha256`은 H004 경고 수준이라 틀려도 막히지 않으므로 신원으로 쓰지 않는다), **그 시장의 기업행동 사슬 해시**(효력이 그 연도 끝 이하인 판이 하나라도 있는 사슬마다 **모든 판**의 `event_id`·`ts_known`·`ts_terms`·`status`·`ts_effective`·네 효과의 정규 JSON — 중간 판 정정과 공개 시각만의 정정도 열쇠를 바꾼다; `C`·`Q` 누적과 기준 시각별 해석이 여기에 기댐), **그 블록의 축 행 해시**(사용자 결정 2026-11-04: 상장 기간·세션이 블록 모양을 정하므로, 열쇠는 축 파일의 sha256이 아니라 블록이 기대는 행을 해시한다 — 파일 sha256은 한 행만 바뀌어도 그 시장의 모든 연도에서 바뀐다. (a) 상장 기간 `[listed_on, delisted_on]`(빈 `delisted_on`은 끝이 열린 기간)이 그 연도의 세션 범위와 겹치는 그 시장의 `instruments` 행을, 블록이 읽는 필드 `instrument_id`·`listed_on`·`delisted_on`·`asset_class`·`is_synthetic`에 대해 `instrument_id` 순으로. (b) 그 연도와 앞 해 전체의 그 시장 `calendar_sessions` 행을 `session_date` 순으로: 앞 해가 5.3.1의 겹침 꼬리를 대표하고, `W_max − 1`행이 아니라 앞 해 전체를 넣어 열쇠가 그래프에 기대지 않는다; 한 해보다 긴 창은 아래 L1의 입력 L0 열쇠로 더 앞 연도에 닿는다. 앞 해의 `instruments` 행은 열쇠에 넣지 않는다: 그 연도의 열은 상장 기간이 그 연도와 겹치는 종목에서 나오고((a)의 행; 5.3.1), 겹침 행에서의 존재 여부는 이미 해시한 필드로 정해진다. 각 행은 TDS 4.5의 정규 값 규칙으로 직렬화한다), 시장, 칼럼, 연도, 판, 블록 판 `l0-v4`, 엔진 `nexusbt.__version__`}) [RV-C10, V31-12, V31-PUB-03, R3-04]. 생산자가 바뀌지 않은 파티션을 복제·하드 링크로 재사용하면(TDS 4.1) 파일 sha256이 같으므로 이 열쇠가 그대로 맞는다. 매일 새 스냅숏이 나와도 바뀌지 않은 과거 파티션의 L0은 그대로 적중하고, 축 변경은 아래 표가 말하는 연도만 미적중시킨다(Qlib 디스크 식 캐시의 증분 재사용; Qlib과 달리 과거 정정은 파일 sha256·사슬 해시·축 행 해시가 바뀌어 자동 미적중). 읽기는 **읽기 전용 메모리 매핑**이고, 사용자 창 함수에는 복사본만 준다(5.3.7). 스냅숏을 지워도 L0를 바로 지우지 않는다(다른 스냅숏이 같은 파일 sha256으로 공유할 수 있음): `cache_max_gb` 한도를 넘으면 남은 스냅숏 누구도 참조하지 않는 항목부터, 그다음 오래 안 쓴 항목부터 지운다 [R3-04]. 항목마다 원 파일 신원 `(dev, inode, size, mtime_ns)`를 함께 적고 열 때 확인한다(4.2) [R3-16]. `Snapshot.market_block`이 L0을 숨긴다(공개 API 변화 없음).
+- **L0** (구현 M6, 열쇠 규칙은 M1부터 고정): 시장 × 칼럼 × 연도의 밀집 `float64` 행렬(존재 마스크·`obs_status` 코드·5.3.1의 칸별 `ts_available`·`C_split`·`C_total`·`Q` 포함)을 압축 없는 Arrow IPC 파일로 `<runs.dir>/.cache/l0/`에 둔다. 열쇠 = sha256(정규 JSON{**그 데이터셋의 해석 메타 해시**(`tds.json`의 그 데이터셋 `kind`·`schema_version`·`params`·`availability`·`pit_quality`·`key`·칼럼 단위와 패키지 `policies`, 그리고 `markets`의 **안정 필드**만 — 그 시장의 `calendar_id`·`currency`·`timezone`; 워터마크 `complete_through*`는 넣지 않는다(매일 바뀌어 v3.1에서 적중률을 0으로 만들었다)), **그 (시장, 연도) 파티션 파일들의 파일 sha256**(`files[].sha256`; 선택 `value_sha256`은 H004 경고 수준이라 틀려도 막히지 않으므로 신원으로 쓰지 않는다), **그 시장의 기업행동 사슬 해시**(효력이 그 연도 끝 이하인 판이 하나라도 있는 사슬마다 **모든 판**의 `event_id`·`ts_known`·`ts_terms`·`status`·`ts_effective`·네 효과의 정규 JSON — 중간 판 정정과 공개 시각만의 정정도 열쇠를 바꾼다; `C`·`Q` 누적과 기준 시각별 해석이 여기에 기댐), **그 블록의 축 행 해시**(사용자 결정 2026-11-04: 상장 기간·세션이 블록 모양을 정하므로, 열쇠는 축 파일의 sha256이 아니라 블록이 기대는 행을 해시한다 — 파일 sha256은 한 행만 바뀌어도 그 시장의 모든 연도에서 바뀐다. (a) 상장 기간 `[listed_on, delisted_on]`(빈 `delisted_on`은 끝이 열린 기간)이 그 연도의 세션 범위와 겹치는 그 시장의 `instruments` 행을, 블록이 읽는 필드 `instrument_id`·`listed_on`·`delisted_on`·`asset_class`·`is_synthetic`에 대해 `instrument_id` 순으로. (b) 그 연도와 앞 해 전체의 그 시장 `calendar_sessions` 행을 `session_date` 순으로: 앞 해가 5.3.1의 겹침 꼬리를 대표하고, `W_max − 1`행이 아니라 앞 해 전체를 넣어 열쇠가 그래프에 기대지 않는다; 한 해보다 긴 창은 아래 L1의 입력 L0 열쇠로 더 앞 연도에 닿는다. 앞 해의 `instruments` 행은 열쇠에 넣지 않는다: 그 연도의 열은 상장 기간이 그 연도와 겹치는 종목에서 나오고((a)의 행; 5.3.1), 겹침 행에서의 존재 여부는 이미 해시한 필드로 정해진다. 각 행은 TDS 4.5의 정규 값 규칙으로 직렬화한다), 시장, 칼럼, 연도, 판, 블록 판 `l0-v4`, 엔진 `nexusbt.__version__`}) [RV-C10, V31-12, V31-PUB-03, R3-04]. 생산자가 바뀌지 않은 파티션을 복제·하드 링크로 재사용하면(TDS 4.1) 파일 sha256이 같으므로 이 열쇠가 그대로 맞는다. 매일 새 스냅숏이 나와도 바뀌지 않은 과거 파티션의 L0은 그대로 적중하고, 축 변경은 아래 표가 말하는 연도만 미적중시킨다(Qlib 디스크 식 캐시의 증분 재사용; Qlib과 달리 과거 정정은 파일 sha256·사슬 해시·축 행 해시가 바뀌어 자동 미적중). 읽기는 **읽기 전용 메모리 매핑**이고, 사용자 창 함수에는 복사본만 준다(5.3.7). 스냅숏을 지워도 L0를 바로 지우지 않는다(다른 스냅숏이 같은 파일 sha256으로 공유할 수 있음): `cache_max_gb` 한도를 넘으면 남은 스냅숏 누구도 참조하지 않는 항목부터, 그다음 오래 안 쓴 항목부터 지운다 [R3-04]. 항목마다 원 파일 신원 `(dev, inode, size, mtime_ns)`를 함께 적고 열 때 확인한다(4.2) [R3-16]. `Snapshot.market_block`이 L0을 숨긴다(공개 API 변화 없음).
 
 **축 변경이 무효화하는 것**(그 시장의 L0; 나머지 연도는 적중 유지; P-CACHE-INCR가 행마다 확인):
 
@@ -1645,11 +1647,11 @@ Arrow 표, 정렬 `(decision_id, selected_rank, instrument_id)`:
 #### 5.5.2a 계좌 층: 계좌를 읽는 위험 규칙과 최종 목표 [R4-04, R4-06, R4-09, INV-23]
 
 - **자리**: 정규 최종 `target_weight` 뒤, 주문 의도(5.6.7) 앞. `final_weight_i = target_weight_i × Π_k m_{k,i}`(계좌 규칙 k를 적힌 순서로 하나씩 곱함, 부호 유지). 계좌 규칙이 없으면 이 층을 **부르지 않고** `final_weight`에 `target_weight`를 그대로 복사한다(곱셈 없음, INV-23). 곱한 결과와 위험 칸 결과의 −0.0은 +0.0으로 고쳐 쓴다(`0 × 음수`; 해시 안정) [R4F-08]. 파산(`ruined`, 5.6.7) 슬리브는 이 층을 부르지 않는다(주문 의도 없음); 파산 판단에 규칙마다 마지막 `risk_state` 행 `key = "suspended"`, `value = "ruined"`를 쓰고 보고서 규칙 줄에 "suspended at ruin {date}"를 적는다(기록이 몰래 끊기지 않음) [R4F-06].
-- **읽기**: 판단 시각까지의 계좌 보기(읽기 전용 배열): NAV 계열(일별 `nav_economic`, 판단 세션은 `decision_value`), 보유 수량·`avg_cost`·첫 진입 세션, 탈출 체결 사건. 판단 뒤 값은 없다(INV-01).
+- **읽기**: 판단 시각까지의 계좌 보기(읽기 전용 배열): NAV 계열(5.6.9의 일별 `nav_decision`, 판단 세션에서는 `decision_value`; `nav_economic`은 읽지 않음), 보유 수량·`avg_cost`·첫 진입 세션, 탈출 체결 사건. 판단 뒤 값은 없다(INV-01).
 - **상태**: 규칙은 자기 객체에 상태를 두지 않는다(LEAN `_portfolioHigh`·backtrader `p.stake` 고쳐 쓰기 버림). `(ctx, w, state_{d−1}) → (m, state_d, reason)`이고 엔진이 `risk_state.parquet`(decision_id, sleeve_id, rule_index, rule, key, value_json)에 판단마다 쓴다. 체크포인트(5.6.1)와 장부(5.9.6)가 이 표를 담아 이어 돌리기 = 한 번에(INV-10)와 재생이 선다.
 - 완충대의 `prior`(5.5.3)는 정규 목표만 쓴다 — 브레이크가 완충대 상태를 바꾸지 않는다.
 - **낙폭 브레이크** `drawdown_brake(off, on, floor, mode)` [R4-06]:
-  - NAV 낙폭 `DD_d = 1 − V_d/P_d`. `V_d` = 판단 d의 슬리브 `decision_value`(비용·이자·대차 포함), `P_d` = 기준점(또는 마지막 재진입) 이후 일별 `nav_economic`과 `V_d`의 최댓값.
+  - NAV 낙폭 `DD_d = 1 − V_d/P_d`. `V_d` = 판단 d의 슬리브 `decision_value`(비용·이자·대차 포함), `P_d` = 기준점(또는 마지막 재진입) 이후 일별 `nav_decision`과 `V_d`의 최댓값 — 그래서 판단의 고점은 그 기간의 금액이 알려지기 전에 돌리든 뒤에 돌리든 같다.
   - **그림자 지수** S(계좌가 아니라 시장 정보와 정규 목표만): 기준점 판단에서 `S = 1`. 판단 d의 정규 목표 `target_weight`를 판단 세션 종가에 사서 다음 판단 세션 종가까지 비용 없이 들고 간다(현금 0%, 숏은 부호대로): `S_t = S_{t−1}·(1 + Σ_i w̃_{i,t−1}·r_{i,t})`, `w̃` = 판단 뒤 가격으로 흘러간 비중, `r` = 일간 총수익(`close_tr`; 결측은 0 + 건수). **상장폐지**: 그림자에 든 종목이 폐지되면 종료 세션에 5.6.13의 공용 종료가치 함수(정답 `fwd_return`·회계와 같은 함수, R4F-04)로 그 종목의 마지막 수익(−100% 포함)을 한 번 반영하고 그 뒤 비중은 0(현금 0%라 사라짐); 종료가치가 판단 시각에 아직 공개 전(`ts_value_available` 뒤)이면 마지막 `close_tr` 기준 0 + 건수로 두고 공개된 첫 판단에 반영한다(INV-01; 결측 0이 폐지 손실을 빠뜨려 하락장 회복을 빨라 보이게 하던 것을 막음) [R4F-09]. `DDs_d = 1 − S_d / max_{d' ≤ d} S_{d'}`; `S_d ≤ 0`(숏 비중 그림자)이면 `DDs_d = 1`(재진입 없음)로 두고 skips(reason `shadow_ruined`)에 남긴다 [R4F-28].
   - `mode="brake"`(상태 normal/braked): normal에서 `DD_d ≥ off`면 braked가 되고 **이 판단부터** `m = floor`(다음 세션 시가에 청산 주문). braked에서 `DDs_d ≤ on`이면 normal로 돌아가 이 판단부터 `m = 1`, 그 순간 `P := V_d`(NAV 고점을 다시 잡음; 안 그러면 바로 다시 걸림). NAV가 아니라 그림자로 돌아오는 이유: 현금으로 빠진 동안 NAV는 멈춰 회복을 볼 수 없다(LEAN은 고점을 즉시 다시 잡아 다음 재조정에 다시 사고, Nautilus에는 규칙이 없다 — 해부 F 교훈 4).
   - `mode="linear"`(상태 없음): `m = clip(1 − (DD_d − on)/(off − on), floor, 1)`.
@@ -1833,7 +1835,8 @@ v1은 이 절의 정의를 규범으로 고정하고(INV-08 문구, `DecisionCon
 - **처음 자금**: 시작 시각 `inception_ts` = 실행의 첫 판단 `decision_ts`(모든 슬리브 중 가장 이른 것). 기준 통화 자본 K를 `[sleeves] weights`로 나누고, 다른 통화 슬리브는 `ts_available <= inception_ts`인 마지막 환율로 한 번 바꿔 넣는다(최소 단위 반올림). 이후 슬리브 사이 현금 이동은 없다 [11.4.1].
 - 슬리브 값(현지 통화):
   - `decision_value(d) = cash + Σ qty·mark + Σ 금액 아는 미수금·미지급금` (판단 크기에 씀; qty는 부호 있음). 여기 들어가는 값은 모두 **`decision_ts`에 알 수 있는 값**이다: `mark` = `row_m(d)`의 원 종가(없으면 5.6.3의 묵은 평가가 [V31-02]; 그 봉 `ts_available <= decision_ts`), 미수금 = 금액이 `decision_ts` 전에 공개된 것(배당 `ts_terms_available`, 종료 회수액 `ts_value_available`, 정정 기입 반영). 금액 모르는 권리(배당 대기, 회수액 미공개 종료 권리)는 뺀다 [RV-C01]. 숏 쪽의 **금액 모르는 의무**(숏 배당 금액 미공개, 숏 보유 종목의 회수액 미공개 폐지)는 빼지 않고 **규칙 추정**으로 넣는다: 숏 배당은 그 종목의 직전 같은 종류 배당 금액(관측이 없으면 0, E30 건수), 종료 의무는 `short_exit_estimate = q·ref*·(1 + max(ret_hi, 0))`(q < 0, `ref*`는 5.6.13; 매니페스트에 규칙 이름 기록). `ret_hi`는 TDS 5.13대로 시나리오이지 상한이 아니므로 "가장 큰 부담"이라 부르지 않는다 [V31-LS-05, R3-09].
-  - `nav_economic = decision_value − Σ 숏 규칙 추정 + Σ 금액 모르는 권리·의무의 사후 실현 금액`(부호 있음: 롱 권리 +, 숏 의무 −; 보고 지표에 씀; 판단에 쓰지 않음) [11.4.3 (5), R3-09]. 추정은 사후 금액으로 **바뀌고** 더해지지 않는다(v3.1 식은 숏 추정 위에 사후 의무를 한 번 더 더했다: 현금 1,100·추정 −100이면 `decision_value` 1,000, 사후 −80이면 `nav_economic` = 1,020; v3.1은 920). 사후 금액은 미래 자료라 크기 정하기·주문·현금에 절대 들어가지 않는다(시험 G-42, P-FUT).
+  - `nav_decision` [결정 2026-11-04]: 그 평가의 일별 계열. 일정 달력의 모든 세션 t에서 t를 판단 세션으로 보고 `decision_value`의 식을 셈한다: 마감은 t에 적용한 `decision_ts` 규칙(아래 평가 시각 `v`), `mark`는 그 마감에 읽는 행의 원 종가(없으면 낡은 평가가), 미수금은 그 마감까지 금액이 공개된 것, 금액 모르는 권리는 빼고, 금액 모르는 의무는 규칙 추정, 사후 금액은 들어가지 않는다. `decision_value(d)` = d의 판단 세션의 `nav_decision`. 계좌 규칙(5.5.2a)이 이 계열을 읽고, `daily.parquet`(5.9.1)에 기록한다.
+  - `nav_economic = nav_decision − Σ 숏 규칙 추정 + Σ 금액 모르는 권리·의무의 사후 실현 금액`(부호 있음: 롱 권리 +, 숏 의무 −) [11.4.3 (5), R3-09]. **보고 계열**이다: 보고 지표에 쓰고 **어떤 규칙도 읽지 않는다**(크기 정하기·주문·현금·계좌 규칙은 `nav_decision`을 읽음). 추정은 사후 금액으로 **바뀌고** 더해지지 않는다(v3.1 식은 숏 추정 위에 사후 의무를 한 번 더 더했다: 현금 1,100·추정 −100이면 `decision_value` 1,000, 사후 −80이면 `nav_economic` = 1,020; v3.1은 920). 두 계열로 쓰면: 의무의 존재 시각부터 금액 −80이 공개될 때까지 모든 세션에서 `nav_decision` = 1,000, `nav_economic` = 1,020이고, 마감이 그 공개 시각 이후인 첫 세션부터는 −80이 `nav_decision`의 금액 아는 미지급금이 되어 사후 항에서 빠지고 둘 다 1,020이다. 사후 금액은 미래 자료라 크기 정하기·주문·현금에 절대 들어가지 않는다(시험 G-42, P-FUT).
 - **합친 평가**: 평가 시각 `v` = 일정 달력 세션의 `decision_ts` 규칙과 같은 시각(`market_local`이면 기준 통화 시장의 마감). 합친 NAV(기준 통화) = Σ 슬리브 `nav_economic`(그 슬리브의 `ts_close <= v`인 마지막 평가) × 환율(`ts_event <= v`인 마지막 관측; 보고용 사후 허용). 환율이 `max_stale_days_valuation`보다 묵으면 경고하고 마지막 값을 쓴다.
 - 나라 비중이 흘러가는 것(슬리브 값 / 합친 값)을 날마다 기록하고 보고한다 [11.4.1].
 - **통화 귀속** [SC-07, OQ-3]: 기준 통화로 본 슬리브 s의 일간 수익 `R_s = (1 + r_local,s)(1 + r_fx,s) − 1`을 `r_local,s`(현지 통화 수익) + `r_fx,s`(평가 환율 변화, 기준 통화 슬리브는 0) + `r_local,s·r_fx,s`(교차항)로 정확히 나누고, 합친 수익 = `Σ_s w_s(전일 합친 NAV 비중)·R_s`로 쌓는다. 날짜별로 `attribution.parquet`(5.9.1)에 남긴다. 근사 없음(합이 맞는지 시험 `test_fx_attribution_sums`).
@@ -1992,7 +1995,7 @@ runs/<run_id>/
   orders.parquet           주문 사건 (아래 정규 칼럼) — 정본
   account_events.parquet   현금 기입·기업행동·배당·종료·자금 대기·환전·정정 — 정본 (스키마 아래)
   positions.parquet        session_date, sleeve, instrument_id, qty(부호 있음), side, mark_price, mark_status(traded|stale|stale_adjusted), value_local, weight
-  daily.parquet            valuation_date, scope(ALL/<MARKET>…), ccy, nav_economic, decision_value, cash, positions_value,
+  daily.parquet            valuation_date, scope(ALL/<MARKET>…), ccy, nav_economic, nav_decision, decision_value, cash, positions_value,
                            receivables, unknown_entitlements, ret, cost_commission, cost_tax, cost_spread, cost_impact,
                            cost_other, cost_provisional, sleeve_weight, bridge_price_pnl, bridge_distributions,
                            bridge_action_corrections, bridge_costs, bridge_financing, bridge_external_flows, bridge_fx, bridge_rounding
@@ -2424,7 +2427,7 @@ M6 전의 **cold와 warm**은 그 마일스톤에 있는 캐시로 정한다: co
 
 v3.1 추가: T-24 3값 Filter — close 12,000 / 8,000 / NaN(정지)에서 `close > 10000` = 참/거짓/모름, `~(close > 10000)` = 거짓/참/**모름(최종 거짓; v3는 참)**, `(close > 10000) | close.isnan()` = 참/거짓/참 [V31-21]; v3.2: `(close > 10000).all(2)`는 참·모름이면 모름, 거짓이 있으면 거짓; `.as_factor()`의 모름 → NaN; `Meta.sector.eq("x")`의 결측 → 모름; `(~Trad.halted).fillna(True)` [R3-13]; T-25 내장 팩터 손계산(`tests/golden/factors/`): `SMA(3)` 1, NaN, 3 → 2.0; `EWMA(3, decay=0.5)` 1, 2, 3 → 2.428571; 1, NaN, 3 → NaN; `MaxDrawdown(4)` 10, 12, 9, 11 → 0.25; `Returns(3)` 100, NaN, 110 → 0.10; 창 밖 큰 값 50이 `MaxDrawdown(3)`에 안 들어감(nautilus#4333) — 12종 모두 NaN 위치를 넣은 5행 사례 [V31-24]; T-26 백분위 합성 — f1: A 10, B 20, C NaN, D 30 / f2: A 3, B 1, C 2, D NaN(둘 다 높을수록 좋음): `pct_rank(na="drop")` f1 = 0, 50, NaN, 100; `"bottom"` f1 = 33.33, 66.67, 0, 100; `composite({f1: 1, f2: 1}, na="middle")` = A 50, B 0, C 50, D 100 [V31-25]; T-27 동률 깨기 — 점수 같은 `KR:T00001`·`T00002`·`T00003`: `tiebreak="hash"` 순서 T00002, T00001, T00003(열쇠 = `sha256("nexusbt-tiebreak-v1" ‖ 0x1F ‖ id)` 앞 8바이트: 2629704763309498885 < 4315078529452203467 < 8949987214584180479; 어느 판단·시계에서도 같음 — v3.1의 판단 소금 값은 버림), `"id"` 순서 T00001, T00002, T00003 [V31-29, R3-12]; T-28 시장 수준 계열 — KR 슬리브의 `Market.series("IDX:KOSPI_TR").latest`는 판단 d의 지수 종가, `KR_close`에서 `Market.series("IDX:SPX_TR")`는 d−1 미국 종가이고 창에 넣으면 E17 [V31-13].
 
-v3 추가: T-18 직사각형 조회 — 미리 발표된 미래 효력 행이 현재 행을 가리지 않음(5.3.6 예시 1~3), T-19 분류 수준·판 공존(예시 4·5), T-20 늦은 봉(`ts_end+PT5M`)과 `ready_delay`: 판단이 그 봉을 다음 행부터 씀(5.1.2), T-21 경제 정답 100 → 배당 10 → 100 = 10%(5.8), T-22 구간 끝 뒤 회수 공개 폐지 정답의 정화(`ts_label_available`), T-23 `every(5)`의 판단 날짜가 시작일과 무관(3.7).
+v3 추가: T-18 직사각형 조회 — 미리 발표된 미래 효력 행이 현재 행을 가리지 않음(5.3.6 예시 1~3), T-19 분류 수준·판 공존(예시 4·5), T-20 늦은 봉(`ts_end+PT5M`)과 `ready_delay`: 봉은 제 행에 머물고 판단은 `ready`가 그 `ts_available`에 이른 첫 행부터 씀(5.1.2), T-21 경제 정답 100 → 배당 10 → 100 = 10%(5.8), T-22 구간 끝 뒤 회수 공개 폐지 정답의 정화(`ts_label_available`), T-23 `every(5)`의 판단 날짜가 시작일과 무관(3.7).
 
 `T-05`의 "known_at 늦음"은 TDS의 `ts_known_from`이 `effective_from`보다 늦은 경우다.
 
@@ -2435,7 +2438,7 @@ v3 추가: T-18 직사각형 조회 — 미리 발표된 미래 효력 행이 �
 | P-CHUNK | 묶음 크기 1년/3년/전체에서 모든 노드 값 비트 동일 [INV-03] | 합성 small, 무작위 그래프 |
 | P-PERM | 종목 열 순서를 섞어도 결과 동일 [INV-04] | |
 | P-CACHE | 캐시 적중 = 미적중 [INV-05] | |
-| P-FUT | 시각 τ 뒤 자료(`ts_available > τ`인 행: 봉, 사건 판(`ts_known > τ`), 폐지 회수액, 환율, 재무)를 지운 스냅숏과 원래 스냅숏에서 `decision_ts ≤ τ` 판단의 목표·주문 동일; 조건이 늦은 사건 판(금액 정정)을 지워도 그 전 판단 같음 [INV-01, INV-02, R3-01] | 무작위 τ; G-42 고정 사례 포함 |
+| P-FUT | 시각 τ 뒤 자료(`ts_available > τ`인 행: 봉, 사건 판(`ts_known > τ`), 폐지 회수액, 환율, 재무)를 지운 스냅숏과 원래 스냅숏에서 `decision_ts ≤ τ` 판단의 목표·주문 동일; 조건이 늦은 사건 판(금액 정정)을 지워도 그 전 판단 같음; 공개 정보가 같고 사후 금액만 다른 두 스냅숏은 모든 세션의 주문(과 `nav_decision`)이 같고 보고 계열(`nav_economic`과 그로 만든 것)만 다름 [INV-01, INV-02, R3-01] | 무작위 τ; G-42 고정 사례 포함 |
 | P-ADJ | 등록 커널 지름길 = 참조(무작위 사건·스칼라, 상대 1e-12) [INV-11] | |
 | P-NAV | 매 세션 회계 맞춤, 돈은 정수 최소 단위 [INV-06] | 무작위 목표·사건 |
 | P-BRIDGE | 매 세션 NAV·손익 다리 행 합 = NAV 변화(차이 0) [INV-06]; 거래 없는 날(정지)에 분할·배당·분배를 무작위로 넣어도(V31-02), 장부 입출금이 있어도(V31-19), 숏·롱숏 보유(대차 비용·숏 배당)에서도(V31-LS-08), 현금 이자·음수 현금 의무에서도(R3-09, R3-25) 닫힘 | 무작위 목표·사건·비용·흐름·숏 |
@@ -2481,6 +2484,18 @@ v3 추가: T-18 직사각형 조회 — 미리 발표된 미래 효력 행이 �
 
 ### 8.4 미래 정보·위생 시험 목록 [R-51, R-52]
 `tests/unit/test_determinism_rules.py`(v3.1): 결정 경로 모듈의 벽시계·난수·`uuid4` 호출 0건, 정렬 없는 `set` 순회가 사건 순서를 정하는 곳 0건(AST) [V31-08]. `tests/unit/test_leaks.py`: 음수 shift(E1 정적), **주입한 미래 읽기 소스**(시험용 리더가 스냅숏 전체 기간 배열을 클로저로 넘겨 받아 판단일 뒤 값을 읽는 함수 → 탐침 E1; `::test_probe_catches_injected_future_reader`), 창 안에서만 도는 `np.roll(close, -5)`(미래를 읽지 않으므로 **E1이 나지 않아야 함**; `::test_bounded_roll_not_flagged`) [RV-C11], 전역에 미리 계산한 전체 기간 평균을 쓰는 함수(E24 + 탐침 + L1 끔), 상수 전역 `THRESHOLD` 바꿈(캐시 열쇠 바뀜, E24 없음), `Label` 입력(E2), `known_on` 없는 자료(E3), 그달 패널을 월말 판단에 쓰려는 시도(구조상 전달 값 = 전달 패널), 생존 편향 목록(E4), 통화 섞기(E5), 구간 노출 기록(E10), 창 밖 상태를 쓰는 함수(전역 누적 → E32 시작일 탐침), 탐침 날짜 선택 우선순위(6.5 a/b/c), `is_label` 칼럼을 `Panel`처럼 쓰려는 시도(E2), strict 실행의 `backfilled` 데이터셋(E30).
+
+**G-TIME-LATE** (늦은 봉; 5.1.2와 5.3.1의 보임 규칙) [결정 2026-11-04]: 봉이 칼럼 규칙(`{"column": "ts_available"}`)이고 `ready_delay`가 없어 `Δ = 0`(`ready(t) = ts_close(t)`)인 시장 KR, 종목 A와 B, 세션 종가마다 판단, 주문은 다음 세션 시가. 세션 s의 A 봉(종가 18)은 `ts_available = ready(s+2)`이고 나머지 봉은 모두 제때 오며, B는 모든 세션 종가 12.2. 전략: `close`의 `SMA(3)`, `top(1)`, 실행은 세션 s에서 시작. 마지막 칸은 어떤 스냅숏이 그 봉을 갖자마자 읽는 규칙이 낼 값이며, 나오면 안 된다.
+
+| 행 | A 항 값 `close` | A `SMA(3)` | B `SMA(3)` | 목표 | 주문 의도 | 미래 보기 A `SMA(3)` |
+|---|---|---|---|---|---|---|
+| s−2 | 10 | – | – | – | – | – |
+| s−1 | 11 | – | – | – | – | – |
+| s | NaN (`LateBar` 1) | nanmean(10, 11) = 10.5 | 12.2 | B | s+1 시가에 B 매수 | 13 (A) |
+| s+1 | 13 | nanmean(11, 13) = 12 | 12.2 | B | 없음 | 14 (A) |
+| s+2 | 14 | (18 + 13 + 14)/3 = 15 | 12.2 | A | s+3 시가에 B 매도·A 매수 | 15 (A) |
+
+s+2 뒤에 펴낸 스냅숏으로 다시 돌려도 행 s와 s+1은 비트까지 같다(INV-02). 기준 시각이 `ready(s+3)`인 독자 — 보고서의 `LateBar` 목록과 `reconcile` — 는 칸 (s, A)를 저장된 그대로 보인다: 종가 18, `ts_available = ready(s+2)`. 시험은 T1.1b, T1.3, T1.4.
 
 ### 8.4a TDS 적합성 시험 (`tds/tests/`, 패키지 `nexusbt-tds`)
 - 검사 코드마다 `tds/conformance/<code>/fail/`(그 코드만 내는 작은 패키지)와 `pass/`가 있고, `test_conformance.py::test_<code>`가 fail → 정확히 그 코드, pass → 오류 0을 확인한다(TDS 8.5). 패키지는 생성 스크립트 `tds/conformance/build.py`가 만들고 해시를 고정한다(손으로 고친 파일 금지).
@@ -2619,7 +2634,7 @@ pytest 표시: `unit`, `golden`, `property`, `docs`, `examples`, `parity`, `perf
 - **3값 Filter**: 참·거짓·모름. 입력이 결측이면 모름, 최종 사용처에서 모름은 거짓. 대체는 `Filter.fillna(bool)`로만.
 - **파산 슬리브** (ruined sleeve): 숏이 있는 슬리브의 판단 가치가 0 이하가 된 상태. 새 주문을 멈추고 꼭 내야 하는 의무만 음수 현금으로 기입한다. 현금 계좌에는 강제 청산이 없다(증거금 계좌는 자본이 0 이하면 전부 청산, 5.6.7a) [R6-07].
 - **참여 상한**: 하루 체결 ≤ 최대 참여율 × 지난 20세션 평균 거래량. 남은 몫은 이월.
-- **decision_value / nav_economic**: 판단 크기에 쓰는 계좌 가치(판단 시각에 알 수 있는 값만; 금액 모르는 배당·폐지 회수 권리 제외) / 보고에 쓰는 경제 가치(사후 금액 포함).
+- **decision_value / nav_decision / nav_economic**: 판단 크기에 쓰는 계좌 가치(판단 시각에 알 수 있는 값만; 금액 모르는 배당·폐지 회수 권리 제외) / 그 값의 일별 계열, 계좌 규칙이 읽음 / 보고에 쓰는 경제 가치(사후 금액 포함; 어떤 규칙도 읽지 않음).
 - **돈** (money): 정수 최소 단위(KRW 1원, USD 1센트)로 기입하고 기입마다 한 번 반올림. NAV·손익 다리가 매일 닫힌다.
 - **권리** (entitlement): 배당락 시점 보유로 생긴 받을 권리. 미수금(receivable)은 금액을 아는 권리, 현금은 지급일에.
 - **종료가치** (terminal value): 상장폐지 보유가 받는 값. 관측 포함·관측 제외·정책 세 기준(5.6.13), 폐지 직전 분배와 함께 한 번만.
@@ -2932,7 +2947,7 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 
 **T1.G `test(golden): time and pipeline cases for M1 (T-07, T-09..T-12, T-15, T-20, T-23)`** **[v3]** · `M1` `golden` · M · Blocked by: T0.9, T0.7 · §8.2 *(v3: v2 T0.11·T0.17의 M1 몫, 세션별 산수)*
 - Context: 분할·역분할 앞뒤 창, 기호 재사용, 휴장 시작일, 동률, 12-1 모멘텀 세 식, null 계수 창, 늦은 봉 `ready_delay`, `every(n)` 달력 닻. 사례마다 yaml 숫자 + 검산 파일. 다른 세션에서 쓰고 소비 티켓(T1.3, T1.8, T1.9, T1.11) 전에 병합.
-- Done means: `uv run python tests/golden/check/T-12.py`가 세 식의 같은 값을, `T-20.py`가 판단이 늦은 봉을 다음 행부터 쓰는 표를 출력.
+- Done means: `uv run python tests/golden/check/T-12.py`가 세 식의 같은 값을, `T-20.py`가 늦은 봉이 제 행에 머물고 판단이 `ready`가 그 `ts_available`에 이른 첫 행부터 쓰는 표를 출력.
 - Acceptance: `test_handcalc_self.py::test_time_cases_M1_expected_present`.
 
 **T1.1a `feat(data): open TDS snapshots with checker, producer-neutral errors and market rules packs`** **[v3]** · `M1` `data` · M · Blocked by: T0.3, T0.4, T0.5b, T0.13c, T0.14c, T0.6 · §4.1–4.4, §4.7 *(v3.2: 잘못된 정확 비율 E13, 복제·하드 링크 파티션 읽기 [R3-06, R3-16])* *(v3: T1.1을 나눔; 규칙 팩 확인, `producer.hints`, 의미 해시)*
@@ -2943,7 +2958,7 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 **T1.1b `feat(data): capabilities, profile results, core fallbacks and pins`** **[v3]** · `M1` `data` · M · Blocked by: T1.1a, T0.16a · §4.3–4.5, §4.2 *(v3.2: 핀 기본 `index+root`·`retention: unmanaged`, 도장 파일 신원 [R3-16, R3-17])* *(v3: T1.1을 나눔; 그래프 의존 요구, 세 결과, 핀 정본 = 색인)*
 - Context: `CapabilityRequest`(그래프가 쓰는 기능 → 필요 자료, 4.3 표), 프로필 세 결과, `capabilities`·`fallbacks`, F-02(세션 표 대체)·F-03(밀집화)·F-04(계수는 해석기에서), 선언 위반 패키지는 E14(대체 없음), 핀(색인 + 루트가 기본, 실패는 경고 + `retention: unmanaged`), `verify` 도장(`runs/.cache/verified/`, 파일마다 `(dev, inode, size, mtime_ns)`).
 - Done means: `Price`만 쓰는 그래프가 core 데이터셋만 있는 패키지에서 돌고; `degrade=["no_sessions"]` 스냅숏에서 E30 한 줄과 `s.fallbacks`에 F-02; 읽기 전용 자료 루트에서 실행이 되고 핀은 색인에 있다; 파일 하나를 바꾸면 `verify="full"`에서 E14(`TDS-H001`); 도장 뒤에 파일 하나를 제자리에서 고치면 다음 열기에서 신원이 달라 sha256을 다시 계산하고 E14.
-- Acceptance: `test_open_snapshot.py::test_three_status_distinct`, `::test_price_only_graph_needs_core_only`, `::test_declared_but_broken_is_E14_not_fallback`, `::test_full_verify_detects_tamper`, `::test_readonly_root_runs`, `::test_pin_in_index`, `::test_fallback_F02_sessions`, `::test_fallback_F03_densify`, `::test_fallback_F04_factors_from_resolver`, `::test_fallbacks_fail_mode_raises_E14`, `::test_volume_unit_warning_lifted_E30` [V31-16], `::test_fallback_F15_grid_minor_unit` [V31-05], `::test_verified_stamp_detects_later_tamper`, `::test_inplace_edit_invalidates_stamp_and_l0`, `::test_readonly_package_all_consumption_paths`, `::test_default_pins_written_to_root_or_warn`, `::test_default_pin_survives_three_publications` [R3-16, R3-17].
+- Acceptance: `test_open_snapshot.py::test_three_status_distinct`, `::test_price_only_graph_needs_core_only`, `::test_declared_but_broken_is_E14_not_fallback`, `::test_full_verify_detects_tamper`, `::test_readonly_root_runs`, `::test_pin_in_index`, `::test_fallback_F02_sessions`, `::test_fallback_F03_densify`, `::test_fallback_F04_factors_from_resolver`, `::test_fallbacks_fail_mode_raises_E14`, `::test_volume_unit_warning_lifted_E30` [V31-16], `::test_fallback_F15_grid_minor_unit` [V31-05], `::test_verified_stamp_detects_later_tamper`, `::test_inplace_edit_invalidates_stamp_and_l0`, `::test_readonly_package_all_consumption_paths`, `::test_default_pins_written_to_root_or_warn`, `::test_default_pin_survives_three_publications` [R3-16, R3-17], `::test_bars_keep_ts_available` (G-TIME-LATE: 연 스냅숏이 봉마다 `ts_available`을 지님).
 
 **T1.2 `feat(cli): nexusbt init and doctor`** · `M1` `cli` · S · Blocked by: T1.1b · §3.10 *(v3: 세 결과·규칙 팩·`.publishing` 표시)*
 - Done means: `uv run nexusbt init --data-root .scratch/snap && uv run nexusbt doctor`가 스냅숏 id, 의미 해시, 판, 프로필 세 결과, 검사 안 한 항목, 대체 목록, 시장별 규칙 팩·기간·종목 수·일간 행 수, 칼럼 수, 디스크 여유를 출력; 루트에 `.publishing`이 있으면 "publishing in progress"; 루트 핀을 못 쓴 실행 수 줄 "pins not visible to producer" [R3-17].
@@ -2951,12 +2966,12 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 
 **T1.3 `feat(data): calendars, session rounding, ready times, phases and decision grids`** · `M1` `data` · M · Blocked by: T1.1b, T1.G · §5.1.2, §5.1.3, §5.1.6, §5.6.3, §3.7 일정 *(v3: `ready(s)`, 단계 순서, `every` 달력 닻, `<M>_close`)*
 - Done means: 이 티켓이 만드는 `examples/dev/show_grid.py`(월간 일정, KR, 2019년)가 12개 월말 세션과 `decision_ts`(UTC)를 출력; 휴장 시작일에 E9 알림; `every(5)`의 판단 날짜가 시작일을 하루 옮겨도 같다.
-- Acceptance: `tests/unit/data/test_calendar.py::test_monthly_last_session`, `::test_start_rounds_forward_end_backward` (T-10), `::test_weekly_quarterly`, `::test_T23_every_anchor_independent_of_start`, `::test_ready_delay_from_availability_rule`, `::test_default_clock_codepoint_first_market`(v3.2 [R3-18]), `tests/golden/test_time.py::test_T20_late_bar_ready_delay`.
+- Acceptance: `tests/unit/data/test_calendar.py::test_monthly_last_session`, `::test_start_rounds_forward_end_backward` (T-10), `::test_weekly_quarterly`, `::test_T23_every_anchor_independent_of_start`, `::test_ready_delay_from_availability_rule`, `::test_default_clock_codepoint_first_market`(v3.2 [R3-18]), `tests/golden/test_time.py::test_T20_late_bar_ready_delay`, `::test_G_TIME_LATE_term_values_and_orders` (G-TIME-LATE: 8.4의 표, 앞 스냅숏과 뒤 스냅숏 둘 다).
 
 **T1.4 `feat(data): dense market blocks from daily bars`** · `M1` `data` · M · Blocked by: T1.3 · §5.3.1, §4.6, §5.3.9 L0 열쇠 *(v3: 기본 도메인 = equity ∧ 합성 아님, 수량 계수 `Q`, L0 열쇠는 의미 해시가 아니라 5.3.9의 열쇠)*
 - Context: `market_block`, 사전 색인 → 열 번호, `obs_status`, 존재 마스크, 꼬리 겹침, 매니페스트 통계로 파일 고르기, 지수·합성 종목 제외, `l0_key(...)` 함수(캐시 구현은 T6.12).
 - Done means: `Snapshot.market_block("KR", ["close"], sessions)`의 모양·존재 마스크를 출력하는 예제가 정지 세션 NaN과 상장 전 False, 지수 종목 없음을 보여 줌.
-- Acceptance: `tests/unit/data/test_market_block.py::test_obs_status_halted_is_nan`, `::test_existence_mask`, `::test_index_and_synthetic_not_in_block`, `::test_dictionary_index_mapping_matches_instrument_ids`, `::test_tail_overlap_rows`, `::test_partition_values_from_path`, `::test_l0_key_partition_scoped`(v3.2: 파일 sha256·사슬 모든 판·축 행·안정 `markets` [R3-04]), `::test_l0_key_ignores_watermark`, `::test_l0_key_ignores_advisory_value_hash`, `::test_l0_key_axis_rows_invalidation_table`(2026-11-04: 5.3.9 표의 네 행이 말한 연도의 열쇠만 정확히 바꿈), `::test_l0_key_ignores_axis_rows_outside_the_year`.
+- Acceptance: `tests/unit/data/test_market_block.py::test_obs_status_halted_is_nan`, `::test_existence_mask`, `::test_index_and_synthetic_not_in_block`, `::test_dictionary_index_mapping_matches_instrument_ids`, `::test_tail_overlap_rows`, `::test_partition_values_from_path`, `::test_l0_key_partition_scoped`(v3.2: 파일 sha256·사슬 모든 판·축 행·안정 `markets` [R3-04]), `::test_l0_key_ignores_watermark`, `::test_l0_key_ignores_advisory_value_hash`, `::test_late_bar_stays_in_its_row` (G-TIME-LATE: s의 봉은 그 `ts_available`과 함께 행 s에 있고 행 s+1에 가지 않음), `::test_l0_key_axis_rows_invalidation_table`(2026-11-04: 5.3.9 표의 네 행이 말한 연도의 열쇠만 정확히 바꿈), `::test_l0_key_ignores_axis_rows_outside_the_year`.
 
 **T1.5 `feat(pipeline): term value objects, operators, graph hash and captured constants`** · `M1` `pipeline` · M · Blocked by: T0.2a · §3.3, §5.3.9, §6.5(6) *(v3: 상수 전역 값을 노드 해시에, RV-C10)*
 - Done means: `print(nx.describe(Returns(232).shift(21) + 1))`가 노드 트리와 구조 해시를 출력; 같은 식 두 번 → 같은 해시; 사용자 함수가 읽는 `THRESHOLD = 10`을 20으로 바꾸면 해시가 바뀐다.
