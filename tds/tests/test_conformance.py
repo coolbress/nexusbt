@@ -103,6 +103,11 @@ def _weekly(m: dict[str, Any], f: Any) -> None:  # TDS 5.5: only `freq<1d` is in
     build.bars(m)["params"]["freq"] = "1w"
 
 
+def _not_parquet(m: dict[str, Any], f: Any) -> None:  # S010: no rows read, no K code judged
+    f[build.BARS] = b"not parquet\n"
+    build.bars(m)["files"][0]["bytes"] = len(f[build.BARS])
+
+
 @pytest.mark.parametrize(
     ("change", "errors", "unchecked"),
     [
@@ -111,6 +116,9 @@ def _weekly(m: dict[str, Any], f: Any) -> None:  # TDS 5.5: only `freq<1d` is in
         (_ranges(_A, _B, _C), ["TDS-K004"] * 2, []),
         (_custom_in_year, [], ["TDS-K001", "TDS-K002", "TDS-K003"]),
         (_weekly, ["TDS-K002"], []),
+        (_not_parquet, [], K_CODES),
+        (lambda m, f: f.pop(build.BARS), [], []),  # M004: a missing file has no rows
+        (_ranges("2024-01-02T25-00-00Z_2024-01-02T26-00-00Z", _B), [], []),  # hour 25: no range
     ],
 )
 def test_key_rules_edges(
