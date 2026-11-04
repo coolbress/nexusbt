@@ -244,6 +244,8 @@ def whole(table: Check, *keys: str) -> Check:  # a table that writes every one o
 
 
 NAME = "[A-Za-z0-9_-]+"  # 3.11 [project] name; also the [meta] scheme (a rule chosen in #94)
+# 3.11 [research] family_id
+UUID4 = "[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
 STR, BOOL, CCY, DATE = is_(str), is_(bool), match("[A-Z]{3}"), _date
 META = rule(  # "<scheme>@<level>": 3.11 gives the form; a level of digits is the rule chosen (#94)
     lambda v: isinstance(v, str) and re.fullmatch(rf"auto|{NAME}(@\d+)?", v) is not None,
@@ -268,6 +270,7 @@ SPLIT = {"train": ["start", "2021-12-31"], "validation": ["2022-01-01", "latest"
 # fmt: off
 SCHEMA: dict[str, dict[str, tuple[Any, Check]]] = {
     "project": {"name": (None, match(NAME))},
+    "research": {"family_id": (None, match(UUID4))},  # None until `nexusbt init` writes it (6.2)
     "data": {
         "root": (None, STR), "snapshot": ("latest", STR), "path": (None, STR),
         "edition": policy(EditionPolicy.STRICT), "verify": policy(VerifyPolicy.MANIFEST),
