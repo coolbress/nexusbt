@@ -11,12 +11,15 @@ import json
 import struct
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pyarrow as pa
 import pyarrow.parquet as pq
 
 from .manifest import MANIFEST, read_manifest
+
+if TYPE_CHECKING:  # at run time imported inside functions, like `load_schemas` in `_value`
+    from .schemas.verify import Column
 
 #: (column name, TDS 3.2 type tag) in canonical column order.
 Columns = Sequence[tuple[str, str]]
@@ -137,21 +140,46 @@ def _read(root: Path, files: list[dict[str, Any]], partitioning: list[dict[str, 
     return pa.concat_tables(tables, promote_options="permissive")
 
 
+def resolved_columns(dataset: Mapping[str, Any], schema: Sequence[Column]) -> tuple[Column, ...]:
+    """The dataset's full schema: the schema file's columns, then those its `tds.json` `columns`
+    declares that the file lacks, in declaration order (TDS 4.5 step 1; 5.25's panels).
+
+    The one place a dataset's column set is resolved: the value hash and the schema-level checks
+    read it. A declared column keeps its declared type and is not required (`null` unknown); a
+    partition or `x_` column declared there keeps its own place after these."""
+    from .schemas.verify import Column
+
+    known = {c.name for c in schema}
+    known |= {str(p.get("name")) for p in _entries(dataset.get("partitioning"))}
+    extra = [
+        Column(str(c["name"]), c.get("type"), None)
+        for c in _entries(dataset.get("columns"))
+        if "name" in c and c["name"] not in known and not str(c["name"]).startswith("x_")
+    ]
+    return (*schema, *{c.name: c for c in extra}.values())
+
+
+def _entries(value: object) -> list[Mapping[str, Any]]:
+    return [e for e in value if isinstance(e, Mapping)] if isinstance(value, list) else []
+
+
 def _columns(names: Sequence[str], dataset: Mapping[str, Any], schema: list[Any]) -> Columns:
-    """Schema order, then partition columns the schema lacks, then `x_` columns (TDS 4.5 step 1).
+    """The resolved columns present in the data, then partition columns they lack, then `x_`
+    columns (TDS 4.5 step 1).
 
     The tag is the type declared in `tds.json` (`columns`, `partitioning`), else the schema's.
-    A column in none of the three groups is an unknown column, ignored (TDS 10.3, M011).
+    A column in none of these groups is an unknown column, ignored (TDS 10.3, M011).
     """
     declared = {c["name"]: c.get("type") for c in dataset.get("columns", []) if "name" in c}
     declared |= {p["name"]: p["type"] for p in dataset.get("partitioning", [])}
-    from_schema = {c.name: c.type for c in schema}
-    order = [c.name for c in schema if c.name in names]
+    resolved = resolved_columns(dataset, schema)
+    resolved_types = {c.name: c.type for c in resolved}
+    order = [c.name for c in resolved if c.name in names]
     order += [p["name"] for p in dataset.get("partitioning", []) if p["name"] not in order]
     order += sorted(n for n in names if n.startswith("x_"))
     out = []
     for name in order:
-        tag = declared.get(name) or from_schema.get(name) or ""
+        tag = declared.get(name) or resolved_types.get(name) or ""
         if tag not in _TAGS and not (tag.startswith("list<") and tag[5:-1] in _TAGS):
             raise HashError(f"{dataset['name']}: column {name} has no declared type (`{tag}`)")
         out.append((name, tag))
