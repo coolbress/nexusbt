@@ -94,6 +94,7 @@ def _text(result: CheckResult) -> str:
     for name, s in result.profiles.items():
         declared = "declared" if s.declared else "not declared"
         lines.append(f"{name}: {declared}, verified to {s.verified_level}, {s.result}")
+    lines += [f"note: {note}" for note in result.notes]
     lines.append(
         f"{result.error_count} errors, {len(result.warnings)} warnings at level {result.level};"
         f" {len(result.unchecked)} rules not checked at this level"

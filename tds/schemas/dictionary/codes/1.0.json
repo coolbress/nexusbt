@@ -1,0 +1,11 @@
+{
+  "kind": "dictionary/codes", "schema_version": "1.0", "status": "stable", "section": "4.4",
+  "key": ["field", "code"], "sort": null, "partitions": [],
+  "columns": [
+    {"name": "field", "type": "string", "null": null},
+    {"name": "code", "type": "string", "null": null},
+    {"name": "label", "type": "string", "null": null},
+    {"name": "description", "type": "string", "null": null},
+    {"name": "maps_to", "type": "string", "null": null}
+  ]
+}
