@@ -55,6 +55,17 @@ def test_elementwise_operators_name_their_node() -> None:
     assert {op: term.op for op, term in built.items()} == {op: op for op in built}
     assert (2 * x).inputs[1] is x  # a scalar on the left stays on the left
     assert Returns(21, inputs=[]).inputs == ()  # an empty list is not the default input
+    close = Returns(21).inputs[0]
+    assert isinstance(close, nx.BoundColumn)
+    assert close.latest.op == "latest"
+    assert x.notnan() == Returns(21).notnan()  # a Filter compares by its hash
+    assert x.notnan() != y.notnan()
+    not_a_number: Any = "1"
+    with pytest.raises(TypeError):
+        x + not_a_number
+    not_a_window: Any = [21]
+    with pytest.raises(TypeError):
+        Returns(not_a_window)  # a list cannot be a parameter
 
 
 def test_pipeline_object_columns_screen() -> None:

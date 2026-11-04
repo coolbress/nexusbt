@@ -50,10 +50,6 @@ def _canon(value: Any) -> Any:
         return value
     if isinstance(value, bool | int | float):
         return [type(value).__name__, repr(value)]
-    if isinstance(value, tuple):
-        return ["tuple", [_canon(v) for v in value]]
-    if isinstance(value, frozenset):
-        return ["frozenset", sorted((_canon(v) for v in value), key=json.dumps)]
     raise TypeError(f"{type(value).__name__} cannot be a term parameter")
 
 
