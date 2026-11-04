@@ -6,7 +6,8 @@ fixed cycles, with no random numbers. `small` follows 4.8's generation rules (1)
 draws and + - x / instead of 4.8 (3)'s exp, normal and lognormal draws, so that its bytes do
 not depend on the platform's math library (#128). Both write `instruments`,
 `instrument_symbols`, an empty `instrument_xref`, `calendar_sessions`, `corporate_actions`
-and `delistings` (both empty in `tiny`; in `small` 4.8 (4) and (6)) and dense daily `bars`
+and `delistings` (both empty in `tiny`; in `small` 4.8 (4) and (6)), `small` also
+`tradability_daily` (4.8 (5), whose KR grid, halts and limits move its bars), and dense daily `bars`
 whose raw prices and cumulative factors follow the events (all 1.0 in `tiny`). The hashes in
 `tds.json` and `--validate`'s check are the `tds` command's, run as a separate process: spec
 2.5 draws no arrow from `testing` to `nexusbt_tds`, so this module does not import it.
@@ -15,13 +16,16 @@ whose raw prices and cumulative factors follow the events (all 1.0 in `tiny`). T
 from __future__ import annotations
 
 import argparse
+import csv
 import datetime as dt
+import functools
 import itertools
 import json
 import subprocess
 import sys
 import sysconfig
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from importlib.resources import files as resources
 from pathlib import Path
 from typing import Any, Literal
 
@@ -94,6 +98,57 @@ SHARE_EVENTS = {
     "reverse_split": (0.002, ((1, 10), (1, 3))),
     "bonus_issue": (0.001, ((129, 100), (21, 20))),
 }
+
+
+#: 4.8 (5): the KR tick and price-limit tables' venue group of each MIC; the US day from which
+#: tradability status is known; the `tradability_daily` columns known before the open.
+KR_GROUP = {"XKRX": "KOSPI", "XKOS": "KOSDAQ"}
+OHLC = ("open", "high", "low", "close")
+US_STATUS = dt.date(2019, 8, 23)
+LIMIT_PRICES = ("price_limit_ratio", "up_limit_price", "down_limit_price", "reference_price")
+DAY_FLAGS = ("halted_full_day", "limit_up_close", "limit_down_close", "locked_up", "locked_down")
+#: TDS 5.10's availability per column group: known before the open, or the day's results.
+BY_COLUMN = dict.fromkeys((*LIMIT_PRICES, "admin_status"), "session_open")
+BY_COLUMN |= dict.fromkeys((*DAY_FLAGS, "halt_count"), "session_close")
+
+
+@functools.cache
+def _resource(name: str) -> tuple[dict[str, str], ...]:
+    with (resources("nexusbt.resources") / name).open(encoding="utf-8") as f:
+        return tuple(csv.DictReader(f))
+
+
+def _kr_rows(
+    name: str, venue: str | None, key: str, dates: np.ndarray
+) -> Iterator[tuple[dict[str, str], np.ndarray]]:
+    """The rows of resource `name` for `venue`'s KR group (or `*`), with the mask of `dates`
+    each is valid on."""
+    group = KR_GROUP.get(venue or "")
+    for r in _resource(name) if group else ():
+        if r[key] in (group, "*"):
+            start = np.datetime64(r["valid_from"] or "1900-01-01")
+            yield r, (dates >= start) & (dates < np.datetime64(r["valid_to"] or "2200-01-01"))
+
+
+def _snap(prices: np.ndarray, dates: np.ndarray, venue: str | None,
+          to: Callable[[Any], Any] = np.round) -> np.ndarray:  # fmt: skip
+    """KR raw prices onto the pack's tick table (4.8 (5)), the band chosen by the price before
+    snapping; `to` np.floor or np.ceil snaps a limit price inward. Others are returned as they
+    are."""
+    out = prices.copy()
+    for r, valid in _kr_rows("ticks/kr_tick_table_v1.csv", venue, "venue_group", dates):
+        tick, high = float(r["tick"]), float(r["price_to"] or "inf")
+        band = valid & (prices >= float(r["price_from"])) & (prices < high)
+        out[band] = to(prices[band] / tick) * tick
+    return out
+
+
+def _ratios(dates: np.ndarray, venue: str | None) -> np.ndarray:
+    """Each date's KR daily price limit ratio, NaN where there is none."""
+    out = np.full(len(dates), np.nan)
+    for r, valid in _kr_rows("limits/kr_price_limits_v1.csv", venue, "market", dates):
+        out[valid] = float(r["limit_ratio"])
+    return out
 
 
 def _at(day: dt.date, hour: int, minute: int) -> dt.datetime:
@@ -271,7 +326,10 @@ def _small(market: str, n: int, sessions: Table, rng: np.random.Generator) -> di
             bars.setdefault(name, []).append(values)
     venues = VENUES.get(market)  # drawn last, so the draws above stay as they were
     mics = rng.choice(venues, n).tolist() if venues else [None] * n
-    actions = _actions(market, ids, first, last, sessions, bars, rng)  # moves `bars` too
+    for k, name in itertools.product(range(n), OHLC):
+        bars[name][k] = _snap(bars[name][k], bars["session_date"][k], mics[k])
+    actions, moved = _actions(market, ids, first, last, sessions, bars, rng, mics)
+    status = _tradability(market, first, last, mics, moved, bars, rng)  # moves `bars` too
     exits, payouts, delisted = _delistings(market, ids, first, last, sessions, bars, rng)
     instruments = _instruments(
         market, ids, mics, [days[i].item() for i in first],
@@ -279,9 +337,17 @@ def _small(market: str, n: int, sessions: Table, rng: np.random.Generator) -> di
         last_session=[days[j].item() if g else None for j, g in zip(last, gone, strict=True)],
         delisted_on=delisted,
     )  # fmt: skip
-    table = pa.table({c: np.concatenate(v) for c, v in bars.items()})
     order = [("session_date", "ascending"), (ID, "ascending")]
-    return {"instruments": instruments, "bars_1d": table.sort_by(order),
+    table, status = (
+        pa.table(
+            {
+                c: pa.array(np.concatenate(v), from_pandas=True)  # NaN → null
+                for c, v in t.items()
+            }
+        ).sort_by(order)
+        for t in (bars, status)
+    )
+    return {"instruments": instruments, "bars_1d": table, "tradability_daily": status,
             "instrument_symbols": _symbols([s for v in spans.values() for s in v]),
             "corporate_actions": pa.concat_tables([actions, payouts]),
             "delistings": exits}  # fmt: skip
@@ -305,12 +371,15 @@ def _terms(kind: str, term: int, ref: float, unit: int, currency: str) -> dict[s
 def _actions(
     market: str, ids: Sequence[str], first: Sequence[int], last: Sequence[int],
     sessions: Table, bars: dict[str, list[Any]], rng: np.random.Generator,
-) -> pa.Table:  # fmt: skip
+    mics: Sequence[str | None],
+) -> tuple[pa.Table, list[tuple[int, int, str]]]:  # fmt: skip
     """4.8 (4): share events and quarterly cash dividends, ~1 % amended and ~0.5 % cancelled.
 
-    The latest version of each event moves the raw prices and volumes in `bars` from its
-    ex-date on, and its price factor the cumulative factors (TDS 5.11's A001 at c = +inf).
+    The latest version of each event moves the raw prices (onto the KR grid again) and volumes
+    in `bars` from its ex-date on, and its price factor the cumulative factors (TDS 5.11's A001
+    at c = +inf). Returns the rows and each moving event's (instrument, ex-date index, kind).
     """
+    moved = []
     days, opens, closes = sessions["session_date"], sessions["ts_open"], sessions["ts_close"]
     keys, drawn, fate = _draw(first, last, rng)
     unit, currency = 1 if market == "KR" else 100, MARKETS[market]["currency"]
@@ -338,10 +407,11 @@ def _actions(
                                    "ts_terms_available": terms if terms and terms > midway
                                    else None, "status": STATUS[fate[x]]})  # fmt: skip
         if fate.get(x) != "cancelled":
-            _move(bars, k, e - first[k], latest, kind in SHARE_EVENTS)
+            _move(bars, k, e - first[k], latest, kind in SHARE_EVENTS, mics[k])
+            moved.append((k, e, kind))
     for x, row in enumerate(later, len(rows) + 1):  # numbered after every first version
         row["event_id"] = f"{market}:E{x:06d}"
-    return pa.Table.from_pylist(rows + later, schema=CA)
+    return pa.Table.from_pylist(rows + later, schema=CA), moved
 
 
 def _draw(
@@ -403,14 +473,183 @@ def _revise(
 
 
 def _move(
-    bars: dict[str, list[Any]], k: int, s: int, version: Mapping[str, Any], share: bool
-) -> None:
+    bars: dict[str, list[Any]], k: int, s: int, version: Mapping[str, Any], share: bool,
+    venue: str | None,
+) -> None:  # fmt: skip
     """Instrument `k`'s bars from its `s`-th on, moved by one event's factors."""
     for name in ("open", "high", "low", "close", "cum_factor_total") + (
         ("cum_factor_split",) if share else ()
     ):  # fmt: skip
         bars[name][k][s:] *= version["price_factor"]
+        if name in OHLC:
+            bars[name][k][s:] = _snap(bars[name][k][s:], bars["session_date"][k][s:], venue)
     bars["volume"][k][s:] = np.round(bars["volume"][k][s:] * version["share_factor"])
+
+
+Days = set[tuple[int, int]]  # (instrument, session index) pairs
+Hits = dict[tuple[int, int], tuple[bool, bool]]  # a limit close: (at the upper limit, locked)
+
+
+def _last_traded(close: np.ndarray) -> list[int | None]:
+    """For each session after the first, the index of the last one before it with a close."""
+    out: list[int | None] = []
+    for s in range(1, len(close)):
+        out.append(s - 1 if not np.isnan(close[s - 1]) else out[-1] if out else None)
+    return out
+
+
+def _tradability(
+    market: str, first: Sequence[int], last: Sequence[int], mics: Sequence[str | None],
+    moved: Sequence[tuple[int, int, str]], bars: dict[str, list[Any]], rng: np.random.Generator,
+) -> dict[str, list[Any]]:  # fmt: skip
+    """4.8 (5): KR halts, limit closes and 1-ULP wobbles moved into `bars`, ~1 % of KR
+    instruments `administrative` over their last 60 sessions, and a `tradability_daily` row
+    for every bar. None of them moves a close an event's factor or a delisting refers to."""
+    n = len(first)
+    refs = {(k, e - 1) for k, e, _ in moved} | {(k, last[k]) for k in range(n)}
+    halted: Days = set()
+    hits: Hits = {}
+    admin: Days = set()
+    if market == "KR":
+        halted = _halts(first, last, moved, refs, bars, rng)
+        busy = refs | halted | {(k, e) for k, e, _ in moved} | {(k, d + 1) for k, d in halted}
+        settled = [max([e for j, e, _ in moved if j == k], default=first[k]) for k in range(n)]
+        hits = _limits(first, last, mics, settled, busy, bars, rng)
+        _wobble(first, last, busy | set(hits), bars, rng)
+        for k in rng.choice(n, max(1, round(0.01 * n)), replace=False).tolist():
+            admin |= {(k, d) for d in range(max(first[k], last[k] - 59), last[k] + 1)}
+    out: dict[str, list[Any]] = {}
+    for k in range(n):
+        rows = _status(market, k, first[k], mics[k], bars, halted, hits, admin)
+        for name, values in rows.items():
+            out.setdefault(name, []).append(values)
+    return out
+
+
+def _sample(
+    first: Sequence[int], last: Sequence[int], rate: float, rng: np.random.Generator,
+    take: Callable[[int, int], int],
+) -> None:  # fmt: skip
+    """Offers `take` random (instrument, session index after its first) pairs until it has
+    taken `rate` of the bars, or ten offers per wanted bar have been made."""
+    live = [k for k in range(len(first)) if last[k] > first[k]]
+    want, taken = round(rate * sum(j - i + 1 for i, j in zip(first, last, strict=True))), 0
+    for _ in range(10 * want if live else 0):
+        if taken >= want:
+            break
+        k = live[int(rng.integers(len(live)))]
+        taken += take(k, int(rng.integers(first[k] + 1, last[k], endpoint=True)))
+
+
+def _halts(
+    first: Sequence[int], last: Sequence[int], moved: Sequence[tuple[int, int, str]],
+    refs: Days, bars: dict[str, list[Any]], rng: np.random.Generator,
+) -> Days:  # fmt: skip
+    """~0.1 % of KR sessions halted all day, in spans of 1~5 sessions, and at least one span
+    from a split's ex-date and one from a cash dividend's (spec G-54's two cases)."""
+    halted: Days = set()
+
+    def halt(k: int, start: int) -> int:  # 1~5 sessions, unless a close in `refs` would go
+        end = min(start + int(rng.integers(1, 5, endpoint=True)), last[k])
+        span = {(k, d) for d in range(start, end)}
+        if span & refs:
+            return 0
+        halted.update(span)
+        return len(span)
+
+    for kind in ("split", "cash_dividend"):  # the first ex-date of that kind that can take one
+        for k, e, x in moved:
+            if x == kind and halt(k, e):
+                break
+    _sample(first, last, 0.001, rng, halt)
+    for k, d in halted:
+        for name in OHLC:
+            bars[name][k][d - first[k]] = np.nan
+        bars["volume"][k][d - first[k]], bars["obs_status"][k][d - first[k]] = 0.0, "halted"
+    return halted
+
+
+def _limits(
+    first: Sequence[int], last: Sequence[int], mics: Sequence[str | None],
+    settled: Sequence[int], busy: Days, bars: dict[str, list[Any]], rng: np.random.Generator,
+) -> Hits:  # fmt: skip
+    """~0.2 % of KR sessions close at the upper or the lower limit (by half), a quarter of them
+    locked there all day: the last close x (1 +- that day's ratio), snapped inward. The bars
+    after it move by the same ratio, so the next day trades within its own limits; so a limit
+    falls only after an instrument's last ex-date (`settled`), whose factors it would move."""
+    hits: Hits = {}
+
+    def pick(k: int, d: int) -> int:  # not next to another limit, which would move its close
+        if d <= settled[k] or (k, d) in busy or {(k, d - 1), (k, d), (k, d + 1)} & hits.keys():
+            return 0
+        hits[k, d] = (bool(rng.integers(2)), bool(rng.integers(4) == 0))
+        return 1
+
+    _sample(first, last, 0.002, rng, pick)
+    for (k, d), (up, locked) in sorted(hits.items()):  # by date: a later one reads the moved
+        s, dates = d - first[k], bars["session_date"][k]
+        limit = bars["close"][k][s - 1] * (
+            1 + _ratios(dates[s : s + 1], mics[k]) * (1 - 2 * (not up))
+        )
+        price = _snap(limit, dates[s : s + 1], mics[k], np.floor if up else np.ceil)[0]
+        moved = price / bars["close"][k][s]
+        for name in OHLC:
+            bars[name][k][s + 1 :] = _snap(bars[name][k][s + 1 :] * moved, dates[s + 1 :], mics[k])
+            bars[name][k][s] = price if locked or name == "close" else bars[name][k][s]
+        bars["high"][k][s] = max(bars["high"][k][s], price)
+        bars["low"][k][s] = min(bars["low"][k][s], price)
+    return hits
+
+
+def _wobble(
+    first: Sequence[int], last: Sequence[int], busy: Days, bars: dict[str, list[Any]],
+    rng: np.random.Generator,
+) -> None:  # fmt: skip
+    """~0.1 % of KR closes strictly inside their bar moved up by one ULP, off the grid."""
+
+    def nudge(k: int, d: int) -> int:
+        s, close = d - first[k], bars["close"][k][d - first[k]]
+        if (k, d) in busy or not bars["low"][k][s] < close < bars["high"][k][s]:
+            return 0
+        bars["close"][k][s] = np.nextafter(close, np.inf)
+        busy.add((k, d))
+        return 1
+
+    _sample(first, last, 0.001, rng, nudge)
+
+
+def _status(
+    market: str, k: int, i: int, venue: str | None, bars: dict[str, list[Any]], halted: Days,
+    hits: Hits, admin: Days,
+) -> dict[str, Any]:  # fmt: skip
+    """Instrument `k`'s `tradability_daily` rows; `i` is its first session index."""
+    dates, close, split = bars["session_date"][k], bars["close"][k], bars["cum_factor_split"][k]
+    ref = np.full(len(dates), np.nan)  # the last close before, over halts, moved by the share
+    for s, p in enumerate(_last_traded(close), 1):  # events since (an ex-date's base price)
+        ref[s] = np.nan if p is None else close[p] * (split[s] / split[p])
+    kr, ratio = market == "KR", _ratios(dates, venue)
+    known = dates >= np.datetime64(US_STATUS) if market == "US" else np.ones(len(dates), bool)
+    days = [(k, d) for d in range(i, i + len(dates))]
+    hit = [hits.get(x) for x in days]
+    none = [None] * len(days)
+
+    def if_known(values: Sequence[object]) -> list[object]:
+        return [v if ok else None for v, ok in zip(values, known, strict=True)]
+
+    return {
+        ID: bars[ID][k], "session_date": dates, "status_known": known,
+        "halted_full_day": if_known([x in halted for x in days]),
+        "halt_count": if_known([0] * len(days)),  # a full-day halt is not an intraday one
+        "limit_up_close": [bool(h and h[0]) for h in hit] if kr else none,
+        "limit_down_close": [bool(h and not h[0]) for h in hit] if kr else none,
+        "locked_up": [bool(h and h[0] and h[1]) for h in hit] if kr else none,
+        "locked_down": [bool(h and not h[0] and h[1]) for h in hit] if kr else none,
+        "price_limit_ratio": ratio, "up_limit_price": ref * (1 + ratio),
+        "down_limit_price": ref * (1 - ratio), "reference_price": ref if kr else ratio * np.nan,
+        "admin_status": [("administrative" if x in admin else "normal") if kr else None
+                         for x in days],
+        "source": [PRODUCER] * len(days),
+    }  # fmt: skip
 
 
 def _delistings(
@@ -483,6 +722,8 @@ _TYPES = {
     "ts_known_from": _TS,
     "ts_known_to": _TS, "ts_start": _TS, "ts_end": _TS, "ts_open": _TS, "ts_close": _TS,
     "session_ord": pa.int32(), "venue_mic": pa.string(), "listed_on_censored": pa.bool_(),
+    "halt_count": pa.int32(), "admin_status": pa.string(),
+    **dict.fromkeys(DAY_FLAGS, pa.bool_()), **dict.fromkeys(LIMIT_PRICES, pa.float64()),
 }  # fmt: skip
 #: TDS 5.3 `instrument_xref`, written empty (4.8 (2)).
 XREF = {c: pa.string() for c in (ID, "id_type", "id_value", "link_quality", "source")}
@@ -505,6 +746,13 @@ def _write(root: Path, rel: str, name: str, table: pa.Table) -> dict[str, Any]:
     else:  # no row group: an empty one has no statistics, so S003 and S006 would go unchecked
         pq.ParquetWriter(path, table.schema).close()
     return {"path": rel, "rows": table.num_rows, "bytes": path.stat().st_size}
+
+
+def _by_year(root: Path, rel: str, name: str, rows: pa.Table) -> list[dict[str, Any]]:
+    """A daily dataset's rows written in `rel/year=Y/` partitions (TDS 3.6)."""
+    years = pa.compute.year(rows["session_date"]).to_numpy()
+    return [_write(root, f"{rel}/year={y}/part-00000.parquet", name, rows.filter(years == y))
+            for y in sorted(set(years.tolist()))]  # fmt: skip
 
 
 def _tds(*args: str) -> subprocess.CompletedProcess[str]:
@@ -573,15 +821,12 @@ def make_snapshot(
             ("delistings", joined("delistings", [ID, "exit_date"])),
         )
     }  # fmt: skip
-    files["bars_1d"] = []
-    for m in chosen:
-        bars = _arrow(tables[m]["bars_1d"])
-        years = pa.compute.year(bars["session_date"]).to_numpy()
-        for year in sorted(set(years.tolist())):
-            files["bars_1d"].append(_write(
-                root, f"bars/freq=1d/market={m}/year={year}/part-00000.parquet", "bars_1d",
-                bars.filter(years == year)))  # fmt: skip
-    bars = {"kind": "bars", "path": "bars/freq=1d", "availability": {"rule": "ts_end"}, "params":
+    for name, path in {"bars_1d": "bars", "tradability_daily": "tradability_daily"}.items():
+        for m in (m for m in chosen if name in tables[m]):  # tiny has no tradability yet
+            files.setdefault(name, []).extend(_by_year(root, f"{path}/freq=1d/market={m}",
+                                                       name, _arrow(tables[m][name])))  # fmt: skip
+    bars: dict[str, Any] = {
+            "kind": "bars", "path": "bars/freq=1d", "availability": {"rule": "ts_end"}, "params":
             {"freq": "1d", "price_basis": "raw", "density": "dense", "bar_time": "session"},
             "columns": [{"name": c, "type": "ts_us"} for c in ("ts_start", "ts_end")]}  # fmt: skip
     unstated = ((ID, "id"), ("id_type", "code"), ("link_quality", "code"), ("source", "string"))
@@ -592,6 +837,11 @@ def make_snapshot(
                                                "terms": "ts_terms_available"}},
         "delistings": {"availability": {"exit": "ts_exit_known", "value": "ts_value_available"}},
     }  # fmt: skip
+    status = {
+        "path": "tradability_daily/freq=1d",
+        "params": {"availability_by_column": BY_COLUMN},
+        "columns": [{"name": ID, "type": "id"}, {"name": "session_date", "type": "date"}],
+    }
     manifest = {
         "tds_version": "1.0", "name": f"synth-{preset}", "created": f"{final}T00:00:00Z",
         "snapshot_id": snapshot_id, "producer": {"name": PRODUCER, "hints": HINTS},
@@ -600,8 +850,8 @@ def make_snapshot(
         "markets": {m: MARKETS[m] for m in chosen},
         "datasets": [
             {"name": name, "kind": name, "path": name, "schema_version": "1.0",
-             **({"bars_1d": bars, "instrument_xref": xref} | named).get(name, {}),
-             "files": entries}
+             **({"bars_1d": bars, "instrument_xref": xref, "tradability_daily": status}
+                | named).get(name, {}), "files": entries}
             for name, entries in files.items()
         ],
         "hashes": {"hash_spec": "tds-hash-1"},

@@ -2,42 +2,16 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
-
-@dataclass(frozen=True, slots=True)
-class RunRecord: ...
+from ._runstore import RunRecord as RunRecord
+from ._runstore import RunStore as RunStore
+from ._runstore import RunTxn as RunTxn
 
 
 @dataclass(frozen=True, slots=True)
 class DerivedTables: ...
-
-
-class RunTxn:
-    def write_table(self, name: str, table: object) -> None:
-        raise NotImplementedError
-
-    def capture_sources(self, paths: Iterable[Path]) -> None:
-        raise NotImplementedError
-
-    def set_manifest(self, fields: Mapping[str, object]) -> None:
-        raise NotImplementedError
-
-    def seal(self) -> RunRecord:
-        raise NotImplementedError
-
-    def abort(self) -> None:
-        raise NotImplementedError
-
-
-class RunStore:
-    def __init__(self, root: Path) -> None:
-        raise NotImplementedError
-
-    def begin(self, kind: str, name: str, study: str | None, **kwargs: object) -> RunTxn:
-        raise NotImplementedError
 
 
 class Index:
