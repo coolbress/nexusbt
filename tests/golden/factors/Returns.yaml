@@ -1,0 +1,11 @@
+# T-25 (spec 8.2, 3.4): a built-in factor by hand over 5 rows. `check/T-25.py` reaches the same
+# literals; implementation pull requests do not change this file. `expected` per row:
+# null = warm-up (no full window in the 5 rows), .nan = the factor gives NaN.
+factor: Returns
+spec: "3.4: x[-1]/x[0] - 1; either end NaN -> NaN; warm-up W-1. 8.2: Returns(3) 100, NaN, 110 -> 0.10"
+cases:
+  - term: "Returns(3)"
+    inputs: {close_tr: [100, .nan, 110, .nan, 121]}
+    # Worked by hand, not yet checked by the person:110/100 - 1 = 0.1 (the middle NaN is not read); row 4 ends on NaN;
+    # 121/110 - 1 = 0.1.
+    expected: [null, null, 0.1, .nan, 0.1]

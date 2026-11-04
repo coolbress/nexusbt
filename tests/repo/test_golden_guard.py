@@ -1,6 +1,7 @@
 """An implementation pull request does not change the golden answers (spec 8.2, 9.1).
 
-`tests/golden/cases/**` and `tests/golden/check/**` change only in a golden ticket's pull
+`tests/golden/cases/**`, `tests/golden/check/**` and `tests/golden/factors/**` (T-25's built-in
+factor cases, spec 3.4) change only in a golden ticket's pull
 request, titled `test(golden): …` (9.1's `engine / golden-guard` row). In CI the title is read
 from the event JSON Actions writes at `GITHUB_EVENT_PATH`; without a pull request there (a local
 run, a push), a current branch named `test/golden-…` stands in for it (#59 Decisions). The
@@ -20,7 +21,7 @@ import pytest
 
 pytestmark = pytest.mark.repo
 
-GUARDED = ("tests/golden/cases/", "tests/golden/check/")
+GUARDED = ("tests/golden/cases/", "tests/golden/check/", "tests/golden/factors/")
 GOLDEN_TITLE = "test(golden):"
 GOLDEN_BRANCH = "test/golden-"
 BASE = "main"
@@ -101,6 +102,12 @@ def test_impl_pr_cannot_edit_expected() -> None:
 def test_the_rule(title: str | None, branch: str, expected: list[str]) -> None:
     paths = ["tests/golden/cases/G-01.yaml", "tests/golden/test_handcalc_self.py", "src/a.py"]
     assert refused(paths, title=title, branch=branch) == expected
+
+
+def test_factor_cases_are_guarded() -> None:
+    path = "tests/golden/factors/Returns.yaml"
+    assert refused([path], title="feat(compute): built-in factors", branch="feat/x") == [path]
+    assert refused([path], title="test(golden): T-25", branch="feat/x") == []
 
 
 def test_title_from_the_event_json(tmp_path: Path) -> None:

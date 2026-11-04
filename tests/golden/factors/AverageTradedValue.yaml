@@ -1,0 +1,10 @@
+# T-25 (spec 8.2, 3.4): a built-in factor by hand over 5 rows. `check/T-25.py` reaches the same
+# literals; implementation pull requests do not change this file. `expected` per row:
+# null = warm-up (no full window in the 5 rows), .nan = the factor gives NaN.
+factor: AverageTradedValue
+spec: "3.4: nanmean(value_traded), NaN left out, minimum observations 1; warm-up W-1"
+cases:
+  - term: "AverageTradedValue(2)"
+    inputs: {value_traded: [1000, .nan, .nan, 3000, 5000]}
+    # Worked by hand, not yet checked by the person:1000; all NaN -> NaN (unlike AverageDollarVolume); 3000; 4000.
+    expected: [null, 1000.0, .nan, 3000.0, 4000.0]

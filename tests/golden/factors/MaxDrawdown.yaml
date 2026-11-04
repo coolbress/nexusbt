@@ -1,0 +1,19 @@
+# T-25 (spec 8.2, 3.4): a built-in factor by hand over 5 rows. `check/T-25.py` reaches the same
+# literals; implementation pull requests do not change this file. `expected` per row:
+# null = warm-up (no full window in the 5 rows), .nan = the factor gives NaN.
+factor: MaxDrawdown
+spec: "3.4: max((cummax(x) - x)/cummax(x)), NaN left out; warm-up W-1. 8.2: MaxDrawdown(4) 10, 12, 9, 11 -> 0.25; 50 outside the window does not enter MaxDrawdown(3)"
+cases:
+  - term: "MaxDrawdown(4)"
+    inputs: {close_tr: [50, 10, 12, 9, 11]}
+    # Worked by hand, not yet checked by the person:(50 - 9)/50 = 0.82; rows 2-5 = 10, 12, 9, 11: (12 - 9)/12 = 0.25 (divided
+    # by the peak, not the trough).
+    expected: [null, null, null, 0.82, 0.25]
+  - term: "MaxDrawdown(3)"
+    inputs: {close_tr: [50, 10, 12, 9, 11]}
+    # Worked by hand, not yet checked by the person:(50 - 10)/50 = 0.8; then 50 is outside: (12 - 9)/12 = 0.25 twice.
+    expected: [null, null, 0.8, 0.25, 0.25]
+  - term: "MaxDrawdown(3)"
+    inputs: {close_tr: [.nan, 12, 9, .nan, 6]}
+    # Worked by hand, not yet checked by the person:(12 - 9)/12 = 0.25 twice; (9, NaN, 6): (9 - 6)/9 = 0.333333.
+    expected: [null, null, 0.25, 0.25, 0.333333]
