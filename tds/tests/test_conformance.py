@@ -117,6 +117,71 @@ def test_a_rule_without_statistics_is_not_checked(tmp_path: Path) -> None:
     assert result.errors == ()
 
 
+def test_a_kind_without_a_schema_file_is_not_checked(tmp_path: Path) -> None:
+    def custom(m: dict[str, Any], f: Any) -> None:
+        rel = "x_custom/part-00000.parquet"
+        f[rel] = build.parquet(pa.table({"anything": [1]}), "x_custom")
+        entry = {"path": rel, "bytes": len(f[rel])}
+        m["datasets"].append({"name": "x_custom", "kind": "x_custom", "schema_version": "1.0",
+                              "path": "x_custom", "files": [entry]})  # fmt: skip
+
+    result = check(write(tmp_path / "custom", custom), level="schema")
+    assert (result.errors, result.warnings) == ((), ())
+    assert set(S_CODES) <= set(result.unchecked)  # not a silent pass
+
+    def under_dictionary(m: dict[str, Any], f: Any) -> None:  # the kind decides, not the path
+        custom(m, f)
+        m["datasets"][-1]["path"] = "dictionary/x"
+
+    unchecked = check(write(tmp_path / "d", under_dictionary), level="schema").unchecked
+    assert set(S_CODES) <= set(unchecked)
+    # `dictionary/codes` (TDS 4.4) has no schema file either, and hides nothing
+    package = build.write(tmp_path / "codes", *build.package("TDS-S007", "pass"))
+    assert not set(S_CODES) - {"TDS-S009"} & set(check(package, level="schema").unchecked)
+
+
+def test_a_required_list_column_leaves_S003_unchecked(tmp_path: Path) -> None:
+    import pyarrow.parquet as pq
+
+    from nexusbt_tds.check import _check_column
+    from nexusbt_tds.schemas.verify import Column
+
+    pq.write_table(pa.table({"tags": pa.array([["a"]], pa.list_(pa.string()))}), tmp_path / "t")
+    meta = pq.ParquetFile(tmp_path / "t").metadata
+    blind: set[str] = set()
+    column = Column("tags", "list<code>", False)  # no schema file has one yet (trades: nullable)
+    assert list(_check_column(meta, meta.schema.to_arrow_schema(), column, True, None, blind)) == []
+    assert blind == {"TDS-S003"}  # a list has no top-level null count
+    blind.clear()
+    list(_check_column(meta, meta.schema.to_arrow_schema(), column, False, None, blind))
+    assert blind == set()  # a nullable one hides nothing
+
+
+def test_a_listed_file_that_is_not_parquet_is_S010(tmp_path: Path) -> None:
+    def text(m: dict[str, Any], f: Any) -> None:
+        f[build.BARS] = b"not parquet\n"
+        build.bars(m)["files"][0]["bytes"] = len(f[build.BARS])
+
+    result = check(write(tmp_path, text), level="schema")
+    assert [(e.code, e.file) for e in result.errors] == [("TDS-S010", build.BARS)]
+    assert "not a Parquet file" in result.errors[0].message
+    assert "TDS-S010" not in result.unchecked
+    assert "TDS-S001" in result.unchecked  # nothing else in it can be read
+    # a changed size names the cause (M006): S010 is then not judged, and not passed either
+    broken = build.write(tmp_path / "m006", *build.package("TDS-M006", "fail"))
+    assert "TDS-S010" in check(broken, level="schema").unchecked
+
+
+def test_a_file_listed_twice_gets_each_S_finding_once(tmp_path: Path) -> None:
+    def twice(m: dict[str, Any], f: Any) -> None:
+        _bars(close=pa.array(["10.0"]))(m, f)  # S002
+        again = dict(build.bars(m)["files"][0])
+        again["path"] = build.BARS.replace("year=", "./year=")  # the same file, spelled otherwise
+        build.bars(m)["files"].append(again)
+
+    assert codes(write(tmp_path, twice), "schema") == ["TDS-M013", "TDS-S002"]
+
+
 def _classes(*values: str, **opts: Any) -> Any:
     """The instruments file with one row per `asset_class` value."""
     rows = pa.concat_tables([build.instruments(asset_class=pa.array([v])) for v in values])
@@ -227,10 +292,17 @@ _bars, TS, VERSION_1_9 = build._bars, build.TS, build.VERSION_1_9
                        _bars(obs_status=pa.array([None], pa.string()))(m, f)), ["TDS-S003"]),
         (lambda m, f: build.bars(m)["params"].update(freq="1m"), ["TDS-S001", "TDS-S001"]),
         (build._move_bars(build.BARS.replace("year=2024", "year=20x4")), ["TDS-S008"]),
+        (build._move_bars(build.BARS.replace("year=2024", "year=" + "".join(
+            chr(ord(d) + 0xFEE0) for d in "2024"))), ["TDS-S008"]),  # full-width digits
+        (build._move_bars(build.BARS.replace("year=2024", "year=02024")), ["TDS-S008"]),
+        (build._move_bars(build.BARS.replace("year=2024", "year=-0")), ["TDS-S008"]),
+        (build._move_bars(build.BARS.replace("year=2024", "year=-1")), []),  # ASCII, no zero
         (build._move_bars(build.BARS.replace("market=US", "market=")), ["TDS-S008"]),
         (lambda m, f: (build.bars(m).update(partitioning=[{"name": "year", "type": "date"}])),
          ["TDS-S008"]),  # a declared partition type comes first
         (_bars(meta={"tds.dataset": b"\xff", "tds.schema_version": "1.0"}), ["TDS-S010"]),
+        (_bars(meta={}), ["TDS-S010"]),  # no key-value metadata at all
+        (_bars(meta={"tds.dataset": "bars_1d"}), ["TDS-S010"]),  # no tds.schema_version
         (lambda m, f: (build.bars(m).update(columns=[{"name": "momentum", "type": "f64"}]),
                        _bars(momentum=pa.array(["1"]))(m, f)), ["TDS-S002"]),  # #144: declared
         (lambda m, f: (build.bars(m).update(columns=[{"name": "momentum", "type": "f64"}]),
