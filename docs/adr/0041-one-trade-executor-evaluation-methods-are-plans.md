@@ -1,6 +1,6 @@
 # 41. One trade executor; evaluation methods are plans that call it; diagnostics read records
 
-- Status: Proposed
+- Status: Accepted (2026-11-04, by the owner after reading)
 - Date: 2026-11-04
 - Spec: §2.4, §3.8, §5.5, §5.6, §5.9, §6.2, §6.3, §6.3a
 
@@ -29,4 +29,8 @@ The spec already holds each piece under other names. What it lacks is one statem
 
 New evaluation methods are added as plans over the same executor. A method that needs a new account rule changes §6.3a and this ADR, not the executor.
 
-Open, for a person's decision (recorded in the D16 research issue): how separate the research executor becomes beyond `ml.factor` and grid selection; a user splitter, selector, diagnostic or optimizer protocol; an entry point for an external or opaque strategy and an audit-scope field; whether a cost scenario re-evaluates the account layer (§5.5.2a); and the term for a family of related candidates beyond `study`.
+The choices this ADR left open were decided on 2026-11-04 in research issue #207:
+- the research executor gets no new component in v1;
+- user splitter, selector, diagnostic and optimizer protocols, and an external-strategy entry point, are v1.x (spec 12.1 `DR16-1`, `DR16-2`);
+- a cost or delisting scenario re-runs the account layer and execution under its own costs, and capacity runs execution only (spec 5.7);
+- `study` stays, and "family" names only #196's research family.
