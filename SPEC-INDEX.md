@@ -9,7 +9,7 @@ Generated from `docs/spec/engine-spec-v3.4.md` (chapter 10) by the spec checker 
 
 ## Counts
 
-219 engine tickets: M0 16, M1 40, M2 30, M3a 37, M3b 11, M4 28, M5 24, M6 31, v1.x 2 (T7.G, T7.1 and T7.V are part of M6; T7.2 and T7.5 are v1.x). 107 golden cases (G-01..G-107), 34 property tests, 49 error codes (E1..E49), 40 ADRs.
+220 engine tickets: M0 16, M1 41, M2 30, M3a 37, M3b 11, M4 28, M5 24, M6 31, v1.x 2 (T7.G, T7.1 and T7.V are part of M6; T7.2 and T7.5 are v1.x). 107 golden cases (G-01..G-107), 34 property tests, 49 error codes (E1..E49), 40 ADRs.
 
 ## Dependency graph (summary)
 
@@ -45,6 +45,7 @@ Generated from `docs/spec/engine-spec-v3.4.md` (chapter 10) by the spec checker 
 | Ticket | Title | Spec sections | Tests | Blocked by |
 |---|---|---|---|---|
 | T0.7 | `feat(testing): synthetic TDS package part 2 - corporate actions with revisions, delistings, tradability, eligibility, share counts` | 4.8 | — | T0.6 |
+| T0.8d | `feat(testing): full-scale synthetic preset of the m1 datasets for the bench` | 4.8, 7 | — | T0.7 |
 | T0.14a | `feat(tds): full-level key and reference checks` | TDS 8.3 | — | T0.13c |
 | T0.14b | `feat(tds): full-level time and density checks with rectangle lookup` | TDS 6.3 | — | T0.14a |
 | T0.15a | `feat(tds): corporate action resolver parameterized by knowledge cutoff` | 5.3.3a, TDS 5.11 | — | T0.14a |
@@ -76,7 +77,7 @@ Generated from `docs/spec/engine-spec-v3.4.md` (chapter 10) by the spec checker 
 | T1.21 | `test(property): start-date and metamorphic invariants with preconditions` | 8.3 | P-START | T1.19 |
 | T1.22 | `feat(tds): import csv with mapping.yaml and minimal-daily packages` | 4.3, TDS 7 | — | T0.14c, T0.13c |
 | T1.23 | `feat(tds): manifest build for an existing folder` | TDS 8.1 | — | T1.22 |
-| T1.24 | `feat(bench): benchmark harness and early stage measurements` | 7 | — | T1.13 |
+| T1.24 | `feat(bench): benchmark harness and early stage measurements` | 7 | — | T1.13, T0.8d |
 | T1.20 | `docs(examples): m1 walkthrough` | 8.5 | — | T1.15, T1.22 |
 | T1.Gb | `test(golden): v3.1 filter, builtin-factor and tie-break cases (T-24, T-25, T-27)` | 5.4.1, 3.4, 3.7, 8.2 | T-24..T-25, T-27 | T0.9 |
 | T1.25 | `feat(pipeline): three-valued filters with validity masks` | 3.3, 5.4.1, 5.9.9 | T-24 | T1.11, T1.Gb |
@@ -111,7 +112,7 @@ Generated from `docs/spec/engine-spec-v3.4.md` (chapter 10) by the spec checker 
 | T2.18 | `feat(api): preregister` | 6.4 | — | T2.9 |
 | T2.13 | `test(parity): L1-c fundamentals and producer panel agreement script` | 8.1 | — | T2.2, T1.17 |
 | T2.17 | `docs: English quickstart from CSV to rerun` | 8.5 | — | T1.22, T2.10a, T1.15 |
-| T2.14 | `docs(examples): m2 factor research walkthrough` | 8.5 | — | T2.10a, T2.11 |
+| T2.14 | `docs(examples): m2 factor research walkthrough and stage measurement` | 7, 8.5 | — | T2.10a, T2.11, T2.12, T1.24 |
 | T2.Gb | `test(golden): v3.1 ranking and market-series cases (T-26, T-28)` | 5.4.2, 3.2 | T-26, T-28 | T0.9 |
 | T2.19 | `feat(pipeline): market-level series terms` | 3.2, 5.1.5, 5.3.2 | — | T2.3, T1.8, T2.Gb |
 | T2.20 | `feat(pipeline): percentile rank with explicit missing policy and weighted composites` | 3.3, 5.4.2 | T-26 | T1.11, T2.Gb |
@@ -124,7 +125,7 @@ Generated from `docs/spec/engine-spec-v3.4.md` (chapter 10) by the spec checker 
 
 | Ticket | Title | Spec sections | Tests | Blocked by |
 |---|---|---|---|---|
-| T0.8c | `feat(testing): full and full_ci synthetic presets` | 4.8 | — | T0.8b |
+| T0.8c | `feat(testing): full and full_ci synthetic presets` | 4.8 | — | T0.8b, T0.8d |
 | T3.Ga | `test(golden): market execution and cash cases (G-10..G-15, G-31, G-41)` | 5.6.3–5.6.7, 8.2 | G-10..G-15, G-31, G-41 | T0.9 |
 | T3.Gc | `test(golden): accounting cases (G-16..G-26, G-30, G-34, G-35, G-42..G-49)` | 5.3.3a, 5.6.9–5.6.14, 8.2 | G-16..G-26, G-30, G-34..G-35, G-42..G-49 | T0.9, T0.15a |
 | T3.1 | `feat(portfolio): pure target construction with stages and risk slot` | 3.7, 5.5 | — | T1.11, T1.9, T2.15, T1.Gb |
@@ -192,7 +193,7 @@ Generated from `docs/spec/engine-spec-v3.4.md` (chapter 10) by the spec checker 
 | T4.6 | `feat(api): benchmarks from index instruments` | 5.7, 4.6, 4.5 | — | T3.13a, T3.Ge |
 | T4.7 | `feat(api): combined multi-market backtest and screen reports` | 3.9 | — | T4.2, T4.3, T4.6, T4.10 |
 | T4.8 | `test(property): DST, holiday mismatch, timing and currency metamorphic cases with preconditions` | 8.2, 8.3 | G-28 | T4.2, T4.10 |
-| T4.9 | `docs(examples): m4 multi-market walkthrough` | 8.5 | — | T4.7 |
+| T4.9 | `docs(examples): m4 multi-market walkthrough and stage measurement` | 7, 8.5 | — | T4.7, T1.24, T0.8c |
 | T4.10 | `feat(artifacts): currency attribution and exposure tables` | 5.6.9, 5.9.1 | G-36 | T4.2, T3.14 |
 | T4.11 | `test(markets): market names from data with a synthetic third market ZZ` | 4.7, 4.8, 3.11 | — | T4.7, T0.5b |
 | T4.12 | `feat(research): benchmark-relative metrics and monthly return table` | 5.7, 3.9 | G-62 | T4.6, T3.Ge |
