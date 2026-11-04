@@ -1,10 +1,10 @@
 """`check(path, *, level, ...) -> CheckResult`: the levels manifest, schema and full (TDS 8.2).
 
 The `manifest` level reads `tds.json` and file sizes (M001~M014); the `schema` level adds the
-Parquet footers and statistics and the `dictionary/` tables, no data rows (S001~S010); the `full`
-level adds, so far, the hashes (H001~H003, TDS 4.5) and verifies no profile beyond `schema`. None
-reports a profile as `pass`: the rules a level cannot see are listed in `unchecked`, and the
-profile is `not_checked`.
+Parquet footers and statistics and the `dictionary/` tables, no data rows (S001~S010, T006, part
+of D002); the `full` level adds, so far, the hashes (H001~H003, TDS 4.5) and verifies no
+profile beyond `schema`. None reports a profile as `pass`: the rules a level cannot see are
+listed in `unchecked`, and the profile is `not_checked`.
 """
 
 from __future__ import annotations
@@ -42,8 +42,11 @@ UNCHECKED_AT_MANIFEST = tuple(f"TDS-{c}" for c in _ROW_CODES.split())
 #: it stays unchecked.
 #: TDS 4.4: the tables that describe the package; they have no schema file and hide no S code.
 DICTIONARIES = frozenset({"dictionary/columns", "dictionary/items", "dictionary/codes"})
+#: TDS 8.2's range checks from file statistics: T006 here; D002's part stays `unchecked`, since
+#: a non-session day between the minimum and the maximum is in the rows (#181).
+T006, D002 = "TDS-T006", "TDS-D002"
 SCHEMA_CODES = tuple(f"TDS-S{n:03}" for n in (1, 2, 3, 4, 5, 6, 7, 8, 10))
-UNCHECKED_AT_SCHEMA = tuple(c for c in UNCHECKED_AT_MANIFEST if c not in SCHEMA_CODES)
+UNCHECKED_AT_SCHEMA = tuple(c for c in UNCHECKED_AT_MANIFEST if c not in (*SCHEMA_CODES, T006))
 
 #: TDS 4.2: the fields marked ○ that are required unconditionally.
 REQUIRED: tuple[str, ...] = ("tds_version", "name", "created", "snapshot_id", "producer")
@@ -147,6 +150,7 @@ def check(
         found = list(_check_manifest(manifest, datasets))
         if level != "manifest":
             found += _check_schema(manifest, datasets, blind)
+            found += _check_ranges(manifest, datasets, blind)
         if level == "full":
             found += _check_hashes(manifest, datasets, blind)
     except ManifestError as exc:
@@ -540,6 +544,170 @@ def _text(value: object) -> str:
 def _listed(value: str, values: Sequence[str]) -> bool:
     """`<name>` in a listed value stands for any non-empty text (`vendor:<name>`, #117)."""
     return any(re.fullmatch(re.sub(r"<\w+>", ".+", re.escape(v)), value) for v in values)
+
+
+Stat = tuple[Any, Any, int]  # a row group's minimum, maximum (None: all null) and null count
+#: The kinds with no availability instant to hold against a watermark (5.1, 5.4, 4.4); any
+#: other kind without a rule leaves T006 unchecked, never passed (#181 review).
+TIMELESS = frozenset({"instruments", "calendar_sessions", "calendar_segments", *DICTIONARIES})
+
+
+def _check_ranges(m: Manifest, only: Sequence[str] | None, blind: set[str]) -> list[Finding]:
+    """T006 and D002's part from file statistics (TDS 8.2; rules: #181 Decisions)."""
+    root, out, seen = m.root.resolve(), [], set()
+    markets = m.data["markets"] if isinstance(m.data.get("markets"), dict) else {}
+    calendars = _reference(m, root, "calendar_sessions", ("calendar_id", "session_date"))
+    listings = _reference(m, root, "instruments", ("instrument_id", "listed_on", "delisted_on"))
+    for ds in (d for d in m.datasets if only is None or d.get("name") in only):
+        availability, kind = ds.get("availability"), ds.get("kind")
+        rules = list(_rules(ds))
+        if availability == {"column": "ts_available"}:  # 4.2's other spelling of `column`
+            rules.append("column")
+        elif isinstance(availability, dict) and "rule" not in availability:
+            rules.append(None)  # 6.2's `{"effect": …, "terms": …}`: not one instant per file
+        if not rules:  # bars default to `ts_end` (5.5); a kind not timeless: rule unknown
+            rules = ["ts_end"] if kind == "bars" else [] if kind in TIMELESS else [None]
+        params = ds["params"] if isinstance(ds.get("params"), dict) else {}
+        daily = kind == "bars" and params.get("freq") == "1d"
+        for rel, meta in _footers(root, ds):
+            if rel in seen:
+                continue
+            seen.add(rel)
+            parts = dict(p.split("=", 1) for p in PurePosixPath(rel).parent.parts if "=" in p)
+            market = markets.get(parts.get("market"))
+            market = market if isinstance(market, dict) else {}
+            through = _instant(market.get("complete_through"))
+            for rule in rules:
+                if through is None or meta is None or (last := _available(meta, rule)) is None:
+                    blind.add(T006)  # no watermark, no statistics, or a rule they cannot apply
+                elif last > through:
+                    msg = f"available until {last.isoformat()}, after the market's"
+                    msg += f" complete_through {market['complete_through']}"
+                    out.append(Finding(T006, "error", msg, ds.get("name"), rel))
+            if daily and meta:
+                found = _outside(meta, market.get("calendar_id"), calendars, listings)
+                out += [Finding(D002, "error", msg, ds.get("name"), rel) for msg in found]
+    return out
+
+
+def _outside(meta: Any, calendar: object, calendars: list[Any], listings: list[Any]) -> list[str]:
+    """D002: a daily bars file's session dates outside its calendar's first and last session,
+    or, holding one instrument, outside its `listed_on`..`delisted_on` (TDS 5.1, 5.4)."""
+    days, ids = _span(meta, "session_date", dt.date), _span(meta, "instrument_id", str)
+    out: list[str] = []
+    if not days:
+        return out
+    shown = f"session_date {days[0]}..{days[1]}"
+    sessions = _lookup(calendars, "calendar_id", calendar, "session_date")
+    if sessions and sessions[0] is not None and (days[0] < sessions[0] or days[1] > sessions[1]):
+        out.append(f"{shown} outside calendar {calendar}'s {sessions[0]}..{sessions[1]}")
+    one = ids[0] if ids and ids[0] == ids[1] else None
+    listed = _lookup(listings, "instrument_id", one, "listed_on")
+    if listed and listed[0] is not None and days[0] < listed[0]:
+        out.append(f"{shown} begins before {one}'s listed_on {listed[0]}")
+    delisted = _lookup(listings, "instrument_id", one, "delisted_on")
+    if delisted and delisted[2] == 0 and days[1] > delisted[1]:  # null: still listed
+        out.append(f"{shown} ends after {one}'s delisted_on {delisted[1]}")
+    return out
+
+
+def _footers(root: Path, ds: Mapping[str, Any]) -> Iterable[tuple[str, Any]]:
+    """Each listed, readable file of `ds` with its Parquet footer, None when it has none."""
+    files = ds.get("files")
+    for entry in files if isinstance(files, list) else []:
+        rel = entry.get("path") if isinstance(entry, dict) else None
+        if isinstance(rel, str) and not _unsafe(root, rel) and (root / rel).is_file():
+            try:
+                yield str(PurePosixPath(rel)), pq.ParquetFile(root / rel).metadata
+            except (OSError, pa.ArrowException):
+                yield str(PurePosixPath(rel)), None
+
+
+def _stat(meta: Any, g: int, name: str, want: type) -> Stat | None:
+    """Row group `g`'s statistics of the top-level column `name` holding `want` values, or None
+    when the footer does not say. A timestamp counts only with a time zone (S004)."""
+    paths = [meta.schema.column(i).path for i in range(meta.num_columns)]
+    s = meta.row_group(g).column(paths.index(name)).statistics if name in paths else None
+    if s is None or not s.has_null_count or (s.num_values and not s.has_min_max):
+        return None
+    if not s.has_min_max:
+        return None, None, s.null_count
+    low, high = (_text(v) if want is str else v for v in (s.min, s.max))
+    if want is dt.datetime:  # pandas' Timestamp for nanoseconds is a datetime too
+        fits = all(isinstance(v, dt.datetime) and v.tzinfo is not None for v in (low, high))
+    else:
+        fits = type(low) is want and type(high) is want  # a datetime is a date, not a `date`
+    return (low, high, s.null_count) if fits else None
+
+
+def _span(meta: Any, name: str, want: type) -> tuple[Any, ...] | None:
+    """A file's (minimum, maximum) of `name`; `()` with no rows; None when unknown or null."""
+    stats = [_stat(meta, g, name, want) for g in range(meta.num_row_groups)]
+    if any(s is None or s[2] for s in stats):
+        return None
+    values = [v for s in stats if s for v in s[:2]]
+    return (min(values), max(values)) if values else ()
+
+
+def _reference(m: Manifest, root: Path, kind: str, names: Sequence[str]) -> list[Any]:
+    """Each row group of the `kind` files as {column: `_stat`}; an unreadable file, all None."""
+    want = {"calendar_id": str, "instrument_id": str}
+    out = []
+    for ds in (d for d in m.datasets if d.get("kind") == kind):
+        for _, meta in _footers(root, ds):
+            groups = range(meta.num_row_groups) if meta else [None]
+            out += [
+                {n: _stat(meta, g, n, want.get(n, dt.date)) if g is not None else None
+                 for n in names} for g in groups
+            ]  # fmt: skip
+    return out
+
+
+def _lookup(groups: list[Any], key: str, value: object, column: str) -> Stat | None:
+    """`column`'s (minimum, maximum, nulls) over the row groups that may hold `key` = `value`;
+    None when one may hold another key too, or when none holds it (R001, R002: the rows')."""
+    hits = []
+    for g in groups if isinstance(value, str) else []:
+        k = g[key]
+        if k is None or (k[0] is not None and k[0] <= value <= k[1] and k[0] != k[1]):
+            return None
+        if k[0] == value:
+            if g[column] is None:
+                return None
+            hits.append(g[column])
+    lows, highs = [h[0] for h in hits if h[0] is not None], [h[1] for h in hits if h[1] is not None]
+    nulls = sum(h[2] for h in hits)
+    return (min(lows), max(highs), nulls) if lows else (None, None, nulls) if hits else None
+
+
+_DELAY = re.compile(r"P(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?)?")
+
+
+def _available(meta: Any, rule: object) -> dt.datetime | None:
+    """The latest availability instant under 6.2 `rule` from the statistics; None when they
+    cannot say: a rule on the calendar or with a fallback, a null in its column (a daily bar's
+    null `ts_end` is its session close), a delay in years or months."""
+    match = re.fullmatch(rf"(column|ts_end|ts_recv)(?:\+({_DUR}))?", str(rule))
+    delay = _DELAY.fullmatch(match[2] or "P") if match and RULE.fullmatch(str(rule)) else None
+    if match is None or delay is None:
+        return None
+    w, d, h, minutes, s = (float(x or 0) for x in delay.groups())
+    span = _span(meta, "ts_available" if match[1] == "column" else match[1], dt.datetime)
+    if span is None:
+        return None
+    if not span:  # no rows: nothing after any watermark
+        return dt.datetime.min.replace(tzinfo=dt.UTC)
+    last: dt.datetime = span[1] + dt.timedelta(weeks=w, days=d, hours=h, minutes=minutes, seconds=s)
+    return last
+
+
+def _instant(value: object) -> dt.datetime | None:
+    """TDS 3.8 `complete_through`, an instant with a zone; None when absent or unreadable."""
+    try:
+        when = dt.datetime.fromisoformat(value) if isinstance(value, str) else None
+    except ValueError:
+        return None
+    return when if when and when.tzinfo else None
 
 
 def _check_profile(m: Manifest, name: str) -> Iterable[Finding]:
