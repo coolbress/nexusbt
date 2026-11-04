@@ -40,6 +40,8 @@ UNCHECKED_AT_MANIFEST = tuple(f"TDS-{c}" for c in _ROW_CODES.split())
 #: What the `schema` level judges from footers. S006 and S007 see only a column's minimum and
 #: maximum; S009 sees ±Inf in the statistics but never NaN, which writers leave out of them, so
 #: it stays unchecked.
+#: TDS 4.4: the tables that describe the package; they have no schema file and hide no S code.
+DICTIONARIES = frozenset({"dictionary/columns", "dictionary/items", "dictionary/codes"})
 SCHEMA_CODES = tuple(f"TDS-S{n:03}" for n in (1, 2, 3, 4, 5, 6, 7, 8, 10))
 UNCHECKED_AT_SCHEMA = tuple(c for c in UNCHECKED_AT_MANIFEST if c not in SCHEMA_CODES)
 
@@ -360,9 +362,9 @@ def _required(null: object, params: Mapping[str, Any]) -> bool:
 
 def _fits(tag: str, value: str) -> bool:
     """TDS 3.6: a partition path value read as its type (S008)."""
-    if tag in _BITS:
+    if tag in _BITS:  # ASCII digits, no leading zero: one spelling per value (#121)
         bound = 2 ** (_BITS[tag] - 1)
-        return re.fullmatch(r"-?\d+", value) is not None and -bound <= int(value) < bound
+        return re.fullmatch(r"0|-?[1-9][0-9]*", value) is not None and -bound <= int(value) < bound
     if tag == "date":
         try:
             return dt.date.fromisoformat(value).isoformat() == value
@@ -377,17 +379,24 @@ def _check_schema(m: Manifest, only: Sequence[str] | None, blind: set[str]) -> l
 
     schemas, root, out = load_schemas(), m.root.resolve(), []
     codes = _dictionary_codes(m, root)
+    read: set[str] = set()  # a path listed twice is M013's; its S findings, once
     for ds in m.datasets:
         schema = schemas.get(str(ds.get("kind")))
         version = _VERSION.fullmatch(str(ds.get("schema_version")))
-        skip = only is not None and ds.get("name") not in only
-        if skip or schema is None or not version or int(version[1]) != SUPPORTED_MAJOR:  # M009
+        if only is not None and ds.get("name") not in only:
+            continue
+        if schema is None and ds.get("kind") not in DICTIONARIES:
+            blind.update(SCHEMA_CODES)  # a kind with no schema file (`x_custom`): not checked
+        if schema is None or not version or int(version[1]) != SUPPORTED_MAJOR:  # M009
             continue
         files = ds.get("files")
         for entry in files if isinstance(files, list) else []:
             rel = entry.get("path") if isinstance(entry, dict) else None
-            if isinstance(rel, str) and not _unsafe(root, rel) and (root / rel).is_file():
-                found = _check_file(root, rel, ds, schema, blind, codes)
+            if not isinstance(rel, str) or (norm := str(PurePosixPath(rel))) in read:
+                continue
+            read.add(norm)
+            if not _unsafe(root, rel) and (root / rel).is_file():
+                found = _check_file(root, rel, ds, schema, blind, codes, entry.get("bytes"))
                 out += [replace(f, dataset=ds.get("name"), file=rel) for f in found]
     return out
 
@@ -422,19 +431,23 @@ def _check_file(
     schema: Any,
     blind: set[str],
     codes: set[tuple[str, str]],
+    size: object,
 ) -> Iterable[Finding]:
+    """S001~S010 of one file; `size`: its tds.json `bytes`."""
     try:
         meta = pq.ParquetFile(root / rel).metadata
         arrow = meta.schema.to_arrow_schema()
-    except (OSError, pa.ArrowException):  # not Parquet: nothing this level can read
-        blind.update(SCHEMA_CODES)
+    except (OSError, pa.ArrowException):  # 3.7 requires Parquet: no key-value metadata (#121)
+        said = (root / rel).stat().st_size == size  # a changed size is M006's: one cause, one code
+        if said:
+            yield Finding("TDS-S010", "error", "not a Parquet file, so no tds.dataset metadata")
+        blind.update(c for c in SCHEMA_CODES if c != "TDS-S010" or not said)  # the rest: unread
         return
     params: dict[str, Any] = ds["params"] if isinstance(ds.get("params"), dict) else {}
     declared, typed = _by_name(ds.get("columns")), _by_name(ds.get("partitioning"))
     kv = {k: v.decode(errors="replace") for k, v in (meta.metadata or {}).items()}
-    names = [str(ds.get("name")), str(ds.get("kind"))]  # either names the dataset (rule of #56)
     version = kv.get(b"tds.schema_version") == ds.get("schema_version")
-    if kv.get(b"tds.dataset") not in names or not version:
+    if kv.get(b"tds.dataset") != ds.get("name") or not version:  # 3.7: the name, not the kind
         yield Finding("TDS-S010", "error", "tds.dataset/tds.schema_version missing or different")
     parts = dict(p.split("=", 1) for p in PurePosixPath(rel).parent.parts if "=" in p)  # 3.6
     for key, value in parts.items():
@@ -478,7 +491,9 @@ def _check_column(
         units = _UNITS.get(str(unit), _UNITS[tag])
         if kind.tz != "UTC" or kind.unit not in units:
             yield Finding("TDS-S004", "error", f"{name} is {kind}, wants UTC {'/'.join(units)}")
-    if index is None:  # its statistics are its leaves'
+    if index is None:  # its statistics are its leaves': a list's own null count is in none
+        if required:
+            blind.add("TDS-S003")
         return
     stats = [meta.row_group(g).column(index).statistics for g in range(meta.num_row_groups)]
     if required and any(s is None or not s.has_null_count for s in stats):

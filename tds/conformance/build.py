@@ -230,8 +230,8 @@ CASES: dict[str, tuple[Change, Change]] = {
     "TDS-S008": (_keep, _bars(market=pa.array(["US"]))),
     "TDS-S009": (_bars(close=pa.array([-1e300])), _bars(close=pa.array([math.inf]))),
     "TDS-S010": (
+        _keep,  # `tds.dataset` is the dataset's name, `bars_1d` (TDS 3.7)
         _bars(meta={"tds.dataset": "bars", "tds.schema_version": "1.0"}),  # the kind, not the name
-        _bars(meta={}),  # no key-value metadata at all
     ),
     **{
         code: (_hashes(code, False), _hashes(code, True))
