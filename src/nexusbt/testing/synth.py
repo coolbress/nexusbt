@@ -6,9 +6,10 @@ fixed cycles, with no random numbers. `small` follows 4.8's generation rules (1)
 draws and + - x / instead of 4.8 (3)'s exp, normal and lognormal draws, so that its bytes do
 not depend on the platform's math library (#128). Both write `instruments`,
 `instrument_symbols`, an empty `instrument_xref`, `calendar_sessions`, `corporate_actions`
-and `delistings` (both empty in `tiny`; in `small` 4.8 (4) and (6)), `small` also
-`tradability_daily` (4.8 (5), whose KR grid, halts and limits move its bars), and dense daily `bars`
-whose raw prices and cumulative factors follow the events (all 1.0 in `tiny`). The hashes in
+and `delistings` (both empty in `tiny`; in `small` 4.8 (4) and (6)) and dense daily `bars`
+whose raw prices and cumulative factors follow the events (all 1.0 in `tiny`); `small` also
+`tradability_daily` (4.8 (5), whose KR grid, halts and limits move its bars), `share_counts`
+(4.8 (7)) and `eligibility_daily` (4.8 (10)). The hashes in
 `tds.json` and `--validate`'s check are the `tds` command's, run as a separate process: spec
 2.5 draws no arrow from `testing` to `nexusbt_tds`, so this module does not import it.
 """
@@ -100,6 +101,10 @@ SHARE_EVENTS = {
 }
 
 
+#: The TDS 5.14 `share_counts` columns the generator writes.
+SHARE_COUNTS = pa.schema({ID: _S, "count_kind": _S, "as_of_date": _D, "shares": _F,
+                          "ts_available": _TS, "source": _S})  # fmt: skip
+ELIGIBILITY = "investable-v1"  # 4.8 (10)'s rule
 #: 4.8 (5): the KR tick and price-limit tables' venue group of each MIC; the US day from which
 #: tradability status is known; the `tradability_daily` columns known before the open.
 KR_GROUP = {"XKRX": "KOSPI", "XKOS": "KOSDAQ"}
@@ -331,6 +336,7 @@ def _small(market: str, n: int, sessions: Table, rng: np.random.Generator) -> di
     actions, moved = _actions(market, ids, first, last, sessions, bars, rng, mics)
     status = _tradability(market, first, last, mics, moved, bars, rng)  # moves `bars` too
     exits, payouts, delisted = _delistings(market, ids, first, last, sessions, bars, rng)
+    counts, eligible = _share_counts(market, sessions, bars, rng), _eligibility(bars, status)
     instruments = _instruments(
         market, ids, mics, [days[i].item() for i in first],
         listed_on_censored=[i == 0 for i in first],
@@ -338,19 +344,70 @@ def _small(market: str, n: int, sessions: Table, rng: np.random.Generator) -> di
         delisted_on=delisted,
     )  # fmt: skip
     order = [("session_date", "ascending"), (ID, "ascending")]
-    table, status = (
+    table, status, eligible = (
         pa.table(
             {
                 c: pa.array(np.concatenate(v), from_pandas=True)  # NaN → null
                 for c, v in t.items()
             }
         ).sort_by(order)
-        for t in (bars, status)
+        for t in (bars, status, eligible)
     )
     return {"instruments": instruments, "bars_1d": table, "tradability_daily": status,
             "instrument_symbols": _symbols([s for v in spans.values() for s in v]),
             "corporate_actions": pa.concat_tables([actions, payouts]),
-            "delistings": exits}  # fmt: skip
+            "delistings": exits, "eligibility_daily": eligible,
+            "share_counts": counts}  # fmt: skip
+
+
+def _share_counts(
+    market: str, sessions: Table, bars: dict[str, list[Any]], rng: np.random.Generator
+) -> pa.Table:
+    """4.8 (7): KR `listed` shares on every session, known at its close; US and ZZ
+    `outstanding` shares at each quarter end, filed 40 days later at 21:00Z, the rows filed
+    after the period left out. A listing starts with 1e6~1e8 shares, multiplied from each
+    share event's ex-date on (the `cum_factor_split` ratio), fractions dropped."""
+    end, out = sessions["session_date"][-1], []
+    for k in range(len(bars[ID])):
+        base = int(rng.integers(1_000_000, 100_000_000, endpoint=True))
+        dates, split = bars["session_date"][k], bars["cum_factor_split"][k]
+        shares, kind = np.floor(base * (split[0] / split)), "listed"
+        asof, at, when = dates, np.arange(len(dates)), bars["ts_end"][k]
+        if market != "KR":  # each quarter's last day, the last session on or before it
+            month = dates.astype("datetime64[M]").astype(int)
+            quarter = (month - month % 3 + 3).astype("datetime64[M]").astype("datetime64[D]")
+            asof = np.unique(quarter - np.timedelta64(1, "D"))
+            asof = asof[asof <= dates[-1]]
+            when = (asof + np.timedelta64(40, "D")).astype("datetime64[us]") + np.timedelta64(
+                21, "h"
+            )
+            filed = when.astype("datetime64[D]") <= end
+            asof, when, kind = asof[filed], when[filed], "outstanding"
+            at = np.searchsorted(dates, asof, side="right") - 1
+        out.append(pa.table({
+            ID: [bars[ID][k][0]] * len(asof), "count_kind": [kind] * len(asof),
+            "as_of_date": asof, "shares": shares[at], "ts_available": when,
+            "source": [PRODUCER] * len(asof)}, schema=SHARE_COUNTS))  # fmt: skip
+    return pa.concat_tables([SHARE_COUNTS.empty_table(), *out])
+
+
+def _eligibility(bars: dict[str, list[Any]], status: dict[str, list[Any]]) -> dict[str, Any]:
+    """4.8 (10): `investable-v1` on every bar. All instruments are common stock, so a bar is
+    eligible when it traded and its instrument is not administrative that day; the traded
+    part is the day's own result, so each row is available at the session close."""
+    out: dict[str, list[Any]] = {}
+    for k in range(len(bars[ID])):
+        traded = np.array(bars["obs_status"][k]) == "traded"
+        admin = np.array(status["admin_status"][k]) == "administrative"
+        for name, values in {
+            "rule_id": [ELIGIBILITY] * len(traded), ID: bars[ID][k],
+            "session_date": bars["session_date"][k], "is_eligible": traded & ~admin,
+            "reason": [None if t and not a else "administrative" if t else "no_price"
+                       for t, a in zip(traded, admin, strict=True)],
+            "ts_available": bars["ts_end"][k],
+        }.items():  # fmt: skip
+            out.setdefault(name, []).append(values)
+    return out
 
 
 def _terms(kind: str, term: int, ref: float, unit: int, currency: str) -> dict[str, Any]:
@@ -722,8 +779,36 @@ _TYPES = {
     "ts_known_from": _TS,
     "ts_known_to": _TS, "ts_start": _TS, "ts_end": _TS, "ts_open": _TS, "ts_close": _TS,
     "session_ord": pa.int32(), "venue_mic": pa.string(), "listed_on_censored": pa.bool_(),
-    "halt_count": pa.int32(), "admin_status": pa.string(),
+    "halt_count": pa.int32(), "admin_status": pa.string(), "ts_available": _TS,
+    "reason": pa.string(),
     **dict.fromkeys(DAY_FLAGS, pa.bool_()), **dict.fromkeys(LIMIT_PRICES, pa.float64()),
+}  # fmt: skip
+
+
+def _typed(*pairs: tuple[str, str]) -> list[dict[str, str]]:
+    """tds.json `columns` for types a TDS kind leaves out."""
+    return [{"name": c, "type": t} for c, t in pairs]
+
+
+#: Each dataset's tds.json fields besides its name, kind, path and files.
+FIELDS: dict[str, dict[str, Any]] = {
+    "bars_1d": {
+        "kind": "bars", "path": "bars/freq=1d", "availability": {"rule": "ts_end"},
+        "params": {"freq": "1d", "price_basis": "raw", "density": "dense", "bar_time": "session"},
+        "columns": _typed(("ts_start", "ts_us"), ("ts_end", "ts_us"))},
+    "instrument_xref": {"columns": _typed(
+        (ID, "id"), ("id_type", "code"), ("link_quality", "code"), ("source", "string"))},
+    "corporate_actions": {  # TDS 6.2: two availability times
+        "availability": {"effect": "ts_effective", "terms": "ts_terms_available"}},
+    "tradability_daily": {
+        "path": "tradability_daily/freq=1d", "params": {"availability_by_column": BY_COLUMN},
+        "columns": _typed((ID, "id"), ("session_date", "date"))},
+    "eligibility_daily": {  # TDS 5.20: the rule is session_close, a missing row means false
+        "availability": {"rule": "session_close"}, "params": {"missing_means": False},
+        "columns": _typed(("rule_id", "id"), (ID, "id"), ("session_date", "date"),
+                          ("is_eligible", "bool"), ("ts_available", "ts_us"))},
+    "share_counts": {"columns": _typed(
+        (ID, "id"), ("count_kind", "code"), ("ts_available", "ts_us"), ("source", "string"))},
 }  # fmt: skip
 #: TDS 5.3 `instrument_xref`, written empty (4.8 (2)).
 XREF = {c: pa.string() for c in (ID, "id_type", "id_value", "link_quality", "source")}
@@ -746,6 +831,18 @@ def _write(root: Path, rel: str, name: str, table: pa.Table) -> dict[str, Any]:
     else:  # no row group: an empty one has no statistics, so S003 and S006 would go unchecked
         pq.ParquetWriter(path, table.schema).close()
     return {"path": rel, "rows": table.num_rows, "bytes": path.stat().st_size}
+
+
+def _daily(root: Path, tables: Mapping[str, Mapping[str, Any]]) -> dict[str, list[Any]]:
+    """The datasets partitioned by market and year, of the markets that have them (tiny: the
+    bars only so far)."""
+    files: dict[str, list[Any]] = {}
+    for name in ("bars_1d", "tradability_daily", "eligibility_daily"):
+        path = FIELDS[name].get("path", name)
+        for m in (m for m in tables if name in tables[m]):
+            files.setdefault(name, []).extend(_by_year(root, f"{path}/market={m}", name,
+                                                       _arrow(tables[m][name])))  # fmt: skip
+    return files
 
 
 def _by_year(root: Path, rel: str, name: str, rows: pa.Table) -> list[dict[str, Any]]:
@@ -821,22 +918,11 @@ def make_snapshot(
             ("delistings", joined("delistings", [ID, "exit_date"])),
         )
     }  # fmt: skip
-    for name, path in {"bars_1d": "bars", "tradability_daily": "tradability_daily"}.items():
-        for m in (m for m in chosen if name in tables[m]):  # tiny has no tradability yet
-            files.setdefault(name, []).extend(_by_year(root, f"{path}/freq=1d/market={m}",
-                                                       name, _arrow(tables[m][name])))  # fmt: skip
-    bars: dict[str, Any] = {
-            "kind": "bars", "path": "bars/freq=1d", "availability": {"rule": "ts_end"}, "params":
-            {"freq": "1d", "price_basis": "raw", "density": "dense", "bar_time": "session"},
-            "columns": [{"name": c, "type": "ts_us"} for c in ("ts_start", "ts_end")]}  # fmt: skip
-    unstated = ((ID, "id"), ("id_type", "code"), ("link_quality", "code"), ("source", "string"))
-    xref = {"columns": [{"name": c, "type": t} for c, t in unstated]}  # types 5.3 leaves out
-    actions = {"availability": {"effect": "ts_effective", "terms": "ts_terms_available"}}  # 6.2
-    status = {
-        "path": "tradability_daily/freq=1d",
-        "params": {"availability_by_column": BY_COLUMN},
-        "columns": [{"name": ID, "type": "id"}, {"name": "session_date", "type": "date"}],
-    }
+    if all("share_counts" in tables[m] for m in chosen):  # tiny has none yet
+        rows = joined("share_counts", [ID, "count_kind", "as_of_date"])
+        files["share_counts"] = [_write(root, "share_counts/part-00000.parquet", "share_counts",
+                                        rows)]  # fmt: skip
+    files |= _daily(root, {m: tables[m] for m in chosen})
     manifest = {
         "tds_version": "1.0", "name": f"synth-{preset}", "created": f"{final}T00:00:00Z",
         "snapshot_id": snapshot_id, "producer": {"name": PRODUCER, "hints": HINTS},
@@ -845,8 +931,7 @@ def make_snapshot(
         "markets": {m: MARKETS[m] for m in chosen},
         "datasets": [
             {"name": name, "kind": name, "path": name, "schema_version": "1.0",
-             **{"bars_1d": bars, "instrument_xref": xref, "corporate_actions": actions,
-                "tradability_daily": status}.get(name, {}), "files": entries}
+             **FIELDS.get(name, {}), "files": entries}
             for name, entries in files.items()
         ],
         "hashes": {"hash_spec": "tds-hash-1"},
