@@ -177,6 +177,18 @@ def _hashes(code: str, wrong: bool) -> Change:
 
 TS = pa.array([0], pa.timestamp("us", "UTC"))
 VERSION_1_9 = {"tds.dataset": "bars_1d", "tds.schema_version": "1.9"}  # M011: the file says so too
+THROUGH = dt.datetime(2024, 1, 2, 21, tzinfo=dt.UTC)  # `markets.US.complete_through` (TDS 3.8)
+
+
+def _watermark(ts_end: dt.datetime) -> Change:
+    """US `complete_through` THROUGH, and the bar available at its `ts_end` (rule `ts_end`)."""
+
+    def change(m: dict[str, Any], files: Files) -> None:
+        m["markets"]["US"]["complete_through"] = THROUGH.isoformat().replace("+00:00", "Z")
+        _bars(ts_end=pa.array([ts_end], pa.timestamp("us", "UTC")))(m, files)
+
+    return change
+
 
 #: Code → (pass change, fail change). M005, M011 and S005 are warnings: their fail package warns.
 CASES: dict[str, tuple[Change, Change]] = {
@@ -233,6 +245,8 @@ CASES: dict[str, tuple[Change, Change]] = {
         _keep,  # `tds.dataset` is the dataset's name, `bars_1d` (TDS 3.7)
         _bars(meta={"tds.dataset": "bars", "tds.schema_version": "1.0"}),  # the kind, not the name
     ),
+    "TDS-T006": (_watermark(THROUGH), _watermark(THROUGH + dt.timedelta(microseconds=1))),
+    "TDS-D002": (_keep, _bars(session_date=pa.array([dt.date(2024, 1, 1)]))),  # before listed_on
     **{
         code: (_hashes(code, False), _hashes(code, True))
         for code in ("TDS-H001", "TDS-H002", "TDS-H003")
