@@ -188,9 +188,11 @@ def _columns(names: Sequence[str], dataset: Mapping[str, Any], schema: list[Any]
 
 def _value(root: Path, entry: Mapping[str, Any], files: list[dict[str, Any]]) -> str:
     """The value hash of `files` of dataset `entry` (all its files: the dataset's)."""
-    from .schemas.verify import load_schemas
+    from .schemas.verify import dictionary_schemas, load_schemas
 
-    schema = load_schemas()[entry["kind"]]
+    schemas = load_schemas() | dictionary_schemas()
+    if (schema := schemas.get(entry["kind"])) is None:
+        raise HashError(f"{entry['name']}: kind {entry['kind']} has no schema file, no types")
     table = _read(root, files, entry.get("partitioning", []))
     columns = _columns(table.column_names, entry, list(schema.columns))
     key = entry.get("key", schema.key)

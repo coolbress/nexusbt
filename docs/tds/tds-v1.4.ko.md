@@ -410,9 +410,11 @@
 
 | 데이터셋 | 열쇠 | 칼럼 |
 |---|---|---|
-| `dictionary/columns` | (`dataset`, `column`) | `dataset`, `column`, `type`, `unit`, `currency_source`(`column:<이름>` / `instrument` / `fixed:<코드>` / null), `scale`, `freq`(daily/monthly/event/…), `edition_class`(strict 자격 규칙 이름), `start_by_market`(json), `description`, `alias_of`, `std_name`(TDS 표준 항목과 같으면 그 이름), `is_label`(bool; 참이면 판단 입력 금지) |
-| `dictionary/items` | `item` | `item`, `std_item`(5.17 핵심 항목 이름 또는 null), `statement`(IS/BS/CF/other), `flow_or_stock`(flow/stock), `unit`, `description`, `source_concepts`(json: XBRL 개념 등) |
-| `dictionary/codes` | (`field`, `code`) | `field`, `code`, `label`, `description`, `maps_to`(닫힌 TDS 열거로 읽을 때의 값) |
+| `dictionary/columns` | (`dataset`, `column`) | `dataset` string, `column` string, `type` string, `unit` string, `currency_source` string(`column:<이름>` / `instrument` / `fixed:<코드>` / null), `scale` i8, `freq` string(daily/monthly/event/…), `edition_class` string(strict 자격 규칙 이름), `start_by_market` string(JSON 텍스트), `description` string, `alias_of` string, `std_name` string(TDS 표준 항목과 같으면 그 이름), `is_label` bool(참이면 판단 입력 금지) |
+| `dictionary/items` | `item` | `item` string, `std_item` string(5.17 핵심 항목 이름 또는 null), `statement` string(IS/BS/CF/other), `flow_or_stock` string(flow/stock), `unit` string, `description` string, `source_concepts` string(JSON 텍스트: XBRL 개념 등) |
+| `dictionary/codes` | (`field`, `code`) | `field` string, `code` string, `label` string, `description` string, `maps_to` string(닫힌 TDS 열거로 읽을 때의 값) |
+
+칼럼 이름 뒤에 그 3.2 타입을 적으며, 4.5의 값 해시가 이 타입을 쓴다. JSON 값 칼럼은 `string`이고 저장된 텍스트 그대로다[2026-11-04].
 
 ### 4.5 해시 (`hash_spec = "tds-hash-1"`) [v1.1, RV-C10]
 
@@ -426,7 +428,7 @@
   3. 머리 바이트: `b"TDSV1\n"` + 칼럼마다 `이름(UTF-8) + b"\t" + 형 태그 + b"\n"` + `b"\n"`. 형 태그는 그 칼럼의 3.2 형 이름을 선언된 그대로 쓴다(`i16`, `f64`, `ts_us`, `code`, `list<code>` …; 4단계에서 8바이트로 넓히는 `i16`도 태그는 `i16`). 형은 매니페스트 `columns[].type`(파티션 칼럼은 `partitioning[].type`)에서, 없으면 스키마 파일에서 가져온다. 두 단위를 함께 적은 스키마 형(`ts_us/ns`)은 3.2 형 이름이 아니므로, 그런 칼럼은 매니페스트에서 `ts_us`나 `ts_ns`를 가져온다. 3.2 형이 어디에도 선언되지 않은 칼럼이 있는 데이터셋은 값 해시가 없다. `json`(3.2)은 4단계의 `string` 바이트를 쓴다: 저장된 텍스트 그대로, 다시 정규화하지 않는다 [2026-11-02].
   4. 행마다 칼럼 순서대로 **칸 바이트**: null이면 `0x00` 한 바이트(값 없음). 아니면 `0x01` + 값 바이트: `bool` 1바이트(0/1); `i8/i16/i32/i64`는 int64로 넓혀 8바이트 little-endian; `f64`는 IEEE-754 비트 8바이트 little-endian(−0.0은 +0.0으로 정규화; NaN은 S009로 이미 금지); `date`는 int32 epoch 일수 4바이트 LE; `ts_us`/`ts_ns`는 int64 그 단위 8바이트 LE(단위는 데이터셋 종류가 정함, K2); `string`/`id`/`code`는 길이 u32 LE + UTF-8 바이트(NFC 정규화 가정, 검사기가 비NFC를 W로); `fixed`(int64 고정소수)는 int64 8바이트; `list<T>`는 원소 수 u32 LE + 원소 칸 바이트들.
   5. 머리 + 모든 행 바이트를 이어 sha256(스트리밍).
-- **패키지 값 해시** `value_sha256` = sha256(데이터셋 이름 오름차순 `"{name}\t{value_sha256}\n"`).
+- **패키지 값 해시** `value_sha256` = sha256(데이터셋 이름 오름차순 `"{name}\t{value_sha256}\n"`). 4.4의 `dictionary/` 데이터셋도 다른 데이터셋처럼 이 해시와 의미 해시에 들어가며, 4.4가 정한 타입을 쓴다[2026-11-04].
 - **패키지 의미 해시** `semantic_sha256` = sha256(정규 JSON{`tds_version`, `hash_spec`, 데이터셋마다 {`name`, `kind`, `schema_version`, `value_sha256`, `params`, `availability`, `pit_quality`, `key`, 칼럼의 단위·`price_exponent`·`size_exponent`}, `markets`(항목마다 `calendar_id`·`currency`·`timezone`만; 4.2의 워터마크 필드는 넣지 않는다) [2026-11-03], `id_namespaces`, `editions`, `policies`, `currencies`, `roll_rules`, `profiles`}). 정규 JSON = RFC 8785(JSON Canonicalization Scheme), UTF-8: 키는 UTF-16 코드 단위 순으로 정렬하고, 문자열 이스케이프와 수 표기도 그 규칙을 따른다(`1.0` → `1`, `1e16` → `10000000000000000`, `1e21` → `1e+21`, `1e-7` → `1e-7`) [2026-11-02; 이전 "키 오름차순, 공백 없음, UTF-8, 수는 최단 왕복 표기"는 `1.0`과 `1`의 해시가 달랐다]. 같은 Parquet라도 공개 규칙·지수·정책·시장·판·프로필 선언이 바뀌면 의미 해시가 바뀐다. `producer`·`created`·`writer`·`coverage`·`files`·`title`은 넣지 않는다. 나열된 키는 항상 들어가고 매니페스트에 없으면 `null`이다. 다만 `price_exponent`·`size_exponent`는 K7의 기본값(−9, 0)을 채우므로, 생략한 것과 −9(또는 −9.0)를 적은 것은 같은 해시다. 데이터셋은 `name` 오름차순 목록 `"datasets"`로 넣는다(매니페스트에서 순서만 바꾸면 해시가 같다). 칼럼 단위는 매니페스트 `columns[]` 중 `unit`을 적은 칼럼만 담은 `"units": {칼럼: 단위}`이다(없으면 `{}`) [2026-11-02].
 - **소비자 쓰임**: 엔진의 캐시·판단 기록·재실행은 **의미 해시**를 "같은 자료"의 정의로 쓴다. 물리 해시는 파일이 바뀌지 않았음을 확인하는 데만.
 - **시험 벡터**: 표준과 함께 `conformance/hash-vectors.json`(작은 표 11개: 모든 형, null, −0.0, 빈 문자열, 비ASCII, 파티션 칼럼, 정렬 동률, 스키마 파일 밖 선언 칼럼; 기대 바이트 열의 hex와 sha256)을 배포한다. 독립 구현은 이 벡터와 일치해야 한다(10.5 졸업 조건).
@@ -1493,3 +1495,4 @@ availability: {rule: ts_end}
 - 2026-11-04: **v1.4** 안에서. 3.7: Parquet 키-값 `tds.dataset`은 데이터셋의 `name`이고 `kind`가 아니다. 종류를 쓰면 TDS-S010(사용자 결정 2026-11-03, #121). 8.3: Parquet이 아닌 등재 파일은 TDS-S010; 3.6: 정수 파티션 값은 앞자리 0이 없는 ASCII 숫자(사용자 결정 2026-11-04, #121). `schema` 단계는 스키마 파일이 없는 종류(4.4 `dictionary/` 표는 빼고)의 S 코드와, 필수 목록 칼럼의 S003을 `unchecked`에 넣고, 두 번 등재된 파일은 한 번 읽는다(8.2, 검사기 동작). `tds_version` `"1.0"` 그대로(문구 명확화, 초안).
 - 2026-11-04: **v1.4** 안에서. 5.11 `ratio_num, ratio_den`과 8.3 TDS-A010: "십진 리터럴 설정만 A010을 경고로 낮춤" 대신, 정확 비율이 없을 때 소비자가 어떻게 할지는 소비자 설정이 정한다(엔진 명세 3.11, R7-01). 생산자에게 A010은 E 그대로, 잘못된 비율은 오류 그대로(#178). `tds_version` `"1.0"` 그대로(문구 명확화, 초안).
 - 2026-11-04: **v1.4** 안에서. 8.2: `schema` 단계는 파일 통계로 TDS-T006과 TDS-D002 일부를 검사하고, `unchecked`로 남기는 것을 밝힌다(사용자 결정 2026-11-04, #181). `tds_version` `"1.0"` 그대로(검사기 동작, 형식 변경 없음).
+- 2026-11-04: **v1.4** 안에서. 4.4는 `dictionary/` 칼럼마다 3.2 타입을 적고(`scale` i8, `is_label` bool, 나머지 `string`), 4.5는 `dictionary/` 데이터셋이 값 해시와 의미 해시에 들어간다고 밝힌다. 검사기는 이를 가진 패키지에서 두 해시를 판정하지 않았다(사용자 결정 2026-11-04, #275). `tds_version` `"1.0"` 그대로(빠진 규칙을 적음, 형식 변경 없음).

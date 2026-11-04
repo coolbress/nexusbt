@@ -136,16 +136,21 @@ def _instruments(*, codes: bool = False, **columns: pa.Array | None) -> Change:
     def change(m: dict[str, Any], files: Files) -> None:
         rewrite(m, files, INSTRUMENTS, instruments(**columns))
         if codes:
-            rel = "dictionary/codes/part-00000.parquet"
-            table = pa.table({"field": ["category"], "code": ["ordinary"]})
-            files[rel] = parquet(table, "dictionary/codes")
-            entry = {"path": rel, "rows": 1, "bytes": len(files[rel])}
-            name = {"name": "dictionary/codes", "kind": "dictionary/codes"}
-            m["datasets"].append(
-                name | {"schema_version": "1.0", "path": "dictionary/codes", "files": [entry]}
-            )
+            _codes(m, files)
 
     return change
+
+
+def _codes(m: dict[str, Any], files: Files) -> None:
+    """Add a TDS 4.4 `dictionary/codes` dataset listing `category` `ordinary`."""
+    rel = "dictionary/codes/part-00000.parquet"
+    table = pa.table({"field": ["category"], "code": ["ordinary"]})
+    files[rel] = parquet(table, "dictionary/codes")
+    entry = {"path": rel, "rows": 1, "bytes": len(files[rel])}
+    name = {"name": "dictionary/codes", "kind": "dictionary/codes"}
+    m["datasets"].append(
+        name | {"schema_version": "1.0", "path": "dictionary/codes", "files": [entry]}
+    )
 
 
 WRONG = "0" * 64
@@ -157,6 +162,8 @@ def _hashes(code: str, wrong: bool) -> Change:
     def change(m: dict[str, Any], files: Files) -> None:
         from nexusbt_tds.hash import package_hashes  # the checker's own hashes, as producers use
 
+        if code != "TDS-H001":  # a dictionary dataset is hashed like any other (TDS 4.4, 4.5)
+            _codes(m, files)
         with tempfile.TemporaryDirectory() as tmp:
             hashes = package_hashes(write(Path(tmp), m, files))
         for ds in m["datasets"]:
