@@ -850,7 +850,10 @@ PSR(0) {x:.2f} · DSR {x:.2f} (N={N} candidates in cohort {cohort6}, V[SR] from 
 family {family6}: studies {s} · candidates explored {n} (factor {a} · strategy {b}) · selection events {e} · segments seen train {a} · validation {b} · test {c}
 evaluation {research data | independent final test (look {n}) | independence not established ({reason}) | {k} predeclared candidates on the final data (look {n}) | exploratory on reused final data (seen {m} times before)} · comparison set: study {study} · {segment} · {kind}, cohort {cohort6}, {N} candidates, with returns {a}/{b}   (6.2) [#196, #197]
 warnings {n} (run.warnings) · data fallbacks {k} · reconciled: {yes|NO}
+{next   {entry} → docs/guide/choose-by-question.md#{id}{ · …}}   (only when an entry applies) [#218]
 ```
+
+**`next` 줄** (결정 2026-11-04, #218): 안내서 `docs/guide/choose-by-question.md`(3.10)의 항목을 안내서 순서로 최대 셋 보이며, 각 항목은 지표 값이 아니라 실행이 한 일을 기준으로 이 고정 표에서 고른다: `grid`, 또는 후보가 N > 1인 전략 cohort → `compared`; `nx.ml.factor`, 또는 `method="linear"`에서 `params=`의 매개변수 → `periodic`; 평가 라벨 `research data` → `unseen`; E21 알림 또는 `skipped` > 0 → `na`. 각 항목은 실행의 사실과 안내서 앵커로 쓴다. 예: `next   you chose among 12 settings on this data → docs/guide/choose-by-question.md#compared`. 엔진이 아직 만들지 않는 사실은 항목을 주지 않고, 항목이 없으면 줄도 없다. 이 줄은 방법의 순위를 매기지 않고, "안전"이라고 하지 않으며, 자료·기간·지표를 바꾸라고 권하지 않는다.
 
 노출 표·위험 지표(낙폭 기간·회복 기간·최악 월)·귀속 표·BHY·N_eff(v1.x)는 첫 화면에 넣지 않고 `report()` HTML의 "hygiene"·"attribution"·"exposures" 칸에 둔다 [청사진 10장 위험(1)]. v3.1 HTML 칸 추가: "monthly"(달력 월 × 연 수익 표, 행 끝에 벤치마크 초과 [V31-15]), "rolling"(1년·3년 창 초과 수익 분위 표 [V31-26]), "trades"(청산 이유별 건수·승률·평균 보유 기간·MAE/MFE [V31-20]), "execution"(목표 차이 원인 분해, 체결가 대 판단가·도착가 bp, 봉 범위 밖 실효가 건수 [V31-14]), "cost tiers"(유동성 구간별 비용 [V31-27]). 이 칸들은 저마다 아래 목록에서 자기가 답하는 질문 밑에 놓인다.
 
@@ -878,6 +881,7 @@ warnings {n} (run.warnings) · data fallbacks {k} · reconciled: {yes|NO}
 - 손실은 색만으로 보이지 않는다: 음수 값은 모든 표와 히트맵 칸에서 빼기 부호를 달고, 손실 면(수면 아래, 숏 노출)은 색과 함께 무늬나 이름표 붙은 0 선을 단다.
 - 외부 파일 없음: 페이지는 URL도 다른 파일도 가리키지 않는다(페이지 밖을 가리키는 `src`·`href` 없음, 웹 글꼴 없음). 그래서 네트워크가 없는 브라우저에서도 모든 차트가 그려진다.
 - 예산: 합성 `full_ci` 스냅샷에서 `report.html`은 5 MB 이하이고(시험이 파일 크기를 확인), 네트워크가 없는 요즘 브라우저에서 2초 안에 첫 차트를 보인다(사람이 10.0 마일스톤 행에서 확인). 대표 리포트는 M2부터 팩터 예제 `examples/factors/momentum.py`, M3a부터 롱온리 예제 `examples/strategies/mom_kr.py`다.
+- 쉬운 설명 (설계 검토 D19, #219): 첫 화면과 `hygiene` 절의 진단 줄과 방법 줄마다 `report.html`에 요약이 "what this means"인 닫힌 펼침 칸(`<details>`)을 둔다. 열면 그 도구 카드(8.5)의 1항과 6항(질문과 함정; 숫자를 읽는 법과 뒷받침하지 못하는 것)을 쉬운 말로 보이고, 그 안의 닫힌 둘째 칸에 3항과 4항(입력, 비교 집합, 조건, 자료를 나누는 법)과 공식을 둔다. 글은 페이지 안에 넣고(위 규칙), 카드의 글과 같으며(`tests/docs/test_tool_cards.py::test_report_explanations_match_cards`), 터미널과 `_repr_html_`의 줄은 바뀌지 않는다.
 - 그리는 수단: 여기서 정하지 않는다. T2.10b가 대표 리포트의 크기와 생성 시간을 잰 뒤 템플릿의 인라인 SVG, 넣어 둔 matplotlib 그림, 인라인한 일부 Plotly 묶음 가운데서 고르고, 고른 것과 잰 값을 ADR에 적는다. 상호작용 차트, 실행 간 겹쳐 그리기, PDF는 v1.x(`nexusbt[viz]` 선택 추가 패키지).
 
 **Screen** (속성 `table`, `scheduled`, `asof`):
@@ -2625,6 +2629,25 @@ README·`docs/`·`examples/`의 ```python 블록 중 `<!-- test -->` 표시가 �
 - **템플릿** [R4-13]: `nexusbt new strategy --template T`의 22개 템플릿(3.10)마다(각 템플릿의 시험은 그 기능을 켜는 티켓의 수용 시험이다: `buffer-hold`는 T7.1, `walk-forward-cpcv`·`ml-factor`는 T6.27, `zipline-port`는 T5.19, 사건 둘은 T3.35 [R4F-14]) `tests/docs/test_templates.py::test_template_runs[T]`가 `init --demo` 스냅숏에서 `backtest --preview`·`screen`을 돌리고 출력 블록과 대조한다.
 - **30분 길** [R4-13, R4F-13]: `tests/docs/test_first_30_minutes.py`가 깨끗한 가상환경에서 다섯 명령 `uv init quant && cd quant && uv add nexusbt`(프로젝트가 없어도 첫 줄이 한 명령으로 돈다; CI는 PyPI 게시 전이라 `uv add nexusbt --find-links dist/` — 출시 관문 T6.15와 같은 깨끗한 wheel) → `nexusbt init --demo` → `nexusbt new strategy momo --template monthly-topn` → `nexusbt backtest momo.py --preview` → `nexusbt screen momo.py`를 차례로 돌리고 각 명령이 오류 없이 끝나며 합이 2분 안(CI 러너)임을 확인한다. 사람이 재는 30분은 출시 전 사용자 시험(T5.18 Done means).
 - **zipline → NexusBT 대응표** [R4-14]: `docs/migrate-from-zipline.md`(영어 정본 + 한국어)의 표(bundle·`initialize`·`handle_data`·`context`·`schedule_function`·`order_target_percent`·`attach_pipeline`·`pipeline_output`·`run_algorithm`·`CustomFactor`가 각각 무엇이 되나)와 같은 내용의 실행 예제 `zipline-port` 템플릿; 표의 NexusBT 칸 코드 조각은 모두 `<!-- test -->`.
+- **도구 카드: 하나의 쉬운 설명 형식** (설계 검토 D19, #219): 6.3 표의 진단과 6.3a의 `method`마다 카드 `docs/guide/tools/<id>.md`(영어 정본)와 `docs/guide/tools/<id>.ko.md`를 두고, 번호 붙은 일곱 항목을 이 제목과 순서로 쓴다: (1) 답하는 질문과 막는 함정; (2) 언제 쓰고 언제 맞지 않는가; (3) 필요한 자료·비교 집합·조건; (4) 자료가 학습·선택·평가로 어떻게 나뉘는가(5항 예제의 결정일 표나 그림); (5) 합성 `small` 스냅숏에서의 최소 실행(기능이 생기면 `<!-- test -->`와 `<!-- output -->` 블록); (6) 숫자와 그림을 읽는 법, 결론 내릴 수 있는 것과 없는 것, 3.9가 출력하는 첫 화면 줄을 그대로 인용; (7) 다음에 해 볼 것, 계산 비용, 남는 한계. 쉬운 말과 구체적 예 하나가 먼저 오고, 공식과 고급 조건은 그 뒤 닫힌 펼침 칸(`<details>`)에 둔다. 카드는 3.9, 6.3, 안내서(3.10)의 용어를 써서 Python, CLI, 노트북, 보고서가 같은 말을 하게 하며, 어느 카드도 합격선, "안전" 배지, 보편적인 과적합 확률을 말하지 않는다. 스펙에 아직 없는 결정에 기대는 항목은 이슈와 함께 그렇다고 적는다(`cpcv`의 #149·#215; 실패 표식과 primary·reference 표시의 #216). `tests/docs/test_tool_cards.py::test_card[<id>]`는 두 언어에서 일곱 제목의 순서, 5항의 실행, 6항의 인용 줄을 확인하고, `::test_every_tool_has_a_card_row`는 아래 표가 6.3의 행과 6.3a의 방법마다 한 행을 갖는지 확인한다. 표의 티켓이 그 도구를 켜는 풀 리퀘스트에서 카드를 쓰고, 그 Acceptance에 `test_card[<id>]`를 적는다.
+
+| 카드 id | 도구 | 티켓 |
+|---|---|---|
+| `linear` | `method="linear"` | T3.13a |
+| `holdout` | 구간, `splits.holdout()`, `nx.preregister` | T2.18 |
+| `walk-forward` | `method="walk_forward"` | T6.20 |
+| `cpcv` | `method="cpcv"`와 CPCV 경로 분포 | T6.21 |
+| `pbo` | PBO (CSCV), `method="cscv"`, `sweep` | T6.8 |
+| `psr` | PSR(0) | T6.8 |
+| `dsr` | DSR | T6.8 |
+| `min-trl` | MinTRL | T3.20 |
+| `lo-sharpe` | Lo Sharpe | T3.20 |
+| `ic-newey-west` | IC Newey–West t | T2.8 |
+| `bhy` | BHY p | T2.16 |
+| `scenarios` | 비용 민감도, 시나리오, 용량(T6.14 전까지 용량은 E18) | T3.13b |
+| `offsets` | offsets | T6.18 |
+| `log-loss-brier` | log-loss, Brier | T6.24 |
+| `spa` | SPA / White reality check | v1에는 없음("not supported in v1"); 12.1 RS-03의 v1.x 티켓 |
 ---
 
 ## 9. plinth로 만드는 순서 (TDS 적합성 검사기 패키지 포함) [R-65]
@@ -3266,11 +3289,11 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 
 **T2.8 `feat(research): IC, Newey-West, quantiles, turnover and coverage`** · `M2` `research` · M · Blocked by: T2.7 · §5.8
 - Done means: 손으로 만든 IC 계열에서 NW t와 L이 시험 기대값과 같게 출력.
-- Acceptance: `tests/unit/research/test_factor_stats.py::test_spearman_min_pairs`, `::test_newey_west_known_value`, `::test_quantile_ties`, `::test_turnover`, `::test_coverage_counts`.
+- Acceptance: `tests/unit/research/test_factor_stats.py::test_spearman_min_pairs`, `::test_newey_west_known_value`, `::test_quantile_ties`, `::test_turnover`, `::test_coverage_counts`, `tests/docs/test_tool_cards.py::test_card[ic-newey-west]`, `::test_every_tool_has_a_card_row`(D19, #219).
 
 **T2.16 `feat(research): naive breadth, implied IR and cohort BHY-adjusted p`** **[new]** · `M2` `research` · S · Blocked by: T2.8, T2.9 · §5.8 [SC-08, SC-09, RV-C12] *(v3: 집단, 이름 \"naive\")*
 - Done means: 손으로 만든 후보 5개(NW t 주어짐)에서 BHY 보정 p를 출력하고 기대값과 같음; horizon이 다른 후보는 같은 집단에 들지 않음; 단순 폭·기대 IR 출력.
-- Acceptance: `tests/unit/research/test_hygiene_stats.py::test_bhy_known_values`, `::test_bhy_cohort_excludes_other_horizon`, `::test_breadth_naive_definition`, `::test_implied_ir`, `::test_bhy_limit_sentence_present`.
+- Acceptance: `tests/unit/research/test_hygiene_stats.py::test_bhy_known_values`, `::test_bhy_cohort_excludes_other_horizon`, `::test_breadth_naive_definition`, `::test_implied_ir`, `::test_bhy_limit_sentence_present`, `tests/docs/test_tool_cards.py::test_card[bhy]`(D19, #219).
 
 **T2.10a `feat(api): evaluate and FactorReport`** **[v3]** · `M2` `api` · M · Blocked by: T2.8, T2.9, T2.4, T2.16 · §3.8, §3.9 *(v3: T2.10을 나눔; 정답 정의 줄, `Mapping` 항목마다 후보, `save_signal`)*
 - Done means: `uv run nexusbt evaluate examples/factors/momentum.py`가 3.9 모양의 FactorReport(정답 정의·naive breadth·BHY(cohort) 줄 포함)와 `report.html` 경로를 출력.
@@ -3291,7 +3314,7 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 
 **T2.18 `feat(api): preregister`** **[v3]** · `M2` `api` · S · Blocked by: T2.9 · §6.4 [RV-Q03]
 - Done means: `nx.preregister(f, metric="ic_mean", threshold=0.02, segment="validation")` 뒤 그 구간 평가 보고서에 "preregistered ic_mean ≥ 0.02: pass/fail · registered before first validation exposure: yes/no".
-- Acceptance: `tests/unit/research/test_preregister.py::test_record_and_report_line`, `::test_registered_after_exposure_flagged`.
+- Acceptance: `tests/unit/research/test_preregister.py::test_record_and_report_line`, `::test_registered_after_exposure_flagged`, `tests/docs/test_tool_cards.py::test_card[holdout]`(D19, #219).
 
 **T2.13 `test(parity): L1-c fundamentals and producer panel agreement script`** · `M2` `parity` · S · Blocked by: T2.2, T1.17 · §8.1
 - Done means: L1-c 증거 JSON; `bench/panel_agreement.py --snapshot <id> --panel <name>`이 (생산자 월간 패널이 있을 때, 계산 기계에서) 칸별 일치 비율을 분자/분모로 출력(요약만 커밋).
@@ -3414,11 +3437,11 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 
 **T3.13a `feat(api): single-market backtest and metrics`** **[v3]** · `M3a` `api` · M · Blocked by: T3.12, T3.2, T2.9, T3.Ge · §5.7, §3.8, §3.9 Run *(v3: T3.13을 나눔; 가정 줄, 직접 비용/경로 효과, 집단 관측 기록)*
 - Done means: `uv run nexusbt backtest examples/strategies/mom_kr.py`가 3.9 Run 모양(net/gross, 가정 줄, 비용 직접/경로, 폐지 lo/hi, PSR)을 출력.
-- Acceptance: `tests/unit/api/test_backtest.py::test_run_summary_template`, `::test_assumption_lines_present`, `::test_observation_recorded`, `tests/unit/research/test_metrics.py::test_cagr_sharpe_mdd_turnover_known_values`, `::test_cost_drag_direct_vs_path`, `tests/golden/test_metrics.py::test_G60_metrics_and_month_compounding`(v3.1 [V31-07]), `::test_mdd_includes_inception_nav`(G-61 (a) [V31-23]), `tests/unit/api/test_backtest.py::test_assumption_ex_post_volume_cap`, `tests/unit/research/test_metrics.py::test_cagr_from_twr_index_equals_nav_ratio_without_flows`, `::test_turnover_long_only_unchanged`(v3.2 [R3-03, R3-19, R3-20]).
+- Acceptance: `tests/unit/api/test_backtest.py::test_run_summary_template`, `::test_assumption_lines_present`, `::test_observation_recorded`, `tests/unit/research/test_metrics.py::test_cagr_sharpe_mdd_turnover_known_values`, `::test_cost_drag_direct_vs_path`, `tests/golden/test_metrics.py::test_G60_metrics_and_month_compounding`(v3.1 [V31-07]), `::test_mdd_includes_inception_nav`(G-61 (a) [V31-23]), `tests/unit/api/test_backtest.py::test_assumption_ex_post_volume_cap`, `tests/unit/research/test_metrics.py::test_cagr_from_twr_index_equals_nav_ratio_without_flows`, `::test_turnover_long_only_unchanged`(v3.2 [R3-03, R3-19, R3-20]), `tests/docs/test_tool_cards.py::test_card[linear]`, `tests/unit/report/test_next_line.py::test_entries_from_run_facts_not_values`(D19, #218, #219).
 
 **T3.13b `feat(api): named scenarios with a single zero-cost replay`** **[v3]** · `M3a` `api` · S · Blocked by: T3.13a · §3.8, §5.7 [SC-06 인자 모양, RV-Q02] *(v3: T3.13을 나눔; gross = cost0x 한 번)*
 - Done means: `--scenarios gross,cost0x,cost2x`가 재생 두 번(gross, cost2x)만 하고 결과 표에 cost0x가 gross와 같은 계열로 나옴; `capacity`는 T6.14 전 E18.
-- Acceptance: `tests/unit/api/test_backtest.py::test_gross_replayed_once`, `::test_cost_sensitivity_rows`, `::test_scenarios_named_list`, `::test_capacity_not_yet_E18`.
+- Acceptance: `tests/unit/api/test_backtest.py::test_gross_replayed_once`, `::test_cost_sensitivity_rows`, `::test_scenarios_named_list`, `::test_capacity_not_yet_E18`, `tests/docs/test_tool_cards.py::test_card[scenarios]`(D19, #219).
 
 **T3.14 `feat(artifacts): backtest outputs, event schemas, derived tables, NAV bridge and cost attribution`** · `M3a` `artifacts` · M · Blocked by: T3.13a · §5.9.1, INV-06, INV-16 [SC-07 비용, SC-23, RV-C07, RV-I04] *(v3.2: `daily`에 `bridge_financing`·`bridge_external_flows`(값 0이어도 늘), `coverage.rounding_gap`·`n_unknown_by_leaf`, `account_events.shortfall` [R3-11, R3-20, R3-13, R3-09])* *(v3: `nexusbt-events/1`, 다리 칼럼, 비용 귀속 기준 바꿈)*
 - Done means: `runs/<id>/orders.parquet`·`account_events.parquet`를 polars로 열면 5.9.1 정규 칼럼; `daily.parquet`의 다리 행 합 = NAV 변화; `attribution.parquet`의 비용 행 합 = 주문 비용 칼럼 합(gross − net은 \"직접 + 경로\"로 표시); `report.html`에 비용 분해·시나리오·주문 상태 표, 그리고 3.9의 Run 칸이 3.9 순서로(나중 티켓이 표를 더하는 칸은 n/a 줄을 보임) 3.9 크기 예산 안에서.
@@ -3544,7 +3567,7 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 
 **T3.20 `feat(research): MinTRL, Lo-adjusted Sharpe, drawdown durations and signal-weight correlation`** **[new]** · `M3b` `research` · M · Blocked by: T3.13a, T3.Ge · §5.7 [SC-08, SC-09, RV-Q02] *(v3: TC 이름 바꿈, Lo 자름 표시)*
 - Done means: 손으로 만든 수익 계열에서 MinTRL·ρ1·Lo Sharpe(lags ≤ 10)·낙폭 기간·회복 기간·최악 월이 기대값과 같게 출력; Run 첫 화면에 MinTRL·signal-weight corr 줄.
-- Acceptance: `tests/unit/research/test_risk_stats.py::test_min_trl_known_value`, `::test_lo_sharpe_only_when_rho_large`, `::test_drawdown_and_recovery_durations`, `::test_worst_month`, `tests/golden/test_metrics.py::test_G61_drawdown_edges`(v3.1 [V31-23]), `::test_worst_month_compounds`(v3.1 [V31-07]), `::test_signal_weight_corr_definition`, `::test_stat_unavailable_cases`.
+- Acceptance: `tests/unit/research/test_risk_stats.py::test_min_trl_known_value`, `::test_lo_sharpe_only_when_rho_large`, `::test_drawdown_and_recovery_durations`, `::test_worst_month`, `tests/golden/test_metrics.py::test_G61_drawdown_edges`(v3.1 [V31-23]), `::test_worst_month_compounds`(v3.1 [V31-07]), `::test_signal_weight_corr_definition`, `::test_stat_unavailable_cases`, `tests/docs/test_tool_cards.py::test_card[min-trl]`, `::test_card[lo-sharpe]`(D19, #219).
 
 **T3.Gf `test(golden): price grid cases (G-57)`** **[v3.1]** · `M3b` `golden` · S · Blocked by: T0.9 · §5.6.4a, §8.2 [V31-05]
 - Context: G-57 (a)~(h)(US 1 ULP, KR 손절 내림, 지정가 매수 내림, 상하한 계산값, 숏 환매 손절 올림; v3.2: 가격대를 넘는 비교, 분수 시대·격자 밖 봉, 경계 넘는 맞춤·GTC 재맞춤 [R3-02, R3-14]). T3.24 전에 병합.
@@ -3855,7 +3878,7 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 
 **T6.8 `feat(research): PSR, DSR and PBO via CSCV over cohorts`** · `M6` `research` · M · Blocked by: T6.7, T2.9 · §5.7, §6.3 [RV-C12] *(v3: 집단, 계산 불가 규칙)*
 - Done means: sweep 출력에 PBO 줄, backtest에 DSR 줄(N, V[SR] 출처 = 집단, `cohort_sha256`); 입력 부족 시 "n/a (reason)"(6.3 목록). (2026-11-04, #197) hygiene 절의 `ρ1…ρ10` 띠, 그 검정의 p < 0.05이면 PSR 줄의 5.7 표시 "IID-based: dependence visible (Ljung–Box lags 1–10, p < 0.05; may also reflect changing volatility)", N > 1이면 SR*_N에 대한 MinTRL, reality-check 요청에는 "not supported in v1".
-- Acceptance: `tests/property/test_stats.py::test_P_STAT_psr_dsr_known`, `::test_pbo_hand_matrix`, `::test_invalid_population_na`, `::test_dsr_uses_frozen_cohort`, `::test_pbo_zero_variance_rule`, `::test_psr_raw_kurtosis_convention`(v3.1 G-60 [V31-07]), `::test_pbo_common_dates_with_unequal_lookbacks`, `::test_purge_keeps_max_end_available`(v3.2 [R3-24]), `::test_iid_label_when_dependence_visible`(ρ1 = 0인 AR(2) 시계열에 표시), `::test_mintrl_selection_adjusted_reference`, `::test_reality_check_not_supported`(2026-11-04, #197).
+- Acceptance: `tests/property/test_stats.py::test_P_STAT_psr_dsr_known`, `::test_pbo_hand_matrix`, `::test_invalid_population_na`, `::test_dsr_uses_frozen_cohort`, `::test_pbo_zero_variance_rule`, `::test_psr_raw_kurtosis_convention`(v3.1 G-60 [V31-07]), `::test_pbo_common_dates_with_unequal_lookbacks`, `::test_purge_keeps_max_end_available`(v3.2 [R3-24]), `::test_iid_label_when_dependence_visible`(ρ1 = 0인 AR(2) 시계열에 표시), `::test_mintrl_selection_adjusted_reference`, `::test_reality_check_not_supported`(2026-11-04, #197), `tests/docs/test_tool_cards.py::test_card[psr]`, `::test_card[dsr]`, `::test_card[pbo]`(D19, #219).
 
 **T6.9 `feat(research): truncation probes with prioritized dates and coverage report`** · `M6` `research` · M · Blocked by: T6.4 · §6.5 [SC-05, RV-C11] *(v3: 주입한 미래 읽기 소스로 시험, 창 안 roll은 거짓 양성 아님)*
 - Done means: 스냅숏 전체 기간 배열을 클로저로 받는 함수에 `nx.check(f, probes=4)`가 E1과 한계 문단, "nodes compared x/y", "finite cells a/b", 날짜 이유를 출력; 창 안에서만 `np.roll`하는 함수는 E1이 없다.
@@ -3890,7 +3913,7 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 **T6.18 `feat(api): rebalance-date luck offsets and rolling-window table`** **[v3.1]** · `M6` `api` · M · Blocked by: T6.4, T4.12 · §3.8, §5.7, §6.2, §3.11 `[report]` [V31-26]
 - Context: `backtest(offsets=k)`(같은 Pipeline 값, 목표·상태 기계만 다시), `offsets.parquet`, 첫 화면 줄, 시도 수·집단 밖, HTML "rolling"(1년·3년 창 초과 수익 분위).
 - Done means: `uv run nexusbt backtest examples/strategies/mom_kr.py --offsets 5`가 "rebalance-date luck 5 offsets · CAGR min/median/max"와 걸린 시간을 출력하고 study 후보 수는 그대로.
-- Acceptance: `tests/unit/api/test_offsets.py::test_reuses_pipeline_values`, `::test_not_counted_as_candidates`, `::test_schedule_offsets_per_kind`, `tests/unit/research/test_rolling.py::test_rolling_excess_quantiles`.
+- Acceptance: `tests/unit/api/test_offsets.py::test_reuses_pipeline_values`, `::test_not_counted_as_candidates`, `::test_schedule_offsets_per_kind`, `tests/unit/research/test_rolling.py::test_rolling_excess_quantiles`, `tests/docs/test_tool_cards.py::test_card[offsets]`(D19, #219).
 
 **T6.Gv `test(golden): validation, ML window, triple-barrier and pretrained-cutoff cases (G-88..G-93, G-106)`** **[v3.3]** *(R6: G-106 사전학습 마감을 여기서 먼저 [R6-13])* · `M6` `golden` · M · Blocked by: T0.9 · §5.3.11, §5.8, §6.3a, §8.2 [R4-26] *(v3.4: G-90 K = 1,001,000원 [R4F-12])*
 - Context: 분할 셈, 정화·엠바고(늦은 공개 폐지 정답), 계좌 이어 감/새 자본, ML 학습 창, 삼중 장벽 네 경우의 손계산 사례. 구현 PR 전에 병합.
@@ -3905,17 +3928,17 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 **T6.20 `feat(api): backtest(method="walk_forward") with a chained account, fold selection and linear side by side`** **[v3.3]** · `M6` `api` · M · Blocked by: T6.19, T6.7, T3.13a · §3.8, §6.3a, §6.2 [R4-20, R4-21]
 - Context: `backtest(method=…, grid=, select=)`, CLI `--method`·`--method-opt`·`--grid`, 폴드 훈련 IS 선택(grid 점마다 D 전체 선형 실행 하나의 일간 수익을 훈련 보유 기간으로 잘라 정화·엠바고, `selection.parquet` 표본 수 [R4F-11]), 이어 감이면 `step == test`(E16) [R4F-36], 비교 기준 `backtest(start=t_1)`(P-WF-STITCH [R4F-10]), 선형 줄에 기간 표시 [R4F-35], 계좌 하나 이어 감(보유·대기 주문·탈출·`risk_state`), 진단 `account="per_fold"`, 함께 도는 선형 실행, `Run.validation`·`validation/` 폴더, 셈(폴드 진단·grid 점 후보).
 - Done means: `uv run nexusbt backtest examples/strategies/value_mom.py --method walk_forward --grid n=10,20,30`이 linear 줄과 폴드 표(고른 n, IS/OOS Sharpe)를 출력하고 후보 수가 grid 점 수만큼 는다.
-- Acceptance: `tests/golden/test_validation.py::test_G90`, `tests/property/test_validation.py::test_P_WF_STITCH`, `tests/unit/api/test_method.py::test_folds_not_counted`, `::test_is_returns_sliced_from_full_run`, `::test_step_not_equal_test_E16`(v3.4 [R4F-11, R4F-36]), `::test_linear_run_alongside`, `::test_scenarios_only_on_linear`.
+- Acceptance: `tests/golden/test_validation.py::test_G90`, `tests/property/test_validation.py::test_P_WF_STITCH`, `tests/unit/api/test_method.py::test_folds_not_counted`, `::test_is_returns_sliced_from_full_run`, `::test_step_not_equal_test_E16`(v3.4 [R4F-11, R4F-36]), `::test_linear_run_alongside`, `::test_scenarios_only_on_linear`, `tests/docs/test_tool_cards.py::test_card[walk-forward]`(D19, #219).
 
 **T6.21 `feat(research): CPCV paths with fresh capital per path, CSCV and sweep as a shorthand`** **[v3.3]** · `M6` `research` · M · Blocked by: T6.20, T6.8 · §6.3a, §6.3 [R4-20, R4-21, R4-22]
 - Context: 경로마다 `TargetFrame` 이어 붙이기·새 자본 상태 기계, 경로 분포, CPCV PBO(IS 1등의 OOS 순위), `method="cscv"` = 6.3 절차, `sweep` = `backtest(method="cscv", grid=)` 줄임(`SweepResult` 호환), 고를 것 없는 CPCV E40, `[validate] max_fits` 사전 알림.
 - Done means: `--method cpcv`가 경로 5개 Sharpe 분포·최악 MDD·PBO(분자/분모)를 linear 옆에 출력.
-- Acceptance: `tests/golden/test_validation.py::test_G91`, `tests/unit/research/test_cpcv.py::test_path_count_and_fresh_capital`, `::test_nothing_to_select_E40_one_path`, `::test_path_interpretation_line`(v3.4 [R4F-29]), `tests/unit/api/test_sweep.py::test_sweep_equals_cscv_method`.
+- Acceptance: `tests/golden/test_validation.py::test_G91`, `tests/unit/research/test_cpcv.py::test_path_count_and_fresh_capital`, `::test_nothing_to_select_E40_one_path`, `::test_path_interpretation_line`(v3.4 [R4F-29]), `tests/unit/api/test_sweep.py::test_sweep_equals_cscv_method`, `tests/docs/test_tool_cards.py::test_card[cpcv]`(D19, #219).
 
 **T6.22 `feat(report): hygiene panel on the first screen and ValidationResult report`** **[v3.3]** · `M6` `report` · S · Blocked by: T6.21, T2.10b · §6.3a 보고서, §3.9 [R4-22]
 - Context: 첫 화면 hygiene 칸 일곱 줄(시도 줄, DSR/PSR/MinTRL, 경로 띠, PBO·기울기, 선택 안정성, 누설 장부, 사전 등록), 분자/분모 규칙, `ValidationResult.report()`.
 - Done means: report.html 첫 화면에 일곱 줄이 있고 배지가 없다(구조 시험).
-- Acceptance: `tests/unit/artifacts/test_report.py::test_hygiene_panel_lines`, `::test_ratios_have_counts`, `::test_no_pass_badges`.
+- Acceptance: `tests/unit/artifacts/test_report.py::test_hygiene_panel_lines`, `::test_ratios_have_counts`, `::test_no_pass_badges`, `tests/docs/test_tool_cards.py::test_report_explanations_match_cards`(D19, #219).
 
 **T6.23 `feat(ml): ml.factor node with engine-enforced training window and fit/predict records`** **[v3.3]** · `M6` `ml` · M · Blocked by: T6.19, T2.10a, T1.12 · §5.3.11, §6.5 검사 8 [R4-23]
 - Context: `MLFactor` 노드, 표본 구성, `train=rolling|expanding`, `refit` 일정, 학습 창 규칙(공개 시각 + embargo ≤ τ), E2 포트, 새 객체 학습(2026-11-04, #195: 팩토리·`__sklearn_clone__`·`clone`, 아니면 E16), `classes_`로 맞춘 클래스 확률과 세 클래스의 필수 `score=`, 한 클래스뿐인 훈련 창은 학습하지 않음(`ml_single_class`), seed·스레드 고정, `fit_id` 재사용, `predictions.parquet`·`fits.parquet`·매니페스트 `ml`, sklearn 선택 의존(엔진 import 없음).
@@ -3925,7 +3948,7 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 **T6.24 `feat(ml): ml.factor inside method folds, rerun refit hash check and determinism warnings`** **[v3.3]** · `M6` `ml` · S · Blocked by: T6.23, T6.21, T1.15 · §5.3.11, §6.3a [R4-23]
 - Context: 모든 방법에서 앞쪽만 학습(τ 뒤 표본 없음; CPCV는 그 분할의 시험 묶음·정화·엠바고 제외; walk-forward는 폴드 범위로 자르지 않음) [R4F-03], 누설 장부 `ml fits: forward-only` 줄, 겹칠 수 있는 설정 E29, `rerun` 재학습 `pred_sha256` 비교(E15/허용 오차), E44, 같은 `fit_id` 재사용(WF 겹침·CPCV 같은 조합).
 - Done means: ML 전략을 `--method cpcv`로 돌리면 학습 수와 재사용 수를 출력하고 `rerun`이 "predictions identical (n fits)"를 출력. (2026-11-04, #197) 분류 팩터의 `evaluate`가 5.7의 로그 손실·Brier 줄을 채점 수/전체와 함께 출력.
-- Acceptance: `tests/unit/ml/test_folds.py::test_forward_only_in_every_method`, `::test_cpcv_excludes_test_groups`, `::test_overlap_setting_E29`, `tests/unit/api/test_rerun.py::test_ml_refit_hash_equal`, `::test_threads_warning_E44`, `tests/property/test_cache.py::test_P_CACHE_FIT`(2026-11-04: CPCV 조합과 `run_seed`는 학습 L1 항목을 공유하지 않음, 캐시 켬 = 끔), `tests/unit/ml/test_scoring.py::test_multiclass_log_loss_over_declared_classes`, `::test_brier_on_chosen_score`, `::test_training_decision_not_scored`(2026-11-04, #197).
+- Acceptance: `tests/unit/ml/test_folds.py::test_forward_only_in_every_method`, `::test_cpcv_excludes_test_groups`, `::test_overlap_setting_E29`, `tests/unit/api/test_rerun.py::test_ml_refit_hash_equal`, `::test_threads_warning_E44`, `tests/property/test_cache.py::test_P_CACHE_FIT`(2026-11-04: CPCV 조합과 `run_seed`는 학습 L1 항목을 공유하지 않음, 캐시 켬 = 끔), `tests/unit/ml/test_scoring.py::test_multiclass_log_loss_over_declared_classes`, `::test_brier_on_chosen_score`, `::test_training_decision_not_scored`(2026-11-04, #197), `tests/docs/test_tool_cards.py::test_card[log-loss-brier]`(D19, #219).
 
 **T6.24b `feat(ml): pretrained predict-only models with training cutoff leak guard`** **[v3.4 R5]** · `M6` `ml` · S · Blocked by: T6.24, T6.Gv · §5.3.11, §6.2, §6.6 [R5-03, R6-13]
 - Context: `nx.ml.pretrained(model, training_cutoff=, corpus=, allow_overlap=)`, `predict`만, cutoff + embargo 이전 판단 E48(실패)·`allow_overlap` E49 표시·보고서 줄·매니페스트 가정, 검증 경로 표시, `fit_id`에 모형 식별, 후보로 셈.
