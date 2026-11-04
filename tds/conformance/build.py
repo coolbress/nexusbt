@@ -59,7 +59,7 @@ def rewrite(m: dict[str, Any], files: Files, rel: str, table: pa.Table, **opts: 
     """Write `table` to the listed file `rel` and keep its `bytes` in tds.json right."""
     (ds,) = (d for d in m["datasets"] if d["files"][0]["path"] == rel)
     files[rel] = parquet(table, ds["name"], **opts)
-    ds["files"][0]["bytes"] = len(files[rel])
+    ds["files"][0] |= {"bytes": len(files[rel]), "rows": table.num_rows}
 
 
 def base() -> Package:
@@ -141,16 +141,75 @@ def _instruments(*, codes: bool = False, **columns: pa.Array | None) -> Change:
     return change
 
 
-def _codes(m: dict[str, Any], files: Files) -> None:
-    """Add a TDS 4.4 `dictionary/codes` dataset listing `category` `ordinary`."""
-    rel = "dictionary/codes/part-00000.parquet"
-    table = pa.table({"field": ["category"], "code": ["ordinary"]})
-    files[rel] = parquet(table, "dictionary/codes")
-    entry = {"path": rel, "rows": 1, "bytes": len(files[rel])}
-    name = {"name": "dictionary/codes", "kind": "dictionary/codes"}
-    m["datasets"].append(
-        name | {"schema_version": "1.0", "path": "dictionary/codes", "files": [entry]}
-    )
+def _add(kind: str, columns: dict[str, Any], *paths: str) -> Change:
+    """Add a dataset of `kind` with files at `paths` (one unpartitioned), each holding `columns`."""
+
+    def change(m: dict[str, Any], files: Files) -> None:
+        table, entries = pa.table(columns), []
+        for rel in paths or (f"{kind}/part-00000.parquet",):
+            files[rel] = parquet(table, kind)
+            entries.append({"path": rel, "rows": table.num_rows, "bytes": len(files[rel])})
+        m["datasets"].append({"name": kind, "kind": kind, "schema_version": "1.0", "path": kind}
+                             | {"files": entries})  # fmt: skip
+
+    return change
+
+
+#: TDS 4.4 `dictionary/codes`, listing `category` `ordinary`.
+_codes = _add("dictionary/codes", {"field": ["category"], "code": ["ordinary"]})
+TS_UTC = pa.timestamp("us", "UTC")
+NEW_YEAR = dt.datetime(2024, 1, 1, tzinfo=dt.UTC)
+
+
+def _panels(*editions: str) -> Change:
+    """US:AAA's January 2024 row of feature panel `f`, a file per edition folder (5.25)."""
+    folder = "feature_panels/name=f/edition={}/year=2024/part-{:05}.parquet"
+    paths = [folder.format(e, n) for n, e in enumerate(editions)]
+    row = {"instrument_id": ["US:AAA"], "period": pa.array([dt.date(2024, 1, 1)])}
+    row |= {"as_of_date": pa.array([dt.date(2023, 12, 29)])}
+    row |= {"ts_available": pa.array([NEW_YEAR], TS_UTC)}
+
+    def change(m: dict[str, Any], files: Files) -> None:
+        m["editions"] = {"default": "strict", "values": {"strict": "s", "compare": "c"}}
+        _add("feature_panels", row, *paths)(m, files)
+
+    return change
+
+
+def _gics(*levels: int) -> Change:
+    """US:AAA's GICS rows at `levels`, all effective 2024-01-02 and known 2024-01-01 (5.19)."""
+    n = len(levels)
+    return _add("classifications", {
+        "instrument_id": ["US:AAA"] * n, "scheme": ["gics"] * n,
+        "level": pa.array(levels, pa.int8()), "code": [f"c{i}" for i in range(n)],
+        "effective_from": pa.array([dt.date(2024, 1, 2)] * n),
+        "ts_known_from": pa.array([NEW_YEAR] * n, TS_UTC), "edition": ["both"] * n,
+        "pit_quality": ["native"] * n, "source": ["synthetic"] * n,
+    })  # fmt: skip
+
+
+def _bars_on(*days: int) -> Change:
+    """US:AAA's daily bars on these days of January 2024, in that order."""
+    columns = {"session_date": pa.array([dt.date(2024, 1, d) for d in days])}
+    n = len(days)
+    return _bars(instrument_id=pa.array(["US:AAA"] * n), close=pa.array([10.0] * n), **columns)
+
+
+def _ranged(second_from: str) -> Change:
+    """The bars as two files named by time range (TDS 3.6), the second from `second_from`."""
+
+    def change(m: dict[str, Any], files: Files) -> None:
+        folder, ds = BARS.rsplit("/", 1)[0], bars(m)
+        files.pop(BARS)
+        ds["files"] = []
+        names = ("2024-01-02T00-00-00Z_2024-01-02T23-59-59Z", f"{second_from}_2024-01-03T23-59-59Z")
+        for day, name in zip((2, 3), names, strict=True):
+            rel = f"{folder}/{name}.parquet"
+            table = bars_table(session_date=pa.array([dt.date(2024, 1, day)]))
+            files[rel] = parquet(table, "bars_1d")
+            ds["files"].append({"path": rel, "rows": 1, "bytes": len(files[rel])})
+
+    return change
 
 
 WRONG = "0" * 64
@@ -254,6 +313,13 @@ CASES: dict[str, tuple[Change, Change]] = {
     ),
     "TDS-T006": (_watermark(THROUGH), _watermark(THROUGH + dt.timedelta(microseconds=1))),
     "TDS-D002": (_keep, _bars(session_date=pa.array([dt.date(2024, 1, 1)]))),  # before listed_on
+    "TDS-K001": (  # GICS sector and industry on one day (5.19), a key in two editions: no K001
+        lambda m, f: (_gics(1, 3)(m, f), _panels("strict", "compare")(m, f)),
+        _panels("strict", "strict"),  # one key twice in one folder
+    ),
+    "TDS-K002": (_bars_on(2, 3), _bars_on(3, 2)),
+    "TDS-K003": (_keep, _bars(session_date=pa.array([dt.date(2025, 1, 2)]))),  # in year=2024
+    "TDS-K004": (_ranged("2024-01-03T00-00-00Z"), _ranged("2024-01-02T12-00-00Z")),
     **{
         code: (_hashes(code, False), _hashes(code, True))
         for code in ("TDS-H001", "TDS-H002", "TDS-H003")
