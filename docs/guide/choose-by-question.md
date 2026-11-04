@@ -6,9 +6,9 @@
 > output block. Where a line rests on a decision that is not yet in the spec, it
 > says **not yet in the spec** and names the issue. The spec
 > (`docs/spec/engine-spec-v3.4.md`) is the source of truth; when this page and
-> the spec differ, the spec is right. Which questions come first, and whether a
-> command prints these entries, is open in #218; this draft follows its
-> recommendation.
+> the spec differ, the spec is right. The order of the questions, the choice of
+> no guide command in v1 (this document and `--help` only) and the `next` line
+> on the Run first screen were decided 2026-11-04 in #218.
 
 You do not need to know the name of a statistical method to use NexusBT. Start
 from what you want to know. Each entry below says which evaluation or

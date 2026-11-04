@@ -941,7 +941,7 @@ write: orders.to_csv("orders/{date}.csv")   apply to paper book: nx.fill(book, o
 
 `FILE[:VAR]`의 VAR 기본: 전략 파일은 `strategy`, 팩터 파일은 마지막에 정의된 Factor(여럿이면 `ConfigError`로 이름을 요구).
 
-**도움말 문구** (설계 검토 D19, #219): `evaluate`·`backtest`·`sweep`의 `--help`는 `--method` 값과 진단 선택지마다 사용자의 질문을 먼저, 도구 이름을 그다음에 적고, 3.9와 안내서 `docs/guide/choose-by-question.md`(영어 원문, 한국어 번역; 질문마다 항목 하나, 각각 맞는 도구·이유·필요한 것·보여 주지 못하는 것)의 용어를 쓴다. 예: `--method walk_forward   I will re-choose or retrain periodically: choose on each training window, test on the window after it`. 도움말 줄은 그 선택지에 필요한 것과 보여 주지 못하는 것을 말하며, 결과로 선택지의 순위를 매기지 않고, 어느 것도 안전하다고 하지 않으며, 연구용 선택지를 필수처럼 보이게 하지 않는다(그냥 `backtest FILE`로 완결된다). `nexusbt backtest --help`는 `which method fits my question? docs/guide/choose-by-question.md` 줄로 끝난다. 안내서 항목 하나를 출력하는 명령을 둘지, Run 첫 화면에 FactorReport처럼 `next` 줄을 둘지는 #218에서 정한다. 정해지기 전까지 안내서는 문서와 이 도움말 문구다.
+**도움말 문구** (설계 검토 D19, #219): `evaluate`·`backtest`·`sweep`의 `--help`는 `--method` 값과 진단 선택지마다 사용자의 질문을 먼저, 도구 이름을 그다음에 적고, 3.9와 안내서 `docs/guide/choose-by-question.md`(영어 원문, 한국어 번역; 질문마다 항목 하나, 각각 맞는 도구·이유·필요한 것·보여 주지 못하는 것)의 용어를 쓴다. 예: `--method walk_forward   I will re-choose or retrain periodically: choose on each training window, test on the window after it`. 도움말 줄은 그 선택지에 필요한 것과 보여 주지 못하는 것을 말하며, 결과로 선택지의 순위를 매기지 않고, 어느 것도 안전하다고 하지 않으며, 연구용 선택지를 필수처럼 보이게 하지 않는다(그냥 `backtest FILE`로 완결된다). `nexusbt backtest --help`는 `which method fits my question? docs/guide/choose-by-question.md` 줄로 끝난다. 2026-11-04 #218에서 결정: v1에는 안내서 항목을 출력하는 명령이 없고(안내서는 문서와 이 도움말 문구다), Run 첫 화면에 FactorReport처럼 `next` 줄 하나를 두며, 3.9에는 #219를 통해 들어간다.
 
 ### 3.11 `nexusbt.toml` 스키마
 
