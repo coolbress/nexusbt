@@ -161,18 +161,19 @@ def test_command_prints_counts_and_hashes_then_checks(
     assert code == 0, printed.out + printed.err
     lines = printed.out.splitlines()
     # 2 markets x (5 instruments x 62 sessions + 1 listed on 02-18 x 31 sessions)
-    assert lines[:7] == [
+    assert lines[:8] == [
         "instruments 12 rows", "instrument_symbols 14 rows", "instrument_xref 0 rows",
-        "calendar_sessions 124 rows", "corporate_actions 0 rows", "bars_1d 682 rows",
-        "corporate_actions revisions 0, cancellations 0",
+        "calendar_sessions 124 rows", "corporate_actions 0 rows", "delistings 0 rows",
+        "bars_1d 682 rows", "corporate_actions revisions 0, cancellations 0",
     ]  # fmt: skip
     hashes = json.loads((out / "tds.json").read_text(encoding="utf-8"))["hashes"]
-    assert lines[7:10] == [
+    assert lines[8:11] == [
         f"value_sha256 {hashes['value_sha256']}",
         f"semantic_sha256 {hashes['semantic_sha256']}",
         "TDS-A001: 0",
     ]
     assert "0 errors, 0 warnings at level full" in printed.out
+    assert "tds:equity-daily-core@1.0: declared" in printed.out  # with empty events (TDS 7)
 
 
 def test_command_without_validate_prints_and_does_not_check(
@@ -276,8 +277,8 @@ def test_small_hashes_match_on_macos_and_linux(tmp_path: Path) -> None:
     package = make_snapshot(tmp_path / "d", preset="small")  # default markets KR, US; seed 0
     hashes = json.loads((package / "tds.json").read_text())["hashes"]
     assert (hashes["value_sha256"], hashes["semantic_sha256"]) == (
-        "86a86f2f8b476294c1dd7cb36926fbd8ee0a6749b0afbd5c489b8db99d5233f0",
-        "b56dae33dfa012a2895572d2723febd41366525f8eabd7e39d63dc6718b46a32",
+        "dd083d85c7968dad0a1d9e145afa55cec225f1f8638b666c314043f7d16b241a",
+        "2bca42dda815aa99b50a8e51934197af52f5d7f927bfb525b50ac1d80e7ccbaa",
     )
 
 
@@ -298,7 +299,8 @@ def called_names(source: str) -> set[str]:
 
 
 def test_small_value_path_uses_no_platform_math() -> None:
-    for step in (synth._small, synth._actions, synth._terms):
+    for step in (synth._small, synth._actions, synth._terms, synth._dividend, synth._revise,
+                 synth._move, synth._delistings, synth._exit_value):  # fmt: skip
         assert not called_names(inspect.getsource(step)) & PLATFORM_MATH, step.__name__
     # the check refuses what it is for, so the pass above is not vacuous
     bad = "def f(rng, p):\n    return np.exp(rng.normal(0, 1)) * p.sqrt() + math.log(2) ** 2\n"
@@ -367,7 +369,7 @@ def test_revisions_and_cancellations_present(
     for a, b in cancelled:  # cancelled after the announcement, before it took effect
         assert a["status"] == "announced"
         assert a["ts_announced"] < b["ts_announced"] < b["ts_effective"]
-    for r in (r for r in actions if r["kind"] != "cash_dividend"):  # exact ratios (#220 (2))
+    for r in (r for r in actions if r["kind"] in synth.SHARE_EVENTS):  # exact ratios (#220 (2))
         quotient = r["ratio_num"] / r["ratio_den"]
         assert quotient == r["share_factor"] == pytest.approx(1 / r["price_factor"], rel=1e-12)
     dividends = [r for r in actions if r["kind"] == "cash_dividend"]
@@ -383,3 +385,38 @@ def test_revisions_and_cancellations_present(
     assert code == 0, printed
     assert "TDS-A001: 0" in printed.splitlines()
     assert re.search(r"^corporate_actions revisions [1-9]\d*, cancellations [1-9]", printed, re.M)
+
+
+def test_delisted_on_matches_delistings(small: Path) -> None:
+    exits = {r["instrument_id"]: r for r in rows(small, "delistings")}
+    instruments = rows(small, "instruments")
+    for r in instruments:  # one exit per listing that ends in the period, at delisted_on (R008)
+        out = exits.get(r["instrument_id"])
+        assert (out and out["exit_date"], out and out["last_trading_date"]) == (
+            r["delisted_on"], r["last_session"]), r["instrument_id"]  # fmt: skip
+    assert len(exits) == sum(r["delisted_on"] is not None for r in instruments) > 0
+    closes = {(b["instrument_id"], b["session_date"]): b["close"] for b in rows(small, "bars")}
+    for r in exits.values():
+        assert r["ref_price"] == closes[r["instrument_id"], r["ref_date"]]
+        assert r["last_trading_date"] < r["exit_date"]
+        assert r["ret_lo"] <= r["ret_hi"]
+        assert r["ts_exit_known"] < dt.datetime.combine(r["exit_date"], dt.time(), UTC)
+    status = [r["exit_value_status"] for r in exits.values()]
+    assert set(status) == {"observed", "estimated", "unobserved"}
+    late = [(r["ts_value_available"].date() - r["exit_date"]).days for r in exits.values()
+            if r["ts_value_available"]]  # fmt: skip
+    assert late
+    assert 20 <= min(late) <= max(late) <= 90  # INV-01: an observed value published late
+    unobserved = [r["ret_policy"] for r in exits.values() if r["exit_value_status"] == "unobserved"]
+    assert None in unobserved  # 5.6.13's E13 path: no policy value for a holding
+    assert -0.3 in unobserved
+    # 4.8 (4): a liquidating distribution between the last trading day and the exit
+    payouts = [r for r in rows(small, "corporate_actions") if r["kind"] == "return_of_capital"]
+    assert payouts
+    for p in payouts:
+        out = exits[p["instrument_id"]]
+        assert out["last_trading_date"] < p["ex_date"] < out["exit_date"]
+        assert out["delist_type"] == "liquidation"
+        assert out["ret_observed_includes_distributions"] is not None  # no A011
+    assert all(r["ret_observed_includes_distributions"] is None for r in exits.values()
+               if r["delist_type"] != "liquidation")  # fmt: skip
