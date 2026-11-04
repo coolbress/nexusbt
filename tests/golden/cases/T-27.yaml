@@ -17,8 +17,11 @@ input:
 
 # One row per instrument, in hash order. `hash_order` and `id_order`: its position (1 = first
 # picked) under `tiebreak = "hash"` and `"id"`. The instrument_id is hashed as its UTF-8 bytes.
-# The three keys are the ones spec 8.2 gives (2629704763309498885 < 4315078529452203467 <
-# 8949987214584180479).
+# The three keys are the ones spec 8.2 gives.
+#
+# Hand-checked by the person 2026-11-04 (#221), each key computed with sha256 on its own:
+#   KR:T00002 2629704763309498885 < KR:T00001 4315078529452203467 < KR:T00003 8949987214584180479
+#   hash order T00002, T00001, T00003
 expected:
   - {instrument_id: "KR:T00002", key: 2629704763309498885, hash_order: 1, id_order: 2}
   - {instrument_id: "KR:T00001", key: 4315078529452203467, hash_order: 2, id_order: 1}

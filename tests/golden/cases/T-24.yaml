@@ -22,12 +22,17 @@ input:
 # `.all(2)` and `.any(2)` read close_prev and close (Kleene: false & unknown = false,
 # true | unknown = true, otherwise unknown).
 #
-# Worked by hand (not yet checked by the person):
+# Hand-checked by the person 2026-11-04 (#221):
+#   ~(close > 10000), halted KR:T00003:  unknown; false at a final use
+#   .all(2), KR:T00003 (false, unknown): false
+#   .any(2), KR:T00003 (false, unknown): unknown
+#
+# Worked by hand, the rest (not checked by the person):
 #   close > 10000 at d:       12000 > 10000 true; 8000 > 10000 false; NaN gives unknown
 #   ~ of that:                false, true, unknown (v3 gave true for the halted one)
 #   | close.isnan():          true | false = true; false | false = false; unknown | true = true
-#   .all(2):                  (unknown, true) unknown; (true, false) false; (false, unknown) false
-#   .any(2):                  (unknown, true) true; (true, false) true; (false, unknown) unknown
+#   .all(2):                  (unknown, true) unknown; (true, false) false
+#   .any(2):                  (unknown, true) true; (true, false) true
 #   & ~Trad.halted:           true & true = true; false & unknown = false; unknown & false = false
 expected:
   - {term: "Price.close.latest > 10000", values: [true, false, unknown], final: [true, false, false]}
