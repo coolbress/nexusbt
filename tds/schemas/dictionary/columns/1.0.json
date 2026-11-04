@@ -1,0 +1,19 @@
+{
+  "kind": "dictionary/columns", "schema_version": "1.0", "status": "stable", "section": "4.4",
+  "key": ["dataset", "column"], "sort": null, "partitions": [],
+  "columns": [
+    {"name": "dataset", "type": "string", "null": null},
+    {"name": "column", "type": "string", "null": null},
+    {"name": "type", "type": "string", "null": null},
+    {"name": "unit", "type": "string", "null": null},
+    {"name": "currency_source", "type": "string", "null": null},
+    {"name": "scale", "type": "i8", "null": null},
+    {"name": "freq", "type": "string", "null": null},
+    {"name": "edition_class", "type": "string", "null": null},
+    {"name": "start_by_market", "type": "string", "null": null},
+    {"name": "description", "type": "string", "null": null},
+    {"name": "alias_of", "type": "string", "null": null},
+    {"name": "std_name", "type": "string", "null": null},
+    {"name": "is_label", "type": "bool", "null": null}
+  ]
+}

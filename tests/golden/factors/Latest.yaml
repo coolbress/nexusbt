@@ -1,0 +1,10 @@
+# T-25 (spec 8.2, 3.4): a built-in factor by hand over 5 rows. `check/T-25.py` reaches the same
+# literals; implementation pull requests do not change this file. `expected` per row:
+# null = warm-up (no full window in the 5 rows), .nan = the factor gives NaN.
+factor: Latest
+spec: "3.4: Latest (= col.latest) = x[-1]; warm-up 0"
+cases:
+  - term: "Price.close.latest"
+    inputs: {close: [10, .nan, 12, .nan, 14]}
+    # Worked by hand, not yet checked by the person:the row's own value; a NaN row stays NaN (no filling, INV-12).
+    expected: [10.0, .nan, 12.0, .nan, 14.0]

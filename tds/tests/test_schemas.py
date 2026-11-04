@@ -17,6 +17,7 @@ from nexusbt_tds.schemas.verify import (
     Column,
     Schema,
     compare,
+    dictionary_schemas,
     doc_tables,
     file_problems,
     load_schemas,
@@ -129,6 +130,19 @@ def test_doc_tables_match_schema_files() -> None:
     assert compare(doc, schemas) == []
     # Tables were compared, not skipped: every chapter 5 table has its file.
     assert doc_tables(doc).keys() - schemas.keys() == set()
+
+
+@pytest.mark.parametrize("name", ["tds-v1.4.md", "tds-v1.4.ko.md"])
+def test_the_4_4_dictionary_table_matches_its_schema_files(name: str) -> None:
+    doc = (TDS_DOC.parent / name).read_text(encoding="utf-8")
+    section = doc.split("\n### 4.4 ", 1)[1].split("\n### 4.5 ", 1)[0]
+    rows = re.findall(r"^\| `(dictionary/\w+)` \| (.+?) \| (.+) \|$", section, flags=re.MULTILINE)
+    schemas = dictionary_schemas()
+    assert sorted(kind for kind, _, _ in rows) == sorted(schemas)  # every table has its file
+    for kind, key, columns in rows:  # each column as `name` type, the 3.2 type after the name
+        assert re.findall(r"`(\w+)`", key) == schemas[kind].key
+        named = re.findall(r"`(\w+)` ([a-z0-9]+)", columns)
+        assert named == [(c.name, c.type) for c in schemas[kind].columns], kind
 
 
 def test_experimental_schemas_flagged() -> None:

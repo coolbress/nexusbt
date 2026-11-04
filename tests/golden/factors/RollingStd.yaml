@@ -1,0 +1,11 @@
+# T-25 (spec 8.2, 3.4): a built-in factor by hand over 5 rows. `check/T-25.py` reaches the same
+# literals; implementation pull requests do not change this file. `expected` per row:
+# null = warm-up (no full window in the 5 rows), .nan = the factor gives NaN.
+factor: RollingStd
+spec: "3.4: nanstd(x, ddof=1), NaN left out, minimum observations 2; warm-up W-1"
+cases:
+  - term: "RollingStd(3)"
+    inputs: {close: [2, 4, .nan, 8, .nan]}
+    # Worked by hand, not yet checked by the person:(2, 4) mean 3, (1 + 1)/1 = 2, sqrt 1.414214; (4, 8) mean 6, (4 + 4)/1 = 8,
+    # sqrt 2.828427; (8) one value < 2 -> NaN.
+    expected: [null, null, 1.414214, 2.828427, .nan]

@@ -44,6 +44,21 @@ def test_exit_codes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     assert run(["check", clean]) == 70
 
 
+def test_text_output_names_the_dataset_with_no_value_hash(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    manifest, files = build.base()
+    manifest["datasets"].append(  # a kind with no schema file: its column types are unknown
+        {"name": "notes", "kind": "x_notes", "schema_version": "1.0", "path": "x", "files": []}
+    )
+    run(["check", str(build.write(tmp_path, manifest, files)), "--level", "full"])
+    out = capsys.readouterr().out
+    assert "TDS-H002, TDS-H003 not checked: notes: kind x_notes has no schema file" in out
+    run(["check", str(build.write(tmp_path / "json", manifest, files)), "--level", "full",
+         "--format", "json"])  # fmt: skip
+    assert "not checked" not in capsys.readouterr().out  # TDS 8.4's JSON Lines stay as they are
+
+
 def test_jsonl_output_schema(capsys: pytest.CaptureFixture[str]) -> None:
     # spec 10.1 T0.13a "done means", on the package committed under tds/conformance
     argv = ["check", str(CONFORMANCE / "TDS-M012" / "fail"), "--format", "json"]

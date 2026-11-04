@@ -1,0 +1,14 @@
+# T-25 (spec 8.2, 3.4): a built-in factor by hand over 5 rows. `check/T-25.py` reaches the same
+# literals; implementation pull requests do not change this file. `expected` per row:
+# null = warm-up (no full window in the 5 rows), .nan = the factor gives NaN.
+factor: AverageDollarVolume
+spec: "3.4: nansum(close * volume)/W, a NaN counts as 0, minimum observations 0; warm-up W-1"
+# Hand-checked by the person 2026-11-04 (#221; via the coordinating session, recomputed from the
+# 3.4 formula):
+#   AverageDollarVolume(2), both cells NaN: 0/2 = 0.0
+cases:
+  - term: "AverageDollarVolume(2)"
+    inputs: {close: [10, .nan, 12, 11, 10], volume: [100, 300, .nan, 200, 500]}
+    # Worked by hand, not yet checked by the person:products 1000, NaN, NaN, 2200, 5000 -> 1000/2 = 500; (0 + 0)/2 = 0
+    # (all NaN gives 0, not NaN); 2200/2 = 1100; 7200/2 = 3600.
+    expected: [null, 500.0, 0.0, 1100.0, 3600.0]
