@@ -67,8 +67,9 @@ jobs:
   # The engine and TDS checks of spec 9.1 (T0.10). Each check name is the matrix value,
   # `engine / parity` and so on, the name the ruleset requires once its milestone ends:
   # renaming one has the same consequence as renaming `ci`. What each runs is the 9.1
-  # table in tests/repo/ci_jobs.py; a check with no tests yet passes and says so in a
-  # `not yet confirmed:` line.
+  # table in tests/repo/ci_jobs.py. A check in its ACTIVATED list, one a milestone has
+  # made required, fails when it runs no tests; any other check with no tests yet passes
+  # and says so in a `not yet confirmed:` line.
   checks:
     name: ${{ matrix.check }}
     runs-on: ubuntu-latest
