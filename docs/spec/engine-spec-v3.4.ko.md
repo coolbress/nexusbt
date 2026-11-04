@@ -2648,6 +2648,17 @@ README·`docs/`·`examples/`의 ```python 블록 중 `<!-- test -->` 표시가 �
 | `offsets` | offsets | T6.18 |
 | `log-loss-brier` | log-loss, Brier | T6.24 |
 | `spa` | SPA / White reality check | v1에는 없음("not supported in v1"); 12.1 RS-03의 v1.x 티켓 |
+
+- **실습 예제** (설계 검토 D19, #219): 작은 비교 여섯 가지. 각각 스크립트 `examples/lessons/<id>.py`와 쪽 `docs/guide/lessons/<id>.md`(영어 정본, `<id>.ko.md` 함께)로, 코드, 분할마다의 결정일 표, 출력 블록, 읽는 법을 보인다. 합성 `small` 스냅숏(4.8)에서 실행하며, 그 가격은 종목마다 독립인 균등 걸음이라 어떤 팩터에도 심어 둔 우위가 없다. 그러므로 예제의 잘못된 쪽이 보이는 실력은 곧 함정 자체다. 각 예제는 출력 옆에 가정, seed, 자료를 적는다. "예상 관찰"은 그 가정 아래에서 예제가 가르치는 방향이지 한 도구가 일반적으로 낫다는 주장이 아니며, 정확한 숫자는 고정 seed가 출력하는 값(위 규칙으로 비교하는 출력 블록)이다. `tests/docs/test_lessons.py::test_lesson[<id>]`는 스크립트를 실행해 출력 블록을 비교하고 표의 엔진 신호를 확인한다. 코드는 실행하지 않은 초안이며(엔진이 아직 없다) 담당 티켓이 쓰고 실행한다.
+
+| 예제 id | 비교하는 것 | 자료와 seed | 예상 관찰 | 확인하는 엔진 신호 | 티켓 |
+|---|---|---|---|---|---|
+| `leaky-training` | 엔진 밖에서 기간의 모든 라벨로 학습해 `nx.ml.pretrained(training_cutoff=end)`로 불러온 모델 대 앞으로만 학습하는 `nx.ml.factor(train="rolling")`(5.3.11) | `small`, KR, 월간 결정, `seed=11` | 밖의 모델은 실행 전에 실패한다(E48). `allow_overlap=True`이면 실행되고 겹친 결정마다 표시가 붙으며(E49), 표시된 결정의 IC가 앞으로만 학습한 팩터의 IC보다 높다(밖의 모델이 그 라벨로 학습했으므로). 앞으로만 학습한 팩터의 IC는 0 근처에 머문다 | E48, 이어서 표시 건수와 분모가 있는 E49; 앞으로만 학습한 실행의 `ml fits: forward-only` | T6.27 |
+| `best-of-many` | `train`에서 고른 모멘텀 lookback 설정 20개 중 최고 대 고르는 데 쓰지 않은 `test` 구간(6.1)에서의 같은 선택 | `small`, KR+US, `seed=12`, lookback 20개의 `grid` | 고른 설정의 train Sharpe는 20개 중 가장 높고 `test` Sharpe는 다른 설정들 쪽으로 돌아온다. train `grid`에서 PBO는 절반 근처 이상이고 DSR은 PSR(0)보다 낮다. 어느 설정에도 우위가 없을 때 기대되는 모습이다 | N = 20인 비교 집합 줄, PBO (CSCV)와 DSR 줄, `test` 실행의 평가 라벨 | T6.27 |
+| `preprocessing-window` | 종목마다 기간 전체 평균으로 나눈 피처(전역 배열로 읽음) 대 뒤쪽 창(`SMA`)으로 나눈 같은 피처 | `small`, KR, 월간 결정, `seed=13` | 기간 전체 버전은 큰 IC를 보이고(각 가격이 어디로 돌아갈지 안다), 뒤쪽 창 버전의 IC는 0 근처다 | 전역 읽기의 E24, 이어서 나누는 노드를 밝히는 절단 탐침의 E1; 뒤쪽 창 버전에는 E1 없음 | T6.27 |
+| `periodic-reselection` | D 전체에서 lookback을 한 번 고르고 그것으로 D를 백테스트한 것 대 같은 `grid`로 창마다 다시 고르는 `method="walk_forward"` | `small`, KR, `seed=14` | 전체 자료에서 한 번 고른 결과가 이어 붙인 walk-forward 계열보다 좋다. walk-forward에서 고른 값은 창마다 바뀐다(선택 안정성) | walk-forward fold 표(fold마다 고른 값, `n_purged`, `n_embargoed`), 선택 안정성 줄, 기간이 붙은 옆의 linear 줄 | T6.27 |
+| `cost-change` | 월간 top-50 전략 하나 대 같은 규칙을 주간으로 리밸런싱한 것, 각각 비용 0x, 1x, 2x | `small`, KR, `seed=15` | 비용이 오르면 순 CAGR이 떨어지고, 주간 버전은 회전율에 비례해 더 빨리 떨어진다. 시나리오는 고른 규칙을 다시 고르지 않는다 | 두 실행의 `cost sensitivity` 줄과 회전율 줄; 시나리오는 후보를 더하지 않는다(6.2) | T3.18 |
+| `daily-watch-vs-good-day` | 모의 장부를 매일 보기(`status.json`, `reconcile`)와 사전 등록한 기준을 정한 날 한 번 확인하기 대 매달 `test` 구간을 돌리고 Sharpe가 문턱을 처음 넘는 달에 합격을 선언하기 | `small`, KR, 우위가 없는 전략, `seed=16`; `seed=16`으로 뽑은 합성 수익률 계열 2,000개에서의 선언 비율 | 매일의 상태 줄은 장부를 보고할 뿐 아무것도 판정하지 않는다. 정한 때 한 번 확인하면 명목 비율 근처로 합격을 선언하고, 처음 좋은 달에 멈추는 규칙은 몇 배 더 자주 선언한다. 각 비율은 Monte Carlo 표준오차와 함께 출력한다 | 매달 다시 돌린 실행의 열람 번호 1~12와 "exploratory on reused final data (seen m times before)" 라벨; 한 번 확인한 실행의 사전 등록 줄 | T5.6 |
 ---
 
 ## 9. plinth로 만드는 순서 (TDS 적합성 검사기 패키지 포함) [R-65]
@@ -3465,7 +3476,7 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 
 **T3.18 `docs(examples): m3a strategy walkthrough, perf smoke and stage measurement`** · `M3a` `docs` · S · Blocked by: T3.14, T1.24, T0.8c, T2.24 · §7, §8.5 *(v3: 상태 기계 단계 측정)* *(v3.4: 7장 표의 M3a 워크로드, 전체 P11 (a) 포함 [#175])*
 - Done means: README "전략 하나 백테스트" 절이 돌고, `uv run pytest -m perf_smoke`가 P5-small 시간을, `bench/run.py --stages m3a --snapshot synth-full_ci`가 상태 기계 단계 시간을 출력; 계산 기계에서 `bench/run.py --stages m3a --snapshot synth-full-0001`가 한 시장 P5·P5-daily·P7을, `bench/run.py --workload P11 --part a --fixture bench/fixtures/p11.json --snapshot synth-full-0001`이 전체 P11 (a)와 단계별 시간을 cold와 warm으로 출력(수치는 마일스톤 추적 이슈에, 그리고 첫 P5-daily 수치로 사람이 7장의 P5-daily 예산과 목표를 정한다).
-- Acceptance: `tests/docs/test_examples.py::test_readme_m3a`, `tests/perf/test_smoke.py::test_P5_small`.
+- Acceptance: `tests/docs/test_examples.py::test_readme_m3a`, `tests/perf/test_smoke.py::test_P5_small`, `tests/docs/test_lessons.py::test_lesson[cost-change]`(8.5 실습 예제, D19, #219).
 
 **T3.Gd `test(golden): v3.1 quantity, stale-mark, delisting-distribution, volume-cap, rounding, small-trade and target-gap cases (G-53..G-56, G-58, G-59, G-66)`** **[v3.1]** · `M3a` `golden` · M · Blocked by: T0.9, T0.15a · §5.6.1, §5.6.3, §5.6.6, §5.6.7, §5.6.13, §8.2 [V31-01~V31-06, V31-14] *(v3.2: G-53 (e) 바뀜·(g)~(j), G-55 (a)~(f), G-58 기본 `down` [R3-06, R3-05, R3-27])*
 - Context: 8.2 표의 사례. 소비 티켓 T3.5b·T3.9·T3.22·T3.23·T3.25·T3.26 전에 병합.
@@ -3768,7 +3779,7 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 
 **T5.6 `docs(examples): m5 daily paper runbook`** · `M5` `docs` · S · Blocked by: T5.4 · §8.5
 - Done means: `docs/runbook-paper.md`의 launchd plist 예(설치하지 않음, `status.json`과 종료 코드 사용)와 수동 명령이 합성 스냅숏 두 개(어제·오늘)로 그대로 돈다.
-- Acceptance: `tests/docs/test_examples.py::test_runbook_paper`.
+- Acceptance: `tests/docs/test_examples.py::test_runbook_paper`, `tests/docs/test_lessons.py::test_lesson[daily-watch-vs-good-day]`(8.5 실습 예제, D19, #219).
 
 **T5.G `test(golden): trades table, book cash-flow and frame-hash cases (G-64, G-65, G-105)`** **[v3.1]** *(R6: G-105 메모리 표 해시를 여기서 먼저 — golden 보호 규칙 8.2 [R6-13])* · `M5` `golden` · S · Blocked by: T0.9 · §5.9.1, §5.7, §8.2 [V31-20, V31-19]
 - Context: 왕복 거래(롱·숏·열린 거래), 장부 입출금 TWR. T5.13·T5.14 전에 병합.
@@ -3965,10 +3976,10 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 - Done means: `uv run python bench/run.py --workload P11 --fixture bench/fixtures/p11.json --snapshot synth-full-0001`이 (a)(b)(c) 시간·단계별 시간·USS·`fixture_sha256`·출력 값 해시를 출력하고(cold·warm 둘, 해시 같음) ADR-0038에 관문 제안이 적힌다(측정 시제품; 사용자가 계산 기계에서) [R4F-18].
 - Acceptance: `tests/perf/test_p11_smoke.py::test_small_p11_runs_and_reports`, `tests/property/test_pipeline_invariants.py::test_decision_rows_only_equals_full`, `tests/unit/compute/test_memory.py::test_evaluate_does_not_hold_full_matrix`, `tests/perf/test_p11_smoke.py::test_cold_warm_output_hash_equal`.
 
-**T6.27 `docs(examples): walk-forward/CPCV and ML factor templates`** **[v3.3]** · `M6` `docs` · S · Blocked by: T6.24, T5.18 · §3.10 템플릿, §8.5 [R4-13]
-- Context: 템플릿 `walk-forward-cpcv`, `ml-factor`(sklearn 선택 의존 없으면 시험용 선형 모형), 출력 대조.
-- Done means: 두 템플릿이 `init --demo`에서 돌고 출력 블록이 같다.
-- Acceptance: `tests/docs/test_templates.py::test_template_runs[walk-forward-cpcv]`, `::test_template_runs[ml-factor]`.
+**T6.27 `docs(examples): walk-forward/CPCV and ML factor templates`** **[v3.3]** · `M6` `docs` · S · Blocked by: T6.24, T5.18, T6.8, T6.9, T6.20, T6.21, T6.24b · §3.10 템플릿, §8.5 [R4-13] *(2026-11-04: 8.5의 M6 실습 예제 넷, D19, #219)*
+- Context: 템플릿 `walk-forward-cpcv`, `ml-factor`(sklearn 선택 의존 없으면 시험용 선형 모형), 출력 대조; 8.5 실습 예제 `leaky-training`, `best-of-many`, `preprocessing-window`, `periodic-reselection`(스크립트, 영어·한국어 쪽, 분할마다의 결정일 표).
+- Done means: 두 템플릿이 `init --demo`에서 돌고 출력 블록이 같다. 실습 예제 넷이 각자의 seed로 합성 `small` 스냅숏에서 돌고 8.5 행의 엔진 신호를 출력하며, 각 쪽이 출력 옆에 가정, seed, 자료, 예상 관찰을 적는다.
+- Acceptance: `tests/docs/test_templates.py::test_template_runs[walk-forward-cpcv]`, `::test_template_runs[ml-factor]`, `tests/docs/test_lessons.py::test_lesson[leaky-training]`, `::test_lesson[best-of-many]`, `::test_lesson[preprocessing-window]`, `::test_lesson[periodic-reselection]`.
 
 **T7.G `test(golden): hold-band edge cases (G-63)`** **[v3.1]** · `M6 (T7.1 앞)` `golden` · S · Blocked by: T0.9 · §5.5.3, §8.2 [V31-17]
 - Context: 결측 점수 유지·연속 상한, 보유 0인 완충대 종목의 매수 건너뛰기(v3.2: 손절로 나간 종목 (c), `hold = n`·중앙값 가중 (d) [R3-22]), 숏 쪽(`bottom(hold=)`) 거울 사례 하나. T7.1 전에 병합.
