@@ -274,7 +274,7 @@ Generated from `docs/spec/engine-spec-v3.4.md` (chapter 10) by the spec checker 
 | T6.24b | `feat(ml): pretrained predict-only models with training cutoff leak guard` | 5.3.11, 6.2, 6.6 | — | T6.24, T6.Gv |
 | T6.25 | `feat(research): triple-barrier label sharing the exit fill rule` | 5.8, 3.7 | — | T3.33, T2.10a, T6.Gv |
 | T6.26 | `perf: P11 high-dimensional workload with decision-date-only evaluation, column pruning and batched reductions` | 7, 5.3.2, 5.3.8 | — | T2.24, T6.4, T6.5 |
-| T6.27 | `docs(examples): walk-forward/CPCV and ML factor templates` | 3.10, 8.5 | — | T6.24, T5.18, T6.8, T6.9, T6.20, T6.21, T6.24b |
+| T6.27 | `docs(examples): walk-forward/CPCV and ML factor templates` | 3.10, 8.5 | — | T6.24, T5.18, T6.8, T6.9, T6.20, T6.21, T6.24b, T6.22 |
 | T7.G | `test(golden): hold-band edge cases (G-63)` | 5.5.3, 8.2 | G-63 | T0.9 |
 | T7.1 | `feat(portfolio): target-state recursion and hold band` | 5.5.3 | — | T6.11, T6.18, T7.G, T4.14, T5.16, T6.22, T6.24, T6.25, T6.27 |
 | T7.V | `verify: post-T7.1 release re-verification (no features)` | 7, 8, 9.1 | P-SHORT-OFF | T7.1 |

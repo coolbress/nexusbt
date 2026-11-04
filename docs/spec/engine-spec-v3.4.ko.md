@@ -2676,6 +2676,22 @@ README·`docs/`·`examples/`의 ```python 블록 중 `<!-- test -->` 표시가 �
 | `periodic-reselection` | D 전체에서 lookback을 한 번 고르고 그것으로 D를 백테스트한 것 대 같은 `grid`로 창마다 다시 고르는 `method="walk_forward"` | `small`, KR, `seed=14` | 전체 자료에서 한 번 고른 결과가 이어 붙인 walk-forward 계열보다 좋다. walk-forward에서 고른 값은 창마다 바뀐다(선택 안정성) | walk-forward fold 표(fold마다 고른 값, `n_purged`, `n_embargoed`), 선택 안정성 줄, 기간이 붙은 옆의 linear 줄 | T6.27 |
 | `cost-change` | 월간 top-50 전략 하나 대 같은 규칙을 주간으로 리밸런싱한 것, 각각 비용 0x, 1x, 2x | `small`, KR, `seed=15` | 비용이 오르면 순 CAGR이 떨어지고, 주간 버전은 회전율에 비례해 더 빨리 떨어진다. 시나리오는 고른 규칙을 다시 고르지 않는다 | 두 실행의 `cost sensitivity` 줄과 회전율 줄; 시나리오는 후보를 더하지 않는다(6.2) | T3.18 |
 | `daily-watch-vs-good-day` | 모의 장부를 매일 보기(`status.json`, `reconcile`)와 사전 등록한 기준을 정한 날 한 번 확인하기 대 매달 `test` 구간을 돌리고 Sharpe가 문턱을 처음 넘는 달에 합격을 선언하기 | `small`, KR, 우위가 없는 전략, `seed=16`; `seed=16`으로 뽑은 합성 수익률 계열 2,000개에서의 선언 비율 | 매일의 상태 줄은 장부를 보고할 뿐 아무것도 판정하지 않는다. 정한 때 한 번 확인하면 명목 비율 근처로 합격을 선언하고, 처음 좋은 달에 멈추는 규칙은 몇 배 더 자주 선언한다. 각 비율은 Monte Carlo 표준오차와 함께 출력한다. 쪽과 출력에 "the rate comparison is a plain simulation over 2,000 synthetic return series, not an engine feature; the engine's evidence is the look numbers and the label only"(비율 비교는 엔진 기능이 아니라 합성 수익률 2,000개의 단순 모의실험이고, 엔진 근거는 열람 번호와 라벨뿐이다)라고 적는다 | 매달 다시 돌린 실행의 열람 번호 1~12와 "exploratory on reused final data (seen m times before)" 라벨; 한 번 확인한 실행의 사전 등록 줄 | T5.6 |
+
+- **사용 시나리오** (설계 검토 D19, #219): 기본 호출에서 전문가 설정까지 아홉 종류의 사용자. 각각 합성 `small` 스냅숏에서 시험이 확인하는 기준(`tests/docs/test_scenarios.py::test_scenario[<n>]`)과 그 시험을 Acceptance에 적는 문서 티켓을 갖는다. 최종 시험 전에 멈추는 사용자도 정상 사용자다. 그 도구에 관한 시나리오가 아니면 어떤 시나리오도 연구 객체, 가설 문서, 사전 등록, 쓰지 않은 holdout을 요구하지 않는다. 스펙에 아직 없는 결정에 기대는 부분은 이슈와 함께 그렇다고 적고, 그 스펙 수정이 행에 더한다.
+
+| # | 시나리오 | 기준 | 티켓 |
+|---|---|---|---|
+| 1 | 고정 RSI·이동평균 규칙, linear | `SMA`와 `RSI`만 쓰는 전략이 `nx.backtest(strategy, start=, end=)`로 다른 인수나 객체 없이 돈다. `study=`를 주어도 목표, 주문, 체결, NAV는 바뀌지 않는다(기록을 묶기만 한다). 첫 화면에 `data`, `period`, `execution`, `costs`, `assumptions` 줄, 시도 줄, `evaluation research data`가 있고, 실행에 있었다면 `hypothetical exits` 줄도 있다(5.6.1, #150) | T3.18 |
+| 2 | `evaluate`로 보는 팩터 | README "팩터 하나 평가" 절이 IC 평균, L을 밝힌 Newey–West t, `label` 줄(어떤 수익률을 어느 구간에서, 언제 알 수 있었는지), cohort의 m을 밝힌 BHY 줄을 출력한다. `[gates] ic_t` 아래의 팩터도 `.to_strategy()`로 바뀌고 그 백테스트가 돈다(게이트는 표시만) | T2.14 |
+| 3 | linear `grid` 또는 외부 optimizer | 점 k개의 `grid`는 후보 k개와 선택 이벤트 하나를 기록한다. 오류를 낸 점은 `failed` 실행으로 `with returns a/b`의 분모에 든다. 고른 점의 줄은 `research data`라고 쓴다. `nx.backtest`를 다섯 번 부르는 사용자 반복문은 후보 다섯과 선택 이벤트 0을 기록하고 그 줄은 "recorded by the engine"이라고 쓴다(6.2; 외부 optimizer 프로토콜은 v1.x, 12.1 DR16-1) | T6.27 |
+| 4 | 규칙 튜닝 또는 walk-forward의 ML 팩터 | 시험 창 k 안 결정의 라벨만 바꾸면 창 k까지 모든 창의 학습, 표본 내 점수, 고른 매개변수가 바뀌지 않는다. `nx.ml.factor`는 `evaluate`를 돌리지 않은 팩터도 입력으로 받는다. `grid`와 ML 팩터가 있는 CPCV의 IS 점수는 스펙 반영 전이다(#215) | T6.27 |
+| 5 | 배분 전략(`erc-vol-target` 템플릿) | 결정 뒤의 수익률을 바꾸어도 그 결정의 비중은 바뀌지 않는다(공분산 창은 결정에서 끝난다, 5.5.1a). 결정의 거래량과 비용은 이전 결정에서 넘어온 보유로부터 나온다. linear 계좌는 자본 K의 빈 장부로 시작한다(6.3a 상태 표) | T3.18 |
+| 6 | 이벤트 전략(시험 (c), `event-driven-earnings`) | 이벤트 결정에서 시장 위험 규칙이 이벤트 집합 밖의 보유도 줄이고, 어떤 축소로도 고칠 수 없는 위반은 `constraint_residual`로 기록된다(5.5.2b, G-108, #151). 한 장부의 전략 상태 기록은 다른 장부나 다른 전략이 읽지 않는다(5.5.3, #152) | T5.18 |
+| 7 | CPCV 또는 CSCV | 보고서가 경로 수, cohort의 N, 관측 수를 따로 된 줄에 보이고 N은 경로 수로 늘지 않는다(6.2). `grid` 없는 `method="cscv"`는 E16이다. 경로 행에 6.3a 해석 문장이 있고 최고 경로는 결과 줄이 되지 않는다. purging은 시험 블록의 모든 라벨을 덮는다(6.3a, #149). 엄격한 IS 점수는 스펙 반영 전이다(#215) | T6.27 |
+| 8 | 조건 부족, 외부 모델, 자료 재사용 | T < 30인 실행은 `DSR n/a (T < 30)`을 보이고 계속 돈다. 사전 학습 모델의 cutoff는 감사한 것이 아니라 선언된 대로 보이며(ADR-0041), 겹침을 허용하면 E49 표시가 붙는다. 이미 본 `test` 구간을 다시 돌리면 "exploratory on reused final data (seen m times before)"가 보인다. NaN 대신의 실패 표식은 스펙 반영 전이다(#216) | T6.27 |
+| 9 | Python, CLI, HTML, CSV에서 결과 읽기 | `method="cpcv"` 실행에서 `Run`, CLI 첫 화면, `report.html`, CSV 내보내기가 같은 숫자를 요청한 평가와 linear 참고로 같게 표시하고, 줄마다 방법과 기간을 적는다. 이름 `Run.primary`, `reference`, `diagnostics`, `provenance`, `evaluation_context`는 #216의 결정이며 스펙 반영 전이다. 그 수정 전까지 시험은 6.3a의 나란히 보이는 줄을 확인한다 | T6.27 |
+
+시나리오가 사람을 대신하지 않는다. T5.18의 전략 작성 시험은 단계마다 안내서(3.10)를 썼는지, 그 사람이 출력이 보여 주는 것과 보여 주지 못하는 것을 말할 수 있었는지를 기록하며, 이것으로 안내의 이해 가능성을 검토한다.
 ---
 
 ## 9. plinth로 만드는 순서 (TDS 적합성 검사기 패키지 포함) [R-65]
@@ -3355,7 +3371,7 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 
 **T2.14 `docs(examples): m2 factor research walkthrough and stage measurement`** · `M2` `docs` · S · Blocked by: T2.10a, T2.11, T2.12, T1.24 · §7, §8.5 *(v3.4: 7장 표의 M2 워크로드)*
 - Done means: README "팩터 하나 평가" 절 명령이 그대로 돌고, 사람이 계산 기계에서 돌린 `bench/run.py --stages m2 --snapshot synth-full-m1-0001`가 P3, P8을 cold와 warm으로 출력(수치는 마일스톤 추적 이슈에).
-- Acceptance: `tests/docs/test_examples.py::test_readme_m2`.
+- Acceptance: `tests/docs/test_examples.py::test_readme_m2`, `tests/docs/test_scenarios.py::test_scenario[2]`(8.5 사용 시나리오, D19, #219).
 
 **T2.Gb `test(golden): v3.1 ranking and market-series cases (T-26, T-28)`** **[v3.1]** · `M2` `golden` · S · Blocked by: T0.9 · §5.4.2, §3.2 [V31-25, V31-13] *(v3.2: T-27은 T1.Gb로 옮김 [R3-12])*
 - Context: T-26 백분위 합성, T-28 시장 수준 계열의 행 선택. 소비 티켓 T2.19·T2.20 전에 병합.
@@ -3493,7 +3509,7 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 
 **T3.18 `docs(examples): m3a strategy walkthrough, perf smoke and stage measurement`** · `M3a` `docs` · S · Blocked by: T3.14, T1.24, T0.8c, T2.24 · §7, §8.5 *(v3: 상태 기계 단계 측정)* *(v3.4: 7장 표의 M3a 워크로드, 전체 P11 (a) 포함 [#175])*
 - Done means: README "전략 하나 백테스트" 절이 돌고, `uv run pytest -m perf_smoke`가 P5-small 시간을, `bench/run.py --stages m3a --snapshot synth-full_ci`가 상태 기계 단계 시간을 출력; 계산 기계에서 `bench/run.py --stages m3a --snapshot synth-full-0001`가 한 시장 P5·P5-daily·P7을, `bench/run.py --workload P11 --part a --fixture bench/fixtures/p11.json --snapshot synth-full-0001`이 전체 P11 (a)와 단계별 시간을 cold와 warm으로 출력(수치는 마일스톤 추적 이슈에, 그리고 첫 P5-daily 수치로 사람이 7장의 P5-daily 예산과 목표를 정한다).
-- Acceptance: `tests/docs/test_examples.py::test_readme_m3a`, `tests/perf/test_smoke.py::test_P5_small`, `tests/docs/test_lessons.py::test_lesson[cost-change]`(8.5 실습 예제, D19, #219).
+- Acceptance: `tests/docs/test_examples.py::test_readme_m3a`, `tests/perf/test_smoke.py::test_P5_small`, `tests/docs/test_lessons.py::test_lesson[cost-change]`, `tests/docs/test_scenarios.py::test_scenario[1]`, `::test_scenario[5]`(8.5 실습 예제와 사용 시나리오, D19, #219).
 
 **T3.Gd `test(golden): v3.1 quantity, stale-mark, delisting-distribution, volume-cap, rounding, small-trade and target-gap cases (G-53..G-56, G-58, G-59, G-66)`** **[v3.1]** · `M3a` `golden` · M · Blocked by: T0.9, T0.15a · §5.6.1, §5.6.3, §5.6.6, §5.6.7, §5.6.13, §8.2 [V31-01~V31-06, V31-14] *(v3.2: G-53 (e) 바뀜·(g)~(j), G-55 (a)~(f), G-58 기본 `down` [R3-06, R3-05, R3-27])*
 - Context: 8.2 표의 사례. 소비 티켓 T3.5b·T3.9·T3.22·T3.23·T3.25·T3.26 전에 병합.
@@ -3850,8 +3866,8 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 
 **T5.18 `feat(cli): strategy templates, demo snapshot and the 30-minute path`** **[v3.3]** · `M5` `cli` · M · Blocked by: T5.4, T3.34, T3.33, T5.17, T3.35 · §3.10, §8.5 [R4-13] *(v3.4: 전략 작성 시험과 Blocked by의 T3.35, 사용자 결정 2026-11-03)*
 - Context: `nexusbt init --demo`(바퀴에 든 합성 `demo` 스냅숏), `nexusbt new strategy NAME --template T`·`--list`, 템플릿 22개(3.10) 가운데 16개(나머지 6개는 그 기능 티켓에서 [R6-04]: 검증·ML 둘 T6.27, zipline T5.19, `buffer-hold` T7.1, 사건 둘 T3.35 — `--list`는 아직 못 쓰는 것을 "(available after T…)"로 표시) [R4F-14], 템플릿마다 출력 대조 시험, `test_first_30_minutes.py`(첫 줄 `uv init quant && cd quant && uv add nexusbt`, CI는 `--find-links dist/`) [R4F-13].
-- Done means: 깨끗한 환경에서 다섯 명령(8.5, 첫 줄 `uv init quant && cd quant && uv add nexusbt`)이 차례로 돌고, 처음 쓰는 사람 한 명(사용자가 고름)이 30분 안에 첫 백테스트와 첫 스크린을 마친 기록이 PR에 있다. **전략 작성 시험**(R3, 사용자 결정 2026-11-03, M5 끝 조건): 소유자가 템플릿에서 전략 셋을 혼자 쓴다 — (a) 월간 KR 가치 상위 50, 롱온리, 잠정 비용(`monthly-topn`); (b) KR과 US의 12-1 모멘텀 롱숏, 공매도 켬, 총노출 상한(`momentum-12-1`, `long-short`); (c) 실적 발표 뒤 진입, 다섯 세션 시간 손절(`event-driven-earnings`, `nx.on_event`, T3.35). 소유자는 M5 전에 셋 가운데 어느 것이든 바꿀 수 있다. 전략마다 세 단계 — 템플릿에서 쓰기, 규칙 하나 바꾸기, 오류 하나 읽기 — 가 있고 단계마다 기록 한 줄: 전략, 단계, 분, 받은 도움(없음, 문서, 사람, 그리고 무엇), 결과(마침, 또는 못 마침과 그 이유). 그 줄들은 M5 끝 증거에 들어가고, 전략 셋은 `examples/trial/` 파일로 남기고, `tests/docs/test_examples.py`(8.5)가 하나하나 합성 `small` 스냅숏에서 돌린다.
-- Acceptance: `tests/docs/test_templates.py::test_template_runs`, `tests/docs/test_first_30_minutes.py::test_five_commands`, `tests/unit/cli/test_new.py::test_list_templates`, `tests/docs/test_examples.py::test_trial_strategies_run`.
+- Done means: 깨끗한 환경에서 다섯 명령(8.5, 첫 줄 `uv init quant && cd quant && uv add nexusbt`)이 차례로 돌고, 처음 쓰는 사람 한 명(사용자가 고름)이 30분 안에 첫 백테스트와 첫 스크린을 마친 기록이 PR에 있다. **전략 작성 시험**(R3, 사용자 결정 2026-11-03, M5 끝 조건): 소유자가 템플릿에서 전략 셋을 혼자 쓴다 — (a) 월간 KR 가치 상위 50, 롱온리, 잠정 비용(`monthly-topn`); (b) KR과 US의 12-1 모멘텀 롱숏, 공매도 켬, 총노출 상한(`momentum-12-1`, `long-short`); (c) 실적 발표 뒤 진입, 다섯 세션 시간 손절(`event-driven-earnings`, `nx.on_event`, T3.35). 소유자는 M5 전에 셋 가운데 어느 것이든 바꿀 수 있다. 전략마다 세 단계 — 템플릿에서 쓰기, 규칙 하나 바꾸기, 오류 하나 읽기 — 가 있고 단계마다 기록 한 줄: 전략, 단계, 분, 받은 도움(없음, 문서, 사람, 그리고 무엇), 결과(마침, 또는 못 마침과 그 이유). 그 줄들은 M5 끝 증거에 들어가고, 전략 셋은 `examples/trial/` 파일로 남기고, `tests/docs/test_examples.py`(8.5)가 하나하나 합성 `small` 스냅숏에서 돌린다. 각 줄에는 안내서 `docs/guide/choose-by-question.md`(3.10)를 썼는지, 소유자가 출력이 보여 주는 것과 보여 주지 못하는 것을 말할 수 있었는지도 적는다(8.5 사용 시나리오, D19, #219).
+- Acceptance: `tests/docs/test_templates.py::test_template_runs`, `tests/docs/test_first_30_minutes.py::test_five_commands`, `tests/unit/cli/test_new.py::test_list_templates`, `tests/docs/test_examples.py::test_trial_strategies_run`, `tests/docs/test_scenarios.py::test_scenario[6]`(D19, #219).
 
 **T5.19 `docs: zipline to NexusBT mapping page and zipline-port template`** **[v3.3]** · `M5` `docs` · S · Blocked by: T5.18 · §8.5 [R4-14]
 - Context: `docs/migrate-from-zipline.md`(영어 + 한국어): bundle·`initialize`·`handle_data`·`context`·`schedule_function`·`order_target_percent`·`attach_pipeline`·`pipeline_output`·`run_algorithm`·`CustomFactor`가 각각 무엇이 되고 무엇이 달라지나(해부 G 3부 표), 코드 조각 모두 `<!-- test -->`·`<!-- output -->`, `zipline-port` 템플릿.
@@ -3993,10 +4009,10 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 - Done means: `uv run python bench/run.py --workload P11 --fixture bench/fixtures/p11.json --snapshot synth-full-0001`이 (a)(b)(c) 시간·단계별 시간·USS·`fixture_sha256`·출력 값 해시를 출력하고(cold·warm 둘, 해시 같음) ADR-0038에 관문 제안이 적힌다(측정 시제품; 사용자가 계산 기계에서) [R4F-18].
 - Acceptance: `tests/perf/test_p11_smoke.py::test_small_p11_runs_and_reports`, `tests/property/test_pipeline_invariants.py::test_decision_rows_only_equals_full`, `tests/unit/compute/test_memory.py::test_evaluate_does_not_hold_full_matrix`, `tests/perf/test_p11_smoke.py::test_cold_warm_output_hash_equal`.
 
-**T6.27 `docs(examples): walk-forward/CPCV and ML factor templates`** **[v3.3]** · `M6` `docs` · S · Blocked by: T6.24, T5.18, T6.8, T6.9, T6.20, T6.21, T6.24b · §3.10 템플릿, §8.5 [R4-13] *(2026-11-04: 8.5의 M6 실습 예제 넷, D19, #219)*
+**T6.27 `docs(examples): walk-forward/CPCV and ML factor templates`** **[v3.3]** · `M6` `docs` · S · Blocked by: T6.24, T5.18, T6.8, T6.9, T6.20, T6.21, T6.24b, T6.22 · §3.10 템플릿, §8.5 [R4-13] *(2026-11-04: 8.5의 M6 실습 예제 넷과 사용 시나리오 3, 4, 7, 8, 9, D19, #219)*
 - Context: 템플릿 `walk-forward-cpcv`, `ml-factor`(sklearn 선택 의존 없으면 시험용 선형 모형), 출력 대조; 8.5 실습 예제 `leaky-training`, `best-of-many`, `preprocessing-window`, `periodic-reselection`(스크립트, 영어·한국어 쪽, 분할마다의 결정일 표).
-- Done means: 두 템플릿이 `init --demo`에서 돌고 출력 블록이 같다. 실습 예제 넷이 각자의 seed로 합성 `small` 스냅숏에서 돌고 8.5 행의 엔진 신호를 출력하며, 각 쪽이 출력 옆에 가정, seed, 자료, 예상 관찰을 적는다.
-- Acceptance: `tests/docs/test_templates.py::test_template_runs[walk-forward-cpcv]`, `::test_template_runs[ml-factor]`, `tests/docs/test_lessons.py::test_lesson[leaky-training]`, `::test_lesson[best-of-many]`, `::test_lesson[preprocessing-window]`, `::test_lesson[periodic-reselection]`.
+- Done means: 두 템플릿이 `init --demo`에서 돌고 출력 블록이 같다. 실습 예제 넷이 각자의 seed로 합성 `small` 스냅숏에서 돌고 8.5 행의 엔진 신호를 출력하며, 각 쪽이 출력 옆에 가정, seed, 자료, 예상 관찰을 적는다. 8.5의 사용 시나리오 3, 4, 7, 8, 9가 통과하며, #215나 #216을 기다리는 부분은 그렇다고 표시한다.
+- Acceptance: `tests/docs/test_templates.py::test_template_runs[walk-forward-cpcv]`, `::test_template_runs[ml-factor]`, `tests/docs/test_lessons.py::test_lesson[leaky-training]`, `::test_lesson[best-of-many]`, `::test_lesson[preprocessing-window]`, `::test_lesson[periodic-reselection]`, `tests/docs/test_scenarios.py::test_scenario[3]`, `::test_scenario[4]`, `::test_scenario[7]`, `::test_scenario[8]`, `::test_scenario[9]`.
 
 **T7.G `test(golden): hold-band edge cases (G-63)`** **[v3.1]** · `M6 (T7.1 앞)` `golden` · S · Blocked by: T0.9 · §5.5.3, §8.2 [V31-17]
 - Context: 결측 점수 유지·연속 상한, 보유 0인 완충대 종목의 매수 건너뛰기(v3.2: 손절로 나간 종목 (c), `hold = n`·중앙값 가중 (d) [R3-22]), 숏 쪽(`bottom(hold=)`) 거울 사례 하나. T7.1 전에 병합.
