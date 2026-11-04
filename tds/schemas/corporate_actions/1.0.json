@@ -12,6 +12,7 @@
     {"name": "pay_date", "type": "date", "null": true},
     {"name": "pay_date_status", "type": "code", "null": false},
     {"name": "resolution_date", "type": "date", "null": true},
+    {"name": "resolution_body", "type": "code", "enum": "closed", "null": true, "values": ["meeting", "board"]},
     {"name": "ts_announced", "type": "ts_us", "null": true},
     {"name": "ts_terms_available", "type": "ts_us", "null": true},
     {"name": "ratio_num", "type": "i64", "null": true},
