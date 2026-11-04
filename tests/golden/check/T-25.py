@@ -67,12 +67,28 @@ rm3, rm4 = (RX[0] + RX[1]) / 2, (RX[1] + RX[3]) / 2
 rstd = [None, None, r6(sqrt(((RX[0] - rm3) ** 2 + (RX[1] - rm3) ** 2) / 1)),
         r6(sqrt(((RX[1] - rm4) ** 2 + (RX[3] - rm4) ** 2) / 1)), nan]  # fmt: skip
 
-# VWAP(3): nansum(close * volume) / nansum(volume). The NaN closes come with NaN volumes.
+# VWAP(3): sum(close * volume) / sum(volume) over the rows whose close and volume are both finite;
+# no pair, or the pairs' volume summing to 0 -> NaN. The NaN closes come with NaN volumes.
 WC = (10.0, nan, 12.0, 11.0, 10.0)
 WV = (100.0, nan, 300.0, nan, 100.0)
 vwap = [None, None, r6((WC[0] * WV[0] + WC[2] * WV[2]) / (WV[0] + WV[2])),
         r6(WC[2] * WV[2] / WV[2]),
         r6((WC[2] * WV[2] + WC[4] * WV[4]) / (WV[2] + WV[4]))]  # fmt: skip
+# A NaN close with a volume: rows 2 and 4 are out of both sums.
+YC = (10.0, nan, 12.0, nan, 11.0)
+YV = (100.0, 300.0, 300.0, 200.0, 0.0)
+vwap_pairs = [None, None, r6((YC[0] * YV[0] + YC[2] * YV[2]) / (YV[0] + YV[2])),
+              r6(YC[2] * YV[2] / YV[2]),
+              r6((YC[2] * YV[2] + YC[4] * YV[4]) / (YV[2] + YV[4]))]  # fmt: skip
+# Rows 1-3: no finite close, no pair. Rows 2-4 and 3-5: the one pair (12, 0), its volume 0.
+ZC = (nan, nan, nan, 12.0, nan)
+ZV = (100.0, 200.0, 300.0, 0.0, 400.0)
+assert isnan(ZC[0])  # rows 1-3: no finite close
+assert isnan(ZC[1])
+assert isnan(ZC[2])
+assert isnan(ZC[4])  # rows 2-4 and 3-5: (12, 0) is the only pair
+assert ZV[3] == 0.0  # so the pairs' volume sums to 0: 0/0
+vwap_none = [None, None, nan, nan, nan]
 
 # RSI(4): d = diff(x); up = nanmean(clip(d, 0, inf)); dn = |nanmean(clip(d, -inf, 0))|.
 QX = (10.0, 12.0, 11.0, 13.0, nan)
@@ -113,6 +129,8 @@ ROWS = (
     case("RollingStd", "RollingStd(3)", {"close": RX}, rstd),
     case("SimpleMovingAverage", "SMA(3)", {"close": SX}, sma),
     case("VWAP", "VWAP(3)", {"close": WC, "volume": WV}, vwap),
+    case("VWAP", "VWAP(3)", {"close": YC, "volume": YV}, vwap_pairs),
+    case("VWAP", "VWAP(3)", {"close": ZC, "volume": ZV}, vwap_none),
 )  # fmt: skip
 
 
@@ -144,3 +162,5 @@ if __name__ == "__main__":
     print(line(ROWS[12]))
     print(line(ROWS[13]))
     print(line(ROWS[14]))
+    print(line(ROWS[15]))
+    print(line(ROWS[16]))
