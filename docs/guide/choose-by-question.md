@@ -57,7 +57,7 @@ threshold.
 - **Why**: one account, one pass, real fills and costs. The first screen already says which data, period, execution, costs and assumptions the result rests on (spec 3.9), and the run is saved so it can be rerun (5.9).
 - **Needs**: a strategy and a snapshot. No study, plan or hypothesis object.
 - **Cannot tell you**: that the result will repeat, or that the rule was not shaped by looking at this same data. The `evaluation` line says `research data` for that reason.
-- **Read first**: the `period`, `execution`, `costs` and `assumptions` lines, then CAGR, maximum drawdown and the cost lines. **Not yet in the spec** (#150): the line counting hypothetical exits at a past close and their P&L share.
+- **Read first**: the `period`, `execution`, `costs` and `assumptions` lines, then CAGR, maximum drawdown and the cost lines. When a held name had a share-changing event without an exact ratio, the `hypothetical exits` line counts the exits valued at a past close, their P&L and its share of the total, with the `ca_exit` lo/hi range (5.6.1, #150).
 - **Next**: tried several versions of the rule? Go to 3. Want the same rule under higher costs? Go to 6.
 
 <a id="signal"></a>
@@ -110,7 +110,8 @@ threshold.
 - **Why**: it tests every group of the history several times with the other groups as training, giving a distribution of out-of-sample paths (6.3a).
 - **Needs**: a decision grid long enough for `n_groups` groups (default 6 groups, 2 tested: 15 splits, 5 paths).
 - **Cannot tell you**: the paths share data and fits, so their quantiles are not a confidence interval and the path count is not a sample size; the best path is never the result. A path is synthetic: holdings carry across group boundaries while the model that made them changes.
-- **Not yet in the spec**: the purging interval covering every label in a test block (#149); strict in-sample scores for a `grid` with an ML factor (#215).
+- **Purging**: a training sample is removed when its label overlaps a test block, and the block ends at the latest label end or publication of any of its samples, not at its last decision's label (6.3a purging, #149).
+- **Not yet in the spec** (#215): strict in-sample scores for a `grid` with an ML factor.
 - **Expert setting**: `splits.cpcv(n_groups=, k_test=, embargo=)`.
 
 <a id="na"></a>
