@@ -846,7 +846,7 @@ dividends             paid {n} · pay date estimated {m}/{n}
 PSR(0) {x:.2f} · DSR {x:.2f} (N={N} candidates in cohort {cohort6}, V[SR] from cohort) | DSR n/a ({reason}) · MinTRL(95%) {y:.1f}y{ · vs SR*_N {z:.1f}y (selection-adjusted reference)}{ · IID-based: dependence visible (Ljung–Box lags 1–10, p < 0.05; may also reflect changing volatility)}   [#197]
 {Sharpe (Lo, ρ1={r:.2f}, lags ≤ 10) {x:.2f}}   (only when |ρ1| > 0.1)
 family {family6}: studies {s} · candidates explored {n} (factor {a} · strategy {b}) · selection events {e} · segments seen train {a} · validation {b} · test {c}
-evaluation {research data | independent final test (look {n}) | independence not established ({reason}) | {k} predeclared candidates on the final data (look {n}) | exploratory on reused final data (seen {m} times before)} · comparison set: cohort {cohort6}, {N} candidates, with returns {a}/{b}   (6.2) [#196]
+evaluation {research data | independent final test (look {n}) | independence not established ({reason}) | {k} predeclared candidates on the final data (look {n}) | exploratory on reused final data (seen {m} times before)} · comparison set: study {study} · {segment} · {kind}, cohort {cohort6}, {N} candidates, with returns {a}/{b}   (6.2) [#196, #197]
 warnings {n} (run.warnings) · data fallbacks {k} · reconciled: {yes|NO}
 ```
 
