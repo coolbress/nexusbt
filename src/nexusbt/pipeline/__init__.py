@@ -6,31 +6,16 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from . import factors as factors  # the 2.4 "`factors` module"
+from ._terms import BoundColumn as BoundColumn
+from ._terms import Classifier as Classifier
+from ._terms import Factor as Factor
+from ._terms import Filter as Filter
+from ._terms import Pipeline as Pipeline
+from ._terms import Term as Term
+from ._terms import describe_term as describe_term
+from ._terms import graph_hash as graph_hash
 
-
-@dataclass(frozen=True, slots=True)
-class Term: ...
-
-
-@dataclass(frozen=True, slots=True)
-class Factor: ...
-
-
-@dataclass(frozen=True, slots=True)
-class Filter: ...
-
-
-@dataclass(frozen=True, slots=True)
-class Classifier: ...
-
-
-@dataclass(frozen=True, slots=True)
-class BoundColumn: ...
-
-
-@dataclass(frozen=True, slots=True)
-class Pipeline: ...
+from . import factors as factors  # the 2.4 "`factors` module"  # isort: skip
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,10 +58,6 @@ def filter(  # noqa: A001 - the 3.1 name `nx.filter`
 def classifier(
     window: int, inputs: Sequence[BoundColumn | Factor], *, mask: Filter | None = None
 ) -> Callable[[Callable[..., Any]], Classifier]:
-    raise NotImplementedError
-
-
-def graph_hash(term: Term) -> str:
     raise NotImplementedError
 
 

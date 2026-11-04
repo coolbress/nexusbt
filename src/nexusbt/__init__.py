@@ -9,6 +9,9 @@ the name is bound to `api.config`, so only attribute access such as `nexusbt.con
 # so the 3.1 function holds the name; `import nexusbt.config` still finds the module.
 from nexusbt.api import config as config
 
+# `describe` of a term, T1.5 (#237); the Terms row (3.1) of T1.5 is bound after the errors.
+from nexusbt.api import describe as describe
+
 # Errors (3.1): `NexusBTError` and the 6.6 classes E1~E39, T0.4 (#49); E40~E49, T0.4b (#52).
 from nexusbt.contracts import AccountingDataError as AccountingDataError
 from nexusbt.contracts import AccountNotEvaluatedNotice as AccountNotEvaluatedNotice
@@ -60,3 +63,9 @@ from nexusbt.contracts import UnsupportedCorporateActionError as UnsupportedCorp
 from nexusbt.contracts import UntrustedRunError as UntrustedRunError
 from nexusbt.contracts import ValidationNotice as ValidationNotice
 from nexusbt.contracts import WindowError as WindowError
+from nexusbt.pipeline import BoundColumn as BoundColumn
+from nexusbt.pipeline import Classifier as Classifier
+from nexusbt.pipeline import Factor as Factor
+from nexusbt.pipeline import Filter as Filter
+from nexusbt.pipeline import Pipeline as Pipeline
+from nexusbt.pipeline import Term as Term
