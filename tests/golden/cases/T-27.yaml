@@ -1,0 +1,25 @@
+# Golden case T-27 (spec 8.2): hash tie-breaking with the fixed salt (3.7) [V31-29, R3-12].
+# Expected values are literals. `check/T-27.py` reaches them by hashing only, and
+# `tests/golden/test_handcalc_self.py` compares the two. An implementation pull request does
+# not change this file (`tests/repo/test_golden_guard.py`); a wrong value reopens the golden
+# ticket ("spec deviation").
+id: T-27
+description: >-
+  Three KR instruments with the same score at a decision. With `tiebreak = "hash"` (the default)
+  they are ordered by ascending key, the first 8 bytes of
+  sha256("nexusbt-tiebreak-v1" || 0x1F || instrument_id) read as a big-endian unsigned integer;
+  with `tiebreak = "id"`, by ascending instrument_id. The key reads no date, clock, graph,
+  sleeve or snapshot, so the order is the same at every decision.
+spec: "8.2 T-27; 3.7 selection and the tie-break key, 3.3 rank(\"ordinal\"), top, bottom"
+
+input:
+  scores: {"KR:T00001": 1.0, "KR:T00002": 1.0, "KR:T00003": 1.0}
+
+# One row per instrument, in hash order. `hash_order` and `id_order`: its position (1 = first
+# picked) under `tiebreak = "hash"` and `"id"`. The instrument_id is hashed as its UTF-8 bytes.
+# The three keys are the ones spec 8.2 gives (2629704763309498885 < 4315078529452203467 <
+# 8949987214584180479).
+expected:
+  - {instrument_id: "KR:T00002", key: 2629704763309498885, hash_order: 1, id_order: 2}
+  - {instrument_id: "KR:T00001", key: 4315078529452203467, hash_order: 2, id_order: 1}
+  - {instrument_id: "KR:T00003", key: 8949987214584180479, hash_order: 3, id_order: 3}
