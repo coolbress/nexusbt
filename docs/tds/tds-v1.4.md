@@ -16,6 +16,7 @@ This is the canonical English text; a Korean translation is in tds-v1.4.ko.md.
 > Version history (continued): **v1.4, 2026-11-03 change**: the package semantic hash (4.5) takes from each `markets` entry only `calendar_id`, `currency` and `timezone`, the fields the engine's cache key takes (specification 5.3.9, R3-04); the watermark fields of 4.2, which change on every publish, are left out (maintainer decision 2026-11-03, #119). A `semantic_sha256` computed under the old text differs from one under this text for any package whose `markets` carry a watermark or any other field. The standard is a draft, so `tds_version` stays `"1.0"` (10.2).
 > Version history (continued): **v1.4, 2026-11-04 change**: the dataset value hash (4.5 step 1) and the schema-level checks take the dataset's resolved schema, which adds after the schema file's columns every column the manifest `columns[]` declares that the schema file lacks (the feature and label columns of `feature_panels` and `label_panels`, 5.25); until now such a column was ignored, so two panels differing only in a feature value had the same `value_sha256` (#144). A `value_sha256` or `semantic_sha256` computed under the old text differs from one under this text for any dataset that declares such a column, and a test vector with one is added; at the schema level such a column is checked against its declared type (S002) and is no longer an unknown column (S005). The standard is a draft, so `tds_version` stays `"1.0"` (10.2).
 > Version history (continued): **v1.4, 2026-11-04 addition**: optional closed-enum column `corporate_actions.resolution_body` (`meeting` or `board`, null when unknown), the body whose resolution `resolution_date` records (5.11; maintainer decision 2026-11-03, #110). An optional column is MINOR by 10.2 and the standard is a draft, so `tds_version` stays `"1.0"`.
+> Version history (continued): **v1.4, 2026-11-04 clarification**: 3.7 says that the Parquet key-value `tds.dataset` is the dataset's manifest `name` (`bars_1d`), not its `kind` (`bars`), since a package may hold several datasets of one kind; a file that writes the kind is TDS-S010 (maintainer decision 2026-11-03, #121). A listed file that is not Parquet is also TDS-S010, and 3.6 says an integer partition value is ASCII digits with no leading zero (TDS-S008 otherwise; maintainer decision 2026-11-04, #121). The standard is a draft, so `tds_version` stays `"1.0"`.
 > Relation: this document is **the canonical input definition referenced by chapter 4** of the engine specification v3.4 (`engine-spec-v3.4-2026-10-28.md`). Where the two differ, this document is right about the input format (difference list in chapter 12). Maintainer decisions (design document 9.0) take precedence over this document.
 > Public: this standard and the checker (`nexusbt-tds`, import `nexusbt_tds`, command `tds`) are public (Apache-2.0). Chapter 11 of the working draft (producer-specific mapping) is not normative and is not part of this public edition.
 > Examples: example rows for every dataset the engine reads (including events and macro series) are in `tds-examples.md` (same folder).
@@ -247,7 +248,7 @@ This is the canonical English text; a Korean translation is in tds-v1.4.ko.md.
 ### 3.6 Partitions and files
 
 - Hive-style `key=value` folders. Partition column values are **not stored inside files** (they are read from the path). Value hashes and checks use the logical table with partition columns filled from path values. [decided; conflict with the opposite convention in chapter 13 Q9]
-- The type of a partition value is written in the dataset schema (e.g. `year` = i16, `date` = date32, `market` = code).
+- The type of a partition value is written in the dataset schema (e.g. `year` = i16, `date` = date32, `market` = code). An integer value is ASCII digits with an optional leading `-` and no leading zero (`year=2024`, not `year=02024`, `-0` or full-width digits), so each value has one path [v1.4, 2026-11-04].
 - File names: `part-<5-digit sequence>.parquet` (e.g. `part-00000.parquet`). Tables split by time range, like tick data, MAY use `<ts_min>_<ts_max>.parquet` (Nautilus style, with `:` and `.` in the RFC 3339 times replaced by `-`). Time ranges of files in the same partition MUST NOT overlap (K004).
 - Small tables (security master etc.) have no partition: `<dataset>/part-00000.parquet`.
 
@@ -261,7 +262,7 @@ This is the canonical English text; a Korean translation is in tds-v1.4.ko.md.
 | Row group | About one month for daily tables, 64–256MB for tick tables recommended |
 | Dictionary | Recommended for repeated strings (id, code) |
 | Bloom filter | Optional on `instrument_id` of tick tables |
-| Key-value metadata | Put `tds.dataset` and `tds.schema_version` in the Parquet file metadata (required). Do not put the write time |
+| Key-value metadata | Put `tds.dataset` and `tds.schema_version` in the Parquet file metadata (required): `tds.dataset` is the manifest `name` of the dataset whose `files` list the file (`bars_1d`), not its `kind` (`bars`), since a package may hold several datasets of one kind; `tds.schema_version` is that dataset's `schema_version`. Do not put the write time |
 | Writer tool | Record name and version in the manifest `writer` |
 
 ### 3.8 Market
@@ -1051,7 +1052,7 @@ Severity: E = error (profile fails), W = warning.
 | TDS-S007 | W | Value not in an open enum (and not in `dictionary/codes`) |
 | TDS-S008 | E | A partition path value does not fit its type, or the partition column is also inside the file |
 | TDS-S009 | E | NaN or ±Inf in a float column |
-| TDS-S010 | E | Parquet key-value metadata `tds.dataset`/`tds.schema_version` missing or different |
+| TDS-S010 | E | Parquet key-value metadata `tds.dataset`/`tds.schema_version` missing or different from the dataset's `name`/`schema_version` (3.7), also a listed file that is not Parquet |
 | TDS-K001 | E | Duplicate key |
 | TDS-K002 | E | Sort violation (inside a file or across concatenated files) |
 | TDS-K003 | E | A row outside its partition range (e.g. a 2023 row in the year=2024 folder) |
@@ -1486,3 +1487,4 @@ Reference numbers are `R4F-NN` of specification v3.4 (appendix I). **`tds_versio
 - 2026-11-02: **v1.4**, in place. 8.1: the CLI's default check level is `schema`, also once `full` is built; the library `check()` takes the level as a required argument (maintainer decision 2026-11-02). `tds_version` stays `"1.0"` (checker behaviour, no format change).
 - 2026-11-02: **v1.4**, in place. 8.2: the `schema` level also reads the `dictionary/` tables, which describe the package rather than hold its data rows (maintainer decision 2026-11-02). `tds_version` stays `"1.0"` (checker behaviour, no format change).
 - 2026-11-04: **v1.4**, in place. Optional closed-enum column `corporate_actions.resolution_body` (5.11), `meeting` or `board`, the body whose resolution `resolution_date` records (maintainer decision 2026-11-03, #110). `tds_version` stays `"1.0"` (an optional column is MINOR by 10.2; draft).
+- 2026-11-04: **v1.4**, in place. 3.7: the Parquet key-value `tds.dataset` is the dataset's `name`, not its `kind`; the kind is TDS-S010 (maintainer decision 2026-11-03, #121). 8.3: a listed file that is not Parquet is TDS-S010; 3.6: an integer partition value is ASCII digits with no leading zero (maintainer decision 2026-11-04, #121). The `schema` level lists as `unchecked` the S codes of a kind with no schema file (not the 4.4 `dictionary/` tables) and S003 for a required list column, and reads a file listed twice once (8.2, checker behaviour). `tds_version` stays `"1.0"` (wording clarification; draft).
