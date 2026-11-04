@@ -2275,6 +2275,7 @@ SQLite(WAL). 덧붙이기만: 아래 표는 `BEFORE UPDATE/DELETE` 트리거가 
 | P3 | `nx.evaluate(Returns(232).shift(21))` 월간 30년 KR+US | p95 ≤ 5 s (엔진 캐시 없음) / ≤ 1 s (캐시) | 3 s / 0.5 s | 새 프로세스, 캐시 상태 명시 |
 | P4 | 매 세션 IC 팩터(`freq="daily"`) 30년 US | p95 ≤ 30 s | 20 s | |
 | P5 | `nx.backtest` 월간 top-N(n=50/슬리브) 비용 포함 30년 KR+US, 회계·시나리오 5개·저장 포함 | p95 ≤ 30 s | **10 s** | 새 프로세스, 엔진 캐시 없음 |
+| P5-daily | `nx.backtest` 매일 판단, top-N(n=50/슬리브) 비용 포함, 30년 KR+US, 회계·저장 포함. 월간 P5에 없는 세 가지를 담는다: 매일의 회전율(세션마다 리밸런스 판단), 그래프 안의 사용자 함수(창 방식 `@nx.factor(window=…)` 하나), 부분 체결(5.6.6의 거래량 상한이 몇몇 세션에 걸리는 주문 크기, 남은 양은 이월) | 먼저 재고 예산은 그 뒤에 | 먼저 재고 예산은 그 뒤에 | 새 프로세스, 엔진 캐시 없음. 첫 측정(M3a 끝, 아래 표) 뒤에 사람이 p95 예산과 목표를 정하고 그때 이 행을 고친다 |
 | P6 | `nx.sweep` 27후보, 공통 항 공유 | p95 ≤ 120 s | 60 s | |
 | P7 | P5 동안 엔진 프로세스 트리(주 + 작업자) 최고 RSS 합 | ≤ 4 GB | 3 GB | psutil 50 ms 표본, 트리 전체 합. L0 메모리 매핑 페이지가 RSS에 잡히므로 **USS(익명 메모리)** 합 최고값도 한 줄 따로 보고하고, 관문은 USS ≤ 4 GB로도 판정한다(둘 다 보고). 1년 묶음이 예산을 넘으면 더 작게 나눈다(5.3.8) [SC-15, RV-I05] |
 | P8 | 정적 검사(6.5) | ≤ 1 s, 무거운 계산 전 | | 호출부터 계산 시작까지 |
@@ -2282,9 +2283,19 @@ SQLite(WAL). 덧붙이기만: 아래 표는 `BEFORE UPDATE/DELETE` 트리거가 
 | P10 | zipline 대조 허용 오차 | 8.1 표 | | 정확성 관문 |
 | P11 | **고차원** [R4-18]: 팩터 300개(기본 칼럼 약 40개에서 창·순위·합성으로 만든 것) × 30년 × KR+US, 월간 판단 — (a) `nx.evaluate({300개})`, (b) 300개 `ops.composite` 점수의 `backtest`(top-N, 비용·회계 포함), (c) (b)를 `method="walk_forward"` + `grid` 3점 | **목표만**(시제품 T6.26이 잰 뒤 관문을 ADR로 정함) | (a) ≤ 300 s, (b) ≤ 60 s, (c) ≤ 180 s; 엔진 트리 USS ≤ 6 GB | 새 프로세스, 엔진 캐시 없음/있음 둘; 읽은 칼럼 바이트·계산한 판단 행 수·노드 수·공유된 노드 수를 함께 보고 |
 
-**이른 측정** [RV-I05]: 벤치 장치(T1.24)는 **M1**에 들어오고, 마일스톤마다 그때까지 생긴 단계를 잰다: M1 = 열기·블록 읽기·조정·창 커널(`SMA(252)` 일간 전체 행, 정의 A; ADR-0019 B로 바꿀지 판단 근거)·단면, M3a 끝 = 상태 기계(한 시장, 합성 `full`의 1/50 `full_ci`와 계산 기계 `full`), M4 끝 = 두 슬리브·시나리오. M6(T6.11)은 관문 판정이다. P7 메모리는 **프로세스 트리 전체**(주 + 작업자)의 합으로 잰다.
+**이른 측정** [RV-I05]: 벤치 장치(T1.24)는 **M1**에 들어오고, 마일스톤마다 아래 표에 고정한 워크로드를 잰다. 구조의 실제 비용을 M6 관문이 아니라 M3a가 구조를 굳히기 전에 알기 위해서다. M6(T6.11)은 관문 판정이다. P7 메모리는 **프로세스 트리 전체**(주 + 작업자)의 합으로 잰다. "단계가 예산의 2배를 넘으면: 프로파일 → 원인 ADR" 규칙(아래 P11 밑)은 M1부터 재는 모든 단계에, 그 단계에 예산이 생기는 대로 적용한다.
 
-**측정 규칙** [11.8, 3.10]: `bench/run.py --workload P5 --reps 10 --snapshot <id>`. 10회 이상, p50/p95/최대 보고, 첫 프로세스 JIT 지연(Numba 캐시 비움)은 따로 한 줄, 엔진 캐시 상태 명시, 저장 시간 포함, 수익률 산술에서 외삽 금지. 결과 JSON `bench/results/<YYYYMMDD>-<git sha>-m4.json`(workload, reps, p50, p95, max, rss_max, uss_max, snapshot_id, cache_state(L0/L1 각각 hit/miss), jit_first_s, versions, `fixture_sha256`, `stage_seconds{}`, `output_value_sha256{}`(정규 출력 값 해시 — 빠르되 같은 결과의 증거) [R4F-18] — 요약 수치만, 경로·종목 값 없음 2.7)을 마일스톤 끝에 커밋한다. 단계별 예산(P5 30초 관문 기준 [추]): 스냅숏 열기 1.5, 블록 읽기 L0 적중 0.5·미적중 6, Pipeline 판단 행만 3, 목표 0.5, 상태 기계(30년 × 슬리브 2) 8, 시나리오 4개(gross = cost0x 한 번) 7, 저장·해시 2 — T1.24(M1)부터 실제 표로 바꾸고 M3a·M4 끝에 다시 잰다 [청사진 12.3, RV-I05]. 상태 기계는 열 배열(5.6.1)이고, 측정에서 P5 관문을 못 지킬 때만 T6.6(Numba 세션 스텝)을 한다 [RV-I10]. 관문을 못 지키면 표를 고치기 전에 병목을 프로파일로 찾고 이유를 ADR에 적는다(Rust 구현은 병목 확인 뒤에만, 2.4 이음새로 바꿔 끼우고 비트 같음 시험 — ADR-0016 [R3-26]) [Q14, 11.9 Q-E4].
+| 언제 | 티켓 | 스냅숏 | 워크로드 |
+|---|---|---|---|
+| M1 | T1.24 | `synth-full-m1-0001`(T0.8d: M1 데이터셋을 `full` 규모로, 종목 약 27,000개·일봉 약 6천만 행; M2 데이터셋까지 담은 `synth-full-0001`과 다른 id) | P1; 열기·블록 읽기·조정·단면; `SMA(252)` 일간 전체 행(정의 A; ADR-0019 B로 바꿀지 판단 근거). 단계마다 cold와 warm, 프로세스 트리 USS 합과 함께 |
+| M2 끝(T2.8 뒤) | T2.14 | `synth-full-m1-0001` | P3, P8 |
+| M3a 끝 | T3.18 | CI는 `full_ci`(`full`의 1/50), 계산 기계는 `synth-full-0001` | 상태 기계를 포함한 한 시장 P5, 한 시장 P5-daily, P7 |
+| M4 끝 | T4.9 | `synth-full-0001` | P5 전체(두 슬리브, 시나리오 5개), KR+US P5-daily, P7 |
+| M6 | T6.11 | `synth-full-0001` 또는 첫 실제 내보내기 | 관문들, 그리고 P2b(T6.12의 L0 캐시와 T6.4의 L1 캐시가 필요하고, 둘 다 M6) |
+
+M6 전의 **cold와 warm**은 그 마일스톤에 있는 캐시로 정한다: cold = Numba 캐시를 비운 새 프로세스, warm = 그것이 채워진 새 프로세스(OS 파일 캐시는 둘 다 데워짐, P1과 같음). T6.12부터는 cold가 L0 폴더도 지운다(T6.4부터는 L1 폴더도). #144와 #148(L0·L1 열쇠가 무엇을 해시하는지)이 닫히기 전에 잰 warm 수치는 결과 JSON에 `provisional: true`를 단다.
+
+**측정 규칙** [11.8, 3.10]: `bench/run.py --workload P5 --reps 10 --snapshot <id>`. 10회 이상, p50/p95/최대 보고, 첫 프로세스 JIT 지연(Numba 캐시 비움)은 따로 한 줄, 엔진 캐시 상태 명시, 저장 시간 포함, 수익률 산술에서 외삽 금지. 결과 JSON `bench/results/<YYYYMMDD>-<git sha>-m4.json`(workload, reps, p50, p95, max, rss_max, uss_max, snapshot_id, cache_state(L0/L1 각각 hit/miss, 그리고 cold 또는 warm), provisional, jit_first_s, versions, `fixture_sha256`, `stage_seconds{}`, `output_value_sha256{}`(정규 출력 값 해시 — 빠르되 같은 결과의 증거) [R4F-18] — 요약 수치만, 경로·종목 값 없음 2.7)을 마일스톤 끝에 커밋한다. 단계별 예산(P5 30초 관문 기준 [추]): 스냅숏 열기 1.5, 블록 읽기 L0 적중 0.5·미적중 6, Pipeline 판단 행만 3, 목표 0.5, 상태 기계(30년 × 슬리브 2) 8, 시나리오 4개(gross = cost0x 한 번) 7, 저장·해시 2 — T1.24(M1)부터 실제 표로 바꾸고 M2·M3a·M4 끝에 다시 잰다 [청사진 12.3, RV-I05]. 상태 기계는 열 배열(5.6.1)이고, 측정에서 P5 관문을 못 지킬 때만 T6.6(Numba 세션 스텝)을 한다 [RV-I10]. 관문을 못 지키면 표를 고치기 전에 병목을 프로파일로 찾고 이유를 ADR에 적는다(Rust 구현은 병목 확인 뒤에만, 2.4 이음새로 바꿔 끼우고 비트 같음 시험 — ADR-0016 [R3-26]) [Q14, 11.9 Q-E4].
 
 **작업 P2b**(관문 아님, 보고) [V31-12]: 어제 스냅숏으로 데운 L0·L1 캐시 + 오늘 스냅숏(마지막 연도 파티션만 바뀜)으로 `screen(strategy)` — 매일 쓰는 스크리너의 실제 상황. 목표 ≤ 2 s(P2와 같음), 바뀐 파티션 수·적중률을 함께 보고(v3.1 열쇠는 워터마크가 든 `markets`를 넣어 적중률이 0이었다; v3.2 L0 열쇠는 안정 필드만 [R3-04]). 슬리브·시나리오 열 묶음(5.3.8)은 T6.5·T6.6 측정에서 켜고 끈 두 값을 적는다 [V31-11].
 
@@ -2740,7 +2751,7 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 
 **명세 변경 반영 시점**: v3는 청사진 SC-01~SC-27과 3자 검토 합의의 P0·P1(그리고 값싼 P2)을 본문에 반영했다(부록 E). 구현 중 명세 빈틈이 나오면 9.5의 "spec deviation" 절차로 고치고 이 문서를 개정한다 — v2의 "마일스톤 시작 전에 명세를 다시 고칠 일은 없다"는 3자 검토가 반박해 뺐다 [RV-I07]. 각 SC가 처음 구현·시험되는 티켓은 부록 B.2, RV 항목은 부록 B.4.
 
-**티켓 규칙**: 한 티켓 = 한 세션 = 한 PR, 바뀐 줄 ≤ 400(문서·잠금 제외; plinth `ci / diff-size`). 크기 S ≤ 150줄, M ≤ 400줄. 제목은 PR 제목으로도 쓰는 Conventional Commits. "Context"는 할 일, "Done means"는 사람이 보고 확인할 것, "Acceptance"는 만들 시험 이름(tdd로 먼저 실패시킴), "Blocked by"는 티켓 번호(이슈로 만들면 이슈 번호로 바꿈). v1에서 바뀐 티켓은 *(v2: …)*, v3에서 바뀐 티켓은 *(v3: …)*, v2의 새 티켓은 **[new]**, v3의 새 티켓·나눈 티켓은 **[v3]** 를 붙였다. **golden 티켓**(`T<m>.G…`)은 손으로 쓴 세션별 산수(8.2)이고 그것을 쓰는 구현 티켓보다 먼저, 다른 세션에서 병합한다. v3.1의 새 티켓·나눈 티켓은 **[v3.1]**, 바뀐 티켓은 *(v3.1: …)*. v3.2의 새 티켓·나눈 티켓은 **[v3.2]**, 바뀐 티켓은 *(v3.2: …)*. v3.3의 새 티켓·나눈 티켓은 **[v3.3]**, 바뀐 티켓은 *(v3.3: …)*. **엔진 티켓 수(지금 기준 = v3.4 최종 + R5 + R7, `tools/spec_lint.py`로 셈) [R6-04]: M0 16, M1 40, M2 30, M3a 37, M3b 11, M4 28, M5 24, M6 31(T7.G·T7.1·T7.V 포함), v1.x 2(T7.2·T7.5) = 219.** 같은 셈의 시험·결정 id: 손계산 정답 G-01~G-107(107개), 성질 시험 34개(8.3 표), 오류 E1~E49(49개, 6.6), ADR 0001~0040(40개, 9.3). 이 문단과 아래의 다른 숫자는 그 판 때 기록이다. **엔진 티켓 수(v3.3): M0 16, M1 40, M2 28, M3a 36, M3b 10, M4 26, M5 22, M6 27, v1.x 절 5(T7.G·T7.1은 M6 끝, T7.V는 T7.1 뒤 확인 단계, T7.2·T7.5는 v1.x) = 210**(v3.2의 188에서 새 24, v1.x에서 v1로 옮긴 T7.3·T7.4는 새 티켓 T3.29·T3.33에 흡수 [R4-27]). 아래 v3.2 문장의 숫자는 v3.2 때 기록이다. 엔진 티켓 수(v3.2): M0 15, M1 40, M2 28, M3a 28, M3b 9, M4 26, M5 18, M6 17, v1.x 절 7(T7.G·T7.1은 M6 끝, T7.V는 T7.1 뒤 확인 단계, T7.2~T7.5는 v1.x) = 188(v3.1의 176에서 나눔 8·새 4, 아래 대응 표) [R3-23]. 아래 v3.1 문장의 숫자는 v3.1 때 기록이다. 엔진 티켓 수(v3.1): M0 13, M1 39, M2 27, M3a 28, M3b 9, M4 21, M5 16, M6 17, v1.x 절 6(T7.G·T7.1은 M6 끝에 들어가고 T7.2~T7.5는 v1.x) = **176**(v3의 142 = 141 + 세금 T4.5b에서 새 34) [V31, V31-LS]. 아래 v3 문장의 숫자는 v3 때 기록이다: M0 13, M1 34, M2 23, M3a 22, M3b 7, M4 12, M5 9, M6 16, v1.x 5 = **141**(v2의 112에서 나눔·새 티켓·golden 티켓으로 늘고, v2의 T0.11·T0.17은 golden 티켓으로 흩어져 없어지고 T6.1은 T1.24로 옮김). 의존 그래프는 비순환이고 모든 "Blocked by"가 같거나 앞 마일스톤에 있다(v3 작성 때 스크립트로 확인; 저장소에서는 T0.12의 `test_ticket_graph`).
+**티켓 규칙**: 한 티켓 = 한 세션 = 한 PR, 바뀐 줄 ≤ 400(문서·잠금 제외; plinth `ci / diff-size`). 크기 S ≤ 150줄, M ≤ 400줄. 제목은 PR 제목으로도 쓰는 Conventional Commits. "Context"는 할 일, "Done means"는 사람이 보고 확인할 것, "Acceptance"는 만들 시험 이름(tdd로 먼저 실패시킴), "Blocked by"는 티켓 번호(이슈로 만들면 이슈 번호로 바꿈). v1에서 바뀐 티켓은 *(v2: …)*, v3에서 바뀐 티켓은 *(v3: …)*, v2의 새 티켓은 **[new]**, v3의 새 티켓·나눈 티켓은 **[v3]** 를 붙였다. **golden 티켓**(`T<m>.G…`)은 손으로 쓴 세션별 산수(8.2)이고 그것을 쓰는 구현 티켓보다 먼저, 다른 세션에서 병합한다. v3.1의 새 티켓·나눈 티켓은 **[v3.1]**, 바뀐 티켓은 *(v3.1: …)*. v3.2의 새 티켓·나눈 티켓은 **[v3.2]**, 바뀐 티켓은 *(v3.2: …)*. v3.3의 새 티켓·나눈 티켓은 **[v3.3]**, 바뀐 티켓은 *(v3.3: …)*. **엔진 티켓 수(지금 기준 = v3.4 최종 + R5 + R7, `tools/spec_lint.py`로 셈) [R6-04]: M0 16, M1 41(M1 벤치용 T0.8d 추가), M2 30, M3a 37, M3b 11, M4 28, M5 24, M6 31(T7.G·T7.1·T7.V 포함), v1.x 2(T7.2·T7.5) = 220.** 같은 셈의 시험·결정 id: 손계산 정답 G-01~G-107(107개), 성질 시험 34개(8.3 표), 오류 E1~E49(49개, 6.6), ADR 0001~0040(40개, 9.3). 이 문단과 아래의 다른 숫자는 그 판 때 기록이다. **엔진 티켓 수(v3.3): M0 16, M1 40, M2 28, M3a 36, M3b 10, M4 26, M5 22, M6 27, v1.x 절 5(T7.G·T7.1은 M6 끝, T7.V는 T7.1 뒤 확인 단계, T7.2·T7.5는 v1.x) = 210**(v3.2의 188에서 새 24, v1.x에서 v1로 옮긴 T7.3·T7.4는 새 티켓 T3.29·T3.33에 흡수 [R4-27]). 아래 v3.2 문장의 숫자는 v3.2 때 기록이다. 엔진 티켓 수(v3.2): M0 15, M1 40, M2 28, M3a 28, M3b 9, M4 26, M5 18, M6 17, v1.x 절 7(T7.G·T7.1은 M6 끝, T7.V는 T7.1 뒤 확인 단계, T7.2~T7.5는 v1.x) = 188(v3.1의 176에서 나눔 8·새 4, 아래 대응 표) [R3-23]. 아래 v3.1 문장의 숫자는 v3.1 때 기록이다. 엔진 티켓 수(v3.1): M0 13, M1 39, M2 27, M3a 28, M3b 9, M4 21, M5 16, M6 17, v1.x 절 6(T7.G·T7.1은 M6 끝에 들어가고 T7.2~T7.5는 v1.x) = **176**(v3의 142 = 141 + 세금 T4.5b에서 새 34) [V31, V31-LS]. 아래 v3 문장의 숫자는 v3 때 기록이다: M0 13, M1 34, M2 23, M3a 22, M3b 7, M4 12, M5 9, M6 16, v1.x 5 = **141**(v2의 112에서 나눔·새 티켓·golden 티켓으로 늘고, v2의 T0.11·T0.17은 golden 티켓으로 흩어져 없어지고 T6.1은 T1.24로 옮김). 의존 그래프는 비순환이고 모든 "Blocked by"가 같거나 앞 마일스톤에 있다(v3 작성 때 스크립트로 확인; 저장소에서는 T0.12의 `test_ticket_graph`).
 
 **v2 → v3 티켓 대응** (이슈를 만들 때 이 표로 확인):
 
@@ -2876,6 +2887,11 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 - Context: 사건 생성과 `EventSpec` 주입, 정정판(`revision_of`)·취소, `price_factor`·`share_factor`·`factor_method`, `cum_factor_*`가 해석기 최신판과 맞음, `delistings`(일부 `ts_value_available` 늦음), `tradability_daily`(`availability_by_column`), `eligibility_daily`(공개 `session_close`), `share_counts`.
 - Done means: `--preset small --validate` 출력에 "TDS-A001: 0"과 정정·취소 사건 수 줄이 있다.
 - Acceptance: `test_synth.py::test_factor_event_reconciliation`, `::test_reverse_split_makes_factor_non_monotonic`, `::test_revisions_and_cancellations_present`, `::test_injected_event_overrides_random`, `::test_delisted_on_matches_delistings`, `::test_eligibility_no_lookahead`.
+
+**T0.8d `feat(testing): full-scale synthetic preset of the m1 datasets for the bench`** **[v3.4]** · `M1` `testing` · S · Blocked by: T0.7 · §4.8, §7
+- Context: 4.8 표의 규모(상장 이력 KR 5,500 + US 22,100 종목, 1995-01-02 → 2024-12-31)로 `--preset full`을 만들되, 7장 M1 워크로드가 읽는 T0.6·T0.7의 데이터셋만 생성한다; 스냅숏 id는 `synth-full-m1-0001`. M2 데이터셋과 `full_ci`는 나중에 T0.8c가 더한다.
+- Done means: 사람이 계산 기계에서 돌린 `python -m nexusbt.testing.synth --preset full --out DIR --validate`가 통과하고 행 수·시간·크기를 출력(수치는 마일스톤 추적 이슈에).
+- Acceptance: `test_synth.py::test_full_preset_parameters_match_table`, `::test_full_is_small_rules_at_full_scale`(둘 다 CI에서 `full`을 만들지 않고 프리셋의 매개변수와 규칙만 확인).
 
 **T0.14a `feat(tds): full-level key and reference checks`** **[v3]** · `M1` `tds` · M · Blocked by: T0.13c · TDS 8.3 *(v3: T0.14를 나눔; `classifications` 열쇠에 level·edition)*
 - Context: `level="full"`의 K001~K011, R001~R009(판 열쇠 포함), 코드마다 pass/fail 패키지.
@@ -3014,10 +3030,10 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 - Done means: Parquet 몇 개가 든 폴더에서 `tds manifest build`가 초안을 쓰고, `TODO`를 채운 뒤 `tds check`가 통과.
 - Acceptance: `tds/tests/test_manifest_build.py::test_draft_lists_files_and_stats`, `::test_todo_fields_flagged`.
 
-**T1.24 `feat(bench): benchmark harness and early stage measurements`** **[v3: v2 T6.1을 M1로]** · `M1` `bench` · M · Blocked by: T1.13 · §7 [RV-I05]
-- Context: `bench/run.py`(워크로드·반복·p50/p95/최대·프로세스 트리 RSS·USS 합·JIT 첫 지연·캐시 상태), `--stages m1`(열기·블록 읽기·조정·`SMA(252)` 일간 전체 행(ADR-0019 정의 A)·단면) 측정, 결과 JSON(요약만).
-- Done means: `uv run python bench/run.py --stages m1 --reps 3 --snapshot synth-small`가 단계별 p50/p95와 RSS/USS JSON을 출력하고, PR 설명에 ADR-0019 A 유지/B 전환 판단 근거 한 줄.
-- Acceptance: `tests/unit/bench/test_harness.py::test_result_schema`, `::test_no_paths_in_results`, `::test_process_tree_memory_summed`, `::test_output_value_hash_in_results`(v3.4 [R4F-18]).
+**T1.24 `feat(bench): benchmark harness and early stage measurements`** **[v3: v2 T6.1을 M1로]** · `M1` `bench` · M · Blocked by: T1.13, T0.8d · §7 [RV-I05] *(v3.4: 7장 표의 M1 워크로드를 `synth-full-m1-0001`에서, cold와 warm)*
+- Context: `bench/run.py`(워크로드·반복·p50/p95/최대·프로세스 트리 RSS·USS 합·JIT 첫 지연·캐시 상태), `--stages m1`(P1·열기·블록 읽기·조정·`SMA(252)` 일간 전체 행(ADR-0019 정의 A)·단면) 측정, 단계마다 7장이 정한 cold와 warm, #144나 #148이 열려 있는 동안 warm 수치에 `provisional: true`, 결과 JSON(요약만).
+- Done means: `uv run python bench/run.py --stages m1 --reps 3 --snapshot synth-small`가 단계별 p50/p95와 RSS/USS JSON을 출력; 사람이 계산 기계에서 돌린 `bench/run.py --stages m1 --reps 10 --snapshot synth-full-m1-0001`가 M1 단계마다 cold·warm p95와 프로세스 트리 USS 합을 출력(수치는 마일스톤 추적 이슈에); PR 설명에 ADR-0019 A 유지/B 전환 판단 근거 한 줄.
+- Acceptance: `tests/unit/bench/test_harness.py::test_result_schema`, `::test_no_paths_in_results`, `::test_process_tree_memory_summed`, `::test_output_value_hash_in_results`(v3.4 [R4F-18]), `::test_cold_and_warm_p95_per_stage`, `::test_warm_marked_provisional_while_cache_keys_open`(v3.4).
 
 **T1.20 `docs(examples): m1 walkthrough`** · `M1` `docs` · S · Blocked by: T1.15, T1.22 · §8.5 *(v3: CSV 가져오기 줄 포함)*
 - Done means: README "첫 5분" 절의 명령을 그대로 붙여 넣으면 합성 스냅숏 만들기(또는 CSV 가져오기) → `tds check` → doctor → 스크리닝 → rerun이 된다.
@@ -3149,8 +3165,8 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 - Done means: 깨끗한 폴더에서 문서 명령을 그대로 붙여 넣으면 끝까지 돈다.
 - Acceptance: `tests/docs/test_examples.py::test_quickstart_csv_to_rerun_en`.
 
-**T2.14 `docs(examples): m2 factor research walkthrough`** · `M2` `docs` · S · Blocked by: T2.10a, T2.11 · §8.5
-- Done means: README "팩터 하나 평가" 절 명령이 그대로 돈다.
+**T2.14 `docs(examples): m2 factor research walkthrough and stage measurement`** · `M2` `docs` · S · Blocked by: T2.10a, T2.11, T2.12, T1.24 · §7, §8.5 *(v3.4: 7장 표의 M2 워크로드)*
+- Done means: README "팩터 하나 평가" 절 명령이 그대로 돌고, 사람이 계산 기계에서 돌린 `bench/run.py --stages m2 --snapshot synth-full-m1-0001`가 P3, P8을 cold와 warm으로 출력(수치는 마일스톤 추적 이슈에).
 - Acceptance: `tests/docs/test_examples.py::test_readme_m2`.
 
 **T2.Gb `test(golden): v3.1 ranking and market-series cases (T-26, T-28)`** **[v3.1]** · `M2` `golden` · S · Blocked by: T0.9 · §5.4.2, §3.2 [V31-25, V31-13] *(v3.2: T-27은 T1.Gb로 옮김 [R3-12])*
@@ -3190,7 +3206,7 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 
 #### M3a — 한 시장 시장가 끝-끝 (얇은 조각)
 
-**T0.8c `feat(testing): full and full_ci synthetic presets`** **[v3]** · `M3a` `testing` · S · Blocked by: T0.8b · §4.8 *(v3: T0.8을 나눔; `full`은 사람이 계산 기계에서, CI는 `full_ci`)*
+**T0.8c `feat(testing): full and full_ci synthetic presets`** **[v3]** · `M3a` `testing` · S · Blocked by: T0.8b, T0.8d · §4.8 *(v3: T0.8을 나눔; `full`은 사람이 계산 기계에서, CI는 `full_ci`)* *(v3.4: `full`의 M1 데이터셋은 T0.8d가 만들고, 이 티켓은 `full`에 M2 데이터셋을 더한다)*
 - Done means: `--preset full_ci --validate`가 CI에서 시간·크기를 출력하고 통과; `--preset full`은 계산 기계 수동 체크리스트(마일스톤 추적 이슈)에 시간·크기 기록.
 - Acceptance: `test_synth.py::test_full_ci_conforms`, `::test_full_ci_is_fraction_of_full_rules`.
 
@@ -3282,8 +3298,8 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 - Done means: 유효/유니버스 < 50%인 판단이 5% 넘는 합성 실행에서 E6 한 줄(원인 칼럼별 NaN 수), 20세션 넘게 묵은 평가 보유에서 E25.
 - Acceptance: `tests/unit/api/test_warnings.py::test_E6_coverage`, `::test_E25_stale_mark`.
 
-**T3.18 `docs(examples): m3a strategy walkthrough, perf smoke and stage measurement`** · `M3a` `docs` · S · Blocked by: T3.14, T1.24, T0.8c · §7, §8.5 *(v3: 상태 기계 단계 측정)*
-- Done means: README "전략 하나 백테스트" 절이 돌고, `uv run pytest -m perf_smoke`가 P5-small 시간을, `bench/run.py --stages m3a --snapshot synth-full_ci`가 상태 기계 단계 시간을 출력(계산 기계 `full` 수치는 마일스톤 추적 이슈에).
+**T3.18 `docs(examples): m3a strategy walkthrough, perf smoke and stage measurement`** · `M3a` `docs` · S · Blocked by: T3.14, T1.24, T0.8c · §7, §8.5 *(v3: 상태 기계 단계 측정)* *(v3.4: 7장 표의 M3a 워크로드)*
+- Done means: README "전략 하나 백테스트" 절이 돌고, `uv run pytest -m perf_smoke`가 P5-small 시간을, `bench/run.py --stages m3a --snapshot synth-full_ci`가 상태 기계 단계 시간을 출력; 계산 기계에서 `bench/run.py --stages m3a --snapshot synth-full-0001`가 한 시장 P5·P5-daily·P7을 cold와 warm으로 출력(수치는 마일스톤 추적 이슈에, 그리고 첫 P5-daily 수치로 사람이 7장의 P5-daily 예산과 목표를 정한다).
 - Acceptance: `tests/docs/test_examples.py::test_readme_m3a`, `tests/perf/test_smoke.py::test_P5_small`.
 
 **T3.Gd `test(golden): v3.1 quantity, stale-mark, delisting-distribution, volume-cap, rounding, small-trade and target-gap cases (G-53..G-56, G-58, G-59, G-66)`** **[v3.1]** · `M3a` `golden` · M · Blocked by: T0.9, T0.15a · §5.6.1, §5.6.3, §5.6.6, §5.6.7, §5.6.13, §8.2 [V31-01~V31-06, V31-14] *(v3.2: G-53 (e) 바뀜·(g)~(j), G-55 (a)~(f), G-58 기본 `down` [R3-06, R3-05, R3-27])*
@@ -3451,8 +3467,8 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 - Done means: G-28 통과; M-CCY·M-SLEEVE 통과(전제 안), `KR_close` + 시장 넘는 순위 반례는 관계가 깨짐을 확인.
 - Acceptance: `tests/golden/test_sleeves.py::test_G28`, `tests/property/test_execution_invariants.py::test_P_FUT_two_markets`, `tests/property/test_metamorphic.py::test_M_CCY`, `::test_M_SLEEVE`, `::test_M_SLEEVE_counterexample_cross_market`, `tests/property/test_execution_invariants.py::test_P_SLEEVE_ISO`(v3.1 [V31-11]).
 
-**T4.9 `docs(examples): m4 multi-market walkthrough`** · `M4` `docs` · S · Blocked by: T4.7 · §8.5
-- Done means: README "한국+미국 함께" 절이 돈다.
+**T4.9 `docs(examples): m4 multi-market walkthrough and stage measurement`** · `M4` `docs` · S · Blocked by: T4.7, T1.24, T0.8c · §7, §8.5 *(v3.4: 7장 표의 M4 워크로드)*
+- Done means: README "한국+미국 함께" 절이 돌고, 사람이 계산 기계에서 돌린 `bench/run.py --stages m4 --snapshot synth-full-0001`가 P5 전체(두 슬리브, 시나리오 5개), KR+US P5-daily, P7을 cold와 warm으로 출력(수치는 마일스톤 추적 이슈에).
 - Acceptance: `tests/docs/test_examples.py::test_readme_m4`.
 
 **T4.10 `feat(artifacts): currency attribution and exposure tables`** **[new]** · `M4` `artifacts` · M · Blocked by: T4.2, T3.14 · §5.6.9, §5.9.1 [SC-07, OQ-3]
