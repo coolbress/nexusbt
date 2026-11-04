@@ -1495,6 +1495,7 @@ class DecisionContext:
 - 줄이기(합·평균)는 5.3.10의 고정 순서. Numba 커널은 `parallel=False`(v1). 난수는 쓰지 않는다(탐침은 `[checks] seed`).
 - **슬리브 독립과 열 묶음** [V31-11, INV-21]: 목표(`TargetFrame`)가 정해진 뒤 슬리브끼리는 체결·회계가 독립이다(슬리브 사이 현금 이동 없음, 5.6.9). 그래서 실행기는 슬리브·시나리오(κ, 폐지 lo/hi, 용량 배수, `offsets`)·sweep 후보를 **같은 세션 루프의 추가 열**(열마다 상태 따로, 가격·사건 해석은 한 번)로 묶어 돌려도 된다(vectorbt의 그룹 열 방식). 결과 비트는 따로 돈 것과 같아야 한다(P-SLEEVE-ISO, P-DET). 예외: 여러 시장을 묶은 `[taxes] pay = "cash"` 묶음은 해마다 납부 세션에서 동기화한다.
 - 시나리오 재생(gross·cost0x·…·capacity)과 sweep 후보 집행은 서로 독립이라 `workers > 1`일 때 프로세스 병렬로 돌 수 있고, 결과는 시나리오 이름 순·`candidate_key` 순으로 합친다. 기본 `workers = 1`(OQ-14).
+- **무엇이 병렬로 돌 수 있나**(결정 2026-11-04, #152): 일 하나가 바뀌지 않는 입력만 읽고 새 객체를 쓰면 다른 일과 병렬로 돈다 — 청크, 적합, 격자 후보, sweep 후보, CPCV 경로, 홀드아웃 구간, 시나리오. 다른 일이 쓰는 상태를 읽으면 차례로 돈다 — 한 계좌의 세션들, 워크포워드 계좌의 시험 창들, 온라인으로 배우는 모형의 갱신. 적합이라서 차례로 도는 것도, 폴드라서 병렬로 도는 것도 아니다; 읽는 상태가 정한다(6.3a "실행·폴드·경로마다의 상태"). 결과는 완료 순서가 아니라 열쇠(`fit_id`, `candidate_key`, 경로 번호, 시나리오 이름, 청크 순서)로 합치고, seed는 `run_seed:fit_id`에서 나오므로(5.3.11) 완료 순서가 seed·선택·동점 처리·출력 순서를 바꿀 수 없다. 공유 입력(스냅숏 블록, L0·L1 항목, Pipeline 값)은 읽기 전용이다. `workers > 1`이면 작업자마다 `[compute] threads = 1`과 설정한 `[ml] threads`로 돌고, 매니페스트에 `workers`와 두 스레드 수를 적는다; 메모리 예산은 프로세스 트리 전체에 하나 그대로다.
 
 #### 5.3.9 캐시 [R-12, C9, INV-05, SC-15]
 세 층이다: **L0** 원 블록 캐시, **L1** 항 값 캐시, **L2** 실행 산출물(`runs/`, 5.9).
@@ -1677,9 +1678,13 @@ Arrow 표, 정렬 `(decision_id, selected_rank, instrument_id)`:
 v1은 이 절의 정의를 규범으로 고정하고(INV-08 문구, `DecisionContext.anchor_decision_id`, `build_targets(..., prior=)` 서명), T7.1이 들어가기 전까지는 `hold`가 `None`이 아니면 E18을 낸다(3.7, 6.6의 E18 행). 구현은 v1의 M6 마지막 티켓 T7.1이다(사용자 결정 2026-10-28: v1에 포함). 기본은 꺼짐.
 
 - **목표 상태** `TargetState_d = (S_long, S_short, missing_streak)` [R3-22]: `S_long`(아래 `S_d`) = 판단 d의 최종 정규 목표에서 `target_weight > 0`인 종목 집합, `S_short` = `< 0`인 종목 집합(슬리브마다, `per=`가 있으면 그룹마다), `missing_streak` = `held_missing_score`로 남은 종목마다 연속 결측 판단 수. 계좌 보유가 아니다(체결·정지·현금과 무관). 체크포인트(5.6.1), 장부 매니페스트(5.9.6), `targets.parquet` 이어받기가 이 셋을 모두 담는다(집합만으로는 결측 상한을 재생할 수 없음).
+- **전략 상태 기록**(결정 2026-11-04, #152): 한 판단이 다음 판단에 넘기는 것은 슬리브마다 기록 하나이고, 두 부분을 함께 저장·복원한다. 기억이 필요한 기능(보유 띠, 수명이 있는 사건 목표, 계좌 규칙)은 모두 이 기록만 읽고 쓴다.
+  - `target_state`: 정규 목표가 0이 아니거나 `missing_streak`가 0이 아닌 종목마다 한 행, 열쇠 (`sleeve_id`, `instrument_id`), 열 `target_weight`(float64, 유효한 정규 목표), `origin`(`scheduled` | `event`), `set_by`(그 비중을 정한 `decision_id`), `expires_session`(사건 목표의 수명 끝 세션 `e_end`, 5.3.12; 그 밖에는 null), `missing_streak`(int32). 위의 `TargetState_d`는 이 표를 본 것이다(`S_long`, `S_short` = 비중 > 0, < 0인 행). 사건 판단의 `E_d` 밖 종목은 자기 행을 그대로 둔다(5.3.12).
+  - `risk_state`: `risk_state.parquet`(5.5.2a)의 행, 열쇠 (`sleeve_id`, `rule_index`, `key`), 열 `value_json`.
+  - 직렬화: 각 부분은 열쇠로 정렬한 Arrow 표이고, 체크포인트(5.6.1), 장부 매니페스트(5.9.6), `targets.parquet` 옆에 쓴다. 복원하고 다음 판단을 내리면 멈추지 않았을 때와 같은 정규·최종 목표가 비트까지 같게 나온다(P-RESUME).
 - **재귀**: `S_d = f(점수_d, 유니버스_d, S_{d−1})`. 후보 = `signal`이 유한하고 `universe`가 참인 종목, 순위 = 점수 내림차순 + 3.7의 동률 깨기 열쇠(`tiebreak`) [V31-29]. 숏 쪽(`bottom(n, hold=m)`)은 같은 재귀를 점수 오름차순으로 따로 돈다(롱의 거울) [V31-LS-02].
 - **결측 점수** [V31-17]: `on_missing = "drop"`(기본)이면 점수가 유한하지 않은 `S_{d−1}` 종목은 후보가 아니어서 빠진다(v3 그대로; 결측 하나가 왕복 거래 둘을 만듦). `"hold"`이면 `i ∈ S_{d−1}`이고 `universe_d(i)`가 참인데 점수만 유한하지 않으면 `K`에 남기고 `reason = held_missing_score`(순위는 n+1로 봄), 연속 결측 판단 수(`missing_streak`)가 `[portfolio] max_missing_decisions`(기본 1)를 넘으면 뺀다. `held_missing_score` 종목은 순위 m과 무관하게 K에 남는다(`hold = n`이어도; 상한은 연속 결측 수뿐) [R3-22]. 그 종목의 가중 입력(`value`의 시총, `inverse_vol`의 변동성)도 결측이면 그 판단·같은 쪽에서 선택된 다른 종목들의 가중 입력 `u`의 **중앙값**을 쓰고(모두 결측이면 그 쪽 전체를 equal로) E30 건수로 남긴다(v3.1의 "equal 몫 1"은 `u`와 단위가 달라 섞을 수 없었다) [R3-22]. 목표 상태만 쓰므로 순수 함수(INV-08) 그대로다(PyBroker "봉 없는 보유 종목은 칸 유지", pysystemtrade "입력 NaN이면 앞 포지션 유지"). (1) `K = {i ∈ S_{d−1} : rank_d(i) ≤ m}`를 남긴다(`reason = held_by_band`, 단 순위 n 안이면 `selected`). (2) 순위 순서로 `K`에 없는 후보를 더해 `|S_d| = n`이 될 때까지 채운다. `|S_{d−1}| ≤ n`이므로 `|K| ≤ n`. (3) 비중은 `S_d`에 자금 관리 칸(5.5.1a; 줄임이면 3.7의 가중 규칙)을 적용한다. 위험 단계는 그 뒤. 재귀의 `prior`는 정규 목표만 쓰고 계좌 층(`final_weight`, 5.5.2a)은 쓰지 않는다 [R4-04].
-- **기준점(anchor)**: 재귀가 시작하는 판단, `S_{anchor−1} = ∅`. `backtest` = 그 실행의 첫 판단(구간마다 새 자본이므로 구간마다 새 기준점), `screen` = `anchor` 인자(기본 `[portfolio] anchor_date`)에서 일정을 따라 판단 날짜에서만 Pipeline을 돌려 재귀를 재생(30년 월간 = 360번의 단면 연산), `live` = 장부를 만든 판단(장부 매니페스트에 기록).
+- **기준점(anchor)**: 재귀가 시작하는 판단, `S_{anchor−1} = ∅`. `backtest` = 그 실행의 첫 판단(구간마다 새 자본이므로 구간마다 새 기준점; 검증 방법에서는 6.3a 상태 표의 계좌마다 첫 판단: 워크포워드 첫 시험 창, CPCV 경로마다, `per_fold` 폴드마다), `screen` = `anchor` 인자(기본 `[portfolio] anchor_date`)에서 일정을 따라 판단 날짜에서만 Pipeline을 돌려 재귀를 재생(30년 월간 = 360번의 단면 연산), `live` = 장부를 만든 판단(장부 매니페스트에 기록).
 - 같은 스냅숏이면 `screen`은 저장된 `targets.parquet`(같은 전략 해시·기준점의 실행)에서 `S_{d−1}`을 이어 받아도 된다(값이 같으므로 결과 같음; P2 예산 대응).
 - **INV-08 문구**: "같은 전략·스냅숏·정책·기준점·`DecisionContext`면 같은 정규 목표". 기준점이 다르면 같지 않을 수 있고, 보고서는 기준점을 머리에 적는다.
 - **보유 0인 완충대 종목** [V31-17, R3-22]: 목표 상태는 계좌 보유가 아니므로, `d−1`에 순위 n 안이었지만 정지·현금 부족·상한으로 한 주도 못 샀거나 손절로 나가 지금 보유가 0인 종목이 `d`에 순위 n+1..m이면 `K`에 남는다(`held_by_band`). 이 종목을 새로 사는 것은 "이미 가진 것을 덜 팔기"라는 완충대의 뜻과 반대이므로, 집행 단계(5.6.7, 계좌 상태를 쓰는 곳)에서 `[portfolio] band_entries = "skip"`(기본)이면 `reason = held_by_band`이고 보유 0이고 미체결 매수(숏 쪽은 미체결 공매도)도 없는 종목의 여는 주문 의도를 만들지 않는다(사건 `order_suppressed(band_entry)`, 그 몫은 현금). 목표 표는 그대로다(INV-08). `"buy"`면 v3처럼 산다. 보고서 orders 줄에 건수.
@@ -2183,11 +2188,22 @@ SQLite(WAL). 덧붙이기만: 아래 표는 `BEFORE UPDATE/DELETE` 트리거가 
 **무엇을 고르나**: (a) 전략 안 ML 팩터 — 5.3.11 규칙(앞쪽만; CPCV는 시험 묶음 제외) [R4F-03], (b) `grid`가 있으면 폴드 훈련 범위의 IS 성과(`select`, 기본 순 Sharpe)로 1등 파라미터(동률은 `candidate_key` 오름차순)를 골라 그 폴드 시험 범위에 적용("창 안에서 고르고 창 밖에 적용"). 둘 다 없으면 고를 것이 없다: walk-forward의 이어 붙인 OOS 계열·모든 표는 **`backtest(start=t_1, method="linear")`**(첫 시험 판단에서 자본 K로 새로 시작한 선형 실행; INV-14 달력 닻이라 같은 목표)와 비트 같고(P-WF-STITCH; D 첫 판단부터 쌓은 선형 실행을 자른 것과는 진입 비용·끝수·손절 기준·`time_stop` 셈이 달라 같지 않다) [R4F-10], CPCV는 모든 경로가 같으므로 알림 E40 후 경로 1개로 줄인다.
 
 **계좌**(사용자 결정 2026-10-28):
-- **walk-forward: 계좌 하나가 시험 창들을 이어 간다.** 첫 시험 창 시작에 자본 K; 창 경계에서 보유·현금·대기 주문·탈출 주문·`risk_state`가 그대로 넘어가고 다음 창의 목표만 새 파라미터·새 모형으로 만든다(경계의 가짜 회전·비용 없음; 모의 장부와 대조할 수 있는 유일한 모양). 결과 = 이어 붙인 OOS 계열 하나.
-- **CPCV: 경로마다 새 자본, 경로 안에서는 이어 간다.** 경로 p의 목표 = 묶음마다 그 묶음을 시험한 분할의 `TargetFrame`을 이어 붙인 것; 상태 기계를 경로마다 한 번(D 전체) 돈다. 묶음 경계에서 모형·파라미터만 바뀌고 보유는 이어진다. 보고서 경로 줄에 해석 문장 "paths carry holdings across group boundaries; the model/params that created them change at each boundary — a synthetic OOS path, not one live strategy"를 늘 붙인다 [R4F-29].
+- **walk-forward: 계좌 하나가 시험 창들을 이어 간다.** 첫 시험 창 시작에 자본 K; 창 경계에서 보유·현금·대기 주문·탈출 주문·`risk_state`·`target_state`(5.5.3; 결정 2026-11-04, #152)가 그대로 넘어가고 다음 창의 목표만 새 파라미터·새 모형으로 만든다(경계의 가짜 회전·비용 없음; 모의 장부와 대조할 수 있는 유일한 모양). 결과 = 이어 붙인 OOS 계열 하나.
+- **CPCV: 경로마다 새 자본, 경로 안에서는 이어 간다.** 경로 p의 목표 = 묶음마다 그 묶음을 시험한 분할의 `TargetFrame`을 이어 붙인 것; 상태 기계를 경로마다 한 번(D 전체) 돈다. 묶음 경계에서 모형·파라미터만 바뀌고 보유는 이어진다. 보고서 경로 줄에 해석 문장 "paths carry holdings across group boundaries; the model/params that created them change at each boundary — a synthetic OOS path, not one live strategy"를 늘 붙인다 [R4F-29]. 경로의 목표 상태 재귀(5.5.3)와 `risk_state`는 경로의 첫 판단에서 시작해 경로 안에서 이어 간다; 경로는 다른 경로나 선형 실행의 상태를 읽지 않으므로 보유 띠는 경로마다 새로 시작하고, 해석 문장에 "hold band and account rules start at the path's first decision"을 더한다(결정 2026-11-04, #152).
 - **홀드아웃 구간: 구간마다 새 자본**(6.1 그대로).
-- 진단 옵션 `method=splits.walk_forward(..., account="per_fold")`(폴드마다 새 자본)만 둔다; 기본은 위 결정.
+- 진단 옵션 `method=splits.walk_forward(..., account="per_fold")`(폴드마다 새 자본)만 둔다; 기본은 위 결정. `per_fold` 폴드에서는 아래 표의 거래 상태가 모두 자본 K와 함께 비어서 시작하고, 목표 상태 재귀와 계좌 규칙의 기준점(5.5.3, 5.5.2a)은 그 폴드의 첫 판단이다(결정 2026-11-04, #152).
 - 시나리오(`cost2x` 등)·용량은 선형 실행에만 돈다(경로 수 × 시나리오 수 폭발 방지); 경로는 순 수익과 `gross` 둘만.
+
+**실행·폴드·경로마다의 상태**(결정 2026-11-04, #152). 상태는 네 가지이고 각각 생명주기가 하나다:
+
+| 상태 | 만듦 | 공유 | 순서대로 이어 감 | 초기화 |
+|---|---|---|---|---|
+| 계산값(항 값, Pipeline 출력, L0·L1 항목) | 노드 구조 해시·입력 열쇠·행마다 한 번 | 읽기 전용으로, 실행·후보·폴드·경로·시나리오 사이에 | 없음: 값은 그보다 먼저 계산된 것에 기대지 않는다(INV-14) | 없음; 캐시 항목은 버려질 뿐 초기화되지 않는다 |
+| 학습 상태(스케일러, 고른 피처, 모형, 공분산, 고른 격자 점) | 적합(`fit_id`)마다, 늘 새 객체(5.3.11) | 같은 `fit_id`·seed를 쓰는 곳 사이에서만(5.3.9) | 재적합에서 다음 재적합으로는 선언한 창이 읽는 것으로만; 모형 객체는 다른 적합으로 넘어가지 않는다 | 적합마다 |
+| 거래 상태(현금, 보유, 원가, 대기·탈출 주문, 손절 기준, `time_stop` 수, `risk_state`, `target_state`) | 계좌가 시작할 때마다: 선형 실행, 워크포워드 첫 시험 창, CPCV 경로마다, 홀드아웃 구간마다, `per_fold` 폴드마다 | 계좌 사이에는 없음 | 한 계좌 안에서 세션마다 | 다음 계좌 시작에서 |
+| 연구 상태(study, 후보, 시도, 코호트, 구간 노출, 선택, 판) | study마다(6.2) | 그 study의 모든 실행 사이에 | 실행 순서대로 덧붙임 | study 안에서는 없음 |
+
+warm-up: 계산값은 자기 창이 필요로 하는 시작 전 자료를 읽는다(INV-14); 학습 상태는 5.3.11 창 안에서 시작 전 표본으로 학습할 수 있다; 거래 상태는 warm-up이 없다 — 계좌는 첫 판단에서 자본 K로 비어서 시작한다(P-WF-STITCH). 경계에서 어떤 상태가 초기화·재구성됐는지 엔진이 말할 수 없는 곳(위의, 선형 실행에서 잘라 낸 IS 수익)에서는 보고서가 결과를 엄격한 표본 밖이라 부르지 않고 그 해석 문장을 유지한다.
 
 **선형 결과와 나란히**: `method ≠ "linear"`이면 엔진은 같은 기간·같은 설정·전략의 기본 파라미터(`params=`)로 **선형 실행**을 함께 돈다(같은 Pipeline 값; 추가 비용 = 상태 기계 한 번). `Run`의 머리 지표·`metrics.json`은 선형 실행이고, 방법의 결과는 `Run.validation`(`ValidationResult`)과 `validation/` 폴더에 있다. 보고서 첫 화면은 둘을 나란히, **기간과 함께** 보인다(선형 = D 전체, walk-forward OOS = `[t_1, end)`): "linear 2005–2021: CAGR a · Sharpe b · MDD c | cpcv 5 paths 2005–2021: Sharpe min/median/max · worst MDD · PBO p (k/n)". 선형 줄의 파라미터는 "params = default"로 표시하고 grid 밖 점이면 그렇게 적는다. `method="linear"`면 `Run.validation`은 `None` [R4F-35].
 
@@ -2295,7 +2311,7 @@ SQLite(WAL). 덧붙이기만: 아래 표는 `BEFORE UPDATE/DELETE` 트리거가 
 | E37 | `LotRoundingWarning` | 경고 | 판단의 `rounding_gap > 0.05`(비싼 종목·작은 자본) [V31-14, R3-20] | "{n} of {m} decisions leave >5% cash from share rounding (median {p}%; {k} targets got 0 shares)" / "raise capital, lower n, or use max price filters" |
 | E38 | `CollateralWarning` | 경고 | 숏 담보가 모자라 새 공매도·롱 매수를 막은 세션이 있음(현금 계좌: 강제 청산 모형 없음; 증거금 계좌는 5.6.7a [R6-07]) [V31-LS-04]; 꼭 내야 하는 의무로 음수 현금이 된 세션(`shortfall`); 슬리브 파산 `ruined` [R3-09] | "collateral short by {amt} {ccy} on {d} sessions (max {x})" · "mandatory debits left cash negative on {d} sessions (min {x})" · "sleeve {m} ruined on {date}: new orders stopped" / "lower [shorting] max_gross or collateral_ratio; forced buy-ins are not modeled" |
 | E39 | `UnknownFilterNotice` | 알림 | 실행 중 한 판단·시장에서 유니버스 Filter의 모름 비율 > 50%(5.4.1) [R3-13] | "{p}% of listed names are unknown for universe filter {leaf} on {n} decisions (input NaN: {column})" / "make the fallback explicit: ({leaf}).fillna(True) or .fillna(False)" |
-| E40 | `ValidationNotice` | 알림 | 고를 것이 없는 CPCV를 경로 1개로 줄임, 학습 수가 `[validate] max_fits`를 넘음, 폴드의 훈련 표본이 `min_samples`(기본 100)보다 적음(6.3a) [R4-20, R4-22], 훈련 정답이 한 클래스뿐이라 하지 않은 학습(5.3.11) | "cpcv has nothing to fit or select; all paths are identical, showing 1 path" · "{n} model fits planned (> max_fits {m})" · "{n} fits skipped: one class in the training labels (ml_single_class)" / "add grid= or an ml.factor, or use method='walk_forward'" |
+| E40 | `ValidationNotice` | 알림 | 고를 것이 없는 CPCV를 경로 1개로 줄임, 학습 수가 `[validate] max_fits`를 넘음, 폴드의 훈련 표본이 `min_samples`(기본 100)보다 적음(6.3a) [R4-20, R4-22], 훈련 정답이 한 클래스뿐이라 하지 않은 학습(5.3.11) | "cpcv has nothing to fit or select; all paths are identical, showing 1 path" · "{n} model fits and {p} state-machine passes planned (> max_fits {m})" · "{n} fits skipped: one class in the training labels (ml_single_class)" / "add grid= or an ml.factor, or use method='walk_forward'" |
 | E41 | `BlockOutputError` | 실패 | 사용자 블록 출력이 계약 밖: 배수가 `[0, 1]` 밖·유한하지 않음, 사이저 출력 음수·무한, 선택 id가 유니버스 밖, `reads_account=False` 규칙의 계좌 접근, 상태 값이 JSON 스칼라 아님(3.8, 5.5.2) [R4-07]; 모형의 `classes_` 값이 정답 클래스 밖, 확률이 유한하지 않음, 팩토리나 복제가 실행 안에서 이미 학습한 모형을 돌려줌(5.3.11) | "{block} returned mult {x} for {id} on {d}; risk rules may only scale toward zero (0 ≤ m ≤ 1)" / "clip in your rule, or declare @nx.risk_rule(reads_account=True)" |
 | E42 | `AccountNotEvaluatedNotice` | 알림 | `screen`이 계좌 없이 계좌 규칙을 만남(m = 1로 둠) [R4-08] | "{rule}: not evaluated (no account)" / "use --ledger BOOK or --as-backtest" |
 | E43 | `SolverFallbackNotice` | 알림 | ERC 대체·`vol_target` 계산 불가(5.5.1a) [R4-03] | "erc did not converge on {n} of {m} decisions; inverse_vol used (reasons a/b/c: …)" / "raise lookback, add shrink=0.1, or use size.inverse_vol" |
@@ -2505,7 +2521,7 @@ v3 추가: T-18 직사각형 조회 — 미리 발표된 미래 효력 행이 �
 | P-RESUME | 무작위 세션에서 체크포인트·재시작 = 한 번에 [INV-07, INV-10] | |
 | P-PARITY13 | 무작위 판단 20개에서 screen 목표 = backtest 목표 [INV-08] | |
 | P-STATE | 주문 상태 전이가 5.6.2 표 안 | |
-| P-DET | 같은 입력 두 번 → 출력 물리 해시 동일 [INV-09]. v3.1: `PYTHONHASHSEED`가 다른 **새 프로세스 둘**로 돈다 [V31-08] | |
+| P-DET | 같은 입력 두 번 → 출력 물리 해시 동일 [INV-09]. v3.1: `PYTHONHASHSEED`가 다른 **새 프로세스 둘**로 돈다 [V31-08]. 병렬 순서(결정 2026-11-04, #152): 학습 팩터와 격자가 있는 CPCV 실행에서 `workers = 1`과 `workers = 2`, 그리고 빈 캐시와 찬 캐시가 같은 예측, `fits.parquet` 행, 고른 격자 점, 경로 표, 출력 해시를 낸다(5.3.8) | |
 | P-STAT | PSR·DSR·PBO = 독립 시험값(논문 예시, 손으로 만든 행렬); 잘못된 입력(N<2, T<2S) → n/a | |
 | P-LIVE | 워터마크 밖 세션으로 `fill` 안 됨; **`live → fill → live`(같은 판단)** 순서와 무작위 순서에서 판단마다 주문 묶음 한 번, 체결 중복 없음 [INV-19]; 같은 스냅숏·장부에서 `live` 두 번은 같은 `sheet_id`이고 새 사건 없음; **대체된 주문표에 대한 체결은 거절**(E35), `live`·정정된 스냅숏·`record_fills`의 어떤 순서에서도(`tests/property/test_live.py::test_P_LIVE_superseded_sheet_refused`); **정정된 체결은 한 번 셈**: 사슬 길이와 상관없이, CSV를 두 번 넣어도 계좌가 정정 사슬마다 마지막 행으로 만든 계좌와 같음(`::test_P_LIVE_corrected_fill_counts_once`) (5.9.6 규칙 1과 2) | 무작위 호출 순서, 스냅숏 정정, 정정 사슬 |
 | P-BOOK | 장부 트랜잭션의 모든 커밋 경계(조각 쓰기·체크포인트·HEAD·status)에서 강제 종료 → 다시 열면 하나의 유효 상태; 두 작성자 → 하나는 E35 [INV-19] | 경계마다 주입한 종료 |
