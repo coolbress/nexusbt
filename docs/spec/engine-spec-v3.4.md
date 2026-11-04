@@ -690,6 +690,7 @@ nx.backtest(strategy: Strategy, *, capital: float | None = None, base_ccy: str |
             offsets: int | None = None,                                                   # rebalance-date luck [V31-26]
             scenarios: bool | Sequence[Literal["gross","cost0x","cost2x","delist_lo","delist_hi","capacity"]] = True,   # gross = cost0x (one and the same replay)
             save_signal: bool = False,
+            save_detail: bool = False,                                                    # tier-3 outputs, 5.9.1 [#206]
             method: Literal["linear","walk_forward","cpcv","cscv"] | Split = "linear",      # validation method, 6.3a [R4-20]
             grid: Mapping[str, Sequence[Any]] | None = None,                                # candidates chosen per fold (method ≠ linear)
             select: Literal["net_sharpe","cagr","calmar"] = "net_sharpe",
@@ -919,7 +920,7 @@ write: orders.to_csv("orders/{date}.csv")   apply to paper book: nx.fill(book, o
 | `nexusbt doctor [--full]` | snapshot id, semantic hash, edition, the three profile results (declared / check level / supported), items not checked, counts per TDS code, **the list of fallbacks (4.5)**, per market the rules pack (present / untested), period, instrument count and daily row count, column count, free disk, L0/L1 cache sizes, whether the stubs are current. A line with the number of runs whose root pin could not be written, "pins not visible to producer" [R3-17]. When the data root has the publishing mark `<root>/.publishing` (a general distribution convention, outside TDS), it shows only "publishing in progress" and says to wait for the new snapshot [blueprint 12.5, RV-I09] |
 | `nexusbt new factor NAME` / `nexusbt new strategy NAME [--template T]` / `nexusbt new --list` | creates a file that runs as it is (default template `monthly-topn`). 22 templates (each a runnable example + an output test, 8.5; a template not yet usable is marked in `--list`, for example "(available after T7.1)" [R4F-14]): `monthly-topn`, `value-quality-composite`, `momentum-12-1`, `low-vol`, `dividend-yield`, `sector-neutral`, `kr-us-sleeves`, `long-short`, `inverse-vol-weight`, `erc-vol-target`, `drawdown-brake`, `exits-stop-trail`, `buffer-hold`, `custom-factor`, `custom-sizer`, `custom-risk-rule`, `factor-evaluate-only`, `walk-forward-cpcv`, `ml-factor`, `zipline-port` [R4-13], `event-driven-earnings` (`on_event` after earnings announcements + `time_stop`), `macro-regime` (a `Macro.series` regime filter) [R4F-EV-05] |
 | `nexusbt evaluate FILE[:VAR]` | `--segment --start --end --freq --quantiles --set k=v` |
-| `nexusbt backtest FILE[:VAR]` | `--segment --start --end --set k=v --preset --no-scenarios --scenarios a,b --offsets K --preview --method linear|walk_forward|cpcv|cscv --method-opt k=v --grid k=v1,v2` [R4-12, R4-20] |
+| `nexusbt backtest FILE[:VAR]` | `--segment --start --end --set k=v --preset --no-scenarios --scenarios a,b --offsets K --preview --method linear|walk_forward|cpcv|cscv --method-opt k=v --grid k=v1,v2 --save-detail` [R4-12, R4-20; `--save-detail` = `save_detail=True`, 5.9.1, #206] |
 | `nexusbt screen FILE[:VAR]` | `--asof --top --anchor --show selected|held+near|all --near K --html --ledger BOOK --as-backtest` [V31-28, R4-08] |
 | `nexusbt explain FILE[:VAR] ID DATE` | for a term, the value explanation; for a strategy, the decision path (5.9.9) |
 | `nexusbt sweep FILE[:VAR]` | `--grid k=v1,v2` (= `backtest --method cscv --grid`) [R4-21] |
@@ -930,8 +931,8 @@ write: orders.to_csv("orders/{date}.csv")   apply to paper book: nx.fill(book, o
 | `nexusbt book record-fills BOOK CSV` | records of fills a person made (`manual:` ledger) [V31-18] |
 | `nexusbt book flow BOOK AMOUNT --ccy C --sleeve M [--session D]` | deposits and withdrawals [V31-19] |
 | `nexusbt book acknowledge BOOK DIVERGENCE_ID --note T [--by NAME]` | acknowledges the divergence of a `reconciled: NO`, after which `live` emits sheets again (5.9.6 rule 3) |
-| `nexusbt runs [--study S] [--html] [--prune]` | `--prune` deletes only run folders and keeps the index records and attempt counts [R-34] |
-| `nexusbt rerun RUN_ID [--new-snapshot] [--trust]` | a run folder made on another machine is refused without `--trust` (E31) |
+| `nexusbt runs [--study S] [--html] [--prune] [--prune-detail]` | `--prune` deletes only run folders and keeps the index records and attempt counts [R-34]; `--prune-detail` deletes only the tier-3 `detail/` folder of each run and records it as pruned (5.9.5, #206) |
+| `nexusbt rerun RUN_ID [--new-snapshot] [--trust] [--save-detail]` | a run folder made on another machine is refused without `--trust` (E31); `--save-detail` also regenerates and compares the tier-3 outputs (5.9.4, #206) |
 | `nexusbt stubs` | regenerates `.pyi` |
 | `nexusbt check FILE[:VAR] [--probes K] [--start-probe]` | |
 
@@ -2046,10 +2047,13 @@ runs/<run_id>/
                            columns [R4F-20]: split.json = {method, params, split_hash, groups[{group, first, last}], splits[{split, test_groups}]}; folds = fold, train_first, train_last, test_first, test_last, selected_params_json, is_sharpe, is_cagr, oos_sharpe, oos_cagr, oos_mdd, n_purged, n_embargoed, n_fits; paths = path, cagr, sharpe, mdd, turnover, ruined, n_days; path_daily = session_date, nav, ret_net, ret_gross, group, split; selection = fold, grid_point, candidate_key, is_metric, is_n_decisions, n_purged, n_embargoed, rank; stats.json = distribution, pbo{value, k, n}, psr, dsr, min_trl, degradation{slope, n}, selection_stability
   signal.parquet           (save_signal=True; in evaluate too) decision_id, instrument_id, term, value
   candidates.parquet       (sweep only) candidate_key, date, ret
+  detail/                  (save_detail=True) tier-3 outputs, below: predictions.parquet of every grid point and every unselected candidate
   source/                  captured source (below)
   report.html
   SEALED
 ```
+
+**Three tiers of outputs** (decision 2026-11-04, #206). (1) **Always written**: provenance and summaries — `manifest.json`, `fits.parquet` with `pred_sha256`, `validation/split.json`, the `folds`, `paths` and `selection` summaries, `stats.json`, `candidates.parquet` returns, and every table above not named in (2) or (3). (2) **Written by default**: the predictions and series that reached an account — `predictions.parquet` of the linear run and of the selected candidate per fold, and `path_daily/` of every CPCV path. (3) **Written only with `save_detail=True`** (CLI `--save-detail`): `detail/predictions.parquet` with the predictions of every grid point and every unselected candidate (columns as `predictions.parquet` plus `candidate_key`). Whether or not a tier-(3) file is written, the manifest lists it with its value hash and a `written` flag, so `rerun` can regenerate and compare it (5.9.4) and the seal pins its content. No tier is held whole in memory: predictions are written per fit and per chunk as they are produced (chapter 7 design mean 6).
 
 `orders.parquet` canonical columns [11.6]: `event_id, event_kind(created|accepted|triggered|fill|qty_cancelled|exit_resized|order_rebased|price_rounded|status), phase, order_id, decision_id, ts_event, session_date, sleeve_id, instrument_id, purpose, order_type, side, tif, limit_price, stop_price, trigger_state, requested_qty, filled_qty, cancelled_qty, remaining_qty, fill_qty, fill_price, currency, fill_value_minor, commission_minor, tax_minor, spread_cost_minor, impact_cost_minor, other_cost_minor, provisional_cost_minor, cost_unrounded, status, reason, snapshot_id, model_version, fill_resolution, fill_rule, decision_price, arrival_price, price_unrounded, capacity_bound_reason, effective_price, outside_range, slip_vs_decision_bps, slip_vs_arrival_bps` [SC-11, RV-C05, RV-C07, V31-03, V31-05, V31-14]. The `side` values are buy / sell / sell_short / buy_to_cover [V31-LS-06].
 
@@ -2067,16 +2071,17 @@ In `source/`: the entry file, every file inside the project folder among the mod
 #### 5.9.4 Hashes and determinism [R-31, INV-09]
 - Physical hash = file sha256. Value hash = the canonical value serialisation of TDS 4.5 (using the same function `tds.value_hash`; independent of Arrow version and writer). The "logical comparison" of run outputs is the value hash [RV-C10].
 - In the same pinned environment (same `uv.lock`, same machine kind), `rerun` must match down to the physical hashes of the outputs. In a different environment, the logical comparison uses a tolerance (the L2 basis of the table in 8.1).
+- Tier-(3) outputs (5.9.1, #206) are compared by the value hash the manifest records, not by the files present: a `detail/` file that was not written or was pruned is regenerated by `rerun --save-detail` and compared with that hash; without `--save-detail`, `rerun` compares tiers (1) and (2) only and says that tier (3) was not compared.
 - Parquet writing: pyarrow, zstd 3, row group 131,072 rows, statistics on, string dictionary, no time in the metadata.
 
 #### 5.9.5 Index `runs/index.sqlite` [R-34, 11.7 (8)]
-SQLite (WAL). Append only: `BEFORE UPDATE/DELETE` triggers guard the tables below (allowed: `runs.status` running→sealed|aborted, sealed→pruned, filling `pins.ts_released`). The canonical record of pins is this `pins` table (4.2).
+SQLite (WAL). Append only: `BEFORE UPDATE/DELETE` triggers guard the tables below (allowed: `runs.status` running→sealed|aborted, sealed→pruned, `runs.detail_pruned` 0→1 (#206), filling `pins.ts_released`). The canonical record of pins is this `pins` table (4.2).
 
 | Table | Columns |
 |---|---|
 | `families` | family_id(UUID) PK, parent_family_id(nullable), reason(`init` / `new family: {text}` / `linked at migration`), ts_created [#196] |
 | `studies` | study_id(UUID) PK, name UNIQUE, family_id, ts_created, hypothesis |
-| `runs` | run_id PK, kind, run_kind(research/debug/seed_comparison/rerun/preview/failed/pruned, 6.2), family_id, study_id, name, ts_created, created_by, snapshot_id, snapshot_semantic_hash, edition, segment, graph_hash, params_json, settings_hash, candidate_key, status(running/sealed/aborted/pruned), path, metrics_json, derived_from |
+| `runs` | run_id PK, kind, run_kind(research/debug/seed_comparison/rerun/preview/failed/pruned, 6.2), family_id, study_id, name, ts_created, created_by, snapshot_id, snapshot_semantic_hash, edition, segment, graph_hash, params_json, settings_hash, candidate_key, status(running/sealed/aborted/pruned), detail_pruned(0/1, tier 3 of 5.9.1), path, metrics_json, derived_from |
 | `candidates` | candidate_key PK, study_id, kind(factor/strategy), segment, graph_hash, params_hash, settings_hash, first_run_id (identity only; no statistics columns) [RV-C12] |
 | `observations` | observation_id PK, run_id, candidate_key, snapshot_semantic_hash, segment, start, end, target(label name; `net_return` for strategies), horizon, freq, n_obs, sr_daily, skew, kurt, nw_t(factors), method(`linear`/`walk_forward`/`cpcv`/`cscv`), split_hash(nullable), fidelity(`full`/`preview`) [R4F-21, R4F-15], ts_created |
 | `cohorts` | cohort_sha256 PK, study_id, kind, segment, target, horizon, freq, members_json(sorted list of (candidate_key, observation_id)), ts_frozen — when a report produces statistics, the cohort of that moment is frozen and stored |
@@ -2086,7 +2091,7 @@ SQLite (WAL). Append only: `BEFORE UPDATE/DELETE` triggers guard the tables belo
 | `pins` | snapshot_id, holder_id, holder_kind(run/book), ts_created, ts_released |
 | `books` | book_id PK, kind(paper|manual) [V31-18], ts_created, base_ccy, sleeves_json, definition_sha256 |
 
-`nexusbt runs --prune` deletes folders and changes only `status = pruned`. Attempt counts do not go down [R-34].
+`nexusbt runs --prune` deletes folders and changes only `status = pruned`. Attempt counts do not go down [R-34]. `nexusbt runs --prune-detail` deletes only a run's `detail/` folder (tier 3, 5.9.1) and sets `detail_pruned = 1` on its `runs` row; the rest of the folder, the seal, the status and the attempt counts stay as they are (decision 2026-11-04, #206).
 
 **Migration to families** [#196]: an index without `families` is migrated once when it is first opened: one family is created with reason `linked at migration` and the project's `[research] family_id` (a new one if the toml has none; then every run's warnings carry the line "add `[research] family_id = "{id}"` to nexusbt.toml" until it is written, and the engine never edits the toml itself), and every existing study, run, exposure and preregistration gets that family. Nothing else changes: sealed reports keep their text, cohorts and `cohort_sha256`.
 
@@ -2393,7 +2398,7 @@ Layers (`layers.toml`, [R4-15]): E1·E2·E4·E5·E7·E8·E17·E24·E29·E32·E34
 3. **Column pruning**: only the columns the graph uses are read from Parquet (by column), and unneeded years are skipped by year partitions and row-group statistics.
 4. **Year and market chunk caches**: L0 and L1 (5.3.9); the same L1 values are reused by `offsets`, `scenarios` and validation paths.
 5. **Parallelism by market and factor**: workers compute independently per (market, year chunk, node chunk), and the results are gathered in sorted-index order so they are bit-identical (INV-03, INV-04). The worker count and the memory budget are in `[compute]` (5.3.8).
-6. **Memory ceiling**: processing is done in year chunks with immediate reduction — `evaluate` reduces to IC and quantile statistics per decision and does not hold the whole factor value matrix (300 × 360 × about 12,000 × 8 B ≈ 10 GB) in memory, and a composite score holds only the 300 × n matrix of one decision (about 30 MB). [new]
+6. **Memory ceiling** (outputs too, decision 2026-11-04, #206: no output tier of 5.9.1 is held whole in memory; predictions are written per fit and per chunk as they are produced): processing is done in year chunks with immediate reduction — `evaluate` reduces to IC and quantile statistics per decision and does not hold the whole factor value matrix (300 × 360 × about 12,000 × 8 B ≈ 10 GB) in memory, and a composite score holds only the 300 × n matrix of one decision (about 30 MB). [new]
 7. **Rust seam**: window and cross-section kernels and reductions sit behind Arrow input and output (2.4), so when measurement shows Numba cannot hold the target, they are swapped (ADR-0016, bit-identity test). [the seam is v3.2; the P11 measurement is the new basis]
 P11 (a) is measured before M3a fixes the structure (decision 2026-11-04, #175): reduced to the M1 columns at the end of M2 (T2.24) and in full at the end of M3a (T3.18), both in the early-measurement table above. Both run on the plan of 5.3.2 (shared terms, decision rows only; T1.7a) but before T6.26's column pruning and batched reductions, so they show the cost of the structure as the engine first implements it. The engine measurement of (a)(b)(c) with the design means is T6.26 (P11 on synthetic `full`), and with its result the gate is written into an ADR (0038 updated) and this table is changed.
 
