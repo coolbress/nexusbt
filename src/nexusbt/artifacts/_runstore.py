@@ -34,7 +34,7 @@ _RUNS = """CREATE TABLE IF NOT EXISTS runs (
 
 def _boundary(name: str) -> None:
     if name == _CRASH_AT:
-        os._exit(70)
+        os._exit(70)  # pragma: no cover - runs only in the tests' child process
 
 
 def canonical_json(value: object) -> str:

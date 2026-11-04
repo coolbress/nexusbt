@@ -158,17 +158,34 @@ def test_interrupted_seal_recovers(tmp_path: Path, boundary: str, expected: str)
         assert not os.access(folder / "daily.parquet", os.W_OK)
 
 
-def test_interrupted_seal_with_changed_content_moves_to_aborted(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("boundary", "changed"),
+    [
+        ("renamed", "daily.parquet"),  # a table that no longer matches its manifest hash
+        ("renamed", "manifest.json"),  # a manifest that is no longer JSON
+        ("sealed", "SEALED"),  # a seal that no longer matches the manifest
+    ],
+)
+def test_interrupted_seal_with_changed_content_moves_to_aborted(
+    tmp_path: Path, boundary: str, changed: str
+) -> None:
     runs = tmp_path / "runs"
-    run_id = killed_run(runs, "renamed")
-    (runs / run_id / "daily.parquet").write_bytes(b"not the file the manifest hashed")
+    run_id = killed_run(runs, boundary)
+    (path := runs / run_id / changed).chmod(0o644)
+    path.write_bytes(b"not what the manifest or the seal says")
 
     RunStore(runs)
     moved = runs / f".aborted-{run_id}"
     assert row(runs, run_id) == ("aborted", str(moved))
     assert not (runs / run_id).exists()
-    assert (moved / "manifest.json").is_file()
-    assert not (moved / "SEALED").exists()
+    assert (moved / changed).read_bytes() == b"not what the manifest or the seal says"
+
+
+def test_open_deletes_a_temporary_folder_with_no_lock(tmp_path: Path) -> None:
+    runs = tmp_path / "runs"
+    (runs / ".tmp-left-behind").mkdir(parents=True)  # its lock file is already gone
+    RunStore(runs)
+    assert not (runs / ".tmp-left-behind").exists()
 
 
 def test_open_leaves_a_live_run_alone(tmp_path: Path) -> None:
