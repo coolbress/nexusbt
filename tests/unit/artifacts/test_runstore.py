@@ -1,11 +1,14 @@
-"""Spec T1.14a: sealed run folders (5.9.1-5.9.2, 2.6)."""
+"""Spec T1.14a: sealed run folders, seal recovery and captured sources (5.9.1-5.9.3, 2.6)."""
 
 from __future__ import annotations
 
 import hashlib
 import json
+import os
 import sqlite3
 import stat
+import subprocess
+import sys
 from contextlib import closing
 from pathlib import Path
 
@@ -17,10 +20,15 @@ from nexusbt.artifacts import RunStore, RunTxn
 TABLE = pa.table({"instrument_id": ["A", "B"], "value": [1.5, -2.0]})
 
 
-def status(runs: Path, run_id: str) -> str:
+def row(runs: Path, run_id: str) -> tuple[str, str]:
+    """The run's index `status` and `path`."""
     with closing(sqlite3.connect(runs / "index.sqlite")) as db:
-        row = db.execute("SELECT status FROM runs WHERE run_id = ?", (run_id,)).fetchone()
-    return str(row[0])
+        found = db.execute("SELECT status, path FROM runs WHERE run_id = ?", (run_id,)).fetchone()
+    return str(found[0]), str(found[1])
+
+
+def status(runs: Path, run_id: str) -> str:
+    return row(runs, run_id)[0]
 
 
 def begin(runs: Path) -> RunTxn:
@@ -100,3 +108,140 @@ def test_no_pickle_files_written(tmp_path: Path) -> None:
         "scenarios/gross.parquet",
     ]
     assert all(not p.read_bytes().startswith(b"\x80") for p in files)  # the pickle opcode PROTO
+
+
+CHILD = """
+import sys
+from pathlib import Path
+import pyarrow as pa
+from nexusbt.artifacts import RunStore, _runstore
+_runstore._CRASH_AT = sys.argv[2]
+txn = RunStore(Path(sys.argv[1])).begin("backtest", "mom", None)
+txn.write_table("daily", pa.table({"x": [1]}))
+txn.seal()
+"""
+
+
+def killed_run(runs: Path, boundary: str) -> str:
+    """Runs one backtest in a new process that exits at `boundary`; returns its run id."""
+    args = [sys.executable, "-c", CHILD, str(runs), boundary]
+    done = subprocess.run(args, capture_output=True, text=True, check=False)  # noqa: S603
+    assert done.returncode == 70, done.stderr
+    with closing(sqlite3.connect(runs / "index.sqlite")) as db:
+        return str(db.execute("SELECT run_id FROM runs").fetchone()[0])  # the only run
+
+
+@pytest.mark.parametrize(
+    ("boundary", "expected"),
+    [
+        ("inserted", "aborted"),  # the index row exists, no temporary folder yet
+        ("written", "aborted"),  # a table in `.tmp-<uuid>/`, no manifest yet
+        ("manifest", "aborted"),  # manifest written, not yet renamed
+        ("renamed", "sealed"),  # renamed; files still writable, no `SEALED`
+        ("readonly", "sealed"),  # read-only, no `SEALED`
+        ("sealed", "sealed"),  # `SEALED` written, the index still says running
+    ],
+)
+def test_interrupted_seal_recovers(tmp_path: Path, boundary: str, expected: str) -> None:
+    runs = tmp_path / "runs"
+    run_id = killed_run(runs, boundary)
+    assert status(runs, run_id) == "running"
+
+    RunStore(runs)
+    folder = runs / run_id
+    assert row(runs, run_id) == (expected, str(folder))
+    assert not [p for p in runs.iterdir() if p.name.startswith(".tmp-")]
+    assert folder.is_dir() == (expected == "sealed")
+    if expected == "sealed":
+        manifest = (folder / "manifest.json").read_bytes()
+        assert (folder / "SEALED").read_text() == hashlib.sha256(manifest).hexdigest()
+        assert not os.access(folder / "daily.parquet", os.W_OK)
+
+
+def test_interrupted_seal_with_changed_content_moves_to_aborted(tmp_path: Path) -> None:
+    runs = tmp_path / "runs"
+    run_id = killed_run(runs, "renamed")
+    (runs / run_id / "daily.parquet").write_bytes(b"not the file the manifest hashed")
+
+    RunStore(runs)
+    moved = runs / f".aborted-{run_id}"
+    assert row(runs, run_id) == ("aborted", str(moved))
+    assert not (runs / run_id).exists()
+    assert (moved / "manifest.json").is_file()
+    assert not (moved / "SEALED").exists()
+
+
+def test_open_leaves_a_live_run_alone(tmp_path: Path) -> None:
+    runs = tmp_path / "runs"
+    live = begin(runs)
+    live.write_table("daily", TABLE)
+    RunStore(runs)  # another open while `live` is still writing
+    assert status(runs, live.run_id) == "running"
+    assert live.seal().path.is_dir()
+    with pytest.raises(RuntimeError, match="already sealed"):
+        live.write_table("late", TABLE)
+
+
+def test_open_right_after_the_index_row_leaves_the_run_alone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runs = tmp_path / "runs"
+    seen: list[str] = []
+
+    def other_open(name: str) -> None:  # another process opens the store at this boundary
+        if name == "inserted":
+            RunStore(runs)
+            seen.append(status(runs, txn_id()))
+
+    def txn_id() -> str:
+        with closing(sqlite3.connect(runs / "index.sqlite")) as db:
+            return str(db.execute("SELECT run_id FROM runs").fetchone()[0])
+
+    RunStore(runs)
+    monkeypatch.setattr("nexusbt.artifacts._runstore._boundary", other_open)
+    txn = begin(runs)
+    assert seen == ["running"]
+    assert txn.seal().path.is_dir()
+
+
+def test_sources_captured_with_helpers(tmp_path: Path) -> None:
+    project, elsewhere = tmp_path / "project", tmp_path / "site-packages"
+    imported = [project / "strategy.py", project / "lib" / "helpers.py", elsewhere / "dep.py"]
+    for path in imported:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"# {path.name}\n", encoding="utf-8")
+    (project / "nexusbt.toml").write_text('[data]\nroot = "data"\n', encoding="utf-8")
+    (project / "uv.lock").write_text("version = 1\n", encoding="utf-8")
+
+    txn = begin(tmp_path / "runs")
+    txn.write_table("daily", TABLE)
+    txn.capture_sources(imported, project=project)
+    folder = txn.seal().path
+
+    assert {"manifest.json", "SEALED", "source"} <= {p.name for p in folder.iterdir()}
+    source = folder / "source"
+    assert (source / "lib" / "helpers.py").read_text() == "# helpers.py\n"  # path kept
+    assert (source / "strategy.py").is_file()
+    assert not (source / "dep.py").exists()  # outside the project: not captured
+    assert {"nexusbt.toml", "uv.lock"} <= {p.name for p in source.iterdir()}
+    assert json.loads((source / "params.json").read_text()) == {"n": 10}
+    assert json.loads((source / "git.json").read_text()) == {"head": None, "status": None}
+    manifest = json.loads((folder / "manifest.json").read_text())
+    assert "source/lib/helpers.py" in manifest["outputs"]  # the seal pins the source too
+    assert not os.access(source / "strategy.py", os.W_OK)
+
+
+def test_sources_record_git_state(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "strategy.py").write_text("a = 1\n", encoding="utf-8")
+    git = ["git", "-C", str(project), "-c", "user.name=t", "-c", "user.email=t@example.com"]
+    for args in (["init", "-q"], ["add", "."], ["commit", "-qm", "c"]):
+        subprocess.run([*git, *args], check=True)  # noqa: S603
+    (project / "strategy.py").write_text("a = 2\n", encoding="utf-8")  # changed, not staged
+
+    txn = begin(tmp_path / "runs")
+    txn.capture_sources([project / "strategy.py"], project=project)
+    recorded = json.loads((txn.seal().path / "source" / "git.json").read_text())
+    assert len(recorded["head"]) == 40
+    assert recorded["status"] == " M strategy.py"  # the leading space says "not staged"
