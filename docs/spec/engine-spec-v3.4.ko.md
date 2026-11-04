@@ -844,10 +844,10 @@ exits while held      {n}: observed {a}, policy {b}, unobserved {c} · scenario 
 orders                filled {a} · partial {b} · expired {c} · cancelled {d} (insufficient cash {k}, {amt} {ccy}) · blocked-days: halt {e}, limit {f}, capacity {g} (bar volume {g2}; ψ-bound fills {b}/{n}), unknown-tradability {h}{, short ban {sb}} · suppressed: small {m}, band {n}   [V31-03, V31-06, V31-LS-07]
 {rebalance-date luck  {k} offsets · CAGR min {a} / median {b} / max {c}}   (offsets일 때만) [V31-26]
 dividends             paid {n} · pay date estimated {m}/{n}
-PSR(0) {x:.2f} · DSR {x:.2f} (N={N} candidates in cohort {cohort6}, V[SR] from cohort) | DSR n/a ({reason}) · MinTRL(95%) {y:.1f}y
+PSR(0) {x:.2f} · DSR {x:.2f} (N={N} candidates in cohort {cohort6}, V[SR] from cohort) | DSR n/a ({reason}) · MinTRL(95%) {y:.1f}y{ · vs SR*_N {z:.1f}y (selection-adjusted reference)}{ · IID-based: dependence visible (Ljung–Box lags 1–10, p < 0.05; may also reflect changing volatility)}   [#197]
 {Sharpe (Lo, ρ1={r:.2f}, lags ≤ 10) {x:.2f}}   (|ρ1| > 0.1일 때만)
 family {family6}: studies {s} · candidates explored {n} (factor {a} · strategy {b}) · selection events {e} · segments seen train {a} · validation {b} · test {c}
-evaluation {research data | independent final test (look {n}) | independence not established ({reason}) | {k} predeclared candidates on the final data (look {n}) | exploratory on reused final data (seen {m} times before)} · comparison set: cohort {cohort6}, {N} candidates, with returns {a}/{b}   (6.2) [#196]
+evaluation {research data | independent final test (look {n}) | independence not established ({reason}) | {k} predeclared candidates on the final data (look {n}) | exploratory on reused final data (seen {m} times before)} · comparison set: study {study} · {segment} · {kind}, cohort {cohort6}, {N} candidates, with returns {a}/{b}   (6.2) [#196, #197]
 warnings {n} (run.warnings) · data fallbacks {k} · reconciled: {yes|NO}
 ```
 
@@ -1550,7 +1550,7 @@ class DecisionContext:
 - **기록(pickle 금지, 2.6)**: `predictions.parquet`(decision_id, instrument_id, node, value, fit_id, probs — 학습의 `classes` 순서대로의 클래스 확률, 회귀면 null), `fits.parquet`(fit_id, node, tau, train_first, train_last, n_samples, n_purged, n_embargoed, model_class, params_json, lib_versions, seed, threads, fit_seconds, pred_sha256, classes — 회귀면 null, score, clone ∈ {`factory`, `sklearn_clone`, `clone`}), 매니페스트 `ml` 칸. 모형 파일·joblib 없음.
 - **rerun**: 다시 학습해 학습마다 `pred_sha256`을 비교한다. threads = 1이면 같아야 하고(다르면 E15 "prediction hash differs for fit {id}"), 아니면 상대 1e-9 허용 비교 + 알림. 라이브러리 판이 다르면 `fit_id`가 달라 "학습 없음"이 되므로 E15 문장에 "lib {name} {v1} ≠ {v2}; rerun needs the locked environment"를 붙인다 [R4F-22].
 - **비용**: 학습 시간은 7장 예산 밖(따로 줄로 보고). 한 실행의 학습 수가 `[validate] max_fits`를 넘으면 실행 전 E40(막지 않음).
-- 특징 중요도 MDA(`ml.importance`)는 v1.x(예약), 묶음 MDA·표본 고유도 가중은 그 뒤.
+- `nx.explain`은 값과 매매 판단을 설명한다(5.9.9). **예측 중요도가 아니며**, 어떤 입력이 표본 밖 정보를 주는지는 말하지 않는다. 분류 팩터의 확률 채점은 v1에 있다(로그 손실·Brier, 5.7). 특징 중요도 MDA(`ml.importance`)는 v1.x(예약)이고 중요도 도구 가운데 첫째다: 각 분할의 허용 범위 안에서 교란하고 OOS 예측으로 채점하며 검정하는 귀무를 밝힌다. 묶음 MDA, 표본 고유도 가중, MI/VI, denoising·detoning, NCO, 메타 라벨링, 생성 모형은 그 뒤다(12.1 RS-04, RS-05; 사용자 결정 2026-11-04, #197).
 
 #### 5.3.12 거시·사건 항과 사건 일정 [R4F-EV-01~05, 사용자 결정 2026-10-28]
 - **시점** (INV-01): 거시 값과 사건은 공개 시각(`series_observations.ts_available`, `events.ts_available`, `corporate_actions.ts_announced`/`ts_terms_available`, `fundamentals_events`의 공시 접수 시각) ≤ `decision_ts`일 때만 보인다. 날짜만 있는 공개는 5.1.4(다음 현지 세션 시가). 자르기 탐침(6.5)이 이 항에도 돈다. 관측 기간(`obs_period_end`)이나 `ts_event`는 공개 시각이 아니다 — 9월 CPI는 9월 30일이 아니라 10월 15일 발표 순간에 보인다(G-96).
@@ -1972,13 +1972,14 @@ v1은 이 절의 정의를 규범으로 고정하고(INV-08 문구, `DecisionCon
 | 롤링 창·날짜 운 [V31-26] | 1년·3년 창(시작일을 월마다 옮김)의 벤치마크 초과 수익 분위(5·25·50·75·95%)와 건수 표(HTML), `offsets=k`면 k 계열의 CAGR·Sharpe·MDD 최소·중앙·최대 |
 | PSR(SR*) | `Φ( (SR̂ − SR*)·√(T−1) / sqrt(1 − γ̂₃·SR̂ + (γ̂₄ − 1)/4·SR̂²) )`, SR̂ = 일간(비연율) Sharpe(ddof=1), γ̂₃ 왜도, γ̂₄ **원 첨도(정규 = 3; 초과 첨도가 아님)**, 둘 다 모집단 모멘트 `m_k/m_2^{k/2}`(편향 보정 없음), T = 일간 관측 수. 구현에서 scipy `kurtosis(fisher=False, bias=True)` 꼴만 허용하고 손계산 G-60으로 못 박는다(초과 첨도를 넣으면 정규 수익에서 분모가 −0.25·SR̂² 틀려 PSR이 커 보임: LEAN `Statistics.cs:200-214` [추], vectorbt#872) [V31-07] [Bailey·López de Prado 2012/2014; 식 3자 확인]. 계산 불가: T < 30, 분산 0, 근호 안 ≤ 0 → "n/a ({reason})"(E21) [RV-C12]. **가정**: 분모는 이 모멘트를 가진 시계열 독립 수익에서의 SR̂ 분산이다. 시계열 의존성은 들어 있지 않다(아래 Lo 행은 표시하는 연율 Sharpe만 바꾸고 PSR·DSR·MinTRL은 바꾸지 않는다) (설계 검수 2026-11-04) |
 | DSR | `PSR(SR*_N)`, `SR*_N = sqrt(V[SR]) · ((1 − γ)·Φ⁻¹(1 − 1/N) + γ·Φ⁻¹(1 − 1/(N·e)))`, γ = 0.5772156649, N = **집단(cohort, 6.2)** 안 기록된 서로 다른 전략 후보 수, V[SR] = 그 집단 각 후보의 대표 관측(가장 최근 관측) 일간 Sharpe 분산(ddof=1). N = 1이면 SR* = 0(DSR = PSR(0))이고 "(1 candidate)" 표시. 보고서는 `cohort_sha256`을 남긴다 [C10, 6.3, RV-C12]. PSR의 가정 아래, 기록된 그 N개 후보 사이의 선택만 보정한다. 집단 밖의 선택(다른 study, 다른 kind, 같은 후보의 이전 관측)과 같은 자료를 여러 번 본 것은 N에 들어가지 않는다(6.2) (설계 검수 2026-11-04) |
-| MinTRL(SR*, α=0.05) | `1 + (1 − γ̂₃·SR̂ + (γ̂₄ − 1)/4·SR̂²)·(Φ⁻¹(1−α)/(SR̂ − SR*))²` 일간 관측 수, 252로 나눠 년. SR* = 0: 이 시계열 하나가 0에 맞서 필요한 길이이고, 후보 사이의 선택은 보정하지 않는다. `SR̂ ≤ SR*`이면 "n/a (SR ≤ 0)" [SC-09, Bailey·López de Prado 2012 S-23 미확인] |
-| 자기상관·Lo Sharpe | `ρ1` = 일간 순수익의 1차 자기상관. `|ρ1| > 0.1`이면 Lo(2002) 보정 연율화: `SR_ann = SR_daily · 252 / sqrt(252 + 2·Σ_{k=1}^{q}(252 − k)·ρ_k)`, q = 10(ρ_k는 표본 자기상관; k > 10은 0으로 **자름** — 원식은 k = 1..251), 첫 화면에 "lags ≤ 10" 표시 [SC-09, S-28 미확인, RV-Q02]. 연율화만 보정하며 불확실성 보정이 아니다. `ρ1`이 작고 `ρ2…ρ10`이 크면 의존성이 있어도 이 줄은 나오지 않는다 |
+| MinTRL(SR*, α=0.05) | `1 + (1 − γ̂₃·SR̂ + (γ̂₄ − 1)/4·SR̂²)·(Φ⁻¹(1−α)/(SR̂ − SR*))²` 일간 관측 수, 252로 나눠 년. SR* = 0: 이 시계열 하나가 0에 맞서 필요한 길이이고, 후보 사이의 선택은 보정하지 않는다. `SR̂ ≤ SR*`이면 "n/a (SR ≤ 0)" [SC-09, Bailey·López de Prado 2012 S-23 미확인]. 집단의 N > 1이면 DSR 행의 SR*_N을 SR*로 쓴 둘째 값을 "selection-adjusted reference"라는 이름으로 붙인다(해당하지 않으면 "n/a (SR ≤ SR*_N)") (사용자 결정 2026-11-04, #197) |
+| 자기상관·Lo Sharpe | `ρ1` = 일간 순수익의 1차 자기상관. `|ρ1| > 0.1`이면 Lo(2002) 보정 연율화: `SR_ann = SR_daily · 252 / sqrt(252 + 2·Σ_{k=1}^{q}(252 − k)·ρ_k)`, q = 10(ρ_k는 표본 자기상관; k > 10은 0으로 **자름** — 원식은 k = 1..251), 첫 화면에 "lags ≤ 10" 표시 [SC-09, S-28 미확인, RV-Q02]. 연율화만 보정하며 불확실성 보정이 아니다. `ρ1`이 작고 `ρ2…ρ10`이 크면 의존성이 있어도 이 줄은 나오지 않는다. 그래서 HTML "hygiene" 절은 늘 `ρ1…ρ10`을 띠 ±1.96/√T와 함께 보이고 띠 밖의 개수를 세며, 시차 1~10의 Ljung–Box Q가 p < 0.05이면 **의존성이 보인다**고 하고 PSR·DSR·MinTRL 줄에 "IID-based: dependence visible (Ljung–Box lags 1–10, p < 0.05; may also reflect changing volatility)" 표시를 붙인다 — 이 검정은 변동성 변화에도 반응하며, 명목 오경보율 5 %는 가정하지 않고 `docs/design/statistics-verification-plan.md`의 시나리오 S11로 나중에 잰다(사용자 결정 2026-11-04, #197). HAC 표준오차와 블록 부트스트랩은 12.1(RS-01, RS-02) |
 | 낙폭 기간·회복 기간·최악 월 | 최대 낙폭 고점 → 저점 달력일, 저점 → 고점 회복 달력일(회복 못 하면 "not recovered"), 달력 월 수익(복리) 최솟값 [SC-09]. **회복 = NAV가 직전 고점 이상**(같음 포함, 최소 단위 정수 비교); 고점 날짜 = 저점 전 마지막으로 직전 고점 이상이었던 날(backtrader PR #528: "초과"만 회복으로 봐서 두 낙폭이 이어 붙음) [V31-23] |
 | 신호-비중 상관 `signal_weight_corr` | 판단·슬리브마다 `c_d = corr( zscore(점수_d), w_d − w̄_d )`, 유니버스 안 유한 점수 종목 전부(목표 0 포함), 평균 순위가 아닌 피어슨 상관, 5.3.10 순서로 합. 보고는 판단들의 중앙값과 건수. 위험 조정이 없으므로 Grinold–Kahn의 전이 계수(TC)라 부르지 않는다(v2 이름 "transfer coefficient" 바꿈) [SC-08, RV-Q02] |
 | 통화 귀속 | 5.6.9 식의 연율 기여(현지·환율·교차) [SC-07] |
 | 용량("capacity" 시나리오) | 같은 목표를 자본 ×10, ×100으로 재생(집행만): CAGR, 상한에 걸린 주문 비율(`capacity_bound / 주문 수`), 평균 참여율(`fill_qty / ADV`). "cap binds at ≈ K" = 상한 걸린 비율이 처음 5%를 넘는 배수의 자본(×1, ×10, ×100 중; 없으면 "> x100") [SC-06] |
-| N_eff, DSR(N_eff) | v1.x [SC-10]: study 후보의 일간 순수익 상관행렬을 거리 `1 − ρ`, 평균 연결 계층 군집 + 실루엣 최대로 묶은 군집 수(방법 이름 기록). DSR 기본은 N 유지 [OQ-6]. 군집 수만 센다: 군집 수준 수익 시계열과 군집 사이 Sharpe 분산은 여기서 정의하지 않으며, ONC(OI-17)와 다른 방법이므로 둘을 같은 이름으로 부르지 않는다 |
+| N_eff, DSR(N_eff) | v1.x [SC-10]: study 후보의 일간 순수익 상관행렬을 거리 `1 − ρ`, 평균 연결 계층 군집 + 실루엣 최대로 묶은 군집 수(방법 이름 기록). DSR 기본은 N 유지 [OQ-6]. 군집 수만 센다: 군집 수준 수익 시계열과 군집 사이 Sharpe 분산은 여기서 정의하지 않으며, ONC(OI-17)와 다른 방법이므로 둘을 같은 이름으로 부르지 않는다. T7.2를 만들기 전에 이 행이 군집 수준 수익 시계열, 군집 사이 Sharpe 분산 추정, 기간·빈도가 다른 후보의 정렬을 정의한다(#197) |
+| 로그 손실·Brier(ML 분류 팩터) [#197] | 분류 라벨을 쓰는 `nx.ml.factor`의 `evaluate`에서, 채점한 예측(판단이 그 fit의 학습 표본에 들지 않는 판단 × 종목; 나머지는 세기만 하고 채점하지 않음)에 대해: **로그 손실** `= −mean ln max(p(y), 1e-15)`, p(y) = 예측의 `probs`가 실현된 클래스 y에 준 확률, 라벨이 선언한 클래스 위에서(fit에 없던 선언 클래스의 확률은 0, 5.3.11); **Brier**는 고른 `score=` 위에서 `= mean (s − t)²`, t = `p_up`이면 1[y = +1], `p_down`이면 1[y = −1], `p_up_minus_down`이면 y, 두 클래스에 `score=None`이면 1[y = 큰 클래스]. `p_up_minus_down`에서 이것은 y ∈ {−1, 0, +1}에 대한 점수의 평균 제곱 오차이며 고전적 Brier 점수가 아니다. 줄 이름은 그대로 두고 이 문장이 독자에게 알린다. FactorReport 줄 `log-loss {x:.3f} · Brier ({score}) {y:.3f} · scored {a}/{b} (model fit out of sample)` |
 
 **시나리오마다 다시 도는 것**(결정 2026-11-04, #207): 모든 시나리오는 그 실행의 **정규** 목표(`target_weight`, 전략의 판단; Pipeline과 목표는 다시 쓰고 다시 정하지 않음)를 지키고, 자기 상태를 가진 자기 열로 돈다(5.3.8). 비용·상장폐지 시나리오는 계좌층(5.5.2a)과 집행(5.6)을 자기 비용·정책으로 다시 돌린다. 그래서 낙폭 브레이크 같은 계좌 규칙이 2× 비용에서 다르게 작동할 수 있고, 그 차이도 시나리오가 보여 주는 것의 일부다. 용량은 집행만 다시 돈다: 기본 실행의 최종 목표에 자본을 늘려서. 어떤 시나리오도 두 번째의 간소한 장부를 두지 않는다(ADR-0041).
 
@@ -2171,7 +2172,7 @@ SQLite(WAL). 덧붙이기만: 아래 표는 `BEFORE UPDATE/DELETE` 트리거가 
   6. 행렬과 후보별 왜도·첨도를 `candidates.parquet`에 저장 [R-39].
 - 관문(`[gates] ic_t`, `dsr`)은 표시만 한다. 실행을 막지 않는다 [Q7].
 - 통계 함수(`research.stats`)는 ml4t-diagnostic(MIT)의 DSR·PBO·CSCV를 참고해 새로 쓰고, 독립 시험값(8.3)과 맞춘다. 그 패키지에 의존하지 않는다(이식 파일은 출처 머리말, 2.1) [Q22].
-- 추가 통계(5.7·5.8): MinTRL·Lo 보정 Sharpe(모든 `backtest`), 전이 계수(모든 `backtest`), 폭·기대 IR·BHY(모든 `evaluate`). N_eff와 DSR(N_eff)은 v1.x(T7.2): N 옆의 보조 줄이고 기본 판단 근거는 N이다(사용자 결정 Q19·Q27) [SC-09, SC-10].
+- 추가 통계(5.7·5.8): MinTRL·Lo 보정 Sharpe(모든 `backtest`), 전이 계수(모든 `backtest`), 폭·기대 IR·BHY(모든 `evaluate`). N_eff와 DSR(N_eff)은 v1.x(T7.2): N 옆의 보조 줄이고 기본 판단 근거는 N이다(사용자 결정 Q19·Q27, #197이 유지) [SC-09, SC-10]. DSR 줄은 N이 세는 비교 집합을 밝힌다(3.9). 의존성이 보이면(5.7 자기상관 행) PSR·DSR·MinTRL 줄에 그 행의 "IID-based" 표시를 붙이고, N > 1이면 MinTRL이 SR*_N에 대한 선택 보정 참고값도 준다(사용자 결정 2026-11-04, #197).
 - 분할기: 6.3a(v3.3에서 예약을 엶). 정화는 5.8과 같은 `max(ts_label_end, ts_label_available)`를 쓴다 [SC-21, R3-24, R4-19].
 - **진단은 `method`와 별개의 축이다** (설계 검수 2026-11-04): 아래 통계는 선형 실행에도 붙고, 붙였다고 그 실행이 표본 밖 평가가 되지는 않는다. 각 줄은 계산한 시계열(선형 실행, 이어 붙인 walk-forward OOS 시계열, CPCV 경로 하나)을 밝힌다. 어느 것도 전략이 진짜일 확률이나 수익 약속이 아니며 합격 문턱도 없다(관문은 표시만). 입력이 없거나 부족한 진단은 이유와 함께 E21을 돌려주고 실행은 계속된다. 사용자가 요청한 방법을 다른 방법으로 바꾸지 않는다.
 
@@ -2179,7 +2180,7 @@ SQLite(WAL). 덧붙이기만: 아래 표는 `BEFORE UPDATE/DELETE` 트리거가 
 |---|---|---|---|---|---|---|
 | PSR(0) | 이 시계열의 참 Sharpe가 0보다 큰가? (SR ≤ 0) | 시계열 하나의 순 일간 수익 | 없음 | 유한 모멘트의 독립 수익(5.7) | 고정 수익 | no return series, T < 30, zero variance, denominator ≤ 0 |
 | DSR | 이 Sharpe가 귀무 후보 N개 가운데 최고의 기댓값보다 큰가? | 순 일간 수익; 집단의 N과 V[SR] | 집단의 전략 후보 N개(6.2) | PSR의 조건; V[SR]은 기간이 다를 수 있는 대표 관측에서("mixed periods") | 고정 수익·고정 집단(`cohort_sha256`) | PSR의 사유; N = 1(PSR(0) 표시); V[SR] needs ≥ 2 candidates |
-| MinTRL | 이 Sharpe로 PSR(0) ≥ 1 − α가 되려면 관측이 몇 개 필요한가? | 순 일간 수익 | 없음(SR* = 0) | PSR의 조건 | 고정 수익 | SR ≤ 0 |
+| MinTRL | 이 Sharpe로 PSR(SR*) ≥ 1 − α가 되려면 관측이 몇 개 필요한가? | 순 일간 수익 | 없음(SR* = 0); N > 1이면 집단의 SR*_N도(선택 보정 참고값) | PSR의 조건 | 고정 수익 | SR ≤ 0; 참고값은 SR ≤ SR*_N |
 | Lo Sharpe | 시차 10까지 자기상관을 반영한 연율 Sharpe(검정이 아닌 추정값) | 순 일간 수익 | 없음 | ρ1의 절댓값이 0.1보다 클 때만 표시 | 고정 수익 | –(표시 안 함) |
 | PBO(CSCV) | IS 최고 후보가 OOS 중앙값 이하인 빈도는? (이 행렬에서 고르는 절차의 성질) | 공통 날짜의 T × N 순 일간 수익 | 그 실행의 `grid` 후보 | N ≥ 2, S 짝수 ≥ 4, T ≥ 2S; 조합끼리 겹치며 독립이 아님 | 고정 행렬; 조합마다 고르기만 다시 하고 거래는 다시 하지 않음 | N < 2, T < 2S |
 | CPCV 경로 분포 | 합성 OOS 경로 사이에 결과가 얼마나 다른가? | 경로별 순 일간 수익 | 한 실행의 경로 | 경로는 자료와 fit을 공유: 분위수는 신뢰구간이 아니고 경로 수는 표본 크기가 아님 | 경로마다 재실행(6.3a) | 경로가 모두 같음 → 1 경로(E40) |
@@ -2187,6 +2188,8 @@ SQLite(WAL). 덧붙이기만: 아래 표는 `BEFORE UPDATE/DELETE` 트리거가 
 | BHY p | 집단의 팩터 후보 m개를 보정한 뒤 이 IC의 p가 작은가? (거짓 발견 비율이며 가족별 오류가 아님) | 후보별 NW t | 집단의 팩터 후보 m개(6.2) | BY 보정은 어떤 의존성에서도 성립 | 고정 집단 | – |
 | 비용 민감도·시나리오·용량 | 같은 목표가 다른 비용·자본에서 어떻게 되는가? | 그 실행의 정규 목표 | 없음 | 정규 목표는 고정이고 후보 선택은 다시 하지 않음; 비용·상장폐지 시나리오는 계좌 규칙과 집행을 자기 비용으로 다시 돌리고, 용량은 집행만 다시 돎(5.7) | 고정 정규 목표 재생(5.7) | – |
 | offsets | 결과가 리밸런스 날짜에 얼마나 기대는가? | 오프셋 시계열 k개 | 후보가 아님(6.2) | – | 오프셋마다 재실행 | – |
+| 로그 손실·Brier | 이 분류 팩터의 클래스 확률이 표본 밖에서 얼마나 좋은가? (검정이 아닌 추정값) | 예측의 `probs`와 실현 클래스; Brier는 고른 `score=` 위에서(5.7) | 없음 | 판단이 그 fit의 학습 표본에 들지 않을 때만 채점 | 고정 예측 | 회귀 라벨; 채점한 예측 없음 |
+| SPA / White reality check | 어떤 후보가 고정 기준보다 기대 손실에서 나은가? `loss = −net_return`이면 기대 순수익 비교이며 Sharpe 우위가 아님 | 기준 손실과 T × K 손실 행렬 | 선언한 후보와 기준 | 블록 길이·스튜던트화를 밝힌 의존 부트스트랩 | 고정 손실 | "not supported in v1"(v1.x, 12.1 RS-03) |
 
 ### 6.3a 검증 방법 `backtest(method=…)`: 분할기, 정화, 계좌, 통계 [R4-19~R4-22, 사용자 결정 2026-10-28]
 
@@ -3843,8 +3846,8 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 - Acceptance: `tests/unit/api/test_capacity.py::test_capacity_rows`, `::test_binds_at_definition`, `::test_sweep_final_candidates_have_capacity`.
 
 **T6.8 `feat(research): PSR, DSR and PBO via CSCV over cohorts`** · `M6` `research` · M · Blocked by: T6.7, T2.9 · §5.7, §6.3 [RV-C12] *(v3: 집단, 계산 불가 규칙)*
-- Done means: sweep 출력에 PBO 줄, backtest에 DSR 줄(N, V[SR] 출처 = 집단, `cohort_sha256`); 입력 부족 시 "n/a (reason)"(6.3 목록).
-- Acceptance: `tests/property/test_stats.py::test_P_STAT_psr_dsr_known`, `::test_pbo_hand_matrix`, `::test_invalid_population_na`, `::test_dsr_uses_frozen_cohort`, `::test_pbo_zero_variance_rule`, `::test_psr_raw_kurtosis_convention`(v3.1 G-60 [V31-07]), `::test_pbo_common_dates_with_unequal_lookbacks`, `::test_purge_keeps_max_end_available`(v3.2 [R3-24]).
+- Done means: sweep 출력에 PBO 줄, backtest에 DSR 줄(N, V[SR] 출처 = 집단, `cohort_sha256`); 입력 부족 시 "n/a (reason)"(6.3 목록). (2026-11-04, #197) hygiene 절의 `ρ1…ρ10` 띠, 그 검정의 p < 0.05이면 PSR 줄의 5.7 표시 "IID-based: dependence visible (Ljung–Box lags 1–10, p < 0.05; may also reflect changing volatility)", N > 1이면 SR*_N에 대한 MinTRL, reality-check 요청에는 "not supported in v1".
+- Acceptance: `tests/property/test_stats.py::test_P_STAT_psr_dsr_known`, `::test_pbo_hand_matrix`, `::test_invalid_population_na`, `::test_dsr_uses_frozen_cohort`, `::test_pbo_zero_variance_rule`, `::test_psr_raw_kurtosis_convention`(v3.1 G-60 [V31-07]), `::test_pbo_common_dates_with_unequal_lookbacks`, `::test_purge_keeps_max_end_available`(v3.2 [R3-24]), `::test_iid_label_when_dependence_visible`(ρ1 = 0인 AR(2) 시계열에 표시), `::test_mintrl_selection_adjusted_reference`, `::test_reality_check_not_supported`(2026-11-04, #197).
 
 **T6.9 `feat(research): truncation probes with prioritized dates and coverage report`** · `M6` `research` · M · Blocked by: T6.4 · §6.5 [SC-05, RV-C11] *(v3: 주입한 미래 읽기 소스로 시험, 창 안 roll은 거짓 양성 아님)*
 - Done means: 스냅숏 전체 기간 배열을 클로저로 받는 함수에 `nx.check(f, probes=4)`가 E1과 한계 문단, "nodes compared x/y", "finite cells a/b", 날짜 이유를 출력; 창 안에서만 `np.roll`하는 함수는 E1이 없다.
@@ -3913,8 +3916,8 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 
 **T6.24 `feat(ml): ml.factor inside method folds, rerun refit hash check and determinism warnings`** **[v3.3]** · `M6` `ml` · S · Blocked by: T6.23, T6.21, T1.15 · §5.3.11, §6.3a [R4-23]
 - Context: 모든 방법에서 앞쪽만 학습(τ 뒤 표본 없음; CPCV는 그 분할의 시험 묶음·정화·엠바고 제외; walk-forward는 폴드 범위로 자르지 않음) [R4F-03], 누설 장부 `ml fits: forward-only` 줄, 겹칠 수 있는 설정 E29, `rerun` 재학습 `pred_sha256` 비교(E15/허용 오차), E44, 같은 `fit_id` 재사용(WF 겹침·CPCV 같은 조합).
-- Done means: ML 전략을 `--method cpcv`로 돌리면 학습 수와 재사용 수를 출력하고 `rerun`이 "predictions identical (n fits)"를 출력.
-- Acceptance: `tests/unit/ml/test_folds.py::test_forward_only_in_every_method`, `::test_cpcv_excludes_test_groups`, `::test_overlap_setting_E29`, `tests/unit/api/test_rerun.py::test_ml_refit_hash_equal`, `::test_threads_warning_E44`, `tests/property/test_cache.py::test_P_CACHE_FIT`(2026-11-04: CPCV 조합과 `run_seed`는 학습 L1 항목을 공유하지 않음, 캐시 켬 = 끔).
+- Done means: ML 전략을 `--method cpcv`로 돌리면 학습 수와 재사용 수를 출력하고 `rerun`이 "predictions identical (n fits)"를 출력. (2026-11-04, #197) 분류 팩터의 `evaluate`가 5.7의 로그 손실·Brier 줄을 채점 수/전체와 함께 출력.
+- Acceptance: `tests/unit/ml/test_folds.py::test_forward_only_in_every_method`, `::test_cpcv_excludes_test_groups`, `::test_overlap_setting_E29`, `tests/unit/api/test_rerun.py::test_ml_refit_hash_equal`, `::test_threads_warning_E44`, `tests/property/test_cache.py::test_P_CACHE_FIT`(2026-11-04: CPCV 조합과 `run_seed`는 학습 L1 항목을 공유하지 않음, 캐시 켬 = 끔), `tests/unit/ml/test_scoring.py::test_multiclass_log_loss_over_declared_classes`, `::test_brier_on_chosen_score`, `::test_training_decision_not_scored`(2026-11-04, #197).
 
 **T6.24b `feat(ml): pretrained predict-only models with training cutoff leak guard`** **[v3.4 R5]** · `M6` `ml` · S · Blocked by: T6.24, T6.Gv · §5.3.11, §6.2, §6.6 [R5-03, R6-13]
 - Context: `nx.ml.pretrained(model, training_cutoff=, corpus=, allow_overlap=)`, `predict`만, cutoff + embargo 이전 판단 E48(실패)·`allow_overlap` E49 표시·보고서 줄·매니페스트 가정, 검증 경로 표시, `fit_id`에 모형 식별, 후보로 셈.
@@ -3954,7 +3957,7 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 #### v1.x — v1 직후 (M6 뒤)
 
 **T7.2 `feat(research): effective number of trials and DSR(N_eff)`** **[new]** · `v1.x` `research` · S · Blocked by: T6.8 · §5.7 [SC-10, OQ-6]
-- Done means: 상관 높은 후보 6개 + 독립 후보 2개 study에서 N = 8, N_eff ≈ 3을 출력, 방법 이름 기록.
+- Done means: 상관 높은 후보 6개 + 독립 후보 2개 study에서 N = 8, N_eff ≈ 3을 출력, 방법 이름 기록. 5.7의 N_eff 행이 군집 수준 수익 시계열, 군집 사이 Sharpe 분산, 기간 정렬을 정의한 뒤에만 끊는다. 방법을 ONC라 부르지 않는다(2026-11-04, #197).
 - Acceptance: `tests/unit/research/test_neff.py::test_clustered_candidates`, `::test_method_recorded`, `::test_dsr_default_still_uses_N`.
 
 **T7.3** → v3.3에서 **T3.29**(M3a)로 옮겼다(그룹 상한을 v1로, R4-05).
@@ -4168,6 +4171,11 @@ v1 명세의 O1~O11, 청사진 OQ-1~OQ-15, TDS Q1~Q16을 하나로 모았고, v3
 | R3-36 | `offsets` 뒤 `day=` 변경 = 새 후보 문장, offset별 행 계획·재귀 재생, 겹치는 비용 구간 거절 | 진단 기능의 경계 정리. T6.18·T4.13 다음 판 | v1.x |
 | R3-37 | E4 체결 ↔ 회계 되먹임 경계(채움 제안 ↔ 엔진 구매력) | v1 밖(E4). 근거 문장(V31-32 행)은 v3.2에서 고침 | E4 |
 | R4F-02 | `size.kelly(fraction, lookback, max_weight)` | **v1.x**(사용자 결정 2026-10-28): 창 안 μ 추정에 매우 민감해 초보 길에서 과적합 함정; `max_weight`를 강제하면 사실상 상한 있는 μ/σ² 점수라 `size.score("raw")`가 대신한다. v1에서는 예약(E18). 다시 열 때 독립 손계산 golden과 μ 추정 구간 보고를 먼저 | v1.x |
+| RS-01 | PSR 옆 추가 줄로 Sharpe의 HAC(Newey–West형) 표준오차 | v1.x(사용자 결정 2026-11-04, #197): 대역폭 규칙을 먼저 밝히고 시험한다. v1은 IID 가정을 밝히고 "IID-based"를 표시(5.7) | v1.x |
+| RS-02 | 선택 진단으로 Sharpe의 블록 부트스트랩 구간 | v1.x(#197): 블록 구성·블록 길이·블록 길이 민감도를 보고; 정화가 시계열을 부트스트랩의 정상성·의존성 조건에 맞추지는 않는다 | v1.x |
+| RS-03 | 선언한 후보를 기준과 비교하는 reality-check 검정(Hansen SPA, White) | v1.x(#197), 6.3 진단 계약 뒤; 기준 손실, T × K 손실 행렬, 의존 부트스트랩, 스튜던트화가 필요. `loss = −net_return`은 기대 순수익 비교이며 Sharpe 우위가 아님 | v1.x |
+| RS-04 | 교란 MDA 특징 중요도(`ml.importance`) | 중요도 도구 가운데 v1.x 첫째(#197): 각 분할의 허용 범위 안, OOS 예측 위, 귀무를 밝힘(5.3.11) | v1.x |
+| RS-05 | 묶음 MDA, 표본 고유도 가중, MI/VI, denoising·detoning, NCO, 메타 라벨링, 생성 모형 | RS-04 뒤(#197); v1 아님 | later |
 | R4F-42 | ERC `fallback="fail"` 옵션 | v1.x(Opus·Sol 다수 — 대체 + E43 + 건수로 충분, Fable은 v1 제안). 옵션 하나라 다시 열기 쉬움 | v1.x |
 | R4F-43 | ML 양쪽 훈련 `ml_two_sided=True`(AFML식 CPCV 훈련) | v1.x, E44류 경고와 함께. v1은 사용자 결정으로 앞쪽만(5.3.11) | v1.x |
 | R4F-44 | `Macro`·`Events` 확장: 컨센서스 분포(표준화 서프라이즈), 사건 창 이벤트 스터디 보고(CAR), 장중 발표 시각 정밀 체결 | v1.x. v1은 `value − consensus`와 세션 단위 트리거뿐 | v1.x |
