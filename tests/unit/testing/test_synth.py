@@ -8,6 +8,7 @@ import datetime as dt
 import inspect
 import itertools
 import json
+import math
 import re
 import sysconfig
 import textwrap
@@ -230,7 +231,9 @@ def test_small_listings_are_dense_and_mixed(small: Path) -> None:
     held: dict[str, list[dt.date]] = {}
     for b in rows(small, "bars"):
         held.setdefault(b["instrument_id"], []).append(b["session_date"])
-        assert b["low"] <= min(b["open"], b["close"]) <= max(b["open"], b["close"]) <= b["high"]
+        if b["obs_status"] == "traded":  # a halted bar has no prices (4.8 (5))
+            assert b["low"] <= min(b["open"], b["close"]) <= max(b["open"], b["close"])
+            assert max(b["open"], b["close"]) <= b["high"]
     for r in instruments:
         last = r["last_session"] or dt.date(2019, 12, 31)
         life = [d for d in days[r["calendar_id"]] if r["listed_on"] <= d <= last]
@@ -277,8 +280,8 @@ def test_small_hashes_match_on_macos_and_linux(tmp_path: Path) -> None:
     package = make_snapshot(tmp_path / "d", preset="small")  # default markets KR, US; seed 0
     hashes = json.loads((package / "tds.json").read_text())["hashes"]
     assert (hashes["value_sha256"], hashes["semantic_sha256"]) == (
-        "dd083d85c7968dad0a1d9e145afa55cec225f1f8638b666c314043f7d16b241a",
-        "2bca42dda815aa99b50a8e51934197af52f5d7f927bfb525b50ac1d80e7ccbaa",
+        "e9d34e7e8e348bd462f9ed945e2e337fea297faff6b06c781eb21eb6c153f521",
+        "65b7624fbacdfadf9fa77972bfd6bed1dc531e7376785673ab92d25f10b107fd",
     )
 
 
@@ -300,7 +303,9 @@ def called_names(source: str) -> set[str]:
 
 def test_small_value_path_uses_no_platform_math() -> None:
     for step in (synth._small, synth._actions, synth._terms, synth._dividend, synth._revise,
-                 synth._move, synth._delistings, synth._exit_value):  # fmt: skip
+                 synth._move, synth._delistings, synth._exit_value, synth._snap, synth._ratios,
+                 synth._kr_rows, synth._tradability, synth._sample, synth._halts, synth._limits,
+                 synth._wobble, synth._status, synth._last_traded):  # fmt: skip
         assert not called_names(inspect.getsource(step)) & PLATFORM_MATH, step.__name__
     # the check refuses what it is for, so the pass above is not vacuous
     bad = "def f(rng, p):\n    return np.exp(rng.normal(0, 1)) * p.sqrt() + math.log(2) ** 2\n"
@@ -420,3 +425,83 @@ def test_delisted_on_matches_delistings(small: Path) -> None:
         assert out["ret_observed_includes_distributions"] is not None  # no A011
     assert all(r["ret_observed_includes_distributions"] is None for r in exits.values()
                if r["delist_type"] != "liquidation")  # fmt: skip
+
+
+def kr_tick(price: float, venue: str) -> int:
+    """KRX tick sizes from 2010-10-04 to 2023-01-25 (KOSPI XKRX, KOSDAQ XKOS), written out."""
+    bands = [(1000, 1), (5000, 5), (10000, 10), (50000, 50)]
+    bands += [(100000, 100), (500000, 500)] if venue == "XKRX" else []
+    return next((t for top, t in bands if price < top), 1000 if venue == "XKRX" else 100)
+
+
+def test_kr_prices_on_grid_with_halts_and_limits(small: Path) -> None:
+    venue = {r["instrument_id"]: r["venue_mic"] for r in rows(small, "instruments")}
+    status = {(r["instrument_id"], r["session_date"]): r for r in rows(small, "tradability_daily")}
+    bars = sorted(rows(small, "bars"), key=lambda b: (b["instrument_id"], b["session_date"]))
+    assert len(status) == len(bars)
+    wobbled = 0
+    for b in (b for b in bars if b["instrument_id"].startswith("KR:")):
+        s, v = status[b["instrument_id"], b["session_date"]], venue[b["instrument_id"]]
+        assert s["halted_full_day"] == (b["obs_status"] == "halted")
+        if s["halted_full_day"]:  # no prices, no volume
+            assert (b["open"], b["close"], b["volume"]) == (None, None, 0.0)
+            continue
+        for p in (b["open"], b["high"], b["low"]):
+            assert p % kr_tick(p, v) == 0, b
+        on_grid = round(b["close"] / kr_tick(b["close"], v)) * kr_tick(b["close"], v)
+        assert b["close"] in (on_grid, math.nextafter(on_grid, math.inf)), b  # V31-05's wobble
+        wobbled += b["close"] != on_grid
+        if s["limit_up_close"] or s["limit_down_close"]:  # at the limit, snapped inward
+            limit = s["up_limit_price"] if s["limit_up_close"] else s["down_limit_price"]
+            tick = kr_tick(limit, v)
+            inward = (math.floor if s["limit_up_close"] else math.ceil)(limit / tick) * tick
+            assert b["close"] == inward, b
+        if s["locked_up"] or s["locked_down"]:
+            assert b["open"] == b["high"] == b["low"] == b["close"]
+    assert wobbled > 0
+    kr = [s for s in status.values() if s["instrument_id"].startswith("KR:")]
+    for flag in ("halted_full_day", "limit_up_close", "limit_down_close", "locked_up"):
+        assert any(s[flag] for s in kr), flag
+    halted = {(s["instrument_id"], s["session_date"]) for s in kr if s["halted_full_day"]}
+    over = {r["kind"] for r in rows(small, "corporate_actions")
+            if (r["instrument_id"], r["ex_date"]) in halted}  # fmt: skip
+    assert {"split", "cash_dividend"} <= over  # G-54: a split and an ex-dividend in a halt
+
+
+def test_tradability_rows_by_market(small: Path) -> None:
+    bars = {(b["instrument_id"], b["session_date"]): b for b in rows(small, "bars")}
+    before: dict[str, tuple[float, float]] = {}  # each instrument's last close and its factor
+    for s in sorted(rows(small, "tradability_daily"),
+                    key=lambda r: (r["instrument_id"], r["session_date"])):  # fmt: skip
+        market, day = s["instrument_id"][:2], s["session_date"]
+        bar = bars[s["instrument_id"], day]
+        if market == "KR":  # from the last close moved by share events, without tick rounding
+            ratio = s["price_limit_ratio"]
+            assert ratio == (0.15 if day < dt.date(2015, 6, 15) else 0.3)
+            last = before.get(s["instrument_id"])
+            ref = None if last is None else last[0] * (bar["cum_factor_split"] / last[1])
+            assert s["reference_price"] == ref
+            if ref is not None:
+                assert s["up_limit_price"] == ref * (1 + ratio)
+                assert s["down_limit_price"] == ref * (1 - ratio)
+                if bar["open"] is not None:  # every bar trades within its own limits
+                    assert s["down_limit_price"] <= bar["low"] <= bar["high"]
+                    assert bar["high"] <= s["up_limit_price"]
+            assert s["admin_status"] in ("normal", "administrative")
+        else:  # no price limits, no administrative status
+            assert s["up_limit_price"] is s["limit_up_close"] is s["admin_status"] is None
+        known = market != "US" or day >= dt.date(2019, 8, 23)
+        assert s["status_known"] == known
+        if not known:  # nothing else is known either
+            assert s["halted_full_day"] is s["halt_count"] is None
+        elif market != "KR":
+            assert (s["halted_full_day"], s["halt_count"]) == (False, 0)
+        if bar["close"] is not None:
+            before[s["instrument_id"]] = (bar["close"], bar["cum_factor_split"])
+    admin = [s for s in rows(small, "tradability_daily") if s["admin_status"] == "administrative"]
+    assert admin
+    manifest = json.loads((small / "tds.json").read_text(encoding="utf-8"))
+    (entry,) = (d for d in manifest["datasets"] if d["kind"] == "tradability_daily")
+    by_column = entry["params"]["availability_by_column"]  # TDS 5.10: before and after the day
+    assert by_column["up_limit_price"] == by_column["admin_status"] == "session_open"
+    assert by_column["halted_full_day"] == by_column["locked_down"] == "session_close"
