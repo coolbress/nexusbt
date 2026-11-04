@@ -13,7 +13,7 @@
 | 티켓 색인 | [SPEC-INDEX.md](SPEC-INDEX.md) | 마일스톤 → 티켓 → 명세 절 → 시험 → 막는 티켓. 티켓 본문은 명세 10.1 |
 | 자료 표준 TDS v1.4 | [docs/tds/tds-v1.4.md](docs/tds/tds-v1.4.md) (+ [한국어](docs/tds/tds-v1.4.ko.md)), [예시](docs/tds/tds-examples.md) | 명세 2.3과 T0.1은 `tds/spec/tds-v1.md` 자리를 쓴다. T0.1에서 옮기고 링크를 고친다 |
 | 용어집 | [GLOSSARY.md](GLOSSARY.md) (+ [한국어](GLOSSARY.ko.md)) | 이 프로젝트의 낱말. 명세가 쓰는 이름 `CONTEXT.md`·`CONTEXT.ko.md`는 이 둘을 가리키는 심볼릭 링크 |
-| ADR 0001–0041 | [docs/adr/](docs/adr/) | 0001–0040 accepted, 0041 proposed. 짧은 판은 명세 9.3 |
+| ADR 0001–0041 | [docs/adr/](docs/adr/) | 모두 accepted. 짧은 판은 명세 9.3 |
 | 구조 | [ARCHITECTURE.md](ARCHITECTURE.md) (+ [한국어](ARCHITECTURE.ko.md)) | 한눈에 보기, 층, 코드 지도(예정), 불변식, 명세에서 찾을 곳 |
 | 시제품 증거 | [docs/design/prototype-results.md](docs/design/prototype-results.md) | P5·P11 실측, 손계산 32/32, 판단 행만 계산 = 전체 계산 |
 | 공개 README | [README.md](README.md) (+ [한국어](README.ko.md)) | |
