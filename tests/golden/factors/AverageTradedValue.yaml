@@ -3,6 +3,9 @@
 # null = warm-up (no full window in the 5 rows), .nan = the factor gives NaN.
 factor: AverageTradedValue
 spec: "3.4: nanmean(value_traded), NaN left out, minimum observations 1; warm-up W-1"
+# Hand-checked by the person 2026-11-04 (#221; via the coordinating session, recomputed from the
+# 3.4 formula):
+#   AverageTradedValue(2), both cells NaN: NaN (no observation)
 cases:
   - term: "AverageTradedValue(2)"
     inputs: {value_traded: [1000, .nan, .nan, 3000, 5000]}

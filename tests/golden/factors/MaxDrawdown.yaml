@@ -3,6 +3,9 @@
 # null = warm-up (no full window in the 5 rows), .nan = the factor gives NaN.
 factor: MaxDrawdown
 spec: "3.4: max((cummax(x) - x)/cummax(x)), NaN left out; warm-up W-1. 8.2: MaxDrawdown(4) 10, 12, 9, 11 -> 0.25; 50 outside the window does not enter MaxDrawdown(3)"
+# Hand-checked by the person 2026-11-04 (#221; via the coordinating session, recomputed from the
+# 3.4 formula):
+#   MaxDrawdown(4) on 10, 12, 9, 11: (12 - 9)/12 = 0.25 (the peak, not the trough)
 cases:
   - term: "MaxDrawdown(4)"
     inputs: {close_tr: [50, 10, 12, 9, 11]}

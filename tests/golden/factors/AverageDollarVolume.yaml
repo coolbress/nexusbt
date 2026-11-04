@@ -3,6 +3,9 @@
 # null = warm-up (no full window in the 5 rows), .nan = the factor gives NaN.
 factor: AverageDollarVolume
 spec: "3.4: nansum(close * volume)/W, a NaN counts as 0, minimum observations 0; warm-up W-1"
+# Hand-checked by the person 2026-11-04 (#221; via the coordinating session, recomputed from the
+# 3.4 formula):
+#   AverageDollarVolume(2), both cells NaN: 0/2 = 0.0
 cases:
   - term: "AverageDollarVolume(2)"
     inputs: {close: [10, .nan, 12, 11, 10], volume: [100, 300, .nan, 200, 500]}
