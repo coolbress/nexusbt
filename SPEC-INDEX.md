@@ -236,7 +236,7 @@ Generated from `docs/spec/engine-spec-v3.4.md` (chapter 10) by the spec checker 
 | T5.15 | `feat(api): screen x-ray over the whole universe` | 3.8, 3.9, 5.9.9 | — | T3.19, T2.20, T2.21, T2.22, T5.1 |
 | T5.16 | `feat(portfolio): target-state plumbing for checkpoints, books and screens` | 5.5.3, 5.6.1, 5.9.6 | — | T5.1, T3.12 |
 | T5.17 | `feat(api): screen account modes for account-reading risk rules` | 3.8, 3.10 | — | T3.30, T5.1, T5.4 |
-| T5.18 | `feat(cli): strategy templates, demo snapshot and the 30-minute path` | 3.10, 8.5 | — | T5.4, T3.34, T3.33, T5.17 |
+| T5.18 | `feat(cli): strategy templates, demo snapshot and the 30-minute path` | 3.10, 8.5 | — | T5.4, T3.34, T3.33, T5.17, T3.35 |
 | T5.19 | `docs: zipline to NexusBT mapping page and zipline-port template` | 8.5 | — | T5.18 |
 | T5.20 | `feat(api): compare strategy variants in one table` | 3.8 | — | T5.5, T3.34 |
 | T5.21 | `feat(cli): commented two-tier nexusbt.toml template, config check and config show` | 3.10, 3.11 | — | T1.2, T0.4b, T0.5a |
