@@ -13,7 +13,7 @@ This repository builds **NexusBT**, an open-source (Apache-2.0) backtesting and 
 | Ticket index | [SPEC-INDEX.md](SPEC-INDEX.md) | milestone → ticket → spec sections → tests → blocked by. Ticket text lives in spec 10.1 |
 | Data standard TDS v1.4 | [docs/tds/tds-v1.4.md](docs/tds/tds-v1.4.md) (+ [.ko](docs/tds/tds-v1.4.ko.md)), [examples](docs/tds/tds-examples.md) | Spec 2.3 and T0.1 place it at `tds/spec/tds-v1.md`; move it there in T0.1 and fix the links |
 | Glossary | [GLOSSARY.md](GLOSSARY.md) (+ [.ko](GLOSSARY.ko.md)) | The words of this project. `CONTEXT.md` and `CONTEXT.ko.md`, the spec's names, are symbolic links to these |
-| ADRs 0001–0040 | [docs/adr/](docs/adr/) | All accepted. Short form in spec 9.3 |
+| ADRs 0001–0041 | [docs/adr/](docs/adr/) | 0001–0040 accepted, 0041 proposed. Short form in spec 9.3 |
 | Architecture | [ARCHITECTURE.md](ARCHITECTURE.md) (+ [.ko](ARCHITECTURE.ko.md)) | Bird's-eye view, layers, code map (planned), invariants, where to look in the spec |
 | Prototype evidence | [docs/design/prototype-results.md](docs/design/prototype-results.md) | Measured P5/P11, 32/32 hand-computed cases, decision-rows = full compute |
 | Public README | [README.md](README.md) (+ [.ko](README.ko.md)) | |
