@@ -9,14 +9,14 @@ Generated from `docs/spec/engine-spec-v3.4.md` (chapter 10) by the spec checker 
 
 ## Counts
 
-220 engine tickets: M0 16, M1 41, M2 30, M3a 37, M3b 11, M4 28, M5 24, M6 31, v1.x 2 (T7.G, T7.1 and T7.V are part of M6; T7.2 and T7.5 are v1.x). 107 golden cases (G-01..G-107), 34 property tests, 49 error codes (E1..E49), 40 ADRs.
+221 engine tickets: M0 16, M1 41, M2 31, M3a 37, M3b 11, M4 28, M5 24, M6 31, v1.x 2 (T7.G, T7.1 and T7.V are part of M6; T7.2 and T7.5 are v1.x). 107 golden cases (G-01..G-107), 34 property tests, 49 error codes (E1..E49), 40 ADRs.
 
 ## Dependency graph (summary)
 
 - Acyclic; every "Blocked by" points to the same or an earlier milestone (checked by `tools/spec_lint.py`, and in the repo by `test_ticket_graph`, T0.12).
 - Single root: T0.1. Longest chain: 33 tickets:
   T0.1 → T0.2a → T0.13a → T0.13b → T0.13c → T0.14a → T0.15a → T0.15b → T0.16a → T1.1b → T1.3 → T1.4 → T1.7a → T1.7b → T1.8 → T1.12 → T1.13 → T2.7 → T3.22 → T3.12 → T4.1 → T4.2 → T4.10 → T4.7 → T6.2 → T6.4 → T6.7 → T6.20 → T6.21 → T6.24 → T6.27 → T7.1 → T7.V.
-- Most depended-on tickets (number of direct dependents): T0.9 (19), T3.13a (10), T3.14 (9), T0.15a (7), T2.9 (7), T3.Gd (7), T0.2a (6), T2.10a (6), T4.7 (6), T0.14c (5), T1.Gb (5), T1.11 (5), T1.13 (5). Land these early and keep them small.
+- Most depended-on tickets (number of direct dependents): T0.9 (19), T3.13a (10), T3.14 (9), T0.15a (7), T1.24 (7), T2.9 (7), T2.10a (7), T3.Gd (7), T0.2a (6), T4.7 (6), T0.7 (5), T0.14c (5), T1.11 (5), T1.13 (5), T1.Gb (5), T3.12 (5), T5.1 (5), T6.4 (5). Land these early and keep them small.
 
 
 ## M0 — Normative contracts
@@ -120,6 +120,7 @@ Generated from `docs/spec/engine-spec-v3.4.md` (chapter 10) by the spec checker 
 | T2.22 | `feat(pipeline): explicit Filter.fillna, unknown counts per leaf and the unknown-universe notice (E39)` | 3.3, 5.4.1, 6.6, 5.9.1 | — | T2.4, T1.25 |
 | T2.Ge | `test(golden): macro series vintage and event timing cases (G-96..G-98)` | 5.3.12, 8.2 | G-96..G-98 | T0.9 |
 | T2.23 | `feat(pipeline): Macro.series and Events terms over series_observations and events, and from_parquet shapes` | 3.2, 5.1.5, 5.3.12, 6.6 | — | T2.19, T2.6, T2.Ge |
+| T2.24 | `perf(bench): P11 fixture and factor-graph generator with the reduced P11 (a) on the m1 columns` | 7 | — | T1.24, T2.10a |
 
 ## M3a — One market, market orders, end to end (thin slice)
 
@@ -147,7 +148,7 @@ Generated from `docs/spec/engine-spec-v3.4.md` (chapter 10) by the spec checker 
 | T3.16 | `test(property): accounting and state-machine invariants` | 8.3 | P-BRIDGE, P-QTY | T3.13a |
 | T3.17a | `test(parity): L2-a, L2-b, L2-c backtests against the zipline preset` | 8.1 | — | T3.15a, T1.17 |
 | T3.21 | `feat(api): coverage and stale-mark warnings (E6, E25)` | 6.6 | — | T3.13a |
-| T3.18 | `docs(examples): m3a strategy walkthrough, perf smoke and stage measurement` | 7, 8.5 | — | T3.14, T1.24, T0.8c |
+| T3.18 | `docs(examples): m3a strategy walkthrough, perf smoke and stage measurement` | 7, 8.5 | — | T3.14, T1.24, T0.8c, T2.24 |
 | T3.Gd | `test(golden): v3.1 quantity, stale-mark, delisting-distribution, volume-cap, rounding, small-trade and target-gap cases (G-53..G-56, G-58, G-59, G-66)` | 5.6.1, 5.6.3, 5.6.6, 5.6.7, 5.6.13, 8.2 | G-53..G-56, G-58..G-59, G-66 | T0.9, T0.15a |
 | T3.Ge | `test(golden): v3.1 metrics, drawdown and benchmark cases (G-60..G-62)` | 5.7, 8.2 | G-60..G-62 | T0.9 |
 | T3.22 | `feat(accounting): stale marks adjusted for corporate actions and distributions before delisting counted once` |  | G-54..G-55 | T3.11, T3.Gd, T2.7 |
@@ -271,7 +272,7 @@ Generated from `docs/spec/engine-spec-v3.4.md` (chapter 10) by the spec checker 
 | T6.24 | `feat(ml): ml.factor inside method folds, rerun refit hash check and determinism warnings` | 5.3.11, 6.3a | — | T6.23, T6.21, T1.15 |
 | T6.24b | `feat(ml): pretrained predict-only models with training cutoff leak guard` | 5.3.11, 6.2, 6.6 | — | T6.24, T6.Gv |
 | T6.25 | `feat(research): triple-barrier label sharing the exit fill rule` | 5.8, 3.7 | — | T3.33, T2.10a, T6.Gv |
-| T6.26 | `perf: P11 high-dimensional workload with decision-date-only evaluation, column pruning and batched reductions` | 7, 5.3.2, 5.3.8 | — | T1.24, T6.4, T6.5 |
+| T6.26 | `perf: P11 high-dimensional workload with decision-date-only evaluation, column pruning and batched reductions` | 7, 5.3.2, 5.3.8 | — | T2.24, T6.4, T6.5 |
 | T6.27 | `docs(examples): walk-forward/CPCV and ML factor templates` | 3.10, 8.5 | — | T6.24, T5.18 |
 | T7.G | `test(golden): hold-band edge cases (G-63)` | 5.5.3, 8.2 | G-63 | T0.9 |
 | T7.1 | `feat(portfolio): target-state recursion and hold band` | 5.5.3 | — | T6.11, T6.18, T7.G, T4.14, T5.16, T6.22, T6.24, T6.25, T6.27 |
