@@ -9,6 +9,7 @@ engine's. These tests hold the check files to that shape and each case to its ch
 from __future__ import annotations
 
 import ast
+import math
 import runpy
 from pathlib import Path
 from typing import Any
@@ -69,6 +70,34 @@ def test_case_G01_expected_present() -> None:  # noqa: N802 - the name spec 8.2 
     assert case["id"] == "G-01"
     assert case["expected"], "G-01 has no expected rows"
     assert rows == case["expected"]
+
+
+def nan_as_text(value: Any) -> Any:
+    """`value` with every float NaN written "NaN", lists for tuples: NaN never equals itself."""
+    if isinstance(value, float) and math.isnan(value):
+        return "NaN"
+    if isinstance(value, dict):
+        return {k: nan_as_text(v) for k, v in value.items()}
+    if isinstance(value, list | tuple):
+        return [nan_as_text(v) for v in value]
+    return value
+
+
+#: The v3.1 cases M1 uses (T1.Gb): T-24 three-valued Filter, T-27 hash tie-break.
+V31_M1 = ("T-24", "T-27")
+
+
+@pytest.mark.parametrize("case_id", V31_M1)
+def test_cases_v31_M1_expected_present(case_id: str) -> None:  # noqa: N802 - spec 10.1's name
+    case, rows = _case(case_id)
+    assert case["id"] == case_id
+    assert case["expected"], f"{case_id} has no expected rows"
+    assert nan_as_text(rows) == nan_as_text(case["expected"])
+
+
+def test_nan_as_text_tells_nan_apart() -> None:
+    assert nan_as_text([{"v": (1.0, math.nan)}]) == [{"v": [1.0, "NaN"]}]
+    assert nan_as_text([math.nan]) != nan_as_text([0.0])
 
 
 def test_loop_and_engine_rules_catch_a_violation(tmp_path: Path) -> None:
