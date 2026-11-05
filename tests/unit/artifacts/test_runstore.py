@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import platform
+import socket
 import sqlite3
 import stat
 import subprocess
@@ -12,6 +14,7 @@ import sys
 from contextlib import closing
 from pathlib import Path
 
+import numpy as np
 import pyarrow as pa
 import pytest
 
@@ -265,6 +268,27 @@ def test_sources_record_git_state(tmp_path: Path) -> None:
     recorded = json.loads((txn.seal().path / "source" / "git.json").read_text())
     assert len(recorded["head"]) == 40
     assert recorded["status"] == " M strategy.py"  # the leading space says "not staged"
+
+
+def test_environment_numerics_recorded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    threads = ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "VECLIB_MAXIMUM_THREADS")
+    for name in threads:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("NUMBA_NUM_THREADS", "1")
+    folder = begin(tmp_path / "runs").seal().path
+    text = (folder / "manifest.json").read_text(encoding="utf-8")
+    env = json.loads(text)["environment"]
+    numerics = env["numerics"]
+    assert (numerics["numba_fastmath"], numerics["numba_parallel"]) == (False, False)
+    assert numerics["thread_env"] == {**dict.fromkeys(threads), "NUMBA_NUM_THREADS": "1"}
+    assert numerics["blas"]["name"]  # the BLAS numpy was built against, and its version
+    assert set(numerics["blas"]) == {"name", "version"}
+    assert len(bytes.fromhex(env["machine_id"])) == 8  # 16 hex characters
+    assert socket.gethostname() not in text  # 2.6: only the hash of the host id is kept
+    assert env["python"] == platform.python_version()
+    assert env["packages"]["numpy"] == np.__version__
+    lock = Path(__file__).resolve().parents[3] / "uv.lock"
+    assert env["uv_lock_sha256"] == hashlib.sha256(lock.read_bytes()).hexdigest()
 
 
 def test_an_entry_file_outside_the_project_is_captured(tmp_path: Path) -> None:
