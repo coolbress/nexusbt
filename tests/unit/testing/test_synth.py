@@ -628,7 +628,8 @@ def test_injected_event_overrides_random(tmp_path: Path, tiny: Path) -> None:
     # tiny's hand-set bars move too, so A001 stays 0 there
     ex, cash = dt.date(2020, 2, 3), {"kind": "cash_dividend", "cash_per_share": 0.2}
     injected = [split | {"instrument_id": "KR:T00001", "ex_date": ex.isoformat()},
-                split | cash | {"instrument_id": "US:T00002", "ex_date": ex}]  # fmt: skip
+                split | cash | {"instrument_id": "US:T00002", "ex_date": ex,
+                                "ts_announced": "2020-01-22T06:00:00+09:00"}]  # fmt: skip
     moved = make_snapshot(tmp_path / "t", preset="tiny", events=injected)
     assert a001(read(moved, "corporate_actions"), read(moved, "bars_1d")) == 0
     plain = {(b["instrument_id"], b["session_date"]): b for b in rows(tiny, "bars")}
@@ -639,6 +640,7 @@ def test_injected_event_overrides_random(tmp_path: Path, tiny: Path) -> None:
     (dividend,) = (r for r in rows(moved, "corporate_actions") if r["kind"] == "cash_dividend")
     assert dividend["pay_date"] == dividend["declared_date"] + dt.timedelta(30)
     assert (dividend["resolution_body"], dividend["ts_terms_available"]) == (None, None)
+    assert dividend["ts_announced"] == dt.datetime(2020, 1, 21, 21, tzinfo=UTC)  # +09:00 read
     for wrong, error, words in (
         ({"dataset": "fundamentals_state"}, NotImplementedError, "not generated until M2"),
         ({"dataset": "delistings"}, NotImplementedError, "not injected yet"),
@@ -647,8 +649,15 @@ def test_injected_event_overrides_random(tmp_path: Path, tiny: Path) -> None:
         ({"price_factor": 0.25}, ValueError, "derived columns .'price_factor'"),
         (cash | {"cash_per_share": 1e9}, ValueError, "cash_per_share must be in"),
         ({"ratio_new_per_old": -2.0}, ValueError, "ratio must be positive"),
+        ({"ratio_num": -1, "ratio_den": 1}, ValueError, "ratio must be positive"),
+        ({"dataset": "bars_1d"}, ValueError, "one of the spec 4.8 datasets"),
+        ({"instrument_id": "ZZ:T00001"}, ValueError, "in no chosen market"),
     ):  # fmt: skip
         with pytest.raises(error, match=words):
             make_snapshot(tmp_path / "x", preset="tiny", events=[injected[0] | wrong])
+    no_ratio = {c: v for c, v in injected[0].items() if c != "ratio_new_per_old"}
+    for wrong_events, words in (([no_ratio], "ratio_num and ratio_den"), (injected[:1] * 2, "two")):
+        with pytest.raises(ValueError, match=words):
+            make_snapshot(tmp_path / "x", preset="tiny", events=wrong_events)
     for step in (events._cash, events._ratio, events.given, events.targets, synth._tiny_actions):
         assert not called_names(inspect.getsource(step)) & PLATFORM_MATH, step.__name__
