@@ -647,7 +647,7 @@
 | limit_up_close, limit_down_close | bool | 예 | 종가가 상·하한가 |
 | locked_up, locked_down | bool | 예 | 하루 종일 그 가격에 묶임 |
 | price_limit_ratio | f64 | 예 | 그날 제한폭(0.30 = 30%) |
-| up_limit_price, down_limit_price | f64 | 예 | 호가 단위 반올림 뒤 상·하한 가격 |
+| up_limit_price, down_limit_price | f64 | 예 | 호가 단위 반올림 뒤 상·하한 가격(거래소가 공표하는 값): 상한은 호가 단위로 내림, 하한은 올림이라 둘 다 제한폭 안에 있다 |
 | reference_price | f64 | 예 | 제한폭 기준가 |
 | admin_status | code | 예 | 관리종목·투자주의 등(열림: `normal`, `administrative`, `caution`, `warning`, `liquidation_trading`) |
 | ts_available | ts_us | 예 | 칼럼 묶음별 규칙 **`params.availability_by_column` 필수**(v1.1): 사전 정보(`price_limit_ratio`, `up/down_limit_price`, `reference_price`, `admin_status`)는 `session_open`, 하루 결과(`halted_full_day`, `halt_count`, `limit_up_close`, `limit_down_close`, `locked_up`, `locked_down`)는 `session_close` [RV-Q10] |
@@ -990,7 +990,7 @@ instruments.csv:  instrument_id,asset_class,market,calendar_id,currency,listed_o
 bars.csv:         instrument_id,session_date,close,volume
                   XNYS:AAPL,2024-01-02,185.64,82488700
 ```
-+ `tds import csv --profile tds:minimal-daily@1.0 --price-basis total_adjusted --market US:XNYS:USD:America/New_York`이 `tds.json`을 만든다(id는 K1 권장대로 `XNYS:AAPL_19801212` 꼴이 더 안전).
++ 대응 파일(9.5)이 프로파일 `tds:minimal-daily@1.0`, bars의 `price_basis: total_adjusted`, 시장 `US`(`XNYS`, `USD`, `America/New_York`)를 주면 `tds import csv mapping.yaml --out PKG`가 `tds.json`을 만든다 [2026-11-05, #257](id는 K1 권장대로 `XNYS:AAPL_19801212` 꼴이 더 안전).
 
 ---
 
@@ -1241,6 +1241,9 @@ datasets:
 
 - 대응 파일은 JSON이거나, 중첩된 `key: value` 줄, `- ` 목록, 흐름 형식 `{a: b}`와 `[a, b]`, 작은따옴표와 큰따옴표, `#` 주석만 쓴 YAML이며, 따옴표 없는 값은 글로 읽고 그 밖의 형식은 그 줄을 가리키는 오류로 JSON으로 쓰게 한다 [2026-11-05, #257].
 - 시각 글은 RFC 3339(`Z` 또는 오프셋 필수). 오프셋 없는 시각은 `timezone`을 지정해야 하고, 서머타임 겹침 시각은 오류(`TDS-S004`)로 거절. 서머타임 전환이 건너뛴 지역 시각도 옮기지 않고 오류로 거절 [2026-11-05, #257].
+- 칼럼의 `format`은 읽은 값을 같은 글로 되돌려 쓸 때만 받는다. 그렇지 않으면 값을 `format` 없이 RFC 3339(날짜는 `YYYY-MM-DD`)로 쓴다 [2026-11-05, #257].
+- `tds import csv MAPPING --out PKG`는 패키지를 쓰고 그 옆에 `import_report.json`을 쓴다. 데이터셋 블록의 `values: {칼럼: 상수}`는 칼럼 하나의 모든 행에 상수 하나를 주며, CSV의 칼럼과 아래 채움값보다 앞선다 [2026-11-05, #257].
+- CSV도 `values`도 주지 않은 `instruments` 필수 칼럼은 채운다: `lot_size`는 1(5.1의 기본값), `multiplier`는 equity(5.1)와 etf, fund에 1.0, `is_synthetic`은 equity, etf, fund면 false, index면 true로 채운다. etf와 fund의 `multiplier`와 `is_synthetic`은 5.1이 정하지 않아 가져오기 도구의 규칙이다. 채운 것은 모두 `import_report.json`의 `assumed`에 적히고, 행에 다른 `asset_class`가 있는 칼럼은 `TDS-S001`로 남는다 [2026-11-05, #257].
 - 숫자 결측은 빈칸. `NaN`, `-`, `0` 결측 표시는 대응 파일의 `missing_values`로만.
 
 ### 9.6 Qlib → TDS
