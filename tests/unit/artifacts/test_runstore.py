@@ -338,3 +338,18 @@ def test_a_run_without_the_engine_lock_fails(
         txn.capture_sources([], project=tmp_path, entry=entry)
     assert status(runs, txn.run_id) == "aborted"
     assert list(runs.glob(".tmp-*")) == []
+
+
+def test_an_installed_engine_captures_the_lock_its_package_ships(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("nexusbt.artifacts._runstore._ENGINE_LOCK", None)  # not a checkout
+    shipped = "resources/__init__.py"  # stands in for the wheel's `resources/uv.lock`
+    monkeypatch.setattr("nexusbt.artifacts._runstore._SHIPPED_LOCK", shipped)
+    entry = tmp_path / "s.py"
+    entry.write_text("", encoding="utf-8")
+    txn = begin(tmp_path / "runs")
+    txn.capture_sources([], project=tmp_path, entry=entry)
+    captured = (txn.seal().path / "source" / "engine-uv.lock").read_bytes()
+    package = Path(__file__).resolve().parents[3] / "src" / "nexusbt"
+    assert captured == (package / shipped).read_bytes()
