@@ -299,3 +299,31 @@ def test_format_names_the_way_out(tmp_path: Path) -> None:
     write(tmp_path, {"bars.csv": TS.format("2024-01-02T16:00:00+0000")})
     assert str(rows(import_csv(path, tmp_path / "ok"), "bars")[0]["ts_end"]).startswith(
         "2024-01-02 16:00:00")  # fmt: skip
+
+
+def test_report_never_lands_on_an_input(tmp_path: Path) -> None:
+    """A report beside the package never replaces the mapping file or a CSV, nor a folder;
+    a `values` constant that is not one value is refused, never written as `'None'`."""
+    as_json = {"profiles": [], "market": {"code": "US", "calendar_id": "XNYS", "currency": "USD"},
+               "datasets": {"instruments": {"file": "instruments.csv"}}}  # fmt: skip
+    write(tmp_path, {"instruments.csv": CHAPTER_7})
+    (tmp_path / "import_report.json").write_text(json.dumps(as_json), encoding="utf-8")
+    with pytest.raises(CsvImportError, match="is an input or not a file"):
+        import_csv(tmp_path / "import_report.json", tmp_path / "pkg")
+    assert json.loads((tmp_path / "import_report.json").read_text("utf-8")) == as_json
+    (tmp_path / "d" / "import_report.json").mkdir(parents=True)
+    (tmp_path / "d" / "m.json").write_text(json.dumps(as_json), encoding="utf-8")
+    write(tmp_path / "d", {"instruments.csv": CHAPTER_7})
+    with pytest.raises(CsvImportError, match="is an input or not a file"):
+        import_csv(tmp_path / "d" / "m.json", tmp_path / "d" / "pkg")
+    assert not (tmp_path / "d" / "pkg").exists()  # refused before writing
+    # `profiles: []` gets the default, and the report says so
+    out = import_csv(tmp_path / "d" / "m.json", tmp_path / "d" / "e" / "pkg")
+    report = json.loads((out.parent / "import_report.json").read_text("utf-8"))
+    assert report["assumed"][2].startswith('profiles: ["tds:minimal-daily@1.0"]')
+    for constant in (None, [1], {"a": 1}):
+        as_json["datasets"] = {"instruments": {"file": "instruments.csv",
+                                               "values": {"currency": constant}}}  # fmt: skip
+        (tmp_path / "d" / "m.json").write_text(json.dumps(as_json), encoding="utf-8")
+        with pytest.raises(CsvImportError, match="currency is text, a number or a bool"):
+            import_csv(tmp_path / "d" / "m.json", tmp_path / "d" / "f" / "pkg")

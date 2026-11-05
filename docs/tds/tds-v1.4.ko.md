@@ -1241,7 +1241,7 @@ datasets:
 - 시각 글은 RFC 3339(`Z` 또는 오프셋 필수). 오프셋 없는 시각은 `timezone`을 지정해야 하고, 서머타임 겹침 시각은 오류(`TDS-S004`)로 거절. 서머타임 전환이 건너뛴 지역 시각도 옮기지 않고 오류로 거절 [2026-11-05, #257].
 - 칼럼의 `format`은 읽은 값을 같은 글로 되돌려 쓸 때만 받는다. 그렇지 않으면 값을 `format` 없이 RFC 3339(날짜는 `YYYY-MM-DD`)로 쓴다 [2026-11-05, #257].
 - `tds import csv MAPPING --out PKG`는 패키지를 쓰고 그 옆에 `import_report.json`을 쓴다. 데이터셋 블록의 `values: {칼럼: 상수}`는 칼럼 하나의 모든 행에 상수 하나를 주며, CSV의 칼럼과 아래 채움값보다 앞선다 [2026-11-05, #257].
-- CSV도 `values`도 주지 않은 `instruments` 필수 칼럼은 채운다: `lot_size` 1과 `multiplier` 1.0(equity, etf, fund)은 5.1의 기본값에서, `is_synthetic`은 equity, etf, fund면 false, index면 true로, 5.1이 정하지 않아 가져오기 도구의 규칙이다. 채운 것은 모두 `import_report.json`의 `assumed`에 적히고, 행에 다른 `asset_class`가 있는 칼럼은 `TDS-S001`로 남는다 [2026-11-05, #257].
+- CSV도 `values`도 주지 않은 `instruments` 필수 칼럼은 채운다: `lot_size`는 1(5.1의 기본값), `multiplier`는 equity(5.1)와 etf, fund에 1.0, `is_synthetic`은 equity, etf, fund면 false, index면 true로 채운다. etf와 fund의 `multiplier`와 `is_synthetic`은 5.1이 정하지 않아 가져오기 도구의 규칙이다. 채운 것은 모두 `import_report.json`의 `assumed`에 적히고, 행에 다른 `asset_class`가 있는 칼럼은 `TDS-S001`로 남는다 [2026-11-05, #257].
 - 숫자 결측은 빈칸. `NaN`, `-`, `0` 결측 표시는 대응 파일의 `missing_values`로만.
 
 ### 9.6 Qlib → TDS

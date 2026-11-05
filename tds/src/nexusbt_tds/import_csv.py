@@ -75,6 +75,11 @@ def import_csv(mapping: Path, out: Path) -> Path:
         table, entry, report[name] = _read(mapping.parent / ds["file"], name, ds, market)
         datasets.append(entry)
         tables.append((entry, _groups(entry, table, code)))  # every check before any write
+    report_path = out.parent / REPORT  # beside the package (TDS 9); never over an input
+    inputs = {mapping.resolve(), *((mapping.parent / ds["file"]).resolve() for ds in
+                                   spec["datasets"].values())}  # fmt: skip
+    if report_path.exists() and (not report_path.is_file() or report_path.resolve() in inputs):
+        raise CsvImportError(f"{report_path} is an input or not a file; choose another --out")
     profiles = spec.get("profiles") or ["tds:minimal-daily@1.0"]
     created = dt.datetime.now(dt.UTC).replace(microsecond=0)
     manifest = {
@@ -95,9 +100,9 @@ def import_csv(mapping: Path, out: Path) -> Path:
     write_hashes(out)
     given = ("name", "snapshot_id", "profiles", "id_namespaces")  # decision 7: each one used
     assumed = [f"{k}: {json.dumps(manifest[k], ensure_ascii=False)} (the mapping gives none)"
-               for k in given if k not in spec]  # fmt: skip
+               for k in given if manifest[k] != spec.get(k)]  # fmt: skip  # `profiles: []` too
     text = {"package": out.name, "mapping": mapping.name, "assumed": assumed, "datasets": report}
-    (out.parent / REPORT).write_text(json.dumps(text, indent=2, ensure_ascii=False) + "\n", "utf-8")
+    report_path.write_text(json.dumps(text, indent=2, ensure_ascii=False) + "\n", "utf-8")
     return out
 
 
@@ -185,6 +190,8 @@ def _read(
         raise CsvImportError(f"datasets.{name}: {exc}") from None
     assumed: list[str] = []
     for column, constant in constants.items():  # over the CSV's column (TDS 9.5)
+        if not isinstance(constant, str | int | float):  # JSON `null`, `[1]`: never `'None'`
+            raise CsvImportError(f"datasets.{name}.values: {column} is text, a number or a bool")
         text = str(constant).lower() if isinstance(constant, bool) else str(constant)  # JSON
         where = f"datasets.{name}.values: {column}"
         values[column] = [_value(text, types[column], {}, market, where)] * count
