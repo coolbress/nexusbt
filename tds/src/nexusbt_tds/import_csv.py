@@ -62,6 +62,8 @@ def import_csv(mapping: Path, out: Path) -> Path:
     market = spec.get("market")
     if not isinstance(market, dict) or not isinstance(market.get("code"), str):
         raise CsvImportError(f"{mapping.name}: `market` needs at least a `code`")
+    if not isinstance(market.get("timezone", ""), str):
+        raise CsvImportError(f"{mapping.name}: the market's `timezone` is text")
     code = market["code"]
     datasets, tables = [], []
     for name, ds in _items(spec.get("datasets"), "datasets"):
@@ -138,6 +140,8 @@ def _read(
     _keys(rules, set(types), f"datasets.{name}.columns")
     for column, rule in rules.items():
         _keys(rule, _RULE, f"datasets.{name}.columns.{column}")
+        if odd := sorted(k for k, v in rule.items() if not isinstance(v, str)):  # JSON: `5`
+            raise CsvImportError(f"datasets.{name}.columns.{column}: {', '.join(odd)} is text")
         if "{value}" not in str(rule.get("template", "{value}")):
             raise CsvImportError(f"datasets.{name}.columns.{column}: template needs {{value}}")
     if not isinstance(listed := ds.get("missing_values") or [], list):  # `NA`: not N and A
@@ -204,7 +208,10 @@ def _value(text: str | None, tag: str, rule: dict[str, Any], market: dict[str, A
             return text == "true"
         if tag == "date":
             fmt = rule.get("format")
-            return _strptime(text, fmt).date() if fmt else dt.date.fromisoformat(text)
+            if fmt:
+                return _strptime(text, fmt).date()
+            if re.fullmatch("[0-9]{4}-[0-9]{2}-[0-9]{2}", text):  # not `20240102`, `2024-W01-2`
+                return dt.date.fromisoformat(text)
         if tag in ("ts_us", "ts_ns", "ts_us/ns"):
             return _instant(text, rule.get("format"), rule.get("timezone", market.get("timezone")),
                             where)  # fmt: skip
@@ -222,7 +229,7 @@ def _instant(text: str, fmt: str | None, zone: str | None, where: str) -> dt.dat
     the market's), and an hour that a daylight-saving change repeats or skips is an error."""
     if not fmt and not _RFC3339.fullmatch(text):  # finer than us would be cut: not read either
         raise ValueError(text)
-    value = _strptime(text, fmt) if fmt else dt.datetime.fromisoformat(text)
+    value = _strptime(text, fmt) if fmt else dt.datetime.fromisoformat(text.upper())  # `t`, `z`
     if value.tzinfo is None:
         if zone is None:
             raise CsvImportError(f"{where} {text!r} has no offset and needs a timezone "

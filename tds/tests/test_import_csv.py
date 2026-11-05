@@ -85,6 +85,11 @@ datasets:
                "datasets": {"instruments": {"file": "instruments.csv"}}}  # fmt: skip
     (tmp_path / "m.json").write_text(json.dumps(as_json), encoding="utf-8")
     assert rows(import_csv(tmp_path / "m.json", tmp_path / "json"), "instruments")
+    as_json["datasets"] = {"instruments": {"file": "instruments.csv",
+                                           "columns": {"listed_on": {"format": 5}}}}  # fmt: skip
+    (tmp_path / "m.json").write_text(json.dumps(as_json), encoding="utf-8")
+    with pytest.raises(CsvImportError, match=r"listed_on: format is text"):  # not a TypeError
+        import_csv(tmp_path / "m.json", tmp_path / "json5")
     # outside the subset: an error naming the line, never a guess
     (tmp_path / "anchor.yaml").write_text("profiles: &p [x]\n", encoding="utf-8")
     with pytest.raises(CsvImportError, match=r"line 1: .*write this part as JSON"):
@@ -98,8 +103,8 @@ def test_offsetless_time_requires_timezone(tmp_path: Path) -> None:
     write(tmp_path / "a", files | {"bars.csv": bars.format("2024-01-02T16:00:00")})
     with pytest.raises(CsvImportError, match=r"bars.csv line 2: ts_end .* needs a timezone"):
         import_csv(tmp_path / "a" / "mapping.yaml", tmp_path / "a" / "pkg")
-    write(tmp_path / "b", files | {"bars.csv": bars.format("2024-01-02T16:00:00-05:00")})
-    out = import_csv(tmp_path / "b" / "mapping.yaml", tmp_path / "b" / "pkg")
+    write(tmp_path / "b", files | {"bars.csv": bars.format("2024-01-02t16:00:00-05:00")})
+    out = import_csv(tmp_path / "b" / "mapping.yaml", tmp_path / "b" / "pkg")  # RFC 3339's `t`
     assert str(rows(out, "bars")[0]["ts_end"]) == "2024-01-02 21:00:00+00:00"
     # with the market's timezone, a local time is read in it; one in a DST overlap is S004
     write(tmp_path / "c", {**files, "mapping.yaml": MINIMAL, "bars.csv": bars.format(
@@ -142,6 +147,9 @@ def key(text: str) -> tuple[str, str]:
         (("", ""), BARS.replace(",5\n", ",1.5\n"), "'1.5' is not a i64"),
         (("", ""), BARS.replace(",5\n", ",9223372036854775808\n"), "is not a i64"),
         ((IN_BARS, DATE), BARS.replace("2024-01-02", "2024013"), "'2024013' is not a date"),
+        (("", ""), BARS.replace("2024-01-02", "20240102"), "'20240102' is not a date"),
+        (("", ""), BARS.replace("2024-01-02", "2024-W01-2"), "'2024-W01-2' is not a date"),
+        (("America/New_York", "[UTC]"), BARS, "the market's `timezone` is text"),
         (("", ""), "instrument_id,close\nXNYS:AAPL,1\n", "no column for session_date, the sort"),
         (("", ""), BARS + "XNYS:AAPL,,1,2,3\n", "year= partition needs one or more rows"),
         (("", ""), BARS.splitlines()[0] + "\n", "year= partition needs one or more rows"),
