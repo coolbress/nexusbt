@@ -1,8 +1,8 @@
 """`tds <command>`: the commands TDS 8.1 marks implemented for nexusbt-tds 1.0.x.
 
-`check`, `hash` and `describe` are built; another command raises `NotImplementedError` until its own
-ticket lands. Exit codes are TDS 8.1's: 0 pass, 1 errors, 2 warnings with `--strict`, 64 usage,
-66 input missing, 70 checker internal error.
+`check`, `hash`, `describe` and `import csv` are built; another command raises
+`NotImplementedError` until its own ticket lands. Exit codes are TDS 8.1's: 0 pass, 1 errors,
+2 warnings with `--strict`, 64 usage, 66 input missing, 70 checker internal error.
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ from typing import NoReturn
 
 from .check import CheckResult, check
 from .hash import HashError, package_hashes, write_hashes
+from .import_csv import REPORT, CsvImportError, import_csv
 from .manifest import ManifestError, read_manifest
 
 #: TDS 8.1, in its order; `derive` and `export` are planned there, not implemented.
@@ -56,8 +57,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         elif name == "hash":
             sub.add_argument("path", type=Path)
             sub.add_argument("--write", action="store_true", help="write the hashes into tds.json")
+        elif name == "import":
+            sub.add_argument("source", choices=["csv"])  # TDS 8.1: the others are planned
+            sub.add_argument("path", type=Path, metavar="MAPPING")
+            sub.add_argument("--out", type=Path, required=True, help="the new package folder")
     args = parser.parse_args(argv)
-    run = {"check": _check, "describe": _describe, "hash": _hash}.get(args.command)
+    run = {"check": _check, "describe": _describe, "hash": _hash, "import": _import}.get(
+        args.command
+    )
     if run is None:
         raise NotImplementedError(f"tds {args.command}: not built yet (its ticket is in spec 10.1)")
     if not args.path.exists():
@@ -115,6 +122,16 @@ def _hash(args: argparse.Namespace) -> int:
         print(f"{name} {value}")
     for path, file in sorted(hashes["files"].items()):
         print(f"{path} {file['sha256']} {file['value_sha256']}")
+    return OK
+
+
+def _import(args: argparse.Namespace) -> int:
+    try:
+        out = import_csv(args.path, args.out)
+    except CsvImportError as exc:
+        print(f"tds import csv: {exc}", file=sys.stderr)
+        return ERRORS
+    print(f"wrote {out} and {out.parent / REPORT}")
     return OK
 
 
