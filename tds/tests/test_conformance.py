@@ -98,6 +98,13 @@ def _unknown_then_found(rows: list[Any]) -> None:  # A00 vs AAA undecided; A00 v
     )
 
 
+def _no_venue(m: dict[str, Any], f: Any) -> None:  # a symbol column missing: K010 not judged
+    build.CASES["TDS-K010"][1](m, f)
+    rel = "instrument_symbols/part-00000.parquet"
+    table = pq.read_table(pa.BufferReader(f[rel])).drop_columns(["venue_mic"])
+    build.rewrite(m, f, rel, table)
+
+
 def _ranges(*names: str) -> Any:
     """K004's pass package with its bars files named `names`; a third holds US:BBB on 01-03."""
 
@@ -144,6 +151,7 @@ def _not_parquet(m: dict[str, Any], f: Any) -> None:  # S010: no rows read, no K
         (_custom_in_year, [], ["TDS-K001", "TDS-K002", "TDS-K003"]),
         (_symbols(_unknown), [], ["TDS-K010"]),
         (_symbols(_unknown_then_found), ["TDS-K010"], []),
+        (_no_venue, [], ["TDS-K001", "TDS-K002", "TDS-K010"]),  # venue_mic is in key and sort
         (_weekly, ["TDS-K002"], []),
         (_not_parquet, [], K_CODES),
         (lambda m, f: f.pop(build.BARS), [], []),  # M004: a missing file has no rows
