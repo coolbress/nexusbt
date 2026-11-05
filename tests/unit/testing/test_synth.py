@@ -284,8 +284,8 @@ def test_small_hashes_match_on_macos_and_linux(tmp_path: Path) -> None:
     package = make_snapshot(tmp_path / "d", preset="small")  # default markets KR, US; seed 0
     hashes = json.loads((package / "tds.json").read_text())["hashes"]
     assert (hashes["value_sha256"], hashes["semantic_sha256"]) == (
-        "832d2480f2e1f08bf322e0e8367e268ecb9a6001396c2baf8a6728b7f9295c90",
-        "816806402e7ebff5b14df947df52c9ca09b32671ff77479ef9a94f3df0041fdd",  # #276: availability
+        "d31700ab2272c95bec9d69eff687760df314e154471c984acb307930bf8e2e5e",
+        "8fdd001d1ec856f2f40af568ff5ad38902443f0a1a5518b0338b4a589b981afc",  # #287: limit prices
     )
 
 
@@ -476,11 +476,9 @@ def test_kr_prices_on_grid_with_halts_and_limits(small: Path) -> None:
         on_grid = round(b["close"] / kr_tick(b["close"], v)) * kr_tick(b["close"], v)
         assert b["close"] in (on_grid, math.nextafter(on_grid, math.inf)), b  # V31-05's wobble
         wobbled += b["close"] != on_grid
-        if s["limit_up_close"] or s["limit_down_close"]:  # at the limit, snapped inward
+        if s["limit_up_close"] or s["limit_down_close"]:  # at the published limit price
             limit = s["up_limit_price"] if s["limit_up_close"] else s["down_limit_price"]
-            tick = kr_tick(limit, v)
-            inward = (math.floor if s["limit_up_close"] else math.ceil)(limit / tick) * tick
-            assert b["close"] == inward, b
+            assert b["close"] == limit, b
         if s["locked_up"] or s["locked_down"]:
             assert b["open"] == b["high"] == b["low"] == b["close"]
     assert wobbled > 0
@@ -509,15 +507,15 @@ def test_tradability_rows_by_market(small: Path) -> None:
                     key=lambda r: (r["instrument_id"], r["session_date"])):  # fmt: skip
         market, day = s["instrument_id"][:2], s["session_date"]
         bar = bars[s["instrument_id"], day]
-        if market == "KR":  # from the last close moved by share events, without tick rounding
+        if market == "KR":  # from the last close moved by share events
             ratio = s["price_limit_ratio"]
             assert ratio == (0.15 if day < dt.date(2015, 6, 15) else 0.3)
             last = before.get(s["instrument_id"])
             ref = None if last is None else last[0] * (bar["cum_factor_split"] / last[1])
             assert s["reference_price"] == ref
-            if ref is not None:
-                assert s["up_limit_price"] == ref * (1 + ratio)
-                assert s["down_limit_price"] == ref * (1 - ratio)
+            if ref is None:
+                assert s["up_limit_price"] is s["down_limit_price"] is None
+            else:
                 if bar["open"] is not None:  # every bar trades within its own limits
                     assert s["down_limit_price"] <= bar["low"] <= bar["high"]
                     assert bar["high"] <= s["up_limit_price"]
@@ -539,6 +537,32 @@ def test_tradability_rows_by_market(small: Path) -> None:
     by_column = entry["params"]["availability_by_column"]  # TDS 5.10: before and after the day
     assert by_column["up_limit_price"] == by_column["admin_status"] == "session_open"
     assert by_column["halted_full_day"] == by_column["locked_down"] == "session_close"
+
+
+def test_kr_limit_prices_on_the_grid_inside_the_band(small: Path) -> None:
+    """TDS 5.10: the upper limit rounded down and the lower up to the tick, so both lie inside
+    `reference_price x (1 +- price_limit_ratio)`, each the nearest grid price there."""
+    venue = {r["instrument_id"]: r["venue_mic"] for r in rows(small, "instruments")}
+    checked = 0
+    for s in rows(small, "tradability_daily"):
+        if not s["instrument_id"].startswith("KR:") or s["reference_price"] is None:
+            continue
+        v, ref, ratio = venue[s["instrument_id"]], s["reference_price"], s["price_limit_ratio"]
+        up, down = s["up_limit_price"], s["down_limit_price"]
+        assert up % kr_tick(up, v) == 0, s
+        assert down % kr_tick(down, v) == 0, s
+        assert ref * (1 + ratio) - kr_tick(up, v) < up <= ref * (1 + ratio) + 1e-6, s
+        assert ref * (1 - ratio) - 1e-6 <= down < ref * (1 - ratio) + kr_tick(down, v), s
+        checked += 1
+    assert checked
+
+
+def test_limit_prices_round_inward_on_the_issue_example() -> None:
+    """KR reference 10,030 won at 0.30 on the 2023 table's 10-won band: 13,039 down to 13,030
+    and 7,021 up to 7,030; 10,000 x 0.7, 7,000 within a float error, stays 7,000."""
+    dates = np.array(["2024-01-02"] * 2, dtype="datetime64[D]")
+    up, down = synth._limit_prices(np.array([10030.0, 10000.0]), np.full(2, 0.3), dates, "XKRX")
+    assert (up.tolist(), down.tolist()) == ([13030.0, 13000.0], [7030.0, 7000.0])
 
 
 def by_bar(package: Path, kind: str) -> dict[tuple[str, dt.date], dict[str, Any]]:
