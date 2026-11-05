@@ -1338,7 +1338,7 @@ def make_snapshot(root: Path, *, preset: Literal["tiny","small","full","full_ci"
 12. 환율: 시장 통화 쌍마다 일간 `fx_rates`(`rate_kind = fixing`, 한 계열; KR+US면 USDKRW), 발표 지연 1세션, 1주에 한 번 2세션 지연.
 13. 벤치마크: 시총 가중 합성 지수 TR 두 개(`IDX:KOSPI_TR`, `IDX:SPX_TR`; 합성 자료 안에서만 만든다) → `instruments(asset_class=index)` + `bars`.
 
-`EventSpec`(사건 주입): `{"kind": "split", "instrument_id": "KR:T00001", "ex_date": "2020-02-03", "ratio_new_per_old": 2.0}`처럼 TDS 데이터셋(`corporate_actions`, `delistings`, `fundamentals_events`/`fundamentals_state`, `tradability_daily`)의 칼럼 이름을 그대로 쓰는 dict와 `"dataset"` 키. 주입된 사건이 있으면 같은 날짜의 무작위 사건을 만들지 않는다. 생성기 출력은 같은 인자에서 바이트 동일해야 한다(시험 `test_synth_deterministic`).
+`EventSpec`(사건 주입): `{"kind": "split", "instrument_id": "KR:T00001", "ex_date": "2020-02-03", "ratio_new_per_old": 2.0}`처럼 TDS 데이터셋(`corporate_actions`, `delistings`, `fundamentals_events`/`fundamentals_state`, `tradability_daily`)의 칼럼 이름을 그대로 쓰는 dict와 `"dataset"` 키. 주입된 사건이 있으면 같은 날짜의 무작위 사건을 만들지 않는다(그 종목에 대해). 생성기 출력은 같은 인자에서 바이트 동일해야 한다(시험 `test_synth_deterministic`).
 
 `python -m nexusbt.testing.synth --preset P --out DIR [--markets KR,US,ZZ] [--degrade a,b] --validate`는 만든 뒤 `tds check --level full`을 돌려 데이터셋별 행 수, 패키지 `value_sha256`·`semantic_sha256`, 프로필 세 결과를 출력한다.
 
