@@ -230,15 +230,25 @@ def _symbols(second_from: dt.date) -> Change:
     return change
 
 
-def _sessions(first: int) -> Change:
-    """XNYS sessions 2024-01-02 and 2024-01-03 numbered from `first` (TDS 5.4)."""
-    days = [dt.datetime(2024, 1, d, tzinfo=dt.UTC) for d in (2, 3)]
+def _sessions(first: int, on: tuple[int, int] = (2, 3)) -> Change:
+    """XNYS sessions on days `on` of January 2024 numbered from `first` (TDS 5.4)."""
+    days = [dt.datetime(2024, 1, d, tzinfo=dt.UTC) for d in on]
     return _add("calendar_sessions", {
         "calendar_id": ["XNYS"] * 2, "session_date": pa.array([d.date() for d in days]),
         "ts_open": pa.array([d.replace(hour=14, minute=30) for d in days], TS_UTC),
         "ts_close": pa.array([d.replace(hour=21) for d in days], TS_UTC),
         "session_ord": pa.array([first, first + 1], pa.int32()), "session_kind": ["regular"] * 2,
     })  # fmt: skip
+
+
+def _both(*changes: Change) -> Change:
+    return lambda m, f: [change(m, f) for change in changes]
+
+
+def _crypto(declared: bool) -> Change:
+    """Instruments in USDT, outside ISO 4217; `declared` lists it in tds.json `currencies`."""
+    usdt = [{"code": "USDT", "kind": "crypto", "decimals": 2}] if declared else []
+    return _both(_instruments(currency=pa.array(["USDT"])), _set("currencies", usdt))
 
 
 WRONG = "0" * 64
@@ -382,6 +392,17 @@ CASES: dict[str, tuple[Change, Change]] = {
     "TDS-K004": (_ranged("2024-01-03T00-00-00Z"), _ranged("2024-01-02T12-00-00Z")),
     "TDS-K010": (_symbols(dt.date(2024, 6, 3)), _symbols(dt.date(2024, 6, 1))),
     "TDS-K011": (_sessions(0), _sessions(1)),
+    "TDS-R001": (_keep, _bars(instrument_id=pa.array(["US:ZZZ"]))),
+    "TDS-R002": (_sessions(0), _both(_sessions(0), _instruments(calendar_id=pa.array(["XKRX"])))),
+    "TDS-R003": (  # 2024-01-03 lies between the sessions, so it is not D002's
+        _sessions(0, (2, 4)),
+        _both(_sessions(0, (2, 4)), _bars(session_date=pa.array([dt.date(2024, 1, 3)]))),
+    ),
+    "TDS-R004": (_crypto(True), _crypto(False)),
+    "TDS-R005": (
+        _instruments(venue_mic=pa.array(["XNYS"])),
+        _instruments(venue_mic=pa.array(["xnys"])),
+    ),
     **{
         code: (_hashes(code, False), _hashes(code, True))
         for code in ("TDS-H001", "TDS-H002", "TDS-H003")

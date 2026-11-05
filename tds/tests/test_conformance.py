@@ -174,6 +174,40 @@ def test_classification_levels_not_duplicate(tmp_path: Path) -> None:
     assert codes(build.write(tmp_path, manifest, files), "full") == []
 
 
+R_CODES = ["TDS-R001", "TDS-R002", "TDS-R003", "TDS-R004", "TDS-R005"]  # R006~R009: next
+
+
+@pytest.mark.parametrize("code", R_CODES)
+def test_R_codes(code: str, tmp_path: Path) -> None:
+    test_K_codes(code, tmp_path)  # the same contract: once in its fail package, judged in both
+
+
+def _no_instruments(m: dict[str, Any], f: Any) -> None:  # a calendar but no instruments table
+    build.CASES["TDS-R003"][1](m, f)
+    f.pop(build.INSTRUMENTS)
+    m["datasets"] = [d for d in m["datasets"] if d["kind"] != "instruments"]
+
+
+@pytest.mark.parametrize(
+    ("change", "errors", "unchecked"),
+    [
+        (_no_instruments, [], ["TDS-R001", "TDS-R003"]),
+        (_not_parquet, [], R_CODES),
+        (  # any of the four currency columns; no calendar_sessions, so R002 and R003 wait
+            build._instruments(settlement_currency=pa.array(["usd"])),
+            ["TDS-R004"],
+            ["TDS-R002", "TDS-R003"],
+        ),
+    ],
+)
+def test_reference_rules_edges(
+    change: Any, errors: list[str], unchecked: list[str], tmp_path: Path
+) -> None:
+    result = check(write(tmp_path, change), level="full")
+    assert [f.code for f in result.errors if f.code in R_CODES] == errors
+    assert [c for c in R_CODES if c in result.unchecked] == unchecked
+
+
 @pytest.mark.parametrize("code", ["TDS-H001", "TDS-H002", "TDS-H003"])
 def test_H_codes(code: str, tmp_path: Path) -> None:
     fail = build.write(tmp_path / "fail", *build.package(code, "fail"))
@@ -199,15 +233,17 @@ def test_a_wrong_dictionary_value_hash_is_H002(tmp_path: Path) -> None:
     assert [(f.code, f.dataset) for f in result.errors] == [("TDS-H002", "dictionary/codes")]
 
 
-def test_full_level_checks_only_the_keys_and_hashes_so_far(tmp_path: Path) -> None:
+def test_full_level_checks_only_the_keys_references_and_hashes_so_far(tmp_path: Path) -> None:
     result = check(write(tmp_path / "pkg"), level="full")
     assert (result.errors, result.warnings) == ((), ())
     # spec 8.2, no false pass: the other full-level rules are not built, so no profile is `full`
     assert result.profiles == {
         "tds:minimal-daily@1.0": ProfileStatus(True, "schema", "not_checked")
     }
-    assert {"TDS-R001", "TDS-T001", "TDS-H004"} <= set(result.unchecked)
-    assert not {*K_CODES, "TDS-H001", "TDS-H002", "TDS-H003"} & set(result.unchecked)
+    assert {"TDS-R006", "TDS-T001", "TDS-H004"} <= set(result.unchecked)
+    judged = {*K_CODES, "TDS-R001", "TDS-R004", "TDS-R005", "TDS-H001", "TDS-H002", "TDS-H003"}
+    assert not judged & set(result.unchecked)
+    assert {"TDS-R002", "TDS-R003"} <= set(result.unchecked)  # no calendar_sessions to read
     # a column whose type is declared nowhere: no value hash, so H002 and H003 are not checked
     untyped = check(write(tmp_path / "untyped", _bars(x_cf_note=pa.array([[1]]))), level="full")
     assert {"TDS-H002", "TDS-H003"} <= set(untyped.unchecked)
