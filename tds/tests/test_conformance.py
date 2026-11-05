@@ -174,7 +174,7 @@ def test_classification_levels_not_duplicate(tmp_path: Path) -> None:
     assert codes(build.write(tmp_path, manifest, files), "full") == []
 
 
-R_CODES = ["TDS-R001", "TDS-R002", "TDS-R003", "TDS-R004", "TDS-R005"]  # R006~R009: next
+R_CODES = [f"TDS-R{n:03}" for n in range(1, 10)]
 
 
 @pytest.mark.parametrize("code", R_CODES)
@@ -188,20 +188,82 @@ def _no_instruments(m: dict[str, Any], f: Any) -> None:  # a calendar but no ins
     m["datasets"] = [d for d in m["datasets"] if d["kind"] != "instruments"]
 
 
+def _without(kind: str, change: Any) -> Any:
+    """`change`, then the dataset of `kind` removed with its files."""
+
+    def out(m: dict[str, Any], f: Any) -> None:
+        change(m, f)
+        (gone,) = (d for d in m["datasets"] if d["kind"] == kind)
+        m["datasets"].remove(gone)
+        for entry in gone["files"]:
+            f.pop(entry["path"])
+
+    return out
+
+
+def _twice(m: dict[str, Any], f: Any) -> None:  # an earlier delisting read last: the latest counts
+    build.CASES["TDS-R008"][0](m, f)
+    rel = "delistings/part-00000.parquet"
+    rows = (table := pq.read_table(pa.BufferReader(f[rel]))).to_pylist()
+    rows.append(rows[0] | {"delisting_id": "US:L0", "exit_date": dt.date(2020, 1, 2)})
+    build.rewrite(m, f, rel, pa.Table.from_pylist(rows, table.schema))
+
+
+def _no_exits(m: dict[str, Any], f: Any) -> None:  # delisted_on set, delistings with no rows
+    build.CASES["TDS-R008"][0](m, f)
+    rel = "delistings/part-00000.parquet"
+    table = pq.read_table(pa.BufferReader(f[rel]))
+    build.rewrite(m, f, rel, table.slice(0, 0))
+
+
+_MOM = build._panels("strict", mom=[0.1], x_note=["n"])  # a feature column and an extension
+
+
+def _empty_panel(m: dict[str, Any], f: Any) -> None:  # the `mom` panel with its row removed
+    _MOM(m, f)
+    rel = "feature_panels/name=f/edition=strict/year=2024/part-00000.parquet"
+    build.rewrite(m, f, rel, pq.read_table(pa.BufferReader(f[rel])).slice(0, 0))
+
+
+_NO_CAL = ["TDS-R002", "TDS-R003"]  # the base package has no calendar_sessions
+_NO_EXITS = ["TDS-R008"]  # nor delistings
+
+
 @pytest.mark.parametrize(
     ("change", "errors", "unchecked"),
     [
-        (_no_instruments, [], ["TDS-R001", "TDS-R003"]),
+        (_no_instruments, [], ["TDS-R001", "TDS-R003", *_NO_EXITS]),
         (_not_parquet, [], R_CODES),
         (  # an instruments table with no rows: every id is missing, not unchecked
             lambda m, f: build.rewrite(m, f, build.INSTRUMENTS, build.instruments().slice(0, 0)),
             ["TDS-R001"],
-            ["TDS-R002", "TDS-R003"],
+            [*_NO_CAL, *_NO_EXITS],
         ),
-        (  # any of the four currency columns; no calendar_sessions, so R002 and R003 wait
+        (  # any of the four currency columns
             build._instruments(settlement_currency=pa.array(["usd"])),
             ["TDS-R004"],
-            ["TDS-R002", "TDS-R003"],
+            [*_NO_CAL, *_NO_EXITS],
+        ),
+        (_no_exits, ["TDS-R008"], _NO_CAL),  # R008: delisted_on set, no delistings row
+        (_twice, [], _NO_CAL),  # delisted twice; delisted_on is the latest exit_date
+        (build._exits(delisted=False), ["TDS-R008"], _NO_CAL),  # a delisting, delisted_on null
+        (_without("fundamentals_events", build._facts("F9")), [], [*_NO_CAL, *_NO_EXITS]),
+        (_MOM, ["TDS-R009"], [*_NO_CAL, *_NO_EXITS]),  # no dictionary/columns: `mom` missing
+        (_empty_panel, ["TDS-R009"], [*_NO_CAL, *_NO_EXITS]),  # columns from the footer
+        (  # a delisting but no instruments table: R008 has nothing to compare
+            _without("instruments", build._exits(delisted=False)),
+            [],
+            ["TDS-R001", *_NO_CAL, "TDS-R008"],
+        ),
+        (  # `mom` described for the dataset `feature_panels` (4.4); `x_note` needs no entry
+            build._both(
+                _MOM,
+                build._add(
+                    "dictionary/columns", {"dataset": ["feature_panels"], "column": ["mom"]}
+                ),
+            ),
+            [],
+            [*_NO_CAL, *_NO_EXITS],
         ),
     ],
 )
@@ -209,8 +271,29 @@ def test_reference_rules_edges(
     change: Any, errors: list[str], unchecked: list[str], tmp_path: Path
 ) -> None:
     result = check(write(tmp_path, change), level="full")
-    assert [f.code for f in result.errors if f.code in R_CODES] == errors
+    found = [f.code for f in (*result.errors, *result.warnings)]  # R005 and R007 warn
+    assert [c for c in found if c in R_CODES] == errors
     assert [c for c in R_CODES if c in result.unchecked] == unchecked
+
+
+@pytest.mark.parametrize(
+    ("change", "dataset", "dictionary"),
+    [
+        (build._panels("strict", mom=[0.1], size=[2.0]), "feature_panels", "dictionary/columns"),
+        (
+            _without("dictionary/items", build._facts("F1")),
+            "fundamentals_state",
+            "dictionary/items",
+        ),
+    ],
+)
+def test_R009_names_the_missing_dictionary_once_per_dataset(
+    change: Any, dataset: str, dictionary: str, tmp_path: Path
+) -> None:
+    result = check(write(tmp_path, change), level="full")
+    r009 = [f for f in result.errors if f.code == "TDS-R009"]
+    assert [f.dataset for f in r009 if f.dataset == dataset] == [dataset]  # not one per column
+    assert all(f"no {dictionary}" in f.message for f in r009)
 
 
 @pytest.mark.parametrize("code", ["TDS-H001", "TDS-H002", "TDS-H003"])
@@ -245,10 +328,10 @@ def test_full_level_checks_only_the_keys_references_and_hashes_so_far(tmp_path: 
     assert result.profiles == {
         "tds:minimal-daily@1.0": ProfileStatus(True, "schema", "not_checked")
     }
-    assert {"TDS-R006", "TDS-T001", "TDS-H004"} <= set(result.unchecked)
-    judged = {*K_CODES, "TDS-R001", "TDS-R004", "TDS-R005", "TDS-H001", "TDS-H002", "TDS-H003"}
+    assert {"TDS-T001", "TDS-H004"} <= set(result.unchecked)
+    judged = {*K_CODES, *R_CODES, "TDS-H001", "TDS-H002", "TDS-H003"} - {*_NO_CAL, *_NO_EXITS}
     assert not judged & set(result.unchecked)
-    assert {"TDS-R002", "TDS-R003"} <= set(result.unchecked)  # no calendar_sessions to read
+    assert {*_NO_CAL, *_NO_EXITS} <= set(result.unchecked)  # no calendar_sessions, delistings
     # a column whose type is declared nowhere: no value hash, so H002 and H003 are not checked
     untyped = check(write(tmp_path / "untyped", _bars(x_cf_note=pa.array([[1]]))), level="full")
     assert {"TDS-H002", "TDS-H003"} <= set(untyped.unchecked)
