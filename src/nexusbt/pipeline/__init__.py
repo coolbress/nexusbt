@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any
 
 from ._terms import BoundColumn as BoundColumn
 from ._terms import Classifier as Classifier
@@ -13,6 +13,7 @@ from ._terms import Filter as Filter
 from ._terms import Pipeline as Pipeline
 from ._terms import Term as Term
 from ._terms import describe_term as describe_term
+from ._terms import factor as factor
 from ._terms import graph_hash as graph_hash
 
 from . import factors as factors  # the 2.4 "`factors` module"  # isort: skip
@@ -37,16 +38,6 @@ class Panel: ...
 
 
 class Label: ...
-
-
-def factor(
-    window: int,
-    inputs: Sequence[BoundColumn | Factor],
-    *,
-    mask: Filter | None = None,
-    dtype: Literal["float64"] = "float64",
-) -> Callable[[Callable[..., Any]], Factor]:
-    raise NotImplementedError
 
 
 def filter(  # noqa: A001 - the 3.1 name `nx.filter`
