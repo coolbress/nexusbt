@@ -114,7 +114,7 @@ def test_column_name_error_is_an_attribute_error() -> None:
     assert issubclass(ColumnNameError, AttributeError)
 
 
-@pytest.mark.parametrize("name", ["Index", "BookStore"])
+@pytest.mark.parametrize("name", ["BookStore"])  # `Index` has its ticket (#248)
 def test_store_constructor_raises_not_implemented(name: str, tmp_path: Path) -> None:
     with pytest.raises(NotImplementedError):  # 2.4 `RunStore(root)`, `Index(root)`, ...
         getattr(importlib.import_module("nexusbt.artifacts"), name)(tmp_path)

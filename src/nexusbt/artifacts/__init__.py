@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from ._index import Index as Index
 from ._runstore import RunRecord as RunRecord
 from ._runstore import RunStore as RunStore
 from ._runstore import RunTxn as RunTxn
@@ -12,13 +13,6 @@ from ._runstore import RunTxn as RunTxn
 
 @dataclass(frozen=True, slots=True)
 class DerivedTables: ...
-
-
-class Index:
-    """Holds the canonical pins."""
-
-    def __init__(self, root: Path) -> None:
-        raise NotImplementedError
 
 
 class BookTxn:

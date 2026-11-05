@@ -11,8 +11,8 @@ import sqlite3
 import stat
 import subprocess
 import uuid
-from collections.abc import Iterable, Iterator, Mapping
-from contextlib import closing, contextmanager, suppress
+from collections.abc import Iterable, Mapping
+from contextlib import AbstractContextManager, suppress
 from dataclasses import dataclass
 from datetime import datetime
 from itertools import count
@@ -22,14 +22,14 @@ from typing import IO
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from ._environment import environment
+from ._index import Index, connect, insert_pin
+
 #: Test-only injection point: the boundary name at which the process exits (`os._exit`), so a
 #: test can kill a real run between two commit steps. `None` on every production path.
 _CRASH_AT: str | None = None
 _ENGINE_LOCK = Path(__file__).resolve().parents[3] / "uv.lock"  # present in a source checkout
 _LOGICAL_EXCLUDED = ("created_at", "created_by")  # 5.9.2, R-31
-_RUNS = """CREATE TABLE IF NOT EXISTS runs (
-    run_id TEXT PRIMARY KEY, kind TEXT NOT NULL, name TEXT NOT NULL, ts_created TEXT NOT NULL,
-    status TEXT NOT NULL, path TEXT NOT NULL)"""  # the columns #248 (T1.14b) completes
 
 
 def _boundary(name: str) -> None:
@@ -41,6 +41,10 @@ def canonical_json(value: object) -> str:
     return json.dumps(
         value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
     )
+
+
+def _hash_json(value: object) -> str:
+    return hashlib.sha256(canonical_json(value).encode()).hexdigest()
 
 
 def _sha256(path: Path) -> str:
@@ -80,17 +84,11 @@ class RunStore:
     """`root` is the `runs/` folder; every open recovers the runs whose process is gone."""
 
     def __init__(self, root: Path) -> None:
-        self.root = Path(root)
-        self.root.mkdir(parents=True, exist_ok=True)
-        with self._db() as db:
-            db.execute("PRAGMA journal_mode=WAL")
-            db.execute(_RUNS)
+        self.root = Index(root).root  # creates the folder and the tables of 5.9.5
         self._recover()
 
-    @contextmanager
-    def _db(self) -> Iterator[sqlite3.Connection]:
-        with closing(sqlite3.connect(self.root / "index.sqlite")) as db, db:
-            yield db
+    def _db(self) -> AbstractContextManager[sqlite3.Connection]:
+        return connect(self.root)
 
     def _set(self, run_id: str, status: str, path: Path | None = None) -> None:
         with self._db() as db:
@@ -109,14 +107,18 @@ class RunStore:
         params: Mapping[str, object] | None = None,
         settings: Mapping[str, object] | None = None,
         snapshot_semantic_hash: str | None = None,
+        snapshot_id: str | None = None,
     ) -> RunTxn:
-        """5.9.1: `run_id` = local time, kind, name, h6; `-2`, `-3` when it already exists."""
+        """5.9.1: `run_id` = local time, kind, name, h6; `-2`, `-3` when it already exists.
+
+        With `snapshot_id`, the pin (snapshot_id, run_id) goes into the index with the run row.
+        """
         for part in (kind, name):
             if not part or part.startswith(".") or "/" in part or "\\" in part:
                 raise ValueError(f"{part!r}: a run kind or name is one folder-name part")
         key = {"graph_hash": graph_hash, "params": dict(params or {})}
         key |= {"settings": dict(settings or {}), "snapshot_semantic_hash": snapshot_semantic_hash}
-        h6 = hashlib.sha256(canonical_json(key).encode()).hexdigest()[:6]
+        h6 = _hash_json(key)[:6]
         now = datetime.now().astimezone()  # the computing machine's local time
         base = f"{now:%Y%m%d-%H%M%S}-{kind}-{name}-{h6}"
         tmp = self.root / f".tmp-{uuid.uuid4().hex}"
@@ -133,11 +135,16 @@ class RunStore:
                 lock.flush()
                 with suppress(sqlite3.IntegrityError):
                     db.execute(
-                        "INSERT INTO runs (run_id, kind, name, ts_created, status, path)"
-                        " VALUES (?, ?, ?, ?, 'running', ?)",
-                        (run_id, kind, name, now.isoformat(), str(self.root / run_id)),
-                    )
+                        "INSERT INTO runs (run_id, kind, study_id, name, ts_created, snapshot_id,"
+                        " snapshot_semantic_hash, graph_hash, params_json, settings_hash, status,"
+                        " path) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', ?)",
+                        (run_id, kind, study, name, now.isoformat(), snapshot_id,
+                         snapshot_semantic_hash, graph_hash, canonical_json(key["params"]),
+                         _hash_json(key["settings"]), str(self.root / run_id)),
+                    )  # fmt: skip
                     break
+            if snapshot_id is not None:
+                insert_pin(db, snapshot_id, run_id, "run")
         _boundary("inserted")
         tmp.mkdir()
         return RunTxn(self, run_id, tmp, lock, dict(params or {}), now)
@@ -273,7 +280,8 @@ class RunTxn:
         final = self._store.root / self.run_id
         try:
             outputs = {k: {"physical_sha256": _sha256(p)} for k, p in _files(self._tmp).items()}
-            manifest = {**self._manifest, "schema_version": "nexusbt-run/2", "outputs": outputs}
+            manifest = {"environment": environment(_ENGINE_LOCK), **self._manifest}
+            manifest |= {"schema_version": "nexusbt-run/2", "outputs": outputs}
             value = value_hash(manifest)  # a NaN in the manifest fails here, before the rename
             manifest["created_at"] = self._created.isoformat()
             text = json.dumps(manifest, sort_keys=True, indent=2, ensure_ascii=False)
