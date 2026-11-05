@@ -56,6 +56,7 @@ BUILT = {
     "nexusbt_tds.semantic_hash",
     "nexusbt.config.load_config",
     "nexusbt.api.config",
+    "nexusbt.pipeline.graph_hash",  # T1.5 (#237)
 }
 
 #: 6.6, the classes whose kind is block or fail: the sub-errors of `NexusBTError`. The warnings

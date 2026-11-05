@@ -2045,7 +2045,7 @@ v1은 이 절의 정의를 규범으로 고정하고(INV-08 문구, `DecisionCon
 - `run_id = f"{YYYYMMDD-HHMMSS}-{kind}-{name}-{h6}"`. 시각은 계산 기계의 현지 시각, `h6` = sha256(정규 JSON{graph_hash, params, settings, snapshot_semantic_hash})의 앞 6자. 이미 있으면 `-2`, `-3`.
 - 쓰기: `runs/.tmp-<uuid>/`에 모두 쓰고, 성공하면 `runs/<run_id>/`로 `rename`, 파일을 읽기 전용(`chmod a-w`)으로 하고 `SEALED`(내용 = `manifest.json`의 sha256)를 마지막에 쓴다. 실패하면 임시 폴더를 지우고 색인에 `status = aborted`를 남긴다. 쓰기 실패는 실행 실패다 [R-30, 11.7 (3)(4)].
 - 시작할 때 색인 `pins`에 (snapshot_id, run_id)를 넣는다(루트 `PINS/`는 설정 시, 4.2) [11.7 (9), RV-I04].
-- **봉인 복구** [RV-I04]: 열 때마다 `runs/.tmp-*` 중 색인에 `status = running`이고 프로세스가 없는 것은 지우고 `aborted`로, `runs/<id>/`가 있는데 `SEALED`가 없으면(이름 바꾸기 뒤 봉인 전 중단) `SEALED`를 다시 계산해 쓰거나 내용 해시가 매니페스트와 다르면 `aborted`로 옮긴다. 시험 `test_runstore.py::test_interrupted_seal_recovers`(모든 커밋 경계에서 강제 종료).
+- **봉인 복구** [RV-I04]: 열 때마다 `runs/.tmp-*` 중 색인에 `status = running`이고 프로세스가 없는 것은 지우고 `aborted`로, `runs/<id>/`가 있는데 `SEALED`가 없으면(이름 바꾸기 뒤 봉인 전 중단) `SEALED`를 다시 계산해 쓰거나 내용 해시가 매니페스트와 다르면 `runs/.aborted-<run_id>/`로 옮기고(조사용으로 남기며 결과로는 읽지 않는다) `aborted`로 표시하며, 색인의 `path`는 그곳을 가리킨다(2026-11-04 결정, #247). 시험 `test_runstore.py::test_interrupted_seal_recovers`(모든 커밋 경계에서 강제 종료).
 
 ```
 runs/<run_id>/
@@ -2106,7 +2106,7 @@ runs/<run_id>/
 - Parquet 쓰기: pyarrow, zstd 3, row group 131,072행, 통계 켬, 문자열 dictionary, 메타데이터에 시각 없음.
 
 #### 5.9.5 색인 `runs/index.sqlite` [R-34, 11.7 (8)]
-SQLite(WAL). 덧붙이기만: 아래 표는 `BEFORE UPDATE/DELETE` 트리거가 막는다(허용: `runs.status`의 running→sealed|aborted, sealed→pruned, `runs.detail_pruned` 0→1(#206), `pins.ts_released` 채우기). 핀의 정본이 이 `pins` 표다(4.2).
+SQLite(WAL). 덧붙이기만: 아래 표는 `BEFORE UPDATE/DELETE` 트리거가 막는다(허용: `runs.status`의 running→sealed|aborted, sealed→pruned, 봉인 복구가 폴더를 옮길 때 running→aborted와 함께 `runs.path`를 `runs/.aborted-<run_id>/`로(5.9.1, #247), `runs.detail_pruned` 0→1(#206), `pins.ts_released` 채우기). 핀의 정본이 이 `pins` 표다(4.2).
 
 | 표 | 칼럼 |
 |---|---|

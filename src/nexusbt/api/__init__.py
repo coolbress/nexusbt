@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
+from nexusbt import pipeline
 from nexusbt.config import Config, load_config
 from nexusbt.data import _snapshot_markets
 
@@ -53,8 +54,6 @@ class Comparison: ...
 class DecisionExplanation: ...
 @dataclass(frozen=True, slots=True)
 class CheckReport: ...
-@dataclass(frozen=True, slots=True)
-class Description: ...
 @dataclass(frozen=True, slots=True)
 class RunTable: ...
 @dataclass(frozen=True, slots=True)
@@ -183,7 +182,20 @@ def check(
     raise NotImplementedError
 
 
+@dataclass(frozen=True, slots=True)
+class Description:
+    """`nx.describe`'s result; `print` shows its text."""
+
+    text: str
+
+    def __str__(self) -> str:
+        return self.text
+
+
 def describe(obj: object | None = None) -> Description:
+    """A term (3.3) for now: its node tree and structural hash; other objects with their tickets."""
+    if isinstance(obj, pipeline.Term):
+        return Description(pipeline.describe_term(obj))
     raise NotImplementedError
 
 

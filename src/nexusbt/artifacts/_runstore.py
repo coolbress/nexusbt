@@ -1,13 +1,15 @@
-"""Run folders: temporary write, rename, read-only, `SEALED` last (5.9.1-5.9.2, 2.6)."""
+"""Run folders: temporary write, rename, read-only, `SEALED` last, recovery at open (5.9.1-3)."""
 
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import json
 import os
 import shutil
 import sqlite3
 import stat
+import subprocess
 import uuid
 from collections.abc import Iterable, Iterator, Mapping
 from contextlib import closing, contextmanager, suppress
@@ -15,14 +17,24 @@ from dataclasses import dataclass
 from datetime import datetime
 from itertools import count
 from pathlib import Path
+from typing import IO
 
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+#: Test-only injection point: the boundary name at which the process exits (`os._exit`), so a
+#: test can kill a real run between two commit steps. `None` on every production path.
+_CRASH_AT: str | None = None
+_ENGINE_LOCK = Path(__file__).resolve().parents[3] / "uv.lock"  # present in a source checkout
 _LOGICAL_EXCLUDED = ("created_at", "created_by")  # 5.9.2, R-31
 _RUNS = """CREATE TABLE IF NOT EXISTS runs (
     run_id TEXT PRIMARY KEY, kind TEXT NOT NULL, name TEXT NOT NULL, ts_created TEXT NOT NULL,
     status TEXT NOT NULL, path TEXT NOT NULL)"""  # the columns #248 (T1.14b) completes
+
+
+def _boundary(name: str) -> None:
+    if name == _CRASH_AT:
+        os._exit(70)  # pragma: no cover - runs only in the tests' child process
 
 
 def canonical_json(value: object) -> str:
@@ -53,8 +65,19 @@ def _files(folder: Path) -> dict[str, Path]:
     return {p.relative_to(folder).as_posix(): p for p in sorted(folder.rglob("*")) if p.is_file()}
 
 
+def _try_lock(path: Path) -> IO[str] | None:
+    """An exclusive lock on `path`, or `None` while a live process holds it."""
+    handle = path.open("a+", encoding="utf-8")
+    try:
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        handle.close()
+        return None
+    return handle
+
+
 class RunStore:
-    """`root` is the `runs/` folder, with the index `index.sqlite` in it."""
+    """`root` is the `runs/` folder; every open recovers the runs whose process is gone."""
 
     def __init__(self, root: Path) -> None:
         self.root = Path(root)
@@ -62,15 +85,19 @@ class RunStore:
         with self._db() as db:
             db.execute("PRAGMA journal_mode=WAL")
             db.execute(_RUNS)
+        self._recover()
 
     @contextmanager
     def _db(self) -> Iterator[sqlite3.Connection]:
         with closing(sqlite3.connect(self.root / "index.sqlite")) as db, db:
             yield db
 
-    def _set(self, run_id: str, status: str) -> None:
+    def _set(self, run_id: str, status: str, path: Path | None = None) -> None:
         with self._db() as db:
-            db.execute("UPDATE runs SET status = ? WHERE run_id = ?", (status, run_id))
+            db.execute(
+                "UPDATE runs SET status = ?, path = coalesce(?, path) WHERE run_id = ?",
+                (status, None if path is None else str(path), run_id),
+            )
 
     def begin(
         self,
@@ -92,11 +119,18 @@ class RunStore:
         h6 = hashlib.sha256(canonical_json(key).encode()).hexdigest()[:6]
         now = datetime.now().astimezone()  # the computing machine's local time
         base = f"{now:%Y%m%d-%H%M%S}-{kind}-{name}-{h6}"
+        tmp = self.root / f".tmp-{uuid.uuid4().hex}"
+        lock = _try_lock(tmp.with_name(tmp.name + ".lock"))  # held while this process lives
+        if lock is None:  # pragma: no cover - a fresh uuid is never locked
+            raise RuntimeError(f"{tmp} is locked")
         with self._db() as db:
             for n in count(1):
                 run_id = base if n == 1 else f"{base}-{n}"
                 if (self.root / run_id).exists():
                     continue
+                lock.truncate(0)  # the id is in the lock before its row: an open never sees
+                lock.write(run_id)  # a `running` row whose live process it cannot name
+                lock.flush()
                 with suppress(sqlite3.IntegrityError):
                     db.execute(
                         "INSERT INTO runs (run_id, kind, name, ts_created, status, path)"
@@ -104,39 +138,130 @@ class RunStore:
                         (run_id, kind, name, now.isoformat(), str(self.root / run_id)),
                     )
                     break
-        tmp = self.root / f".tmp-{uuid.uuid4().hex}"
+        _boundary("inserted")
         tmp.mkdir()
-        return RunTxn(self, run_id, tmp, now)
+        return RunTxn(self, run_id, tmp, lock, dict(params or {}), now)
+
+    def _recover(self) -> None:
+        """5.9.1 seal recovery: runs whose lock no process holds are aborted or sealed."""
+        live: set[str] = set()
+        for lock_path in sorted(self.root.glob(".tmp-*.lock")):
+            handle = _try_lock(lock_path)
+            if handle is None:
+                live.add(lock_path.read_text(encoding="utf-8"))
+                continue
+            with handle:
+                shutil.rmtree(lock_path.with_suffix(""), ignore_errors=True)
+                lock_path.unlink()
+        for orphan in self.root.glob(".tmp-*"):  # a temporary folder whose lock file is gone
+            if orphan.is_dir() and not orphan.with_name(orphan.name + ".lock").exists():
+                shutil.rmtree(orphan)
+        with self._db() as db:
+            running = [r for (r,) in db.execute("SELECT run_id FROM runs WHERE status = 'running'")]
+        for run_id in sorted(set(running) - live):
+            folder = self.root / run_id
+            if not folder.is_dir():
+                self._set(run_id, "aborted")
+            elif _verified(folder):
+                _seal_folder(folder)
+                self._set(run_id, "sealed")
+            else:  # decision 2026-11-04, #247: kept for inspection, never read as a result
+                moved = folder.rename(self.root / f".aborted-{run_id}")
+                self._set(run_id, "aborted", moved)
+
+
+def _verified(folder: Path) -> bool:
+    """The folder holds exactly the outputs its manifest lists, with their physical hashes."""
+    try:
+        manifest = json.loads((folder / "manifest.json").read_text(encoding="utf-8"))
+        outputs = {k: v["physical_sha256"] for k, v in manifest["outputs"].items()}
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return False
+    files = _files(folder)
+    sealed = files.pop("SEALED", None)
+    if sealed is not None and sealed.read_text(encoding="utf-8") != _sha256(
+        folder / "manifest.json"
+    ):
+        return False
+    files.pop("manifest.json")
+    files.pop(".SEALED.tmp", None)  # a seal killed while it was written
+    return outputs == {k: _sha256(p) for k, p in files.items()}
+
+
+def _seal_folder(folder: Path) -> str:
+    """Files read-only (`chmod a-w`), then `SEALED` = sha256 of `manifest.json`, written last."""
+    for path in _files(folder).values():
+        path.chmod(path.stat().st_mode & ~(stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH))
+    _boundary("readonly")
+    digest = _sha256(folder / "manifest.json")
+    seal = folder / "SEALED"
+    if not seal.exists():
+        tmp = folder / ".SEALED.tmp"
+        tmp.unlink(missing_ok=True)
+        tmp.write_text(digest, encoding="utf-8")
+        tmp.chmod(0o444)
+        tmp.rename(seal)
+    _boundary("sealed")
+    return digest
 
 
 class RunTxn:
     """One run being written in `runs/.tmp-<uuid>/`; `seal()` or `abort()` ends it."""
 
-    def __init__(self, store: RunStore, run_id: str, tmp: Path, created: datetime) -> None:
-        self.run_id, self._store, self._tmp, self._created = run_id, store, tmp, created
+    def __init__(
+        self,
+        store: RunStore,
+        run_id: str,
+        tmp: Path,
+        lock: IO[str],
+        params: dict[str, object],
+        created: datetime,
+    ) -> None:
+        self.run_id, self._store, self._tmp, self._lock = run_id, store, tmp, lock
+        self._params, self._created = params, created
         self._manifest: dict[str, object] = {}
         self._state = "open"  # open → renamed → sealed, or open → aborted
+
+    def _out(self, rel: str) -> Path:
+        if self._state != "open":
+            raise RuntimeError(f"run {self.run_id} is already {self._state}")
+        if not rel or Path(rel).is_absolute() or ".." in Path(rel).parts:
+            raise ValueError(f"output name {rel!r} must stay inside the run folder")
+        path = self._tmp / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        return path
 
     def write_table(self, name: str, table: object) -> None:
         """Parquet as 5.9.4 says; anything but an Arrow table is refused (no pickle, 2.6)."""
         if not isinstance(table, pa.Table):
             raise TypeError(f"{name}: run tables are pyarrow Tables, not {type(table).__name__}")
-        if not name or Path(name).is_absolute() or ".." in Path(name).parts:
-            raise ValueError(f"table name {name!r} must stay inside the run folder")
-        path = self._tmp / f"{name}.parquet"
-        path.parent.mkdir(parents=True, exist_ok=True)
         pq.write_table(
             table,
-            path,
+            self._out(f"{name}.parquet"),
             compression="zstd",
             compression_level=3,
             row_group_size=131_072,
             write_statistics=True,
             use_dictionary=[f.name for f in table.schema if pa.types.is_string(f.type)],
         )
+        _boundary("written")
 
-    def capture_sources(self, paths: Iterable[Path]) -> None:
-        raise NotImplementedError  # 5.9.3, the second pull request of #247
+    def capture_sources(self, paths: Iterable[Path], *, project: Path | None = None) -> None:
+        """5.9.3: the files inside `project` (paths kept), its toml and lock, params, git state."""
+        project = Path(project or Path.cwd()).resolve()
+        source = self._out("source/params.json").parent
+        for path in sorted({Path(p).resolve() for p in paths}):
+            if path.is_relative_to(project) and path.is_file():  # installed packages stay out
+                shutil.copy2(path, self._out(f"source/{path.relative_to(project).as_posix()}"))
+        for name in ("nexusbt.toml", "uv.lock"):
+            if (project / name).is_file():
+                shutil.copy2(project / name, source / name)
+        if _ENGINE_LOCK.is_file():
+            shutil.copy2(_ENGINE_LOCK, source / "engine-uv.lock")
+        (source / "params.json").write_text(canonical_json(self._params), encoding="utf-8")
+        git = {"head": _git(project, "rev-parse", "HEAD")}
+        git["status"] = _git(project, "status", "--porcelain")
+        (source / "git.json").write_text(canonical_json(git), encoding="utf-8")
 
     def set_manifest(self, fields: Mapping[str, object]) -> None:
         self._manifest.update(fields)
@@ -156,18 +281,17 @@ class RunTxn:
                 f.write(text + "\n")
                 f.flush()
                 os.fsync(f.fileno())
+            _boundary("manifest")
             self._tmp.rename(final)
         except BaseException:
             self.abort()
             raise
         self._state = "renamed"  # from here a failure is left to seal recovery, not aborted
-        for path in _files(final).values():  # `chmod a-w`
-            path.chmod(path.stat().st_mode & ~(stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH))
-        digest = _sha256(final / "manifest.json")
-        (final / "SEALED").write_text(digest, encoding="utf-8")
-        (final / "SEALED").chmod(0o444)
+        _boundary("renamed")
+        digest = _seal_folder(final)
         self._store._set(self.run_id, "sealed")
         self._state = "sealed"
+        self._release()
         return RunRecord(self.run_id, final, digest, value)
 
     def abort(self) -> None:
@@ -181,3 +305,22 @@ class RunTxn:
         shutil.rmtree(self._tmp, ignore_errors=True)
         self._store._set(self.run_id, "aborted")
         self._state = "aborted"
+        self._release()
+
+    def _release(self) -> None:
+        Path(self._lock.name).unlink(missing_ok=True)
+        self._lock.close()
+
+
+def _git(project: Path, *args: str) -> str | None:
+    try:
+        done = subprocess.run(  # noqa: S603 - fixed arguments, no shell
+            ["git", "-C", str(project), *args],  # noqa: S607 - git from PATH, as 5.9.3 runs it
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return None
+    # rstrip only: the first `status --porcelain` line starts with a meaningful space
+    return done.stdout.rstrip("\n") if done.returncode == 0 else None
