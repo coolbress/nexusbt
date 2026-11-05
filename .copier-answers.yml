@@ -3,7 +3,7 @@
 # This file records which version of the template this repository came from,
 # so that `copier update` can merge only the template changes made since.
 # Deleting it turns the repository back into a point-in-time copy.
-_commit: v1.37.0
+_commit: v1.38.0
 _src_path: gh:coolbress/plinth-template
 archetype: library
 code_of_conduct: false
@@ -14,7 +14,7 @@ owner_has_code_of_conduct: false
 owner_has_issue_forms: false
 owner_has_pr_template: false
 owner_has_security_policy: false
-plinth_sha: 60bd68f5de72007e6efe73be9f67f847af929108
+plinth_sha: e57fb4126214a480ec47202b0e09b79791fdb49c
 project_name: nexusbt
 third_party_review: false
 visibility: public
