@@ -602,10 +602,9 @@ def _limits(
     _sample(first, last, 0.002, rng, pick)
     for (k, d), (up, locked) in sorted(hits.items()):  # by date: a later one reads the moved
         s, dates = d - first[k], bars["session_date"][k]
-        limit = bars["close"][k][s - 1] * (
-            1 + _ratios(dates[s : s + 1], mics[k]) * (1 - 2 * (not up))
-        )
-        price = _snap(limit, dates[s : s + 1], mics[k], np.floor if up else np.ceil)[0]
+        day = dates[s : s + 1]  # the reference is the last close: no halt or event before
+        limits = _limit_prices(bars["close"][k][s - 1 : s], _ratios(day, mics[k]), day, mics[k])
+        price = limits[0 if up else 1][0]
         moved = price / bars["close"][k][s]
         for name in OHLC:
             bars[name][k][s + 1 :] = _snap(bars[name][k][s + 1 :] * moved, dates[s + 1 :], mics[k])
@@ -613,6 +612,16 @@ def _limits(
         bars["high"][k][s] = max(bars["high"][k][s], price)
         bars["low"][k][s] = min(bars["low"][k][s], price)
     return hits
+
+
+def _limit_prices(
+    ref: np.ndarray, ratio: np.ndarray, dates: np.ndarray, venue: str | None
+) -> tuple[np.ndarray, np.ndarray]:
+    """TDS 5.10's `up/down_limit_price`: `ref x (1 +- ratio)` with the upper limit rounded down
+    and the lower up to the grid (4.8 (5)); first to 1e-6, so a float error just past a tick
+    (10,000 x 0.7) does not move it a tick. NaN stays NaN; off KR, nothing is rounded."""
+    up = _snap(np.round(ref * (1 + ratio), 6), dates, venue, np.floor)
+    return up, _snap(np.round(ref * (1 - ratio), 6), dates, venue, np.ceil)
 
 
 def _wobble(
@@ -642,6 +651,7 @@ def _status(
     for s, p in enumerate(_last_traded(close), 1):  # events since (an ex-date's base price)
         ref[s] = np.nan if p is None else close[p] * (split[s] / split[p])
     kr, ratio = market == "KR", _ratios(dates, venue)
+    up, down = _limit_prices(ref, ratio, dates, venue)
     known = dates >= np.datetime64(US_STATUS) if market == "US" else np.ones(len(dates), bool)
     days = [(k, d) for d in range(i, i + len(dates))]
     hit = [hits.get(x) for x in days]
@@ -658,8 +668,8 @@ def _status(
         "limit_down_close": [bool(h and not h[0]) for h in hit] if kr else none,
         "locked_up": [bool(h and h[0] and h[1]) for h in hit] if kr else none,
         "locked_down": [bool(h and not h[0] and h[1]) for h in hit] if kr else none,
-        "price_limit_ratio": ratio, "up_limit_price": ref * (1 + ratio),
-        "down_limit_price": ref * (1 - ratio), "reference_price": ref if kr else ratio * np.nan,
+        "price_limit_ratio": ratio, "up_limit_price": up, "down_limit_price": down,
+        "reference_price": ref if kr else ratio * np.nan,
         "admin_status": [("administrative" if x in admin else "normal") if kr else None
                          for x in days],
         "source": [PRODUCER] * len(days),
