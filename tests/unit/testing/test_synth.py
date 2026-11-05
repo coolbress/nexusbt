@@ -757,6 +757,8 @@ def test_injected_exits_and_halts_are_refused_with_the_reason(tmp_path: Path) ->
         opts: dict[str, Any] = {"preset": preset}
         with pytest.raises(error, match=words):
             make_snapshot(tmp_path / "x", **opts, events=[spec])
+    with pytest.raises(ValueError, match="two injected exits"):
+        make_snapshot(tmp_path / "x", preset="tiny", events=[exit_, exit_])
     short: dict[str, Any] = {"markets": ("KR",), "start": dt.date(2019, 1, 2), "n_kr": 20}
     plain = make_snapshot(tmp_path / "a", **short)
     action = next(r for r in rows(plain, "corporate_actions") if r["status"] == "effective")
@@ -764,9 +766,10 @@ def test_injected_exits_and_halts_are_refused_with_the_reason(tmp_path: Path) ->
                  if b[ID] == action[ID] and b["session_date"] < action["ex_date"])  # fmt: skip
     gone = next(r for r in rows(plain, "instruments") if r["delisted_on"])
     for iid, day, words in (
-        (action[ID], before, "keeps the session before an ex-date, whose close the factor uses"),
-        (gone[ID], gone["last_session"], "keeps a listing's last session free of halts"),
+        (action[ID], before, r"4.8 \(5\) keeps the session before an ex-date, whose close"),
+        (gone[ID], gone["last_session"], r"4.8 \(5\) keeps a listing's last session free of"),
+        (gone[ID], gone["delisted_on"], "session_date must be a session of its listing"),
     ):
-        with pytest.raises(ValueError, match=r"4.8 \(5\) " + words):
+        with pytest.raises(ValueError, match=words):
             make_snapshot(tmp_path / "b", **short,
                           events=[halt | {ID: iid, "session_date": day}])  # fmt: skip

@@ -333,8 +333,8 @@ def _small(
     mics = _venues(VENUES.get(market), n, bars, rng)  # drawn last: the draws above stay
     actions, moved = _actions(market, ids, first, last, sessions, bars, rng, mics,
                               targets(events, ids, days, first, last))  # fmt: skip
-    held = ev.halts(events, ids, days, first, last, moved)
-    status = _tradability(market, first, last, mics, moved, bars, rng, held)  # moves `bars` too
+    status = _tradability(market, first, last, mics, moved, bars, rng,
+                          (events, ids, days))  # moves `bars` too  # fmt: skip
     out, payouts, delisted = _delistings(market, ids, first, last, sessions, bars, rng, ended)
     counts, eligible = _share_counts(market, sessions, bars, rng), _eligibility(bars, status)
     instruments = _instruments(
@@ -514,12 +514,12 @@ def _last_traded(close: np.ndarray) -> list[int | None]:
 def _tradability(
     market: str, first: Sequence[int], last: Sequence[int], mics: Sequence[str | None],
     moved: Sequence[tuple[int, int, str]], bars: dict[str, list[Any]], rng: np.random.Generator,
-    held: Days,
+    injected: tuple[Sequence[Mapping[str, Any]], Sequence[str], Any],
 ) -> dict[str, list[Any]]:  # fmt: skip
-    """4.8 (5): KR halts (and the injected `held`), limit closes and 1-ULP wobbles moved into
-    `bars`, ~1 % of KR instruments `administrative` over their last 60 sessions, and a
-    `tradability_daily` row for every bar, none moving a close a factor or an exit uses."""
-    n = len(first)
+    """4.8 (5): KR halts (and those `injected`: events, ids, days), limit closes and 1-ULP
+    wobbles moved into `bars`, ~1 % of KR instruments `administrative` over their last 60
+    sessions, and a `tradability_daily` row per bar, none moving a close a factor or exit uses."""
+    n, held = len(first), ev.halts(*injected, first, last, moved)
     refs = {(k, e - 1) for k, e, _ in moved} | {(k, last[k]) for k in range(n)}
     halted: Days = set()
     hits: Hits = {}
