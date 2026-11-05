@@ -1337,7 +1337,7 @@ Generation rules (deterministic, `numpy.random.Generator(PCG64(seed))`):
 12. Exchange rates: daily `fx_rates` for each pair of market currencies (`rate_kind = fixing`, one series; USDKRW for KR+US), published with a 1-session delay, a 2-session delay once a week.
 13. Benchmarks: two cap-weighted synthetic TR indices (`IDX:KOSPI_TR`, `IDX:SPX_TR`; built only inside the synthetic data) → `instruments(asset_class=index)` + `bars`.
 
-`EventSpec` (event injection): a dict that uses the column names of a TDS dataset (`corporate_actions`, `delistings`, `fundamentals_events`/`fundamentals_state`, `tradability_daily`) as they are, such as `{"kind": "split", "instrument_id": "KR:T00001", "ex_date": "2020-02-03", "ratio_new_per_old": 2.0}`, plus a `"dataset"` key. When there is an injected event, no random event is made on the same date. The generator's output must be byte-identical for the same arguments (test `test_synth_deterministic`).
+`EventSpec` (event injection): a dict that uses the column names of a TDS dataset (`corporate_actions`, `delistings`, `fundamentals_events`/`fundamentals_state`, `tradability_daily`) as they are, such as `{"kind": "split", "instrument_id": "KR:T00001", "ex_date": "2020-02-03", "ratio_new_per_old": 2.0}`, plus a `"dataset"` key. When there is an injected event, no random event is made on the same date (for that instrument). The generator's output must be byte-identical for the same arguments (test `test_synth_deterministic`).
 
 `python -m nexusbt.testing.synth --preset P --out DIR [--markets KR,US,ZZ] [--degrade a,b] --validate` runs `tds check --level full` after generating and prints the row counts per dataset, the package `value_sha256` and `semantic_sha256`, and the three profile results.
 
