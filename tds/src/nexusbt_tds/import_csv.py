@@ -6,8 +6,9 @@ The mapping file names the package's `profiles` (default `tds:minimal-daily@1.0`
 column; a CSV column with a TDS name is taken as is), `missing_values`, `availability` and
 `pit_quality` (default `backfilled`: no availability time is invented, TDS 9). A value that
 cannot be read stops the import with its file and line, so every row read is kept or the import
-fails. The `tds import csv` command, `import_report.json`, `values` constants and the
-`instruments` fills (#257 decisions 3, 4) come in the next part of #257.
+fails; nothing is written until every dataset is read and checked. The `tds import csv` command,
+`import_report.json`, `values` constants and the `instruments` fills (#257 decisions 3, 4) come
+in the next part of #257.
 """
 
 from __future__ import annotations
@@ -16,10 +17,11 @@ import csv
 import datetime as dt
 import json
 import math
+import re
 from importlib.metadata import version
 from pathlib import Path
 from typing import Any
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -32,6 +34,10 @@ from .schemas.verify import SCHEMA_DIR
 _TOP = {"name", "snapshot_id", "profiles", "market", "id_namespaces", "datasets"}
 _DATASET = {"file", "kind", "params", "columns", "missing_values", "availability", "pit_quality"}
 _RULE = {"from", "template", "format", "timezone"}
+_NUMBER = re.compile(r"[+-]?([0-9]+\.?[0-9]*|\.[0-9]+)([eE][+-]?[0-9]+)?")  # no `1_000`, ` 5`
+_BITS = {"i8": 8, "i16": 16, "i32": 32, "i64": 64}
+#: RFC 3339 date-time (TDS 9.5), to the microsecond; the offset may be left to `timezone`.
+_RFC3339 = re.compile(r"\d{4}-\d\d-\d\d[Tt]\d\d:\d\d:\d\d(\.\d{1,6})?([Zz]|[+-]\d\d:\d\d)?")
 _ARROW = {
     **dict.fromkeys(("id", "code", "string"), pa.string()), "f64": pa.float64(),
     "i8": pa.int8(), "i16": pa.int16(), "i32": pa.int32(), "i64": pa.int64(),
@@ -56,13 +62,17 @@ def import_csv(mapping: Path, out: Path) -> Path:
     market = spec.get("market")
     if not isinstance(market, dict) or not isinstance(market.get("code"), str):
         raise CsvImportError(f"{mapping.name}: `market` needs at least a `code`")
+    if not isinstance(market.get("timezone", ""), str):
+        raise CsvImportError(f"{mapping.name}: the market's `timezone` is text")
     code = market["code"]
     datasets, tables = [], []
     for name, ds in _items(spec.get("datasets"), "datasets"):
         _keys(ds, _DATASET, f"datasets.{name}")
-        table, entry = _read(mapping.parent / str(ds.get("file")), name, ds, market)
+        if not isinstance(ds.get("file"), str):
+            raise CsvImportError(f"datasets.{name}: `file` is missing")
+        table, entry = _read(mapping.parent / ds["file"], name, ds, market)
         datasets.append(entry)
-        tables.append((entry, table))
+        tables.append((entry, _groups(entry, table, code)))  # every check before any write
     profiles = spec.get("profiles") or ["tds:minimal-daily@1.0"]
     created = dt.datetime.now(dt.UTC).replace(microsecond=0)
     manifest = {
@@ -77,8 +87,8 @@ def import_csv(mapping: Path, out: Path) -> Path:
         "writer": {"name": "pyarrow", "version": pa.__version__},
     }  # fmt: skip
     out.mkdir(parents=True, exist_ok=True)
-    for entry, table in tables:
-        entry["files"] = _write(out, entry, table, code)
+    for entry, groups in tables:
+        entry["files"] = _write(out, entry, groups)
     (out / MANIFEST).write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", "utf-8")
     write_hashes(out)
     return out
@@ -110,7 +120,11 @@ def _schema(kind: str) -> dict[str, Any]:
 
 def _variant(value: Any, params: dict[str, Any]) -> Any:  # bars: daily or intraday (TDS 5.5)
     if isinstance(value, dict):
-        return value["daily" if params.get("freq") == "1d" else "intraday"]
+        if params.get("freq") != "1d":  # absent included: no key or sort is guessed
+            freq = params.get("freq")
+            raise CsvImportError(f"the sort and partitions for params.freq {freq!r} are not"
+                                 " imported from CSV (only 1d yet)")  # fmt: skip
+        return value["daily"]
     return value
 
 
@@ -119,17 +133,26 @@ def _read(
 ) -> tuple[pa.Table, dict[str, Any]]:
     kind = str(ds.get("kind", name))
     schema, params = _schema(kind), ds.get("params") or {}
+    if not isinstance(params, dict):
+        raise CsvImportError(f"datasets.{name}.params is not a block of `key: value` lines")
     types = {c["name"]: c["type"] for c in schema["columns"]}
     rules = ds.get("columns") or {}
+    _keys(rules, set(types), f"datasets.{name}.columns")
     for column, rule in rules.items():
         _keys(rule, _RULE, f"datasets.{name}.columns.{column}")
-        if column not in types:
-            raise CsvImportError(f"datasets.{name}.columns: {column} is not a {kind} column")
-    missing = {str(v) for v in ds.get("missing_values") or []}
+        if odd := sorted(k for k, v in rule.items() if not isinstance(v, str)):  # JSON: `5`
+            raise CsvImportError(f"datasets.{name}.columns.{column}: {', '.join(odd)} is text")
+        if "{value}" not in str(rule.get("template", "{value}")):
+            raise CsvImportError(f"datasets.{name}.columns.{column}: template needs {{value}}")
+    if not isinstance(listed := ds.get("missing_values") or [], list):  # `NA`: not N and A
+        raise CsvImportError(f"datasets.{name}: missing_values is a list, such as [NA]")
+    missing = {str(v) for v in listed}
     try:
         with path.open(encoding="utf-8-sig", newline="") as f:  # a spreadsheet's BOM dropped
             reader = csv.reader(f)
             header = next(reader, [])
+            if twice := sorted({h for h in header if header.count(h) > 1}):
+                raise CsvImportError(f"{path.name}: column {', '.join(twice)} given twice")
             source = {c: header.index(r.get("from", c)) for c, r in rules.items()
                       if r.get("from", c) in header}  # fmt: skip
             if absent := sorted(set(rules) - set(source)):
@@ -151,7 +174,10 @@ def _read(
         raise CsvImportError(f"datasets.{name}: {exc}") from None
     order = [c["name"] for c in schema["columns"] if c["name"] in values]
     table = pa.table({c: pa.array(values[c], _ARROW[types[c]]) for c in order})
-    table = table.sort_by([(k, "ascending") for k in _variant(schema["sort"], params)])
+    sort = _variant(schema["sort"], params) or []
+    if absent := [k for k in sort if k not in values]:
+        raise CsvImportError(f"{path.name}: no column for {', '.join(absent)}, the sort key")
+    table = table.sort_by([(k, "ascending") for k in sort]) if sort else table
     entry: dict[str, Any] = {"name": name, "kind": kind, "schema_version": "1.0", "path": name}
     entry |= {"params": params} if params else {}
     if either := [c for c in order if types[c] == "ts_us/ns"]:  # written in us; said so (4.5)
@@ -172,15 +198,20 @@ def _value(text: str | None, tag: str, rule: dict[str, Any], market: dict[str, A
     try:
         if tag in ("id", "code", "string"):
             return text
-        if tag == "f64" and math.isfinite(number := float(text)):
+        if tag == "f64" and _NUMBER.fullmatch(text) and math.isfinite(number := float(text)):
             return number
-        if tag in ("i8", "i16", "i32", "i64"):
-            return int(text)
+        if tag in _BITS and re.fullmatch("[+-]?[0-9]+", text):
+            half = 1 << (_BITS[tag] - 1)
+            if -half <= (whole := int(text)) < half:
+                return whole
         if tag == "bool" and text in ("true", "false"):
             return text == "true"
         if tag == "date":
             fmt = rule.get("format")
-            return dt.datetime.strptime(text, fmt).date() if fmt else dt.date.fromisoformat(text)
+            if fmt:
+                return _strptime(text, fmt).date()
+            if re.fullmatch("[0-9]{4}-[0-9]{2}-[0-9]{2}", text):  # not `20240102`, `2024-W01-2`
+                return dt.date.fromisoformat(text)
         if tag in ("ts_us", "ts_ns", "ts_us/ns"):
             return _instant(text, rule.get("format"), rule.get("timezone", market.get("timezone")),
                             where)  # fmt: skip
@@ -196,12 +227,18 @@ def _value(text: str | None, tag: str, rule: dict[str, Any], market: dict[str, A
 def _instant(text: str, fmt: str | None, zone: str | None, where: str) -> dt.datetime:
     """TDS 9.5: RFC 3339 with `Z` or an offset; without one, read in `zone` (the column's, else
     the market's), and an hour that a daylight-saving change repeats or skips is an error."""
-    value = dt.datetime.strptime(text, fmt) if fmt else dt.datetime.fromisoformat(text)
+    if not fmt and not _RFC3339.fullmatch(text):  # finer than us would be cut: not read either
+        raise ValueError(text)
+    value = _strptime(text, fmt) if fmt else dt.datetime.fromisoformat(text.upper())  # `t`, `z`
     if value.tzinfo is None:
         if zone is None:
             raise CsvImportError(f"{where} {text!r} has no offset and needs a timezone "
                                  "(the column's `timezone` or the market's)")  # fmt: skip
-        first, second = (value.replace(tzinfo=ZoneInfo(zone), fold=f) for f in (0, 1))
+        try:
+            tz = ZoneInfo(zone)
+        except (ZoneInfoNotFoundError, ValueError):
+            raise CsvImportError(f"{where}: unknown timezone {zone!r}") from None
+        first, second = (value.replace(tzinfo=tz, fold=f) for f in (0, 1))
         if first.utcoffset() != second.utcoffset():
             gap = first.astimezone(dt.UTC) > second.astimezone(dt.UTC)
             what = "a daylight-saving gap: no such time" if gap else (
@@ -211,10 +248,18 @@ def _instant(text: str, fmt: str | None, zone: str | None, where: str) -> dt.dat
     return value.astimezone(dt.UTC)
 
 
-def _write(root: Path, entry: dict[str, Any], table: pa.Table, market: str) -> list[dict[str, Any]]:
+def _strptime(text: str, fmt: str) -> dt.datetime:  # alone, it reads `2024013` as 2024-01-03
+    value = dt.datetime.strptime(text, fmt)
+    if value.strftime(fmt) != text:
+        raise ValueError(text)
+    return value
+
+
+def _groups(entry: dict[str, Any], table: pa.Table, market: str) -> dict[str, pa.Table]:
     """Files under TDS 3.6's partitions from the schema: `market=` the market, `year=` the
     `session_date` year; a kind with another partition is not imported yet."""
     parts = _variant(_schema(entry["kind"])["partitions"], entry.get("params", {})) or ""
+    parts = "/".join(parts) if isinstance(parts, list) else parts
     fixed = [p for p in parts.split("/") if p and not p.endswith("=")]
     open_ = [p[:-1] for p in parts.split("/") if p.endswith("=")]
     if set(open_) - {"market", "year"}:
@@ -224,13 +269,20 @@ def _write(root: Path, entry: dict[str, Any], table: pa.Table, market: str) -> l
     if "market" in open_:
         groups = {f"/market={market}": table}
     if "year" in open_:
-        years = pa.compute.year(table["session_date"]).to_pylist()
+        has = "session_date" in table.column_names
+        years = pa.compute.year(table["session_date"]).to_pylist() if has else [None]
+        if not years or None in years:
+            raise CsvImportError(f"{entry['name']}: the year= partition needs one or more rows,"
+                                 " each with a session_date")  # fmt: skip
         groups = {f"{k}/year={y}": t.filter(pa.array([x == y for x in years]))
                   for k, t in groups.items() for y in sorted(set(years))}  # fmt: skip
+    return {f"{entry['path']}{k}/part-00000.parquet": t for k, t in groups.items()}
+
+
+def _write(root: Path, entry: dict[str, Any], groups: dict[str, pa.Table]) -> list[dict[str, Any]]:
     files = []
     meta = {"tds.dataset": entry["name"], "tds.schema_version": "1.0"}
-    for suffix, rows in groups.items():
-        rel = f"{entry['path']}{suffix}/part-00000.parquet"
+    for rel, rows in groups.items():
         (root / rel).parent.mkdir(parents=True, exist_ok=True)
         rows = rows.replace_schema_metadata(meta)
         if rows.num_rows:
