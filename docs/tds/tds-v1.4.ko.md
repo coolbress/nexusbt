@@ -645,7 +645,7 @@
 | limit_up_close, limit_down_close | bool | 예 | 종가가 상·하한가 |
 | locked_up, locked_down | bool | 예 | 하루 종일 그 가격에 묶임 |
 | price_limit_ratio | f64 | 예 | 그날 제한폭(0.30 = 30%) |
-| up_limit_price, down_limit_price | f64 | 예 | 호가 단위 반올림 뒤 상·하한 가격 |
+| up_limit_price, down_limit_price | f64 | 예 | 호가 단위 반올림 뒤 상·하한 가격(거래소가 공표하는 값): 상한은 호가 단위로 내림, 하한은 올림이라 둘 다 제한폭 안에 있다 |
 | reference_price | f64 | 예 | 제한폭 기준가 |
 | admin_status | code | 예 | 관리종목·투자주의 등(열림: `normal`, `administrative`, `caution`, `warning`, `liquidation_trading`) |
 | ts_available | ts_us | 예 | 칼럼 묶음별 규칙 **`params.availability_by_column` 필수**(v1.1): 사전 정보(`price_limit_ratio`, `up/down_limit_price`, `reference_price`, `admin_status`)는 `session_open`, 하루 결과(`halted_full_day`, `halt_count`, `limit_up_close`, `limit_down_close`, `locked_up`, `locked_down`)는 `session_close` [RV-Q10] |

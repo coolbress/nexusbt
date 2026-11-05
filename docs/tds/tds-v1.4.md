@@ -645,7 +645,7 @@ Key (`instrument_id`, `stat_type`, `ts_event`). Columns: `instrument_id`, `sessi
 | limit_up_close, limit_down_close | bool | yes | Close at the upper or lower limit |
 | locked_up, locked_down | bool | yes | Locked at that price all day |
 | price_limit_ratio | f64 | yes | That day's limit (0.30 = 30%) |
-| up_limit_price, down_limit_price | f64 | yes | Upper and lower limit prices after tick rounding |
+| up_limit_price, down_limit_price | f64 | yes | Upper and lower limit prices after tick rounding, as the exchange publishes them: the upper limit rounded down and the lower limit rounded up to the tick, so both lie inside the band |
 | reference_price | f64 | yes | Reference price for the limit |
 | admin_status | code | yes | Administrative issue, investment caution etc. (open: `normal`, `administrative`, `caution`, `warning`, `liquidation_trading`) |
 | ts_available | ts_us | yes | Rules per column group, **`params.availability_by_column` required** (v1.1): prior information (`price_limit_ratio`, `up/down_limit_price`, `reference_price`, `admin_status`) is `session_open`, day results (`halted_full_day`, `halt_count`, `limit_up_close`, `limit_down_close`, `locked_up`, `locked_down`) are `session_close` [RV-Q10] |
