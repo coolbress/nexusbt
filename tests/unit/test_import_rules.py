@@ -37,7 +37,7 @@ Check = Callable[[tuple[str, ...], str], list[str]]
 #: 3.1 names a fresh `import nexusbt` does not bind yet, by the table's row (#47). A name
 #: leaves this list in the change that exports it; the spec names no single ticket for many.
 PENDING_3_1 = {
-    "Terms": "factor filter classifier ops",
+    "Terms": "filter classifier ops",
     "Data": "Price Fund Meta Panel Label Trad Market Macro MacroTerm Events dataset Dataset"
     " universe",
     "Strategy": "Strategy param monthly weekly daily quarterly annually every on_event top bottom"

@@ -58,6 +58,7 @@ BUILT = {
     "nexusbt.config.load_config",
     "nexusbt.api.config",
     "nexusbt.pipeline.graph_hash",  # T1.5 (#237)
+    "nexusbt.pipeline.factor",  # T1.5 (#237): the node and its hash; running it is T1.12's
 }
 
 #: 6.6, the classes whose kind is block or fail: the sub-errors of `NexusBTError`. The warnings
