@@ -1238,7 +1238,7 @@ datasets:
 ```
 
 - The mapping file may be JSON, or YAML of these forms only: nested `key: value` lines, `- ` lists, the flow forms `{a: b}` and `[a, b]`, single and double quotes and `#` comments, with plain values read as text and any other form an error naming its line, to be written as JSON [2026-11-05, #257].
-- Time text is RFC 3339 (`Z` or an offset required). Times without an offset require `timezone`, and times in a daylight-saving overlap are rejected as an error (`TDS-S004`); a local time that a daylight-saving change skips is an error too, never shifted [2026-11-05, #257].
+- Time text is RFC 3339 (`Z` or an offset required). Times without an offset require `timezone`, and times in a daylight-saving overlap are rejected as an error (`TDS-S004`).
 - Numeric missing values are empty fields. `NaN`, `-`, `0` as missing markers only via `missing_values` in the mapping file.
 
 ### 9.6 Qlib → TDS

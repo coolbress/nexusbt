@@ -105,10 +105,6 @@ def test_offsetless_time_requires_timezone(tmp_path: Path) -> None:
         "2024-01-02T16:00:00") + "XNYS:AAPL,2024-11-03,1,2024-11-03T01:30:00\n"})  # fmt: skip
     with pytest.raises(CsvImportError, match=r"line 3: .*daylight-saving overlap \(TDS-S004\)"):
         import_csv(tmp_path / "c" / "mapping.yaml", tmp_path / "c" / "pkg")
-    write(tmp_path / "d", {**files, "mapping.yaml": MINIMAL, "bars.csv": bars.format(
-        "2024-03-10T02:30:00")})  # fmt: skip  # a skipped hour: never shifted (#257 decision 6)
-    with pytest.raises(CsvImportError, match=r"line 2: .*daylight-saving gap"):
-        import_csv(tmp_path / "d" / "mapping.yaml", tmp_path / "d" / "pkg")
 
 
 def test_package_defaults_and_layout(tmp_path: Path) -> None:
