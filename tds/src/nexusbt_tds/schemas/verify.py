@@ -73,6 +73,7 @@ class Schema:
     columns: tuple[Column, ...]
     #: The file's `key`: a column list, a mapping of variants (bars), or None where unstated.
     key: object = None
+    sort: object = None  # the file's `sort`, the same forms
 
 
 _HEADER = "| Column | Type | Null | Meaning |"
@@ -194,7 +195,8 @@ def load_schemas(root: Traversable = SCHEMA_DIR) -> dict[str, Schema]:
             for c in data["columns"]
             for values in [tuple(c["values"]) if "values" in c else None]
         )
-        schemas[folder.name] = Schema(data["kind"], data["status"], columns, data["key"])
+        named = (data["kind"], data["status"])
+        schemas[folder.name] = Schema(*named, columns, data["key"], data["sort"])
     if not schemas:
         raise FileNotFoundError(f"no schema file `<kind>/{VERSION}.json` under {root}")
     return schemas
