@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import bisect
 import csv
 import datetime as dt
 import inspect
@@ -281,8 +282,8 @@ def test_small_hashes_match_on_macos_and_linux(tmp_path: Path) -> None:
     package = make_snapshot(tmp_path / "d", preset="small")  # default markets KR, US; seed 0
     hashes = json.loads((package / "tds.json").read_text())["hashes"]
     assert (hashes["value_sha256"], hashes["semantic_sha256"]) == (
-        "e9d34e7e8e348bd462f9ed945e2e337fea297faff6b06c781eb21eb6c153f521",
-        "8fc4df0283ca5c259cebb5cf916abbde2e7e2e090ef99177e9593ee16c320528",  # #276: availability
+        "832d2480f2e1f08bf322e0e8367e268ecb9a6001396c2baf8a6728b7f9295c90",
+        "816806402e7ebff5b14df947df52c9ca09b32671ff77479ef9a94f3df0041fdd",  # #276: availability
     )
 
 
@@ -306,7 +307,8 @@ def test_small_value_path_uses_no_platform_math() -> None:
     for step in (synth._small, synth._actions, synth._terms, synth._dividend, synth._revise,
                  synth._move, synth._delistings, synth._exit_value, synth._snap, synth._ratios,
                  synth._kr_rows, synth._tradability, synth._sample, synth._halts, synth._limits,
-                 synth._wobble, synth._status, synth._last_traded):  # fmt: skip
+                 synth._wobble, synth._status, synth._last_traded, synth._share_counts,
+                 synth._eligibility):  # fmt: skip
         assert not called_names(inspect.getsource(step)) & PLATFORM_MATH, step.__name__
     # the check refuses what it is for, so the pass above is not vacuous
     bad = "def f(rng, p):\n    return np.exp(rng.normal(0, 1)) * p.sqrt() + math.log(2) ** 2\n"
@@ -406,6 +408,8 @@ def test_small_declares_availability_for_every_dataset_with_an_instant(small: Pa
         "delistings": {"exit": "ts_exit_known", "value": "ts_value_available"},
         "bars_1d": {"rule": "ts_end"},
         "tradability_daily": None,  # its rules are `params.availability_by_column` (6.2, 5.10)
+        "share_counts": {"column": "ts_available"},
+        "eligibility_daily": {"rule": "session_close"},
     }
     (status,) = (d for d in manifest["datasets"] if d["name"] == "tradability_daily")
     assert status["params"]["availability_by_column"]
@@ -533,3 +537,68 @@ def test_tradability_rows_by_market(small: Path) -> None:
     by_column = entry["params"]["availability_by_column"]  # TDS 5.10: before and after the day
     assert by_column["up_limit_price"] == by_column["admin_status"] == "session_open"
     assert by_column["halted_full_day"] == by_column["locked_down"] == "session_close"
+
+
+def by_bar(package: Path, kind: str) -> dict[tuple[str, dt.date], dict[str, Any]]:
+    return {(r["instrument_id"], r["session_date"]): r for r in rows(package, kind)}
+
+
+def test_eligibility_no_lookahead(small: Path) -> None:
+    manifest = json.loads((small / "tds.json").read_text(encoding="utf-8"))
+    (entry,) = (d for d in manifest["datasets"] if d["kind"] == "eligibility_daily")
+    assert entry["availability"] == {"rule": "session_close"}  # not v2's session_open (RV-C09)
+    assert entry["params"] == {"missing_means": False}  # no row yet: not eligible
+    calendar = {r["instrument_id"]: r["calendar_id"] for r in rows(small, "instruments")}
+    hours = {(r["calendar_id"], r["session_date"]): (r["ts_open"], r["ts_close"])
+             for r in rows(small, "calendar_sessions")}  # fmt: skip
+    bars, status = by_bar(small, "bars"), by_bar(small, "tradability_daily")
+    runs: dict[str, str] = {}  # each instrument's eligibility, one letter per change
+    for e in sorted(rows(small, "eligibility_daily"),
+                    key=lambda r: (r["instrument_id"], r["session_date"])):  # fmt: skip
+        iid, day = e["instrument_id"], e["session_date"]
+        opens, closes = hours[calendar[iid], day]
+        assert e["ts_available"] == closes > opens  # a decision at its own open cannot read it
+        traded = bars[iid, day]["obs_status"] == "traded"  # that day's own result
+        admin = status[iid, day]["admin_status"] == "administrative"
+        assert (e["rule_id"], e["is_eligible"]) == ("investable-v1", traded and not admin)
+        assert e["reason"] == (None if e["is_eligible"] else
+                               "no_price" if not traded else "administrative")  # fmt: skip
+        letter = "T" if e["is_eligible"] else "F"
+        runs[iid] = runs.get(iid, "") + ("" if runs.get(iid, " ")[-1:] == letter else letter)
+    assert len(runs) == len(calendar)
+    changed = [iid for iid, run in runs.items() if "FTF" in run]
+    assert changed  # out, back in and out again, each change readable only at its close
+    assert {e["reason"] for e in rows(small, "eligibility_daily")} == {
+        None, "no_price", "administrative"}  # fmt: skip
+
+
+def test_share_counts_follow_share_events(small: Path) -> None:
+    bars, end = (
+        by_bar(small, "bars"),
+        max(r["session_date"] for r in rows(small, "calendar_sessions")),
+    )
+    days: dict[str, list[dt.date]] = {}
+    for iid, day in sorted(bars):
+        days.setdefault(iid, []).append(day)
+    counts: dict[str, list[dict[str, Any]]] = {}
+    for r in sorted(rows(small, "share_counts"), key=lambda r: r["as_of_date"]):
+        counts.setdefault(r["instrument_id"], []).append(r)
+    for iid, held in counts.items():
+        kr = iid.startswith("KR:")
+        assert {r["count_kind"] for r in held} == {"listed" if kr else "outstanding"}
+        on = [bars[iid, days[iid][bisect.bisect_right(days[iid], r["as_of_date"]) - 1]]
+              for r in held]  # the last bar on or before each count  # fmt: skip
+        start = held[0]["shares"] * on[0]["cum_factor_split"]
+        for r, bar in zip(held, on, strict=True):  # the first count moved by the share events
+            moved = on[0]["cum_factor_split"] / bar["cum_factor_split"]  # since, fractions cut
+            assert abs(r["shares"] - start / bar["cum_factor_split"]) < 1 + moved
+            if kr:  # every session, known at its close
+                assert (r["as_of_date"], r["ts_available"]) == (bar["session_date"], bar["ts_end"])
+            else:  # each quarter's last day, filed 40 days later inside the period
+                assert (r["as_of_date"] + dt.timedelta(1)).day == 1
+                assert r["as_of_date"].month % 3 == 0
+                assert r["ts_available"] == dt.datetime.combine(
+                    r["as_of_date"] + dt.timedelta(40), dt.time(21), UTC)  # fmt: skip
+                assert r["ts_available"].date() <= end
+    assert sum(len(v) for k, v in counts.items() if k.startswith("KR:")) == sum(
+        k[0].startswith("KR:") for k in bars)  # fmt: skip
