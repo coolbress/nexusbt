@@ -24,6 +24,7 @@ import pyarrow.parquet as pq
 import pytest
 
 from nexusbt.testing import _synth_daily as daily
+from nexusbt.testing import _synth_events as events
 from nexusbt.testing import synth
 from nexusbt.testing.synth import a001, main, make_snapshot, read
 
@@ -603,3 +604,51 @@ def test_share_counts_follow_share_events(small: Path) -> None:
                 assert r["ts_available"].date() <= end
     assert sum(len(v) for k, v in counts.items() if k.startswith("KR:")) == sum(
         k[0].startswith("KR:") for k in bars)  # fmt: skip
+
+
+def first_versions(package: Path) -> dict[tuple[str, dt.date], str]:
+    return {(r["instrument_id"], r["ex_date"]): r["kind"]
+            for r in rows(package, "corporate_actions") if r["revision_of"] is None}  # fmt: skip
+
+
+def test_injected_event_overrides_random(tmp_path: Path, tiny: Path) -> None:
+    # spec 4.8 EventSpec: on its day the injected event replaces that instrument's random one
+    short: dict[str, Any] = {"markets": ("KR",), "start": dt.date(2019, 1, 2), "n_kr": 20}
+    drawn = first_versions(make_snapshot(tmp_path / "a", **short))
+    (iid, day) = next(key for key, kind in sorted(drawn.items()) if kind == "cash_dividend")
+    split = {"dataset": "corporate_actions", "kind": "split", "instrument_id": iid,
+             "ex_date": day.isoformat(), "ratio_new_per_old": 2.0}  # fmt: skip
+    package = make_snapshot(tmp_path / "b", **short, events=[split])
+    assert first_versions(package) == drawn | {(iid, day): "split"}  # the others as drawn
+    (row,) = (r for r in rows(package, "corporate_actions") if r["instrument_id"] == iid
+              and r["ex_date"] == day)  # fmt: skip
+    assert (row["ratio_num"], row["ratio_den"], row["price_factor"]) == (2, 1, 0.5)
+    assert a001(read(package, "corporate_actions"), read(package, "bars_1d")) == 0
+    assert files_of(make_snapshot(tmp_path / "c", **short, events=[split])) == files_of(package)
+    # tiny's hand-set bars move too, so A001 stays 0 there
+    ex, cash = dt.date(2020, 2, 3), {"kind": "cash_dividend", "cash_per_share": 0.2}
+    injected = [split | {"instrument_id": "KR:T00001", "ex_date": ex.isoformat()},
+                split | cash | {"instrument_id": "US:T00002", "ex_date": ex}]  # fmt: skip
+    moved = make_snapshot(tmp_path / "t", preset="tiny", events=injected)
+    assert a001(read(moved, "corporate_actions"), read(moved, "bars_1d")) == 0
+    plain = {(b["instrument_id"], b["session_date"]): b for b in rows(tiny, "bars")}
+    for b in (b for b in rows(moved, "bars") if b["instrument_id"] == "KR:T00001"):
+        was = plain["KR:T00001", b["session_date"]]
+        after = b["session_date"] >= ex
+        assert (b["close"], b["cum_factor_split"]) == (was["close"] / (1 + after), 1 / (1 + after))
+    (dividend,) = (r for r in rows(moved, "corporate_actions") if r["kind"] == "cash_dividend")
+    assert dividend["pay_date"] == dividend["declared_date"] + dt.timedelta(30)
+    assert (dividend["resolution_body"], dividend["ts_terms_available"]) == (None, None)
+    for wrong, error, words in (
+        ({"dataset": "fundamentals_state"}, NotImplementedError, "not generated until M2"),
+        ({"dataset": "delistings"}, NotImplementedError, "not injected yet"),
+        ({"kind": "merger"}, ValueError, "kind one of"),
+        ({"ex_date": "2020-01-25"}, ValueError, "a session of its listing"),
+        ({"price_factor": 0.25}, ValueError, "derived columns .'price_factor'"),
+        (cash | {"cash_per_share": 1e9}, ValueError, "cash_per_share must be in"),
+        ({"ratio_new_per_old": -2.0}, ValueError, "ratio must be positive"),
+    ):  # fmt: skip
+        with pytest.raises(error, match=words):
+            make_snapshot(tmp_path / "x", preset="tiny", events=[injected[0] | wrong])
+    for step in (events._cash, events._ratio, events.given, events.targets, synth._tiny_actions):
+        assert not called_names(inspect.getsource(step)) & PLATFORM_MATH, step.__name__
