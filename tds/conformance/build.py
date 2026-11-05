@@ -212,6 +212,35 @@ def _ranged(second_from: str) -> Change:
     return change
 
 
+def _symbols(second_from: dt.date) -> Change:
+    """Ticker AAA: US:AAA from 2024-01-02 until 2024-06-03, then US:BBB from `second_from`."""
+
+    def change(m: dict[str, Any], files: Files) -> None:
+        both = pa.concat_tables([instruments(), instruments(instrument_id=pa.array(["US:BBB"]))])
+        rewrite(m, files, INSTRUMENTS, both)
+        _add("instrument_symbols", {
+            "instrument_id": ["US:AAA", "US:BBB"], "symbol_type": ["ticker"] * 2,
+            "symbol": ["AAA"] * 2, "venue_mic": ["XNYS"] * 2,
+            "valid_from": pa.array([dt.date(2024, 1, 2), second_from]),
+            "valid_to": pa.array([dt.date(2024, 6, 3), None]),
+            "ts_known_from": pa.array([NEW_YEAR] * 2, TS_UTC),
+            "ts_known_to": pa.array([None] * 2, TS_UTC),
+        })(m, files)  # fmt: skip
+
+    return change
+
+
+def _sessions(first: int) -> Change:
+    """XNYS sessions 2024-01-02 and 2024-01-03 numbered from `first` (TDS 5.4)."""
+    days = [dt.datetime(2024, 1, d, tzinfo=dt.UTC) for d in (2, 3)]
+    return _add("calendar_sessions", {
+        "calendar_id": ["XNYS"] * 2, "session_date": pa.array([d.date() for d in days]),
+        "ts_open": pa.array([d.replace(hour=14, minute=30) for d in days], TS_UTC),
+        "ts_close": pa.array([d.replace(hour=21) for d in days], TS_UTC),
+        "session_ord": pa.array([first, first + 1], pa.int32()), "session_kind": ["regular"] * 2,
+    })  # fmt: skip
+
+
 WRONG = "0" * 64
 
 
@@ -351,6 +380,8 @@ CASES: dict[str, tuple[Change, Change]] = {
     "TDS-K002": (_bars_on(2, 3), _bars_on(3, 2)),
     "TDS-K003": (_keep, _bars(session_date=pa.array([dt.date(2025, 1, 2)]))),  # in year=2024
     "TDS-K004": (_ranged("2024-01-03T00-00-00Z"), _ranged("2024-01-02T12-00-00Z")),
+    "TDS-K010": (_symbols(dt.date(2024, 6, 3)), _symbols(dt.date(2024, 6, 1))),
+    "TDS-K011": (_sessions(0), _sessions(1)),
     **{
         code: (_hashes(code, False), _hashes(code, True))
         for code in ("TDS-H001", "TDS-H002", "TDS-H003")

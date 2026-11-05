@@ -51,7 +51,7 @@ def test_S_codes(code: str, tmp_path: Path) -> None:
     assert codes(build.write(tmp_path / "pass", *build.package(code, "pass")), "schema") == []
 
 
-K_CODES = ["TDS-K001", "TDS-K002", "TDS-K003", "TDS-K004"]  # K010, K011: the next part of #224
+K_CODES = ["TDS-K001", "TDS-K002", "TDS-K003", "TDS-K004", "TDS-K010", "TDS-K011"]
 
 
 @pytest.mark.parametrize("code", K_CODES)
@@ -69,6 +69,40 @@ def _custom_in_year(m: dict[str, Any], f: Any) -> None:  # no schema: no key, so
     rel = "x_custom/year=2024/part-00000.parquet"
     f[rel] = f.pop("x_custom/part-00000.parquet")
     m["datasets"][-1]["files"][0]["path"] = rel
+
+
+MARCH = dt.datetime(2024, 3, 1, tzinfo=dt.UTC)
+
+
+def _symbols(edit: Any) -> Any:
+    """K010's fail package (AAA, then BBB on ticker AAA) with its rows changed by `edit`."""
+
+    def change(m: dict[str, Any], f: Any) -> None:
+        build.CASES["TDS-K010"][1](m, f)
+        rel = "instrument_symbols/part-00000.parquet"
+        rows = (table := pq.read_table(pa.BufferReader(f[rel]))).to_pylist()
+        edit(rows)
+        build.rewrite(m, f, rel, pa.Table.from_pylist(rows, table.schema))
+
+    return change
+
+
+def _unknown(rows: list[Any]) -> None:  # AAA known until March, BBB from null: the calendar's
+    rows[0]["ts_known_to"], rows[1]["ts_known_from"] = MARCH, None
+
+
+def _unknown_then_found(rows: list[Any]) -> None:  # A00 vs AAA undecided; A00 vs BBB overlap
+    rows[0]["ts_known_to"] = MARCH
+    rows.insert(
+        0, rows[0] | {"instrument_id": "US:A00", "ts_known_from": None, "ts_known_to": None}
+    )
+
+
+def _no_venue(m: dict[str, Any], f: Any) -> None:  # a symbol column missing: K010 not judged
+    build.CASES["TDS-K010"][1](m, f)
+    rel = "instrument_symbols/part-00000.parquet"
+    table = pq.read_table(pa.BufferReader(f[rel])).drop_columns(["venue_mic"])
+    build.rewrite(m, f, rel, table)
 
 
 def _ranges(*names: str) -> Any:
@@ -115,6 +149,9 @@ def _not_parquet(m: dict[str, Any], f: Any) -> None:  # S010: no rows read, no K
         (_ranges("part-00000", "part-00001"), [], []),  # no range in the name
         (_ranges(_A, _B, _C), ["TDS-K004"] * 2, []),
         (_custom_in_year, [], ["TDS-K001", "TDS-K002", "TDS-K003"]),
+        (_symbols(_unknown), [], ["TDS-K010"]),
+        (_symbols(_unknown_then_found), ["TDS-K010"], []),
+        (_no_venue, [], ["TDS-K001", "TDS-K002", "TDS-K010"]),  # venue_mic is in key and sort
         (_weekly, ["TDS-K002"], []),
         (_not_parquet, [], K_CODES),
         (lambda m, f: f.pop(build.BARS), [], []),  # M004: a missing file has no rows
