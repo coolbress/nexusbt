@@ -1217,23 +1217,28 @@ tds export {zipline-bundle|nautilus-catalog|wide-parquet} ... # 9.8
 
 ### 9.5 CSV → TDS
 
-- 머리줄 있는 UTF-8 CSV. 칼럼 이름이 TDS 이름과 같으면 그대로, 다르면 대응 파일:
+- 머리줄 있는 UTF-8 CSV. 대응 파일 하나가 패키지를 기술한다: `profiles`, `market`, 그리고 `datasets` 아래 데이터셋마다 `file`(대응 파일 옆의 CSV)을 가진 블록 하나. 칼럼 이름이 TDS 이름과 같으면 그대로, 다르면 `columns`에서 대응시킨다 [2026-11-05, #257]:
 
 ```yaml
 # mapping.yaml
-dataset: bars
-params: {freq: 1d, price_basis: raw, density: sparse}
+profiles: [tds:minimal-daily@1.0]
 market: {code: KR, calendar_id: XKRX, currency: KRW, timezone: Asia/Seoul}
-columns:
-  instrument_id: {from: code, template: "KR:{value}"}
-  session_date: {from: date, format: "%Y%m%d"}
-  close: {from: 종가}
-  volume: {from: 거래량}
-availability: {rule: ts_end}
+datasets:
+  instruments:
+    file: instruments.csv
+  bars:
+    file: bars.csv
+    params: {freq: 1d, price_basis: raw, density: sparse}
+    columns:
+      instrument_id: {from: code, template: "KR:{value}"}
+      session_date: {from: date, format: "%Y%m%d"}
+      close: {from: 종가}
+      volume: {from: 거래량}
+    availability: {rule: ts_end}
 ```
 
 - 대응 파일은 JSON이거나, 중첩된 `key: value` 줄, `- ` 목록, 흐름 형식 `{a: b}`와 `[a, b]`, 작은따옴표와 큰따옴표, `#` 주석만 쓴 YAML이며, 따옴표 없는 값은 글로 읽고 그 밖의 형식은 그 줄을 가리키는 오류로 JSON으로 쓰게 한다 [2026-11-05, #257].
-- 시각 글은 RFC 3339(`Z` 또는 오프셋 필수). 오프셋 없는 시각은 `timezone`을 지정해야 하고, 서머타임 겹침 시각은 오류(`TDS-S004`)로 거절.
+- 시각 글은 RFC 3339(`Z` 또는 오프셋 필수). 오프셋 없는 시각은 `timezone`을 지정해야 하고, 서머타임 겹침 시각은 오류(`TDS-S004`)로 거절. 서머타임 전환이 건너뛴 지역 시각도 옮기지 않고 오류로 거절 [2026-11-05, #257].
 - 숫자 결측은 빈칸. `NaN`, `-`, `0` 결측 표시는 대응 파일의 `missing_values`로만.
 
 ### 9.6 Qlib → TDS

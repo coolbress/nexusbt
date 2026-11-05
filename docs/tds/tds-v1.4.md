@@ -1217,23 +1217,28 @@ The opposite direction (`tds export nautilus-catalog`) is the default path of E4
 
 ### 9.5 CSV → TDS
 
-- UTF-8 CSV with a header line. Column names equal to TDS names are used as is; otherwise a mapping file:
+- UTF-8 CSV with a header line. One mapping file describes the package: its `profiles`, its `market`, and under `datasets` one block per dataset with `file` (the CSV, beside the mapping file). Column names equal to TDS names are used as is; others are mapped in `columns` [2026-11-05, #257]:
 
 ```yaml
 # mapping.yaml
-dataset: bars
-params: {freq: 1d, price_basis: raw, density: sparse}
+profiles: [tds:minimal-daily@1.0]
 market: {code: KR, calendar_id: XKRX, currency: KRW, timezone: Asia/Seoul}
-columns:
-  instrument_id: {from: code, template: "KR:{value}"}
-  session_date: {from: date, format: "%Y%m%d"}
-  close: {from: 종가}
-  volume: {from: 거래량}
-availability: {rule: ts_end}
+datasets:
+  instruments:
+    file: instruments.csv
+  bars:
+    file: bars.csv
+    params: {freq: 1d, price_basis: raw, density: sparse}
+    columns:
+      instrument_id: {from: code, template: "KR:{value}"}
+      session_date: {from: date, format: "%Y%m%d"}
+      close: {from: 종가}
+      volume: {from: 거래량}
+    availability: {rule: ts_end}
 ```
 
 - The mapping file may be JSON, or YAML of these forms only: nested `key: value` lines, `- ` lists, the flow forms `{a: b}` and `[a, b]`, single and double quotes and `#` comments, with plain values read as text and any other form an error naming its line, to be written as JSON [2026-11-05, #257].
-- Time text is RFC 3339 (`Z` or an offset required). Times without an offset require `timezone`, and times in a daylight-saving overlap are rejected as an error (`TDS-S004`).
+- Time text is RFC 3339 (`Z` or an offset required). Times without an offset require `timezone`, and times in a daylight-saving overlap are rejected as an error (`TDS-S004`); a local time that a daylight-saving change skips is an error too, never shifted [2026-11-05, #257].
 - Numeric missing values are empty fields. `NaN`, `-`, `0` as missing markers only via `missing_values` in the mapping file.
 
 ### 9.6 Qlib → TDS
