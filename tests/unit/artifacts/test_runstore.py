@@ -232,7 +232,7 @@ def test_sources_captured_with_helpers(tmp_path: Path) -> None:
 
     txn = begin(tmp_path / "runs")
     txn.write_table("daily", TABLE)
-    txn.capture_sources(imported, project=project)
+    txn.capture_sources(imported, project=project, entry=imported[0])
     folder = txn.seal().path
 
     assert {"manifest.json", "SEALED", "source"} <= {p.name for p in folder.iterdir()}
@@ -246,6 +246,9 @@ def test_sources_captured_with_helpers(tmp_path: Path) -> None:
     manifest = json.loads((folder / "manifest.json").read_text())
     assert "source/lib/helpers.py" in manifest["outputs"]  # the seal pins the source too
     assert not os.access(source / "strategy.py", os.W_OK)
+    assert manifest["source"] == {"entry": "strategy.py"}
+    checkout_lock = Path(__file__).resolve().parents[3] / "uv.lock"  # a source checkout's
+    assert (source / "engine-uv.lock").read_bytes() == checkout_lock.read_bytes()
 
 
 def test_sources_record_git_state(tmp_path: Path) -> None:
@@ -258,7 +261,80 @@ def test_sources_record_git_state(tmp_path: Path) -> None:
     (project / "strategy.py").write_text("a = 2\n", encoding="utf-8")  # changed, not staged
 
     txn = begin(tmp_path / "runs")
-    txn.capture_sources([project / "strategy.py"], project=project)
+    txn.capture_sources([], project=project, entry=project / "strategy.py")
     recorded = json.loads((txn.seal().path / "source" / "git.json").read_text())
     assert len(recorded["head"]) == 40
     assert recorded["status"] == " M strategy.py"  # the leading space says "not staged"
+
+
+def test_an_entry_file_outside_the_project_is_captured(tmp_path: Path) -> None:
+    project, scratch = tmp_path / "project", tmp_path / "scratch"
+    for folder in (project, scratch):
+        folder.mkdir()
+    entry = scratch / "my.py"
+    entry.write_text("# run me\n", encoding="utf-8")
+
+    txn = begin(tmp_path / "runs")
+    txn.capture_sources([entry], project=project, entry=entry)
+    folder = txn.seal().path
+
+    assert (folder / "source" / "_entry" / "my.py").read_text() == "# run me\n"
+    manifest = json.loads((folder / "manifest.json").read_text())
+    assert manifest["source"] == {"entry": "_entry/my.py"}  # the path under `source/`
+    assert "source/_entry/my.py" in manifest["outputs"]  # the seal pins it
+
+
+def test_an_entry_file_inside_the_project_is_captured_though_not_imported(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    (project / "strategies").mkdir(parents=True)
+    (project / "strategies" / "mom.py").write_text("# mom\n", encoding="utf-8")
+
+    txn = begin(tmp_path / "runs")
+    txn.capture_sources([], project=project, entry=project / "strategies" / "mom.py")
+    folder = txn.seal().path
+
+    assert (folder / "source" / "strategies" / "mom.py").read_text() == "# mom\n"
+    assert not (folder / "source" / "_entry").exists()
+    manifest = json.loads((folder / "manifest.json").read_text())
+    assert manifest["source"] == {"entry": "strategies/mom.py"}
+
+
+def test_a_run_with_no_entry_file_seals_with_a_warning(tmp_path: Path) -> None:
+    txn = begin(tmp_path / "runs")
+    with pytest.warns(UserWarning, match="no entry file"):
+        txn.capture_sources([], project=tmp_path, entry=None)
+    folder = txn.seal().path
+    assert json.loads((folder / "manifest.json").read_text())["source"] == {"entry": None}
+
+
+@pytest.mark.parametrize("case", ["missing", "unreadable", "taken"])
+def test_an_entry_file_that_cannot_be_captured_fails_the_run(tmp_path: Path, case: str) -> None:
+    project, runs, entry = tmp_path / "project", tmp_path / "runs", tmp_path / "my.py"
+    (project / "_entry").mkdir(parents=True)
+    taken = project / "_entry" / "my.py"  # a project file at the outside entry's path
+    taken.write_text("# not the entry\n", encoding="utf-8")
+    if case != "missing":
+        entry.write_text("# entry\n", encoding="utf-8")
+    if case == "unreadable":
+        entry.chmod(0)
+    txn = begin(runs)
+    with pytest.raises(OSError, match=r"my\.py"):
+        txn.capture_sources([taken] if case == "taken" else [], project=project, entry=entry)
+    assert status(runs, txn.run_id) == "aborted"
+    assert list(runs.glob(".tmp-*")) == []
+
+
+def test_a_run_without_the_engine_lock_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("nexusbt.artifacts._runstore._ENGINE_LOCK", None)  # not a checkout
+    monkeypatch.setattr("nexusbt.artifacts._runstore._SHIPPED_LOCK", "resources/missing.lock")
+    runs, entry = tmp_path / "runs", tmp_path / "s.py"
+    entry.write_text("", encoding="utf-8")
+    txn = begin(runs)
+    with pytest.raises(FileNotFoundError, match=r"engine uv\.lock"):
+        txn.capture_sources([], project=tmp_path, entry=entry)
+    assert status(runs, txn.run_id) == "aborted"
+    assert list(runs.glob(".tmp-*")) == []
