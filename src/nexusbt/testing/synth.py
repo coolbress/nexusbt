@@ -798,8 +798,11 @@ FIELDS: dict[str, dict[str, Any]] = {
         "columns": _typed(("ts_start", "ts_us"), ("ts_end", "ts_us"))},
     "instrument_xref": {"columns": _typed(
         (ID, "id"), ("id_type", "code"), ("link_quality", "code"), ("source", "string"))},
-    "corporate_actions": {  # TDS 6.2: two availability times
+    # TDS 4.2, 6.2: availability as the columns that hold it (#276)
+    "instrument_symbols": {"availability": {"column": "ts_known_from"}},
+    "corporate_actions": {
         "availability": {"effect": "ts_effective", "terms": "ts_terms_available"}},
+    "delistings": {"availability": {"exit": "ts_exit_known", "value": "ts_value_available"}},
     "tradability_daily": {
         "path": "tradability_daily/freq=1d", "params": {"availability_by_column": BY_COLUMN},
         "columns": _typed((ID, "id"), ("session_date", "date"))},
@@ -807,7 +810,7 @@ FIELDS: dict[str, dict[str, Any]] = {
         "availability": {"rule": "session_close"}, "params": {"missing_means": False},
         "columns": _typed(("rule_id", "id"), (ID, "id"), ("session_date", "date"),
                           ("is_eligible", "bool"), ("ts_available", "ts_us"))},
-    "share_counts": {"columns": _typed(
+    "share_counts": {"availability": {"column": "ts_available"}, "columns": _typed(
         (ID, "id"), ("count_kind", "code"), ("ts_available", "ts_us"), ("source", "string"))},
 }  # fmt: skip
 #: TDS 5.3 `instrument_xref`, written empty (4.8 (2)).

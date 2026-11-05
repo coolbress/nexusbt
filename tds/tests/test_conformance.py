@@ -42,7 +42,7 @@ def test_M_codes(code: str, tmp_path: Path) -> None:
     assert codes(package / "fail", "schema") == [code]  # also at the CLI's default level
 
 
-@pytest.mark.parametrize("code", [*S_CODES, "TDS-T006", "TDS-D002"])  # T, D: statistics (8.2)
+@pytest.mark.parametrize("code", [*S_CODES, "TDS-T002", "TDS-T006", "TDS-D002"])  # 8.2
 def test_S_codes(code: str, tmp_path: Path) -> None:
     fail = build.write(tmp_path / "fail", *build.package(code, "fail"))
     assert codes(fail, "schema") == [code]
@@ -352,6 +352,80 @@ def test_T006_from_the_statistics(
     assert ("TDS-T006" in check(tmp_path, level="full").unchecked) is unchecked
 
 
+def _state(ts_known_from: dt.datetime, availability: object) -> Any:
+    """A US `fundamentals_state` row known at `ts_known_from`, US `complete_through` END."""
+
+    def change(m: dict[str, Any], f: Any) -> None:
+        _rule("ts_end", ts_end=_ts(END))(m, f)  # bars T006 can pass
+        rel = "fundamentals_state/market=US/part-00000.parquet"
+        row = {"instrument_id": ["US:AAA"], "item": ["revenue"], "period_end": build.DAY,
+               "ts_known_from": _ts(ts_known_from), "period_kind": ["FY"],
+               "statement_basis": ["consolidated"], "value": [1.0], "unit": ["USD"],
+               "scale": pa.array([0], pa.int8()), "strict_eligible": [True],
+               "vendor_input": [False], "resolution_policy": ["fund-resolution-v1"]}  # fmt: skip
+        f[rel] = build.parquet(pa.table(row), "fundamentals_state")
+        m["datasets"].append({"name": "fundamentals_state", "kind": "fundamentals_state",
+                              "schema_version": "1.0", "path": "fundamentals_state",
+                              "availability": availability,
+                              "files": [{"path": rel, "bytes": len(f[rel])}]})  # fmt: skip
+
+    return change
+
+
+@pytest.mark.parametrize(
+    ("change", "found", "unchecked"),
+    [  # TDS 4.2 `{"column": "ts_known_from"}`: T006 reads that column's statistics (#276)
+        (_state(END, {"column": "ts_known_from"}), [], False),
+        (_state(END + TICK, {"column": "ts_known_from"}), ["TDS-T006"], False),
+        (_state(END + TICK, None), [], True),  # no availability: its instant is unknown
+    ],
+)
+def test_T006_reads_the_named_column(
+    change: Any, found: list[str], unchecked: bool, tmp_path: Path
+) -> None:
+    result = check(write(tmp_path, change), level="schema")
+    assert [f.code for f in result.errors] == found
+    assert {f.dataset for f in result.errors} <= {"fundamentals_state"}
+    assert ("TDS-T006" in result.unchecked) is unchecked
+
+
+def _action(terms: dt.datetime | None, announced: dt.datetime | None = None) -> Any:
+    """A US cash dividend effective an hour after END, its terms public at `terms`."""
+
+    def change(m: dict[str, Any], f: Any) -> None:
+        _rule("ts_end", ts_end=_ts(END))(m, f)  # bars T006 can pass
+        rel = "corporate_actions/market=US/part-00000.parquet"
+        row = {"event_id": ["US:E1"], "instrument_id": ["US:AAA"], "kind": ["cash_dividend"],
+               "ex_date": build.DAY, "ts_effective": _ts(END + HOUR),
+               "ts_terms_available": _ts(terms), "ts_announced": _ts(announced),
+               "pay_date_status": ["confirmed"], "affects": ["cash"], "factor_method": ["none"],
+               "status": ["active"]}  # fmt: skip
+        f[rel] = build.parquet(pa.table(row), "corporate_actions")
+        form = {"effect": "ts_effective", "terms": "ts_terms_available"}
+        m["datasets"].append({"name": "corporate_actions", "kind": "corporate_actions",
+                              "schema_version": "1.0", "path": "corporate_actions",
+                              "availability": form,
+                              "files": [{"path": rel, "bytes": len(f[rel])}]})  # fmt: skip
+
+    return change
+
+
+@pytest.mark.parametrize(
+    ("change", "found", "unchecked"),
+    [  # 6.2: the effect instant is not an availability instant; T006 reads the terms only
+        (_action(terms=END), [], False),  # announced, effective after the watermark: no T006
+        (_action(terms=END + TICK), ["TDS-T006"], False),
+        (_action(terms=None, announced=END), [], True),  # the fallback is in the rows
+    ],
+)
+def test_T006_reads_the_terms_of_a_corporate_action(
+    change: Any, found: list[str], unchecked: bool, tmp_path: Path
+) -> None:
+    result = check(write(tmp_path, change), level="schema")
+    assert [f.code for f in result.errors] == found
+    assert ("TDS-T006" in result.unchecked) is unchecked
+
+
 def _days(*days: dt.date, ids: tuple[str, ...] = ("US:AAA",), **listing: Any) -> Any:
     """Bars on `days` of `ids`, instruments (`listing`: their columns) and an XNYS calendar."""
     sessions = pa.table({
@@ -491,6 +565,11 @@ def test_M013_duplicate_path(tmp_path: Path) -> None:
         ("availability", {"rule": "ts_end+15min"}),
         ("availability", {"rule": 15}),
         ("availability", "ts_end_when_ready"),  # a bare rule string is read too
+        ("availability", {"known": "ts_known_from"}),  # none of 4.2's forms (#276)
+        ("availability", {"column": "ts_known_from", "terms": "ts_terms_available"}),
+        ("availability", {"exit": "ts_exit_known"}),  # half of the two-instant form
+        ("availability", {"column": 1}),
+        ("availability", 15),
         ("hashes", {"hash_spec": ["tds-hash-1"]}),  # not a string: a finding, never a crash
         (
             "params",
@@ -561,6 +640,19 @@ KNOWN_RULES += " next_session_open(known_on) ts_recv ts_recv+PT0.5S ts_recv_else
 def test_known_availability_rules_pass(rule: str, tmp_path: Path) -> None:
     package = write(tmp_path, lambda m, f: build.bars(m).update(availability={"rule": rule}))
     assert codes(package) == []
+
+
+@pytest.mark.parametrize(
+    "form",
+    [  # TDS 4.2, 6.2: the column forms (#276)
+        {"column": "ts_available"},
+        {"column": "ts_known_from"},
+        {"effect": "ts_effective", "terms": "ts_terms_available"},
+        {"exit": "ts_exit_known", "value": "ts_value_available"},
+    ],
+)
+def test_availability_column_forms_pass(form: dict[str, str], tmp_path: Path) -> None:
+    assert codes(write(tmp_path, lambda m, f: build.bars(m).update(availability=form))) == []
 
 
 def test_M010_coverage_names_an_undeclared_market(tmp_path: Path) -> None:
