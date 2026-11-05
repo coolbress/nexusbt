@@ -197,6 +197,36 @@ def _watermark(ts_end: dt.datetime) -> Change:
     return change
 
 
+def _column_forms(*, complete: bool) -> Change:
+    """`instrument_symbols` under `{"column": "ts_known_from"}` and `delistings` under
+    `{"exit": …, "value": …}` (TDS 4.2, 6.2); `complete`: the delistings file holds
+    `ts_value_available`, the second column its availability names (T002 otherwise)."""
+
+    def change(m: dict[str, Any], files: Files) -> None:
+        known = pa.array([THROUGH], pa.timestamp("us", "UTC"))
+        symbols = {"instrument_id": ["US:AAA"], "symbol_type": ["ticker"], "symbol": ["AAA"],
+                   "valid_from": DAY, "ts_known_from": known}  # fmt: skip
+        exits = {"delisting_id": ["US:L1"], "instrument_id": ["US:AAA"], "last_trading_date": DAY,
+                 "exit_date": DAY, "ts_exit_known": known, "delist_type": ["merger"],
+                 "ref_date": DAY, "ref_price": [10.0], "exit_value_status": ["observed"],
+                 "ret_lo": [0.0], "ret_hi": [0.0], "policy_id": ["exit-value-v1"]}  # fmt: skip
+        if complete:
+            exits["ts_value_available"] = known
+        forms = {
+            "instrument_symbols": (symbols, {"column": "ts_known_from"}),
+            "delistings": (exits, {"exit": "ts_exit_known", "value": "ts_value_available"}),
+        }
+        for name, (row, availability) in forms.items():
+            rel = f"{name}/part-00000.parquet"
+            files[rel] = parquet(pa.table(row), name)
+            entry = {"path": rel, "rows": 1, "bytes": len(files[rel])}
+            m["datasets"].append({"name": name, "kind": name, "schema_version": "1.0",
+                                  "path": name, "availability": availability,
+                                  "files": [entry]})  # fmt: skip
+
+    return change
+
+
 #: Code → (pass change, fail change). M005, M011 and S005 are warnings: their fail package warns.
 CASES: dict[str, tuple[Change, Change]] = {
     "TDS-M001": (_keep, lambda m, f: m.clear()),  # `[]` is written, see write()
@@ -252,6 +282,7 @@ CASES: dict[str, tuple[Change, Change]] = {
         _keep,  # `tds.dataset` is the dataset's name, `bars_1d` (TDS 3.7)
         _bars(meta={"tds.dataset": "bars", "tds.schema_version": "1.0"}),  # the kind, not the name
     ),
+    "TDS-T002": (_column_forms(complete=True), _column_forms(complete=False)),
     "TDS-T006": (_watermark(THROUGH), _watermark(THROUGH + dt.timedelta(microseconds=1))),
     "TDS-D002": (_keep, _bars(session_date=pa.array([dt.date(2024, 1, 1)]))),  # before listed_on
     **{

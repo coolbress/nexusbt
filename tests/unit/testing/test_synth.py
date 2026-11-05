@@ -282,7 +282,7 @@ def test_small_hashes_match_on_macos_and_linux(tmp_path: Path) -> None:
     hashes = json.loads((package / "tds.json").read_text())["hashes"]
     assert (hashes["value_sha256"], hashes["semantic_sha256"]) == (
         "e9d34e7e8e348bd462f9ed945e2e337fea297faff6b06c781eb21eb6c153f521",
-        "65b7624fbacdfadf9fa77972bfd6bed1dc531e7376785673ab92d25f10b107fd",
+        "8fc4df0283ca5c259cebb5cf916abbde2e7e2e090ef99177e9593ee16c320528",  # #276: availability
     )
 
 
@@ -391,6 +391,24 @@ def test_revisions_and_cancellations_present(
     assert code == 0, printed
     assert "TDS-A001: 0" in printed.splitlines()
     assert re.search(r"^corporate_actions revisions [1-9]\d*, cancellations [1-9]", printed, re.M)
+
+
+def test_small_declares_availability_for_every_dataset_with_an_instant(small: Path) -> None:
+    # TDS 4.2, 6.2 (#276); instruments and calendar_sessions are timeless (8.2), and
+    # instrument_xref has no known time in v1 (5.3)
+    manifest = json.loads((small / "tds.json").read_text(encoding="utf-8"))
+    assert {d["name"]: d.get("availability") for d in manifest["datasets"]} == {
+        "instruments": None,
+        "instrument_symbols": {"column": "ts_known_from"},
+        "instrument_xref": None,
+        "calendar_sessions": None,
+        "corporate_actions": {"effect": "ts_effective", "terms": "ts_terms_available"},
+        "delistings": {"exit": "ts_exit_known", "value": "ts_value_available"},
+        "bars_1d": {"rule": "ts_end"},
+        "tradability_daily": None,  # its rules are `params.availability_by_column` (6.2, 5.10)
+    }
+    (status,) = (d for d in manifest["datasets"] if d["name"] == "tradability_daily")
+    assert status["params"]["availability_by_column"]
 
 
 def test_delisted_on_matches_delistings(small: Path) -> None:
