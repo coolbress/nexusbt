@@ -201,6 +201,14 @@ def _without(kind: str, change: Any) -> Any:
     return out
 
 
+def _twice(m: dict[str, Any], f: Any) -> None:  # an earlier delisting read last: the latest counts
+    build.CASES["TDS-R008"][0](m, f)
+    rel = "delistings/part-00000.parquet"
+    rows = (table := pq.read_table(pa.BufferReader(f[rel]))).to_pylist()
+    rows.append(rows[0] | {"delisting_id": "US:L0", "exit_date": dt.date(2020, 1, 2)})
+    build.rewrite(m, f, rel, pa.Table.from_pylist(rows, table.schema))
+
+
 def _no_exits(m: dict[str, Any], f: Any) -> None:  # delisted_on set, delistings with no rows
     build.CASES["TDS-R008"][0](m, f)
     rel = "delistings/part-00000.parquet"
@@ -237,6 +245,7 @@ _NO_EXITS = ["TDS-R008"]  # nor delistings
             [*_NO_CAL, *_NO_EXITS],
         ),
         (_no_exits, ["TDS-R008"], _NO_CAL),  # R008: delisted_on set, no delistings row
+        (_twice, [], _NO_CAL),  # delisted twice; delisted_on is the latest exit_date
         (build._exits(delisted=False), ["TDS-R008"], _NO_CAL),  # a delisting, delisted_on null
         (_without("fundamentals_events", build._facts("F9")), [], [*_NO_CAL, *_NO_EXITS]),
         (_MOM, ["TDS-R009"], [*_NO_CAL, *_NO_EXITS]),  # no dictionary/columns: `mom` missing

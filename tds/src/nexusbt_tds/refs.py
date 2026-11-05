@@ -145,9 +145,13 @@ def _undescribed(
 
 
 def _delisted(listed: list[Row], exits: list[Row]) -> list[Finding]:
-    """R008 both ways: an instrument in `delistings` has `delisted_on` = `exit_date`, and an
-    instrument with a `delisted_on` has a row in `delistings`."""
-    on = {r.get("instrument_id"): r.get("exit_date") for r in exits}
+    """R008 both ways: an instrument in `delistings` has `delisted_on` = `exit_date` (its latest,
+    when it was delisted more than once), and an instrument with a `delisted_on` has a row in
+    `delistings`."""
+    on: dict[object, Any] = {}
+    for r in exits:  # in any row order: the latest exit_date
+        i, day = r.get("instrument_id"), r.get("exit_date")
+        on[i] = day if on.get(i) is None or (day is not None and day > on[i]) else on[i]
     bad = []
     for r in listed:
         i, day = r.get("instrument_id"), r.get("delisted_on")
