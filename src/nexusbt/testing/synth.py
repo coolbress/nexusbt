@@ -33,6 +33,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from nexusbt.contracts import ID_COLUMN as ID
+from nexusbt.testing import _synth_events as ev
 from nexusbt.testing._synth_daily import (
     OHLC,
     PRODUCER,
@@ -175,15 +176,15 @@ def _instruments(
 
 def _tiny_actions(
     market: str, ids: Sequence[str], days: Sequence[dt.date], records: list[dict[str, Any]],
-    events: Sequence[Mapping[str, Any]],
-) -> pa.Table:  # fmt: skip
-    """The injected events (4.8 `EventSpec`) on tiny's hand-set bars, which they move as in
-    small; tiny draws none of its own, and its prices stay off any grid."""
+    events: Sequence[Mapping[str, Any]], spans: tuple[list[int], list[int]], ended: dict[int, Any],
+) -> tuple[pa.Table, pa.Table]:  # fmt: skip
+    """The injected events and exits (4.8 `EventSpec`) on tiny's hand-set bars, which the
+    events move as in small; tiny draws none of its own, and its prices stay off any grid."""
     held = [[r for r in records if r[ID] == iid] for iid in ids]  # each listing's bars
-    first, last = [days.index(rs[0]["session_date"]) for rs in held], [len(days) - 1] * len(ids)
+    first, last = spans
     found = targets(events, ids, days, first, last)
-    if not found:
-        return CA.empty_table()
+    if not found and not ended:
+        return CA.empty_table(), DL.empty_table()
     hours = [_hours(MARKETS[market]["calendar_id"], d) for d in days]
     sessions = {"session_date": np.array(days, "datetime64[D]")} | {
         name: np.array([h[j].replace(tzinfo=None) for h in hours], "datetime64[us]")
@@ -195,26 +196,34 @@ def _tiny_actions(
     for k, c in itertools.product(range(len(ids)), names):
         for r, value in zip(held[k], bars[c][k].tolist(), strict=True):
             r[c] = value
-    return actions
+    rng = np.random.default_rng(0)  # 4.8 (6)'s draws for the columns an exit leaves out
+    return actions, _delistings(market, ids, first, last, sessions, bars, rng, ended)[0]
 
 
 def _tiny(market: str, events: Sequence[Mapping[str, Any]] = ()) -> dict[str, Table]:
-    calendar = MARKETS[market]["calendar_id"]
+    calendar, days = MARKETS[market]["calendar_id"], _sessions(MARKETS[market]["calendar_id"])
     ids = [(n, f"{market}:T{n:05d}") for n in range(1, COUNT + 1)]
     renamed, late = ids[RENAMED - 1][1], ids[COUNT - 1][1]
     venues = VENUES.get(market)  # by hand: odd numbers on the first MIC, even on the second
     mics = [venues[(n - 1) % 2] if venues else None for n, _ in ids]
-    instruments = _instruments(market, [i for _, i in ids], mics, [_listed_on(n) for n, _ in ids])
+    first, last = [days.index(_listed_on(n)) for n, _ in ids], [len(days) - 1] * COUNT
+    ended = ev.exits(events, [i for _, i in ids], days, first, last)  # sets `last`
+    instruments = _instruments(
+        market, [i for _, i in ids], mics, [_listed_on(n) for n, _ in ids],
+        last_session=[days[last[k]] if k in ended else None for k in range(COUNT)],
+        delisted_on=[days[last[k] + 1] if k in ended else None for k in range(COUNT)])  # fmt: skip
     old, new = _ticker(market, RENAMED), _ticker(market, RENAMED * 11)
     spans: list[tuple[str, str, dt.date, dt.date | None]]
     spans = [(iid, _ticker(market, n), START, None) for n, iid in ids if iid not in (renamed, late)]
     spans += [(renamed, old, START, TICKER_CHANGE), (renamed, new, TICKER_CHANGE, None)]
     spans += [(late, old, LATE_LISTING, None)]
-    days = _sessions(calendar)
+    ends = {ids[k][1]: days[last[k] + 1] for k in ended}  # a ticker ends with its listing
+    spans = [(i, t, f, min(to or ends[i], ends[i]) if i in ends else to)
+             for i, t, f, to in spans if f < ends.get(i, f + dt.timedelta(1))]  # fmt: skip
     bars = []
     for n, iid in ids:
         close = None
-        for k, day in enumerate(d for d in days if d >= _listed_on(n)):
+        for k, day in enumerate(days[first[n - 1] : last[n - 1] + 1]):
             price = n * CYCLE[k % 4] * 100.0 if market == "KR" else n * CYCLE[k % 4] / 10
             open_ = price if close is None else close
             ts_open, ts_close = _hours(calendar, day)
@@ -225,11 +234,12 @@ def _tiny(market: str, events: Sequence[Mapping[str, Any]] = ()) -> dict[str, Ta
                 "obs_status": "traded", "cum_factor_split": 1.0, "cum_factor_total": 1.0,
             })  # fmt: skip
             close = price
-    actions = _tiny_actions(market, [i for _, i in ids], days, bars, events)
+    actions, exited = _tiny_actions(market, [i for _, i in ids], days, bars, events,
+                                    (first, last), ended)  # fmt: skip
     bars.sort(key=lambda b: (b["session_date"], b[ID]))
     return {"instruments": instruments, "instrument_symbols": _symbols(spans),
             "bars_1d": _columns(bars), "corporate_actions": actions,
-            "delistings": DL.empty_table()}  # fmt: skip
+            "delistings": exited}  # fmt: skip
 
 
 def _tiny_calendar(calendar: str) -> Table:
@@ -273,6 +283,7 @@ def _small(
             first.append(max(listing, 0))
             last.append(min(exit_, len(days) - 1))
     ids = [f"{market}:T{k:05d}" for k in range(1, n + 1)]
+    ended = ev.exits(events, ids, days, first, last)  # an injected exit sets its `last`
     gone = [j < len(days) - 1 for j in last]
     end = [days[j + 1].item() if g else None for j, g in zip(last, gone, strict=True)]
     tickers = [f"Q{market}{k:04d}" for k in range(1, n + 1)]
@@ -322,8 +333,9 @@ def _small(
     mics = _venues(VENUES.get(market), n, bars, rng)  # drawn last: the draws above stay
     actions, moved = _actions(market, ids, first, last, sessions, bars, rng, mics,
                               targets(events, ids, days, first, last))  # fmt: skip
-    status = _tradability(market, first, last, mics, moved, bars, rng)  # moves `bars` too
-    exits, payouts, delisted = _delistings(market, ids, first, last, sessions, bars, rng)
+    status = _tradability(market, first, last, mics, moved, bars, rng,
+                          (events, ids, days))  # moves `bars` too  # fmt: skip
+    out, payouts, delisted = _delistings(market, ids, first, last, sessions, bars, rng, ended)
     counts, eligible = _share_counts(market, sessions, bars, rng), _eligibility(bars, status)
     instruments = _instruments(
         market, ids, mics, [days[i].item() for i in first],
@@ -344,7 +356,7 @@ def _small(
     return {"instruments": instruments, "bars_1d": table, "tradability_daily": status,
             "instrument_symbols": _symbols([s for v in spans.values() for s in v]),
             "corporate_actions": pa.concat_tables([actions, payouts]),
-            "delistings": exits, "eligibility_daily": eligible,
+            "delistings": out, "eligibility_daily": eligible,
             "share_counts": counts}  # fmt: skip
 
 
@@ -502,17 +514,18 @@ def _last_traded(close: np.ndarray) -> list[int | None]:
 def _tradability(
     market: str, first: Sequence[int], last: Sequence[int], mics: Sequence[str | None],
     moved: Sequence[tuple[int, int, str]], bars: dict[str, list[Any]], rng: np.random.Generator,
+    injected: tuple[Sequence[Mapping[str, Any]], Sequence[str], Any],
 ) -> dict[str, list[Any]]:  # fmt: skip
-    """4.8 (5): KR halts, limit closes and 1-ULP wobbles moved into `bars`, ~1 % of KR
-    instruments `administrative` over their last 60 sessions, and a `tradability_daily` row
-    for every bar. None of them moves a close an event's factor or a delisting refers to."""
-    n = len(first)
+    """4.8 (5): KR halts (and those `injected`: events, ids, days), limit closes and 1-ULP
+    wobbles moved into `bars`, ~1 % of KR instruments `administrative` over their last 60
+    sessions, and a `tradability_daily` row per bar, none moving a close a factor or exit uses."""
+    n, held = len(first), ev.halts(*injected, first, last, moved)
     refs = {(k, e - 1) for k, e, _ in moved} | {(k, last[k]) for k in range(n)}
     halted: Days = set()
     hits: Hits = {}
     admin: Days = set()
     if market == "KR":
-        halted = _halts(first, last, moved, refs, bars, rng)
+        halted = _halts(first, last, moved, refs | held, bars, rng, held)
         busy = refs | halted | {(k, e) for k, e, _ in moved} | {(k, d + 1) for k, d in halted}
         settled = [max([e for j, e, _ in moved if j == k], default=first[k]) for k in range(n)]
         hits = _limits(first, last, mics, settled, busy, bars, rng)
@@ -544,11 +557,11 @@ def _sample(
 
 def _halts(
     first: Sequence[int], last: Sequence[int], moved: Sequence[tuple[int, int, str]],
-    refs: Days, bars: dict[str, list[Any]], rng: np.random.Generator,
+    refs: Days, bars: dict[str, list[Any]], rng: np.random.Generator, held: Days,
 ) -> Days:  # fmt: skip
     """~0.1 % of KR sessions halted all day, in spans of 1~5 sessions, and at least one span
-    from a split's ex-date and one from a cash dividend's (spec G-54's two cases)."""
-    halted: Days = set()
+    from a split's ex-date and one from a cash dividend's (spec G-54's two cases), and `held`."""
+    halted: Days = set(held)
 
     def halt(k: int, start: int) -> int:  # 1~5 sessions, unless a close in `refs` would go
         end = min(start + int(rng.integers(1, 5, endpoint=True)), last[k])
@@ -589,10 +602,9 @@ def _limits(
     _sample(first, last, 0.002, rng, pick)
     for (k, d), (up, locked) in sorted(hits.items()):  # by date: a later one reads the moved
         s, dates = d - first[k], bars["session_date"][k]
-        limit = bars["close"][k][s - 1] * (
-            1 + _ratios(dates[s : s + 1], mics[k]) * (1 - 2 * (not up))
-        )
-        price = _snap(limit, dates[s : s + 1], mics[k], np.floor if up else np.ceil)[0]
+        day = dates[s : s + 1]  # the reference is the last close: no halt or event before
+        limits = _limit_prices(bars["close"][k][s - 1 : s], _ratios(day, mics[k]), day, mics[k])
+        price = limits[0 if up else 1][0]
         moved = price / bars["close"][k][s]
         for name in OHLC:
             bars[name][k][s + 1 :] = _snap(bars[name][k][s + 1 :] * moved, dates[s + 1 :], mics[k])
@@ -600,6 +612,16 @@ def _limits(
         bars["high"][k][s] = max(bars["high"][k][s], price)
         bars["low"][k][s] = min(bars["low"][k][s], price)
     return hits
+
+
+def _limit_prices(
+    ref: np.ndarray, ratio: np.ndarray, dates: np.ndarray, venue: str | None
+) -> tuple[np.ndarray, np.ndarray]:
+    """TDS 5.10's `up/down_limit_price`: `ref x (1 +- ratio)` with the upper limit rounded down
+    and the lower up to the grid (4.8 (5)); first to 1e-6, so a float error just past a tick
+    (10,000 x 0.7) does not move it a tick. NaN stays NaN; off KR, nothing is rounded."""
+    up = _snap(np.round(ref * (1 + ratio), 6), dates, venue, np.floor)
+    return up, _snap(np.round(ref * (1 - ratio), 6), dates, venue, np.ceil)
 
 
 def _wobble(
@@ -629,6 +651,7 @@ def _status(
     for s, p in enumerate(_last_traded(close), 1):  # events since (an ex-date's base price)
         ref[s] = np.nan if p is None else close[p] * (split[s] / split[p])
     kr, ratio = market == "KR", _ratios(dates, venue)
+    up, down = _limit_prices(ref, ratio, dates, venue)
     known = dates >= np.datetime64(US_STATUS) if market == "US" else np.ones(len(dates), bool)
     days = [(k, d) for d in range(i, i + len(dates))]
     hit = [hits.get(x) for x in days]
@@ -645,8 +668,8 @@ def _status(
         "limit_down_close": [bool(h and not h[0]) for h in hit] if kr else none,
         "locked_up": [bool(h and h[0] and h[1]) for h in hit] if kr else none,
         "locked_down": [bool(h and not h[0] and h[1]) for h in hit] if kr else none,
-        "price_limit_ratio": ratio, "up_limit_price": ref * (1 + ratio),
-        "down_limit_price": ref * (1 - ratio), "reference_price": ref if kr else ratio * np.nan,
+        "price_limit_ratio": ratio, "up_limit_price": up, "down_limit_price": down,
+        "reference_price": ref if kr else ratio * np.nan,
         "admin_status": [("administrative" if x in admin else "normal") if kr else None
                          for x in days],
         "source": [PRODUCER] * len(days),
@@ -656,15 +679,16 @@ def _status(
 def _delistings(
     market: str, ids: Sequence[str], first: Sequence[int], last: Sequence[int],
     sessions: Table, bars: dict[str, list[Any]], rng: np.random.Generator,
+    injected: Mapping[int, Mapping[str, Any]],
 ) -> tuple[pa.Table, pa.Table, list[dt.date | None]]:  # fmt: skip
     """4.8 (6): a `delistings` row for every listing that ends in the period, with 4.8 (4)'s
-    liquidating distribution, ex-date between the last trading day and the exit, on ~10 %.
+    liquidating distribution on ~10 % of those not `injected` (whose columns replace drawn ones).
 
     Returns those rows, the distributions' `corporate_actions` rows and each `delisted_on`.
     """
     days, opens, closes = sessions["session_date"], sessions["ts_open"], sessions["ts_close"]
     gone = [k for k in range(len(ids)) if last[k] < len(days) - 1]
-    room = [k for k in gone if last[k] + 2 < len(days)]  # a session for the ex-date
+    room = [k for k in gone if last[k] + 2 < len(days) and k not in injected]  # for the ex-date
     count = min(len(room), max(1, round(0.1 * len(gone))))
     paid = set(rng.choice(room, count, replace=False).tolist()) if count else set()
     unit, currency = 1 if market == "KR" else 100, MARKETS[market]["currency"]
@@ -672,8 +696,9 @@ def _delistings(
     rows, payouts, policy_left = [], [], True  # the first unobserved row keeps ret_policy null
     for n, k in enumerate(gone, 1):
         x, ref = last[k] + (2 if k in paid else 1), float(bars["close"][k][-1])  # exit session
-        status = EXIT[int(rng.integers(10))]
-        ret, policy = _exit_value(status, policy_left, rng)
+        spec = injected.get(k, {})
+        status = spec.get("exit_value_status") or EXIT[int(rng.integers(10))]
+        ret, policy = ev.exit_value(status, policy_left, rng)
         policy_left = policy_left and status != "unobserved"
         known = None  # half of the observed values publish 20~90 days after the exit
         if status == "observed" and rng.integers(2):
@@ -689,7 +714,7 @@ def _delistings(
             "ret_observed_includes_distributions": bool(rng.integers(2)) if k in paid else None,
             "ret_lo": -1.0, "ret_hi": 0.0, "policy_id": "exit-value-v1",
             "pay_date": out + dt.timedelta(30) if status == "observed" else None,
-        })  # fmt: skip
+        } | ev.columns(spec, DL))  # fmt: skip
         if k in paid:  # a return of capital of 20~80 % of the last close, ex-date the next day
             ex = days[last[k] + 1].item()
             payouts.append(dict.fromkeys(CA.names) | {
@@ -702,19 +727,6 @@ def _delistings(
                        unit, currency))  # fmt: skip
     return (pa.Table.from_pylist(rows, schema=DL), pa.Table.from_pylist(payouts, schema=CA),
             delisted)  # fmt: skip
-
-
-def _exit_value(
-    status: str, policy_left: bool, rng: np.random.Generator
-) -> tuple[float | None, float | None]:
-    """`ret_observed` and `ret_policy`: an observed -50 %~+30 %, an estimate -50 %~0, and an
-    unobserved -30 %, but null for the first, so a holding meets 5.6.13's E13."""
-    if status == "observed":
-        ret = int(rng.integers(-5000, 3000, endpoint=True)) / BP
-        return ret, ret
-    if status == "estimated":
-        return None, int(rng.integers(-5000, 0, endpoint=True)) / BP
-    return None, None if policy_left else -0.3
 
 
 _TYPES = {
@@ -826,7 +838,8 @@ def make_snapshot(
     Byte-identical for the same arguments. Files are written in place and nothing in `root` is
     deleted, so a `root` used with other markets keeps their files. `tiny` is hand-set and
     takes none of `seed`, `start`, `end`, `n_kr`, `n_us`. `events` (4.8 `EventSpec`) injects
-    `corporate_actions` rows, in `tiny` too; `full`, `full_ci`, `overrides` and `degrade` come
+    `corporate_actions` and `delistings` rows, in `tiny` too, and KR halts in `small`; `full`,
+    `full_ci`, `overrides` and `degrade` come
     with later tickets (spec 10.1: T0.8c, T0.16a).
     """
     if preset not in ("tiny", "small") or overrides or degrade:
@@ -835,7 +848,7 @@ def make_snapshot(
     root, chosen = Path(root), [m for m in MARKETS if m in markets]
     if not chosen or set(markets) - set(MARKETS):
         raise ValueError(f"markets {list(markets)}: choose one or more of {sorted(MARKETS)}")
-    check(events, chosen, CA)
+    check(events, chosen, CA, preset == "tiny")
     if preset == "tiny" and any(v is not None for v in (start, end, n_kr, n_us)):
         raise ValueError("tiny is set by hand: start, end, n_kr and n_us apply to small only")
     first, final = (start or SMALL[0], end or SMALL[1]) if preset == "small" else (START, END)

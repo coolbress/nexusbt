@@ -29,6 +29,11 @@ Issues = "https://github.com/coolbress/nexusbt/issues"
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+# The workspace lock ships in the wheel: an installed engine copies it into every sealed
+# run's `source/` (5.9.3, INV-03; #283). `tests/test_built_wheel.py` checks the copy.
+[tool.hatch.build.targets.wheel.force-include]
+"uv.lock" = "nexusbt/resources/uv.lock"
+
 [dependency-groups]
 dev = [
     # 2.2's 14-day rule: the newest release at least 14 days old on 2026-11-02, released

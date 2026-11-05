@@ -55,6 +55,20 @@ sys.exit(main(argv))
 """
 
 
+# A run sealed by the wheel's engine, with no source checkout to find a lock beside (#283).
+SEAL = """
+import sys
+from pathlib import Path
+wheels, project = sys.argv[1:3], Path(sys.argv[3])
+sys.path[:0] = wheels
+from nexusbt.artifacts import RunStore, _runstore
+assert _runstore.__file__.startswith(wheels[0]) and _runstore._ENGINE_LOCK is None
+txn = RunStore(project / "runs").begin("backtest", "mom", None)
+txn.capture_sources([], project=project, entry=project / "s.py")
+print(txn.seal().path)
+"""
+
+
 @pytest.fixture(scope="module")
 def wheels(tmp_path_factory: pytest.TempPathFactory) -> list[str]:
     out = tmp_path_factory.mktemp("wheels")
@@ -113,3 +127,13 @@ def test_the_wheel_checks_and_hashes_with_its_own_schemas(
     declared = json.loads((root / "tds.json").read_text(encoding="utf-8"))["hashes"]
     lines = dict(line.split(" ", 1) for line in hashed.stdout.splitlines())  # `<name> <value>`
     assert lines["value_sha256"] == declared["value_sha256"]
+
+
+def test_a_run_sealed_from_the_wheel_captures_the_engine_lock(
+    wheels: list[str], tmp_path: Path
+) -> None:
+    (tmp_path / "s.py").write_text("", encoding="utf-8")
+    sealed = _run(SEAL, [*wheels, str(tmp_path)], tmp_path)
+    assert sealed.returncode == 0, f"exit {sealed.returncode}\n{sealed.stdout}{sealed.stderr}"
+    captured = Path(sealed.stdout.strip()) / "source" / "engine-uv.lock"
+    assert captured.read_bytes() == (ROOT / "uv.lock").read_bytes()  # the wheel's copy is exact

@@ -11,10 +11,12 @@ import sqlite3
 import stat
 import subprocess
 import uuid
+import warnings
 from collections.abc import Iterable, Mapping
 from contextlib import AbstractContextManager, suppress
 from dataclasses import dataclass
 from datetime import datetime
+from importlib import resources
 from itertools import count
 from pathlib import Path
 from typing import IO
@@ -28,7 +30,11 @@ from ._index import Index, connect, insert_pin
 #: Test-only injection point: the boundary name at which the process exits (`os._exit`), so a
 #: test can kill a real run between two commit steps. `None` on every production path.
 _CRASH_AT: str | None = None
-_ENGINE_LOCK = Path(__file__).resolve().parents[3] / "uv.lock"  # present in a source checkout
+_HERE = Path(__file__).resolve()
+#: The engine lock of a source checkout (`src/nexusbt/artifacts/` → the repository root);
+#: an installed copy uses the one the wheel ships as package data, `_SHIPPED_LOCK` (#283).
+_ENGINE_LOCK: Path | None = _HERE.parents[3] / "uv.lock" if _HERE.parents[2].name == "src" else None
+_SHIPPED_LOCK = "resources/uv.lock"
 _LOGICAL_EXCLUDED = ("created_at", "created_by")  # 5.9.2, R-31
 
 
@@ -45,6 +51,18 @@ def canonical_json(value: object) -> str:
 
 def _hash_json(value: object) -> str:
     return hashlib.sha256(canonical_json(value).encode()).hexdigest()
+
+
+def _engine_lock() -> bytes:
+    """5.9.3, INV-03: the engine's `uv.lock`; with neither copy the install is broken."""
+    if _ENGINE_LOCK is not None and _ENGINE_LOCK.is_file():
+        return _ENGINE_LOCK.read_bytes()
+    shipped = resources.files("nexusbt").joinpath(_SHIPPED_LOCK)
+    if shipped.is_file():
+        return shipped.read_bytes()
+    raise FileNotFoundError(
+        f"no engine uv.lock beside the source tree or at nexusbt/{_SHIPPED_LOCK}"
+    )
 
 
 def _sha256(path: Path) -> str:
@@ -253,18 +271,52 @@ class RunTxn:
         )
         _boundary("written")
 
-    def capture_sources(self, paths: Iterable[Path], *, project: Path | None = None) -> None:
-        """5.9.3: the files inside `project` (paths kept), its toml and lock, params, git state."""
-        project = Path(project or Path.cwd()).resolve()
+    def capture_sources(
+        self, paths: Iterable[Path], *, project: Path | None = None, entry: Path | None
+    ) -> None:
+        """5.9.3: the files inside `project` (paths kept), its toml and lock, params, git state.
+
+        `entry` is the file the run started from (#283): one outside `project` goes to
+        `source/_entry/<name>`, and the manifest's `source.entry` is its path under `source/`.
+        `None` (an interactive session) warns; an entry file or engine lock that cannot be
+        copied aborts the run.
+        """
+        try:
+            self._capture(paths, Path(project or Path.cwd()).resolve(), entry)
+        except OSError:
+            self.abort()
+            raise
+
+    def _capture(self, paths: Iterable[Path], project: Path, entry: Path | None) -> None:
+        lock = _engine_lock()
+        if entry is not None and not Path(entry).is_file():
+            raise FileNotFoundError(f"{entry}: the run's entry file is not a file")
         source = self._out("source/params.json").parent
-        for path in sorted({Path(p).resolve() for p in paths}):
+        found = {Path(p).resolve() for p in paths}
+        rel_entry = outside = None
+        if entry is not None:
+            entry = Path(entry).resolve()
+            found.add(entry)
+            if entry.is_relative_to(project):
+                rel_entry = entry.relative_to(project).as_posix()
+            else:
+                outside, rel_entry = entry, f"_entry/{entry.name}"
+        else:
+            warnings.warn(
+                f"run {self.run_id}: no entry file, so `rerun` cannot run it", stacklevel=3
+            )
+        self._manifest["source"] = {"entry": rel_entry}
+        for path in sorted(found):
             if path.is_relative_to(project) and path.is_file():  # installed packages stay out
                 shutil.copy2(path, self._out(f"source/{path.relative_to(project).as_posix()}"))
+        if outside is not None:
+            if (source / str(rel_entry)).exists():  # a project file of that path was copied
+                raise FileExistsError(f"{outside}: source/{rel_entry} is a project file already")
+            shutil.copy2(outside, self._out(f"source/{rel_entry}"))
         for name in ("nexusbt.toml", "uv.lock"):
             if (project / name).is_file():
                 shutil.copy2(project / name, source / name)
-        if _ENGINE_LOCK.is_file():
-            shutil.copy2(_ENGINE_LOCK, source / "engine-uv.lock")
+        (source / "engine-uv.lock").write_bytes(lock)
         (source / "params.json").write_text(canonical_json(self._params), encoding="utf-8")
         git = {"head": _git(project, "rev-parse", "HEAD")}
         git["status"] = _git(project, "status", "--porcelain")
@@ -280,7 +332,7 @@ class RunTxn:
         final = self._store.root / self.run_id
         try:
             outputs = {k: {"physical_sha256": _sha256(p)} for k, p in _files(self._tmp).items()}
-            manifest = {"environment": environment(_ENGINE_LOCK), **self._manifest}
+            manifest = {"environment": environment(_engine_lock()), **self._manifest}
             manifest |= {"schema_version": "nexusbt-run/2", "outputs": outputs}
             value = value_hash(manifest)  # a NaN in the manifest fails here, before the rename
             manifest["created_at"] = self._created.isoformat()

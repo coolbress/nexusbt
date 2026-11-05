@@ -29,8 +29,8 @@ def machine_id() -> str:
     return hashlib.sha256(_host_unique_id().encode()).hexdigest()[:16]
 
 
-def environment(engine_lock: Path) -> dict[str, object]:
-    lock = hashlib.sha256(engine_lock.read_bytes()).hexdigest() if engine_lock.is_file() else None
+def environment(engine_lock: bytes) -> dict[str, object]:
+    lock = hashlib.sha256(engine_lock).hexdigest()  # the source tree's or the wheel's copy
     blas = np.show_config(mode="dicts")["Build Dependencies"].get("blas", {})  # a summary of it
     packages = {d.metadata["Name"]: d.version for d in metadata.distributions()}
     return {

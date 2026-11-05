@@ -421,6 +421,8 @@ Each dataset records the following. With it the engine reports before a run "is 
 
 Each column name is followed by its 3.2 type, which the value hash of 4.5 takes; the JSON-valued columns are `string`, the text as stored [2026-11-04].
 
+In `dictionary/columns`, `dataset` is the manifest `datasets[].name` of the dataset the column belongs to; a producer that wants one dictionary entry per panel registers each panel as its own dataset entry (R009) [v1.4, 2026-11-05].
+
 ### 4.5 Hashes (`hash_spec = "tds-hash-1"`) [v1.1, RV-C10]
 
 Three hashes are kept separately. The v1 "logical hash = Arrow IPC bytes" varied with the Arrow implementation, version and buffer alignment, so producers in other languages could not produce the same value; it was changed before 1.0.
@@ -645,7 +647,7 @@ Key (`instrument_id`, `stat_type`, `ts_event`). Columns: `instrument_id`, `sessi
 | limit_up_close, limit_down_close | bool | yes | Close at the upper or lower limit |
 | locked_up, locked_down | bool | yes | Locked at that price all day |
 | price_limit_ratio | f64 | yes | That day's limit (0.30 = 30%) |
-| up_limit_price, down_limit_price | f64 | yes | Upper and lower limit prices after tick rounding |
+| up_limit_price, down_limit_price | f64 | yes | Upper and lower limit prices after tick rounding, as the exchange publishes them: the upper limit rounded down and the lower limit rounded up to the tick, so both lie inside the band |
 | reference_price | f64 | yes | Reference price for the limit |
 | admin_status | code | yes | Administrative issue, investment caution etc. (open: `normal`, `administrative`, `caution`, `warning`, `liquidation_trading`) |
 | ts_available | ts_us | yes | Rules per column group, **`params.availability_by_column` required** (v1.1): prior information (`price_limit_ratio`, `up/down_limit_price`, `reference_price`, `admin_status`) is `session_open`, day results (`halted_full_day`, `halt_count`, `limit_up_close`, `limit_down_close`, `locked_up`, `locked_down`) are `session_close` [RV-Q10] |
@@ -988,7 +990,7 @@ instruments.csv:  instrument_id,asset_class,market,calendar_id,currency,listed_o
 bars.csv:         instrument_id,session_date,close,volume
                   XNYS:AAPL,2024-01-02,185.64,82488700
 ```
-+ `tds import csv --profile tds:minimal-daily@1.0 --price-basis total_adjusted --market US:XNYS:USD:America/New_York` creates `tds.json` (an id of the form `XNYS:AAPL_19801212`, as recommended by K1, is safer).
++ `tds import csv mapping.yaml --out PKG`, its mapping file (9.5) giving the profile `tds:minimal-daily@1.0`, the bars' `price_basis: total_adjusted` and the market `US` (`XNYS`, `USD`, `America/New_York`), creates `tds.json` [2026-11-05, #257] (an id of the form `XNYS:AAPL_19801212`, as recommended by K1, is safer).
 
 ---
 
@@ -1238,7 +1240,10 @@ datasets:
 ```
 
 - The mapping file may be JSON, or YAML of these forms only: nested `key: value` lines, `- ` lists, the flow forms `{a: b}` and `[a, b]`, single and double quotes and `#` comments, with plain values read as text and any other form an error naming its line, to be written as JSON [2026-11-05, #257].
-- Time text is RFC 3339 (`Z` or an offset required). Times without an offset require `timezone`, and times in a daylight-saving overlap are rejected as an error (`TDS-S004`).
+- Time text is RFC 3339 (`Z` or an offset required). Times without an offset require `timezone`, and times in a daylight-saving overlap are rejected as an error (`TDS-S004`); a local time that a daylight-saving change skips is an error too, never shifted [2026-11-05, #257].
+- A column's `format` is accepted only when it writes the value it read back as the same text; otherwise the value is written in RFC 3339 (a date as `YYYY-MM-DD`) with no `format` [2026-11-05, #257].
+- `tds import csv MAPPING --out PKG` writes the package and `import_report.json` beside it. In a dataset block, `values: {column: constant}` gives a column one constant for every row, over the CSV's column and over the fills below [2026-11-05, #257].
+- Required `instruments` columns that neither the CSV nor `values` gives are filled: `lot_size` 1 (the 5.1 default), `multiplier` 1.0 for equity (5.1) and for etf and fund, and `is_synthetic` false for equity, etf and fund and true for index; the etf and fund multiplier and `is_synthetic` are importer rules, since 5.1 states none; each fill is listed under `assumed` in `import_report.json`, and a column whose rows hold another `asset_class` stays `TDS-S001` [2026-11-05, #257].
 - Numeric missing values are empty fields. `NaN`, `-`, `0` as missing markers only via `missing_values` in the mapping file.
 
 ### 9.6 Qlib → TDS
