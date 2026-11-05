@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
 from nexusbt_tds import ProfileStatus, check
@@ -50,6 +51,92 @@ def test_S_codes(code: str, tmp_path: Path) -> None:
     assert codes(build.write(tmp_path / "pass", *build.package(code, "pass")), "schema") == []
 
 
+K_CODES = ["TDS-K001", "TDS-K002", "TDS-K003", "TDS-K004"]  # K010, K011: the next part of #224
+
+
+@pytest.mark.parametrize("code", K_CODES)
+def test_K_codes(code: str, tmp_path: Path) -> None:
+    fail = check(build.write(tmp_path / "fail", *build.package(code, "fail")), level="full")
+    assert [f.code for f in (*fail.errors, *fail.warnings)] == [code]
+    assert code not in fail.unchecked
+    assert codes(tmp_path / "fail", "schema") == []  # the schema level reads no rows
+    passed = check(build.write(tmp_path / "pass", *build.package(code, "pass")), level="full")
+    assert (passed.errors, passed.warnings, code in passed.unchecked) == ((), (), False)
+
+
+def _custom_in_year(m: dict[str, Any], f: Any) -> None:  # no schema: no key, sort, date column
+    build._add("x_custom", {"a": [1]})(m, f)
+    rel = "x_custom/year=2024/part-00000.parquet"
+    f[rel] = f.pop("x_custom/part-00000.parquet")
+    m["datasets"][-1]["files"][0]["path"] = rel
+
+
+def _ranges(*names: str) -> Any:
+    """K004's pass package with its bars files named `names`; a third holds US:BBB on 01-03."""
+
+    def change(m: dict[str, Any], f: Any) -> None:
+        build.CASES["TDS-K004"][0](m, f)
+        folder, entries = build.BARS.rsplit("/", 1)[0], build.bars(m)["files"]
+        if len(names) == 3:
+            day = pa.array([dt.date(2024, 1, 3)])
+            table = build.bars_table(instrument_id=pa.array(["US:BBB"]), session_date=day)
+            f[f"{folder}/third"] = build.parquet(table, "bars_1d")
+            entries.append({"path": f"{folder}/third", "bytes": len(f[f"{folder}/third"])})
+        for entry, name in zip(entries, names, strict=True):
+            f[f"{folder}/{name}.parquet"] = f.pop(entry["path"])
+            entry["path"] = f"{folder}/{name}.parquet"
+
+    return change
+
+
+_A = "2024-01-02T00-00-00Z_2024-01-04T00-00-00Z"  # B and C lie inside A, apart from each other
+_B = "2024-01-03T00-00-00Z_2024-01-03T01-00-00Z"
+_C = "2024-01-03T05-00-00Z_2024-01-03T06-00-00Z"
+
+
+def _listed_twice(m: dict[str, Any], f: Any) -> None:  # M013: its rows are read once
+    build.bars(m)["files"].append(dict(build.bars(m)["files"][0]))
+
+
+def _weekly(m: dict[str, Any], f: Any) -> None:  # TDS 5.5: only `freq<1d` is intraday
+    build.CASES["TDS-K002"][1](m, f)
+    build.bars(m)["params"]["freq"] = "1w"
+
+
+def _not_parquet(m: dict[str, Any], f: Any) -> None:  # S010: no rows read, no K code judged
+    f[build.BARS] = b"not parquet\n"
+    build.bars(m)["files"][0]["bytes"] = len(f[build.BARS])
+
+
+@pytest.mark.parametrize(
+    ("change", "errors", "unchecked"),
+    [
+        (_listed_twice, [], []),
+        (_ranges("part-00000", "part-00001"), [], []),  # no range in the name
+        (_ranges(_A, _B, _C), ["TDS-K004"] * 2, []),
+        (_custom_in_year, [], ["TDS-K001", "TDS-K002", "TDS-K003"]),
+        (_weekly, ["TDS-K002"], []),
+        (_not_parquet, [], K_CODES),
+        (lambda m, f: f.pop(build.BARS), [], []),  # M004: a missing file has no rows
+        (_ranges("2024-01-02T25-00-00Z_2024-01-02T26-00-00Z", _B), [], []),  # hour 25: no range
+    ],
+)
+def test_key_rules_edges(
+    change: Any, errors: list[str], unchecked: list[str], tmp_path: Path
+) -> None:
+    result = check(write(tmp_path, change), level="full")
+    assert [f.code for f in result.errors if f.code in K_CODES] == errors
+    assert [c for c in K_CODES if c in result.unchecked] == unchecked
+
+
+def test_classification_levels_not_duplicate(tmp_path: Path) -> None:
+    manifest, files = build.package("TDS-K001", "pass")  # GICS level 1 and 3, same day (5.19)
+    rows = pq.read_table(pa.BufferReader(files["classifications/part-00000.parquet"])).to_pylist()
+    assert {r["level"] for r in rows} == {1, 3}
+    assert len({(r["effective_from"], r["ts_known_from"]) for r in rows}) == 1
+    assert codes(build.write(tmp_path, manifest, files), "full") == []
+
+
 @pytest.mark.parametrize("code", ["TDS-H001", "TDS-H002", "TDS-H003"])
 def test_H_codes(code: str, tmp_path: Path) -> None:
     fail = build.write(tmp_path / "fail", *build.package(code, "fail"))
@@ -75,15 +162,15 @@ def test_a_wrong_dictionary_value_hash_is_H002(tmp_path: Path) -> None:
     assert [(f.code, f.dataset) for f in result.errors] == [("TDS-H002", "dictionary/codes")]
 
 
-def test_full_level_checks_only_the_hashes_so_far(tmp_path: Path) -> None:
+def test_full_level_checks_only_the_keys_and_hashes_so_far(tmp_path: Path) -> None:
     result = check(write(tmp_path / "pkg"), level="full")
     assert (result.errors, result.warnings) == ((), ())
     # spec 8.2, no false pass: the other full-level rules are not built, so no profile is `full`
     assert result.profiles == {
         "tds:minimal-daily@1.0": ProfileStatus(True, "schema", "not_checked")
     }
-    assert {"TDS-K001", "TDS-R001", "TDS-H004"} <= set(result.unchecked)
-    assert not {"TDS-H001", "TDS-H002", "TDS-H003"} & set(result.unchecked)
+    assert {"TDS-R001", "TDS-T001", "TDS-H004"} <= set(result.unchecked)
+    assert not {*K_CODES, "TDS-H001", "TDS-H002", "TDS-H003"} & set(result.unchecked)
     # a column whose type is declared nowhere: no value hash, so H002 and H003 are not checked
     untyped = check(write(tmp_path / "untyped", _bars(x_cf_note=pa.array([[1]]))), level="full")
     assert {"TDS-H002", "TDS-H003"} <= set(untyped.unchecked)

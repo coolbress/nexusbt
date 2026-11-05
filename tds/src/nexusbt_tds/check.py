@@ -2,9 +2,10 @@
 
 The `manifest` level reads `tds.json` and file sizes (M001~M014); the `schema` level adds the
 Parquet footers and statistics and the `dictionary/` tables, no data rows (S001~S010, T006, part
-of D002); the `full` level adds, so far, the hashes (H001~H003, TDS 4.5) and verifies no
-profile beyond `schema`. None reports a profile as `pass`: the rules a level cannot see are
-listed in `unchecked`, and the profile is `not_checked`.
+of D002); the `full` level adds, so far, the key checks (K001~K004; `keys`) and
+the hashes (H001~H003, TDS 4.5) and verifies no profile beyond `schema`. None reports a
+profile as `pass`: the rules a level cannot see are listed in `unchecked`, and the profile is
+`not_checked`.
 """
 
 from __future__ import annotations
@@ -157,6 +158,9 @@ def check(
             found += _check_schema(manifest, datasets, blind)
             found += _check_ranges(manifest, datasets, blind)
         if level == "full":
+            from .keys import check_keys
+
+            found += check_keys(manifest, datasets, blind)
             found += _check_hashes(manifest, datasets, blind, notes)
     except ManifestError as exc:
         found = [Finding("TDS-M001", "error", str(exc))]
@@ -167,7 +171,7 @@ def check(
     for name in dict.fromkeys(wanted):
         own = list(_check_profile(manifest, name)) if manifest else []
         found += own
-        # `full` checks only H001~H003 so far (#57): no profile is verified to it (spec 8.2)
+        # `full` checks only the K and H codes so far: no profile is verified to it (spec 8.2)
         verified: Level = "schema" if level == "full" else level
         statuses[name] = ProfileStatus(
             declared=name in declared,
@@ -189,14 +193,16 @@ def check(
             c
             for c in UNCHECKED_AT_MANIFEST
             if c in blind
-            or (c in UNCHECKED_AT_SCHEMA and (level == "schema" or c not in HASH_CODES))
+            or (c in UNCHECKED_AT_SCHEMA and (level == "schema" or c not in FULL_CODES))
         ],
         notes=tuple(notes),
     )
 
 
-#: What the `full` level checks so far: the declared hashes against the computed ones (TDS 4.5).
+#: The declared hashes against the computed ones (TDS 4.5); `full` checks these and the keys.
 HASH_CODES = ("TDS-H001", "TDS-H002", "TDS-H003")
+KEY_CODES = ("TDS-K001", "TDS-K002", "TDS-K003", "TDS-K004")  # `keys` checks them
+FULL_CODES = (*KEY_CODES, *HASH_CODES)
 
 
 def _check_hashes(
