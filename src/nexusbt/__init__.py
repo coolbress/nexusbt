@@ -69,3 +69,4 @@ from nexusbt.pipeline import Factor as Factor
 from nexusbt.pipeline import Filter as Filter
 from nexusbt.pipeline import Pipeline as Pipeline
 from nexusbt.pipeline import Term as Term
+from nexusbt.pipeline import factor as factor
