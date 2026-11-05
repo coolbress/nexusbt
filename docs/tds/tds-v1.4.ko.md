@@ -18,6 +18,7 @@
 > 판 이력(이어서): **v1.4, 2026-11-04 추가**: 선택 닫힌 열거 칼럼 `corporate_actions.resolution_body`(`meeting` 또는 `board`, 모르면 null). `resolution_date`가 기록하는 결의의 주체다(5.11; 사용자 결정 2026-11-03, #110). 선택 칼럼 추가는 10.2에서 MINOR이고 표준은 초안이라 `tds_version`은 `"1.0"` 그대로.
 > 판 이력(이어서): **v1.4, 2026-11-04 명확화**: 3.7에 Parquet 키-값 `tds.dataset`은 데이터셋의 매니페스트 `name`(`bars_1d`)이고 `kind`(`bars`)가 아니라고 적는다. 한 패키지에 같은 종류의 데이터셋이 여럿 있을 수 있기 때문이다. 종류를 쓴 파일은 TDS-S010이다(사용자 결정 2026-11-03, #121). Parquet이 아닌 등재 파일도 TDS-S010이고, 3.6에 정수 파티션 값은 앞자리 0이 없는 ASCII 숫자라고 적는다(아니면 TDS-S008; 사용자 결정 2026-11-04, #121). 표준이 초안이라 `tds_version`은 `"1.0"` 그대로.
 > 판 이력(이어서): **v1.4, 2026-11-04 명확화**: 5.11 `ratio_num, ratio_den` 칸과 검사 A010이 더는 십진 리터럴 설정만 A010을 경고로 낮춘다고 하지 않는다. 정확 비율이 없을 때 소비자가 어떻게 할지는 소비자 설정이 정하고(NexusBT는 엔진 명세 3.11 `[corporate_actions] decimal_ratio`, 사용자 결정 2026-10-29, R7-01), 생산자에게 A010은 E 그대로이며, 0 이하이거나 한쪽만 있는 비율은 오류 그대로다(#178). 문구만 바뀌어 `tds_version`은 `"1.0"` 그대로.
+> 판 이력(이어서): **v1.4, 2026-11-05 명확화**: 4.2와 6.2가, 가용 시각이 다른 이름의 칼럼인 데이터셋이 매니페스트 `availability`를 어떻게 적는지 밝힌다: `instrument_symbols`, `fundamentals_state`, `classifications`, `universe_membership`은 `{"column": "ts_known_from"}`, `delistings`는 `{"exit": "ts_exit_known", "value": "ts_value_available"}`. 규칙도 6.2 형식도 아닌 `availability`는 검사기가 조용히 받아들이던 것에서 TDS-M014가 되고, T006은 지목한 가용 시각 칼럼을 읽으며(8.2, 전에는 T006을 `unchecked`로 두던 `corporate_actions` 형식의 `ts_terms_available` 포함, 효력 순간인 `ts_effective`는 빼고), `schema` 단계는 파일에 없는 지목 칼럼을 TDS-T002로 보고한다(사용자 결정 2026-11-04, #276). 이 형식들은 기존 `{"column": "ts_available"}`과 `corporate_actions` 형식을 일반화한 것이라 `tds_version`은 `"1.0"` 그대로.
 > 관계: 이 문서는 엔진 명세서 v3.4(`engine-spec-v3.4-2026-10-28.md`) **4장이 참조하는 입력 정본**이다. 둘이 다르면 입력 형식은 이 문서가 맞다(차이 목록은 12장). 사용자 결정(설계 문서 9.0)은 이 문서보다 우선한다.
 > 공개: 이 표준과 검사기(`nexusbt-tds`, import `nexusbt_tds`, 명령 `tds`)는 공개(Apache-2.0)다. 작업판 11장(생산자별 대응)은 표준의 규범이 아니라서 이 공개판에 넣지 않았다.
 > 예시: 엔진이 읽는 모든 데이터셋(사건·거시 계열 포함)의 예시 행은 `tds-examples.md`(같은 폴더)에 있다.
@@ -243,7 +244,7 @@
 ### 3.5 열쇠, 정렬, 유일성
 
 - 데이터셋마다 `key`(유일해야 하는 칼럼 묶음)와 `sort`(파일 안 행 순서)가 정해져 있다(5장). 매니페스트에도 적는다.
-- 파티션 칼럼은 열쇠의 일부일 수 있다. 정렬은 파티션 안에서만 요구한다. 파일이 여러 개인 파티션은 파일 이름 순서로 이어 붙인 결과가 정렬되어 있어야 한다(K002).
+- 파티션 칼럼은 열쇠의 일부일 수 있다: K001은 행의 열쇠를 시간 범위인 `year=`·`date=`를 뺀 파티션 값과 함께 비교한다(`edition=strict` 아래 행과 `edition=compare` 아래 행은 열쇠가 다르다. 두 `year=` 폴더에 든 같은 행은 여전히 중복이고, 범위를 벗어난 쪽은 K003도 잡는다) [v1.4, 2026-11-05]. 정렬은 파티션 안에서만 요구한다. 파일이 여러 개인 파티션은 파일 이름 순서로 이어 붙인 결과가 정렬되어 있어야 한다(K002).
 - 열쇠 유일 검사는 데이터셋 전체에서 한다(K001).
 
 ### 3.6 파티션과 파일
@@ -373,7 +374,11 @@
                   "by_market": {"KR": {"instruments": 5495, "first": "1995-05-02", "last": "2026-10-27", "rows": 15700000}}},
      "columns": [{"name": "instrument_id", "type": "id", "nullable": false}, "…"],
      "files": [{"path": "bars/freq=1d/market=KR/year=1995/part-00000.parquet", "rows": 123456, "bytes": 4567890,
-                "sha256": "…", "stats": {"session_date": ["1995-05-02", "1995-12-28"]}}]}
+                "sha256": "…", "stats": {"session_date": ["1995-05-02", "1995-12-28"]}}]},
+    {"name": "fundamentals_state", "kind": "fundamentals_state", "schema_version": "1.0", "path": "fundamentals_state",
+     "availability": {"column": "ts_known_from"}, "files": ["…"]},
+    {"name": "delistings", "kind": "delistings", "schema_version": "1.0", "path": "delistings",
+     "availability": {"exit": "ts_exit_known", "value": "ts_value_available"}, "files": ["…"]}
   ],
   "hashes": {"physical_sha256": "…", "value_sha256": "…", "semantic_sha256": "…", "hash_spec": "tds-hash-1"},
   "writer": {"name": "pyarrow", "version": "26.0.0", "row_group_rows": 200000}
@@ -393,7 +398,7 @@
 | `editions` | 판을 쓰는 표가 있으면 ○ | 판 이름과 뜻, 기본 판 |
 | `policies` | 선택 | 만든 쪽 규칙 이름과 판(엔진 실행 기록에 그대로 남음) |
 | `roll_rules` | 선물 연속 계약이 있으면 ○ | 5.22 |
-| `datasets[]` | ○ | 데이터셋마다: `name`(필수), `kind`(필수), `schema_version`(필수), `path`(필수), `partitioning`, `key`, `sort`, `params`(종류별 매개변수), `availability`(6.2 규칙 또는 `{"column": "ts_available"}`), `pit_quality`(`native` / `backfilled` / `mixed`), `rows`, `value_sha256`, `coverage`, `columns`(이름·형·null·단위·설명), `files[]`(필수)(`path`(필수)·행·`bytes`(필수)·sha256·주요 칼럼 최소/최대·**선택 `value_sha256`** — 그 파일 행만으로 4.5 정규 값 직렬화를 한 값 해시, 파티션 칼럼 포함; 소비자 쪽 조언용 — 이 값은 H004 경고 수준이라 틀려도 패키지가 막히지 않으므로 소비자는 검증하지 않은 `value_sha256`을 캐시 신원으로 쓰지 않는다; 파티션 단위 캐시 신원은 파일 `sha256`이 정한다 [v1.2, V31-12; v1.3, R3-04]). **필수 필드**: (필수) 표시가 있는 필드가 없으면 TDS-M003이고, 나머지 데이터셋·파일 필드는 매니페스트 수준에서 선택이며 스키마·전체 수준이 읽는 것을 검사한다(`columns`는 스키마와 대조, `rows`·`coverage`는 D004, `sha256`은 H001) [사용자 결정 2026-11-02]. **경로 안전**: 모든 `path`는 패키지 폴더 기준 상대 경로이고 `..`·절대 경로·밖으로 나가는 심볼릭 링크 금지(M012), 같은 파일 경로가 두 번 나오면 안 됨(M013) [v1.1] |
+| `datasets[]` | ○ | 데이터셋마다: `name`(필수), `kind`(필수), `schema_version`(필수), `path`(필수), `partitioning`, `key`, `sort`, `params`(종류별 매개변수), `availability`(6.2 규칙, 또는 가용 시각을 담은 칼럼을 지목하는 6.2 형식: `{"column": "<이름>"}`, `corporate_actions`의 `{"effect": …, "terms": …}`, `delistings`의 `{"exit": …, "value": …}`. 그 밖의 것은 TDS-M014), `pit_quality`(`native` / `backfilled` / `mixed`), `rows`, `value_sha256`, `coverage`, `columns`(이름·형·null·단위·설명), `files[]`(필수)(`path`(필수)·행·`bytes`(필수)·sha256·주요 칼럼 최소/최대·**선택 `value_sha256`** — 그 파일 행만으로 4.5 정규 값 직렬화를 한 값 해시, 파티션 칼럼 포함; 소비자 쪽 조언용 — 이 값은 H004 경고 수준이라 틀려도 패키지가 막히지 않으므로 소비자는 검증하지 않은 `value_sha256`을 캐시 신원으로 쓰지 않는다; 파티션 단위 캐시 신원은 파일 `sha256`이 정한다 [v1.2, V31-12; v1.3, R3-04]). **필수 필드**: (필수) 표시가 있는 필드가 없으면 TDS-M003이고, 나머지 데이터셋·파일 필드는 매니페스트 수준에서 선택이며 스키마·전체 수준이 읽는 것을 검사한다(`columns`는 스키마와 대조, `rows`·`coverage`는 D004, `sha256`은 H001) [사용자 결정 2026-11-02]. **경로 안전**: 모든 `path`는 패키지 폴더 기준 상대 경로이고 `..`·절대 경로·밖으로 나가는 심볼릭 링크 금지(M012), 같은 파일 경로가 두 번 나오면 안 됨(M013) [v1.1] |
 | `hashes` | ○ | 4.5(`physical_sha256`, `value_sha256`, `semantic_sha256`, `hash_spec`) |
 | `writer` | ○ | 쓰기 도구, row group 행 수 |
 
@@ -712,7 +717,7 @@ LEAN 계수 파일·Qlib `factor`·공급사 조정 종가만 있는 사용자�
 | delisting_id, instrument_id | id | 아니오 | |
 | last_trading_date | date | 아니오 | 마지막 가격 세션 |
 | exit_date | date | 아니오 | 원장 퇴출일 |
-| ts_exit_known | ts_us | 예 | 퇴출 사실 공개 순간. v1.1에서 null 허용(사후에만 아는 생산자가 많음): null이면 종료 세션 개장 순간으로 보고 그 데이터셋 `pit_quality`는 `backfilled`/`mixed` [RV-Q09] |
+| ts_exit_known | ts_us | 예 | 퇴출 사실 공개 순간. v1.1에서 null 허용(사후에만 아는 생산자가 많음): null이면 종료 세션 개장 순간으로 보고 그 데이터셋 `pit_quality`는 `backfilled`/`mixed` [RV-Q09]. 매니페스트 `availability`는 이 칼럼과 `ts_value_available`을 지목한다: `{"exit": "ts_exit_known", "value": "ts_value_available"}`(6.2) [2026-11-05] |
 | delist_type | code(열림) | 아니오 | `merger`, `spac_merger`, `acquisition_cash`, `exchange_transfer`, `liquidation`, `performance`, `voluntary`, `expiry`(파생·펀드 만기), `unknown` |
 | crsp_dlstcd_equiv | i16 | 예 | CRSP 상장폐지 코드 대응(선택, 비교용) [미확인 코드표] |
 | ref_date | date | 아니오 | 종료가치 기준 가격 날짜 |
@@ -814,6 +819,7 @@ LEAN 계수 파일·Qlib `factor`·공급사 조정 종가만 있는 사용자�
 | resolution_policy | id | 아니오 | 해석 규칙 판 |
 
 - 구간은 반열림이고 `(edition, instrument_id, item)`마다 겹치지 않는다(T003). `ts_known_to > ts_known_from`(T004).
+- 매니페스트 `availability`는 `{"column": "ts_known_from"}`(6.2) [2026-11-05].
 - strict 판에는 `strict_eligible = true`인 상태만. 공백은 구간 없음(엔진 NaN). 엔진은 다른 판으로 채우지 않는다.
 - 판단 시각 t의 값: `ts_known_from <= t < ts_known_to`인 구간 하나. 오래된 값 거르기(`max_age_days`)는 엔진 설정(명세서 5.3.5).
 - 작은 사용자: `fundamentals_events` 없이 이 표만 내도 된다(사건 → 상태 변환은 만든 쪽 일). 반대로 사건만 있는 사용자를 위해 참조 변환기 `tds derive fundamentals-state --policy latest-available`(가장 늦게 공개된 최신 기간 값; 정정 반영)를 제공한다(8.4).
@@ -929,6 +935,9 @@ LEAN 계수 파일·Qlib `factor`·공급사 조정 종가만 있는 사용자�
 - 칼럼별로 다른 공개 시각(예 `tradability_daily`의 개장 전 정보와 종가 결과)은 `params.availability_by_column`로 묶음마다 규칙을 준다(`tradability_daily`에는 필수, 5.10).
 - 규칙 이름은 **필수 해석 규칙**이다: 소비자가 모르는 규칙 이름을 만나면 무시하지 말고 거절해야 한다(검사기 M014, 10.3) [v1.1].
 - `corporate_actions`의 공개 시각은 두 개다: 효력 `ts_effective`, 조건 `ts_terms_available`(null이면 `ts_announced`, 둘 다 null이면 `ts_effective`). 매니페스트 `availability`는 `{"effect": "ts_effective", "terms": "ts_terms_available"}`로 적는다(T002가 확인) [v1.1].
+- **칼럼 형식** [2026-11-05]: 가용 시각을 자기 칼럼에 담은 데이터셋은 매니페스트 `availability`를 `{"column": "<이름>"}`으로 적는다. `{"column": "ts_available"}`은 규칙 `column`이다. `ts_known_from`으로 찾는 구간·두 시간축 데이터셋(6.3 규칙 2, 3)은 `{"column": "ts_known_from"}`으로 적는다: `instrument_symbols`(5.2), `fundamentals_state`(5.18), `classifications`(5.19), `universe_membership`(5.20). 지목한 칼럼의 null은 그 데이터셋 절이 정한 대체값을 따른다(`instrument_symbols`: `valid_from`의 세션 개장).
+- `delistings`(5.13)의 공개 시각은 두 개다: 퇴출 `ts_exit_known`(null이면 종료 세션 개장), 가치 `ts_value_available`(null이면 `ts_exit_known`, 둘 다 null이면 종료 세션 개장). 매니페스트 `availability`는 `corporate_actions` 형식과 같은 모양인 `{"exit": "ts_exit_known", "value": "ts_value_available"}`로 적는다 [2026-11-05].
+- 규칙(그대로 쓴 것이나 `{"rule": …}`)도 아니고 이 형식들(`{"column": …}`, `{"effect": …, "terms": …}`, `{"exit": …, "value": …}`, 각 값은 칼럼 이름)도 아닌 `availability`는 TDS-M014이며, 조용히 받아들이지 않는다. 형식이 지목한 칼럼은 데이터셋 파일에 있어야 한다(T002, `schema` 단계에서는 8.2) [2026-11-05].
 
 ### 6.3 조회 의미 (엔진·참조 구현이 지켜야 하는 것)
 
@@ -1022,7 +1031,7 @@ tds export {zipline-bundle|nautilus-catalog|wide-parquet} ... # 9.8
 | `full` | + 모든 행 | K*, R*, T*, D*, A*, V*, H*(sha256·값·의미 해시) |
 
 - `dictionary/` 표(4.4)는 데이터 행이 아니라 패키지를 설명하는 표이므로 `schema` 단계가 읽는다. S007은 `dictionary/codes`에서 값을 찾는다 [v1.4, 2026-11-02].
-- `schema` 단계의 범위 검사는 바닥글 통계만 읽는다 [v1.4, 2026-11-04]. **T006**: 파일의 가장 늦은 가용 시각(6.2)이 그 `market=` 파티션이 가리키는 시장의 `complete_through`보다 뒤. 가용 시각은 규칙 `column`(또는 `{"column": "ts_available"}`)이면 `ts_available`의 최댓값, `ts_end`·`ts_recv` 규칙이면 그 칼럼의 최댓값에 규칙의 지연을 더한 값이다. 규칙이 없는 bars는 `ts_end`를 쓴다(5.5). 다른 종류의 데이터셋이 규칙을 선언하지 않았거나(가용 시각이 없는 `instruments`, `calendar_sessions`, `calendar_segments`와 4.4 `dictionary/` 표는 빼고), 시장에 `complete_through`가 없거나, 파일에 `market=` 파티션이 없거나, 칼럼에 통계가 없거나 null이 있거나(일봉의 null `ts_end`는 세션 마감), 규칙이 달력을 읽거나(`session_open`, `session_close`, `next_session_open`) 대체값이 있거나(`ts_recv_else`), 지연이 연·월 단위면 T006은 `unchecked`다. **D002** 일부: 일봉 바 파일(`freq` `1d`)의 `session_date` 최솟값이나 최댓값이 `calendar_sessions`에서 그 시장 달력의 첫 세션과 마지막 세션 밖이거나, 파일이 종목 하나만 담을 때(`instrument_id` 최솟값 = 최댓값) 그 종목의 `listed_on`..`delisted_on` 밖. 둘 다 그 달력이나 종목만 담은 행 그룹의 통계에서 얻는다. 그 범위 안의 비세션일 행은 행에 있으므로 D002는 `schema` 단계에서 `unchecked`로 남는다. `calendar_sessions`나 `instruments`가 없을 때도 같다(네 번째 결과 없음).
+- `schema` 단계의 범위 검사는 바닥글 통계만 읽는다 [v1.4, 2026-11-04]. **T006**: 파일의 가장 늦은 가용 시각(6.2)이 그 `market=` 파티션이 가리키는 시장의 `complete_through`보다 뒤. 가용 시각은 규칙 `column`이면 `ts_available`의 최댓값, `{"column": "<이름>"}`이면 지목한 칼럼의 최댓값, 두 시각 형식(6.2)이면 가용 시각 칼럼만의 최댓값이다: `corporate_actions`는 `ts_terms_available`이고 효력 순간인 `ts_effective`는 읽지 않으므로, 효력일이 기준 시각 뒤인 예고 기업행위는 T006이 아니다. `delistings`는 `ts_exit_known`과 `ts_value_available` [2026-11-05]. `ts_end`·`ts_recv` 규칙이면 그 칼럼의 최댓값에 규칙의 지연을 더한 값이다. 규칙이 없는 bars는 `ts_end`를 쓴다(5.5). 다른 종류의 데이터셋이 규칙도 6.2 칼럼 형식도 선언하지 않았거나(가용 시각이 없는 `instruments`, `calendar_sessions`, `calendar_segments`와 4.4 `dictionary/` 표는 빼고), 시장에 `complete_through`가 없거나, 파일에 `market=` 파티션이 없거나, 칼럼에 통계가 없거나 null이 있거나(일봉의 null `ts_end`는 세션 마감, null `ts_terms_available`은 `ts_announced`, 그다음 `ts_effective`, 6.2), 규칙이 달력을 읽거나(`session_open`, `session_close`, `next_session_open`) 대체값이 있거나(`ts_recv_else`), 지연이 연·월 단위면 T006은 `unchecked`다. **D002** 일부: 일봉 바 파일(`freq` `1d`)의 `session_date` 최솟값이나 최댓값이 `calendar_sessions`에서 그 시장 달력의 첫 세션과 마지막 세션 밖이거나, 파일이 종목 하나만 담을 때(`instrument_id` 최솟값 = 최댓값) 그 종목의 `listed_on`..`delisted_on` 밖. 둘 다 그 달력이나 종목만 담은 행 그룹의 통계에서 얻는다. 그 범위 안의 비세션일 행은 행에 있으므로 D002는 `schema` 단계에서 `unchecked`로 남는다. `calendar_sessions`나 `instruments`가 없을 때도 같다(네 번째 결과 없음). **T002** 일부 [2026-11-05]: 데이터셋의 6.2 칼럼 형식이 지목한 칼럼이 바닥글에 없는 파일. 값이 맞는지는 행에 있으므로 T002는 `schema` 단계에서 `unchecked`로 남는다.
 
 - **세 결과** [v1.1, RV-I01]: 요약은 프로필마다 `{"declared": bool, "verified_level": "none|manifest|schema|full", "result": "pass|fail|not_checked"}`. 그 단계가 볼 수 없는 규칙(예 `manifest` 단계에서 행 규칙)은 `not_checked`이고 "pass"라고 쓰지 않는다. `unchecked` 목록에 검사하지 않은 규칙 코드를 적는다.
 - 유효한 하위 프로필 패키지(더 작은 프로필만 선언하고 그것을 지킴)와 선언을 어긴 패키지는 다르다: 후자는 오류이고 소비자가 대체 동작으로 고치지 않는다. 오래된 형식 고치기는 가져오기 단계가 새 패키지를 만드는 일이다.
@@ -1074,7 +1083,7 @@ tds export {zipline-bundle|nautilus-catalog|wide-parquet} ... # 9.8
 | TDS-R008 | E | `instruments.delisted_on` ≠ `delistings.exit_date` |
 | TDS-R009 | E | `item`이 `dictionary/items`에 없음, 패널 칼럼이 `dictionary/columns`에 없음 |
 | TDS-T001 | E | `ts_available < ts_event`(봉·사건; 규칙상 늦을 수 없는 곳) |
-| TDS-T002 | E | `ts_available` 칼럼과 선언 규칙의 값이 다름 |
+| TDS-T002 | E | `ts_available` 칼럼과 선언 규칙의 값이 다름, 또는 6.2 칼럼 형식이 지목한 칼럼이 데이터셋 파일에 없음 [2026-11-05] |
 | TDS-T003 | E | 상태·이력 구간 겹침 |
 | TDS-T004 | E | 구간 끝 ≤ 시작 |
 | TDS-T005 | E | 일봉 `ts_start/ts_end`가 세션 개장·마감과 다름(값이 있을 때) |
@@ -1223,6 +1232,7 @@ columns:
 availability: {rule: ts_end}
 ```
 
+- 대응 파일은 JSON이거나, 중첩된 `key: value` 줄, `- ` 목록, 흐름 형식 `{a: b}`와 `[a, b]`, 작은따옴표와 큰따옴표, `#` 주석만 쓴 YAML이며, 따옴표 없는 값은 글로 읽고 그 밖의 형식은 그 줄을 가리키는 오류로 JSON으로 쓰게 한다 [2026-11-05, #257].
 - 시각 글은 RFC 3339(`Z` 또는 오프셋 필수). 오프셋 없는 시각은 `timezone`을 지정해야 하고, 서머타임 겹침 시각은 오류(`TDS-S004`)로 거절.
 - 숫자 결측은 빈칸. `NaN`, `-`, `0` 결측 표시는 대응 파일의 `missing_values`로만.
 
@@ -1496,3 +1506,4 @@ availability: {rule: ts_end}
 - 2026-11-04: **v1.4** 안에서. 5.11 `ratio_num, ratio_den`과 8.3 TDS-A010: "십진 리터럴 설정만 A010을 경고로 낮춤" 대신, 정확 비율이 없을 때 소비자가 어떻게 할지는 소비자 설정이 정한다(엔진 명세 3.11, R7-01). 생산자에게 A010은 E 그대로, 잘못된 비율은 오류 그대로(#178). `tds_version` `"1.0"` 그대로(문구 명확화, 초안).
 - 2026-11-04: **v1.4** 안에서. 8.2: `schema` 단계는 파일 통계로 TDS-T006과 TDS-D002 일부를 검사하고, `unchecked`로 남기는 것을 밝힌다(사용자 결정 2026-11-04, #181). `tds_version` `"1.0"` 그대로(검사기 동작, 형식 변경 없음).
 - 2026-11-04: **v1.4** 안에서. 4.4는 `dictionary/` 칼럼마다 3.2 타입을 적고(`scale` i8, `is_label` bool, 나머지 `string`), 4.5는 `dictionary/` 데이터셋이 값 해시와 의미 해시에 들어간다고 밝힌다. 검사기는 이를 가진 패키지에서 두 해시를 판정하지 않았다(사용자 결정 2026-11-04, #275). `tds_version` `"1.0"` 그대로(빠진 규칙을 적음, 형식 변경 없음).
+- 2026-11-05: **v1.4** 안에서. 4.2, 6.2: 매니페스트 `availability` 형식 `{"column": "<이름>"}`(5.2, 5.18, 5.19, 5.20은 `ts_known_from`)과 `{"exit": "ts_exit_known", "value": "ts_value_available"}`(5.13). 그 밖의 `availability` 객체는 TDS-M014. 8.2: T006은 지목한 가용 시각 칼럼을 읽고(`corporate_actions`는 `ts_effective`가 아닌 `ts_terms_available`), `schema` 단계는 파일에 없는 지목 칼럼을 TDS-T002로 보고한다(사용자 결정 2026-11-04, #276). `tds_version` `"1.0"` 그대로(빠진 형식을 적음, 형식 변경 없음).
