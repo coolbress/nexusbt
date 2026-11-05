@@ -67,6 +67,8 @@ def test_captured_scalar_changes_hash(monkeypatch: pytest.MonkeyPatch) -> None:
     sets = deco(lambda c: c in names)
     assert ("names", names) in dict(sets.params)["captured"]
     assert graph_hash(deco(lambda c: c[-1] > 1)) != graph_hash(deco(lambda c: c[-1] > 2))
+    make = lambda c: lambda d: d * 3  # noqa: E731 - a lambda whose body is a lambda
+    assert graph_hash(deco(make)) != graph_hash(deco(make(0)))  # each picks its own node
     table = [1, 2]  # not constant-like: left to T1.12's E24
     assert dict(deco(lambda c: c > table[0]).params)["captured"] == ()
     not_a_function: Any = len
@@ -79,10 +81,20 @@ def test_captured_scalar_changes_hash(monkeypatch: pytest.MonkeyPatch) -> None:
         deco(eval("lambda c: c"))  # noqa: S307 - a function without a source file
     with pytest.raises(TypeError):
         Returns(21).quartiles().element_of("AB")
+    inner = deco(_reads_through_inner)
+    monkeypatch.setitem(globals(), "THRESHOLD", 40)
+    assert graph_hash(deco(_reads_through_inner)) != graph_hash(inner)  # an inner function's read
     with_default = deco(_above_default)
     defaults: Any = _above_default.__kwdefaults__
     monkeypatch.setitem(defaults, "n", 30)  # as if the file now said `THRESHOLD = 30`
     assert graph_hash(deco(_above_default)) != graph_hash(with_default)  # `n=THRESHOLD` too
+
+
+def _reads_through_inner(close: Any) -> Any:
+    def above(x: Any) -> Any:
+        return x > THRESHOLD
+
+    return above(close[-1])
 
 
 def _above_default(close: Any, *, n: int = THRESHOLD) -> Any:

@@ -255,23 +255,39 @@ def factor(
         if not isinstance(fn, FunctionType):
             raise TypeError(f"@nx.factor decorates a function, not {type(fn).__name__}")
         try:
-            source = ast.dump(ast.parse(textwrap.dedent(inspect.getsource(fn))))
+            source = _source(fn)
         except (OSError, SyntaxError) as error:
             what = f"@nx.factor cannot read the source of {fn.__name__}; its source goes into the"
             raise TypeError(f"{what} term's hash, so define it with `def` in a file") from error
         return _node(
             Factor, "user", *inputs, window=window, mask=mask, dtype=dtype, function=fn.__name__,
-            source=hashlib.sha256((source + _code_key(fn.__code__)).encode()).hexdigest(),
-            captured=_captured(fn),
+            source=hashlib.sha256(source.encode()).hexdigest(), captured=_captured(fn),
         )  # fmt: skip
 
     return wrap
 
 
-def _code_key(code: CodeType) -> str:
-    """The compiled body: the source line alone is the same for two lambdas on one line."""
-    consts = [_code_key(c) if isinstance(c, CodeType) else repr(c) for c in code.co_consts]
-    return json.dumps([code.co_code.hex(), consts, code.co_names, code.co_varnames])
+def _source(fn: FunctionType) -> str:
+    """5.3.9 canonical source: the AST dump of the function's own node, so comments and spacing do
+    not count. A lambda's source line may hold other lambdas: its node is the innermost Lambda
+    whose body holds the code's first real position (the first, `RESUME`, has column 0; a lambda
+    nested in the body starts inside the body, never inside its own)."""
+    raw = inspect.getsource(fn)
+    tree = ast.parse(textwrap.dedent(raw))
+    spots = [(n, c) for n, _, c, e in fn.__code__.co_positions() if n and c is not None and e]
+    if fn.__name__ != "<lambda>" or not spots:
+        return ast.dump(tree)
+    first = raw.splitlines()[0]
+    line = spots[0][0] - fn.__code__.co_firstlineno + 1
+    at = (line, spots[0][1] - (len(first) - len(first.lstrip())))
+    found = [node for node in ast.walk(tree) if isinstance(node, ast.Lambda) and _holds(node, at)]
+    return ast.dump(max(found, key=lambda n: (n.lineno, n.col_offset))) if found else ast.dump(tree)
+
+
+def _holds(node: ast.Lambda, at: tuple[int, int]) -> bool:
+    body = node.body
+    end = (body.end_lineno or body.lineno, body.end_col_offset or 0)
+    return (body.lineno, body.col_offset) <= at < end
 
 
 def _captured(fn: FunctionType) -> tuple[tuple[str, Any], ...]:
