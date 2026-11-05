@@ -10,6 +10,7 @@ import pyarrow.parquet as pq
 import pytest
 
 from nexusbt_tds import check, import_csv
+from nexusbt_tds.cli import main
 from nexusbt_tds.import_csv import CsvImportError
 
 #: TDS chapter 7's `instruments.csv` with the three columns 5.1 requires that it leaves out; the
@@ -203,3 +204,98 @@ def test_package_defaults_and_layout(tmp_path: Path) -> None:
     empty = write(tmp_path / "e", {"instruments.csv": INSTRUMENTS.splitlines()[0] + "\n",
                                    "mapping.yaml": MINIMAL.split("  bars:")[0]})  # fmt: skip
     assert rows(import_csv(empty, tmp_path / "e" / "pkg"), "instruments") == []
+
+
+#: TDS chapter 7's `instruments.csv` as it stands, without the three 5.1 columns the fills give.
+CHAPTER_7 = "\n".join(",".join(r.split(",")[:6]) for r in INSTRUMENTS.splitlines()) + "\n"
+
+
+def test_minimal_two_csv(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """When I run `tds import csv` on the two CSVs of TDS chapter 7 and then `tds check --level
+    full`, then I see it pass with the profile's three results."""
+    mapping = write(tmp_path, {"instruments.csv": CHAPTER_7, "bars.csv": BARS,
+                               "mapping.yaml": MINIMAL})  # fmt: skip
+    out = tmp_path / "pkg"
+    assert main(["import", "csv", str(mapping), "--out", str(out)]) == 0
+    assert f"wrote {out} and {tmp_path / 'import_report.json'}" in capsys.readouterr().out
+    assert main(["check", str(out), "--level", "full"]) == 0
+    printed = capsys.readouterr().out
+    assert "tds:minimal-daily@1.0: declared, verified to schema, not_checked" in printed
+    assert "0 errors, 0 warnings at level full" in printed
+    manifest = json.loads((out / "tds.json").read_text(encoding="utf-8"))
+    bars = next(d for d in manifest["datasets"] if d["kind"] == "bars")
+    assert bars["params"] == {"freq": "1d", "price_basis": "total_adjusted"}
+    assert manifest["markets"]["US"]["timezone"] == "America/New_York"
+    assert rows(out, "bars")[0]["close"] == 185.64
+    # an import that cannot be read: exit 1 and the reason, no traceback
+    assert main(["import", "csv", str(mapping), "--out", str(out)]) == 1
+    assert "tds import csv: " in capsys.readouterr().err
+
+
+def test_import_report_written(tmp_path: Path) -> None:
+    bars = BARS.replace("volume\n", "volume,note\n").replace("82488700\n", "82488700,x\n")
+    mapping = write(tmp_path, {"instruments.csv": CHAPTER_7, "bars.csv": bars,
+                               "mapping.yaml": MINIMAL})  # fmt: skip
+    out = import_csv(mapping, tmp_path / "pkg")
+    report = json.loads((tmp_path / "import_report.json").read_text(encoding="utf-8"))
+    assert (report["package"], report["mapping"]) == ("pkg", "mapping.yaml")
+    assert not (out / "import_report.json").exists()  # next to the package, not in it (TDS 9)
+    entry = report["datasets"]["bars"]
+    assert (entry["rows_read"], entry["rows_kept"], entry["rows_dropped"]) == (1, 1, 0)
+    assert entry["columns_dropped"] == ["note"]  # not a TDS column: reported, not kept
+    assert entry["columns_kept"]["close"] == "close"
+    assert "pit_quality = backfilled" in " ".join(entry["assumed"])
+    assert "availability rule ts_end" in " ".join(entry["assumed"])
+    # decision 7: each manifest default the mapping does not give is named
+    assert [a.split(":")[0] for a in report["assumed"]] == ["name", "snapshot_id", "id_namespaces"]
+    filled = report["datasets"]["instruments"]["assumed"]
+    assert [a.split(" ")[0] for a in filled] == [
+        "lot_size", "multiplier", "is_synthetic", "pit_quality"]  # fmt: skip
+    got = rows(out, "instruments")[0]
+    assert (got["lot_size"], got["multiplier"], got["is_synthetic"]) == (1.0, 1.0, False)
+
+
+def test_values_and_fills(tmp_path: Path) -> None:
+    """A constant in `values` wins over the CSV and over a fill; an `asset_class` the fills do
+    not name gets none and stays TDS-S001; an index is synthetic."""
+    given = "file: instruments.csv\n    values: {lot_size: '100', is_synthetic: 'false'}\n"
+    files = {"instruments.csv": CHAPTER_7.replace("equity", "bond"), "bars.csv": BARS,
+             "mapping.yaml": MINIMAL.replace("file: instruments.csv\n", given)}  # fmt: skip
+    package = import_csv(write(tmp_path / "v", files), tmp_path / "v" / "pkg")
+    got = rows(package, "instruments")[0]
+    assert (got["lot_size"], got["is_synthetic"], "multiplier" in got) == (100.0, False, False)
+    assert {f.code for f in check(package, level="schema").errors} == {"TDS-S001"}
+    report = json.loads((tmp_path / "v" / "import_report.json").read_text(encoding="utf-8"))
+    assert report["datasets"]["instruments"]["values"] == {"lot_size": "100",
+                                                          "is_synthetic": "false"}  # fmt: skip
+    index = {"instruments.csv": CHAPTER_7.replace("equity", "index"), "mapping.yaml": MINIMAL}
+    package = import_csv(write(tmp_path / "i", index | {"bars.csv": BARS}), tmp_path / "i" / "p")
+    assert rows(package, "instruments")[0]["is_synthetic"] is True
+    as_json = {"market": {"code": "US"}, "datasets": {"instruments": {
+        "file": "instruments.csv", "values": {"is_synthetic": True, "lot_size": 10}}}}  # fmt: skip
+    (tmp_path / "i" / "m.json").write_text(json.dumps(as_json), encoding="utf-8")
+    package = import_csv(tmp_path / "i" / "m.json", tmp_path / "i" / "j" / "p")
+    assert (rows(package, "instruments")[0]["is_synthetic"], rows(package, "instruments")[0][
+        "lot_size"]) == (True, 10.0)  # fmt: skip
+    bad = write(tmp_path / "x", files | {"mapping.yaml": MINIMAL.replace(
+        "file: instruments.csv\n", "file: instruments.csv\n    values: {nope: x}\n")})  # fmt: skip
+    with pytest.raises(CsvImportError, match=r"datasets\.instruments\.values: unknown nope"):
+        import_csv(bad, tmp_path / "x" / "p")
+
+
+def test_format_names_the_way_out(tmp_path: Path) -> None:
+    """TDS 9.5: a `format` must write the value back as read; the error says what to do."""
+    ts = MINIMAL.replace(IN_BARS, "    columns: {ts_end: {format: '%Y-%m-%dT%H:%M:%S%z'}}\n"
+                         + IN_BARS)  # fmt: skip
+    path = write(tmp_path, {"instruments.csv": INSTRUMENTS, "mapping.yaml": ts,
+                            "bars.csv": TS.format("2024-01-02T16:00:00+00:00")})  # fmt: skip
+    way_out = (
+        "is not a ts_us/ns: format '%Y-%m-%dT%H:%M:%S%z' writes it back as "
+        "'2024-01-02T16:00:00+0000'; write the value in RFC 3339 (a date as YYYY-MM-DD) and "
+        "drop `format`, or give a `format` that writes it back character for character"
+    )
+    with pytest.raises(CsvImportError, match=re.escape(way_out)):
+        import_csv(path, tmp_path / "pkg")
+    write(tmp_path, {"bars.csv": TS.format("2024-01-02T16:00:00+0000")})
+    assert str(rows(import_csv(path, tmp_path / "ok"), "bars")[0]["ts_end"]).startswith(
+        "2024-01-02 16:00:00")  # fmt: skip
