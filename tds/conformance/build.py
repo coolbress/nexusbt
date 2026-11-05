@@ -161,11 +161,13 @@ TS_UTC = pa.timestamp("us", "UTC")
 NEW_YEAR = dt.datetime(2024, 1, 1, tzinfo=dt.UTC)
 
 
-def _panels(*editions: str) -> Change:
-    """US:AAA's January 2024 row of feature panel `f`, a file per edition folder (5.25)."""
+def _panels(*editions: str, **values: list[Any]) -> Change:
+    """US:AAA's January 2024 row of feature panel `f`, a file per edition folder (5.25), with
+    the feature columns `values`."""
     folder = "feature_panels/name=f/edition={}/year=2024/part-{:05}.parquet"
     paths = [folder.format(e, n) for n, e in enumerate(editions)]
-    row = {"instrument_id": ["US:AAA"], "period": pa.array([dt.date(2024, 1, 1)])}
+    row: dict[str, Any] = {"instrument_id": ["US:AAA"], "period": pa.array([dt.date(2024, 1, 1)])}
+    row |= values
     row |= {"as_of_date": pa.array([dt.date(2023, 12, 29)])}
     row |= {"ts_available": pa.array([NEW_YEAR], TS_UTC)}
 
@@ -251,6 +253,34 @@ def _crypto(declared: bool) -> Change:
     return _both(_instruments(currency=pa.array(["USDT"])), _set("currencies", usdt))
 
 
+def _exits(*, delisted: bool) -> Change:
+    """US:AAA's delisting on 2024-01-02 (5.13); `delisted` sets `instruments.delisted_on` too."""
+    exit_ = _add("delistings", {
+        "delisting_id": ["US:L1"], "instrument_id": ["US:AAA"], "last_trading_date": DAY,
+        "exit_date": DAY, "delist_type": ["merger"], "ref_date": DAY, "ref_price": [10.0],
+        "exit_value_status": ["observed"], "ret_lo": [0.0], "ret_hi": [0.0],
+        "policy_id": ["exit-value-v1"],
+    })  # fmt: skip
+    return _both(exit_, _instruments(delisted_on=DAY)) if delisted else exit_
+
+
+def _facts(selected: str, state_item: str = "revenue") -> Change:
+    """Fact F1 (`revenue`) in `fundamentals_events`, a state row choosing `selected` for item
+    `state_item`, and `dictionary/items` listing `revenue` (5.16~5.18, 4.4)."""
+    known = pa.array([NEW_YEAR], TS_UTC)
+    both = {"instrument_id": ["US:AAA"], "period_end": pa.array([dt.date(2023, 12, 31)]),
+            "period_kind": ["FY"], "statement_basis": ["consolidated"], "value": [1.0],
+            "unit": ["currency"], "scale": pa.array([0], pa.int8()), "strict_eligible": [True],
+            "vendor_input": [False]}  # fmt: skip
+    return _both(
+        _add("fundamentals_events", both | {"fact_id": ["F1"], "item": ["revenue"],
+             "ts_available": known, "source": ["synthetic"], "pit_quality": ["native"]}),
+        _add("fundamentals_state", both | {"item": [state_item], "ts_known_from": known,
+             "selected_fact_id": [selected], "resolution_policy": ["latest"]}),
+        _add("dictionary/items", {"item": ["revenue"]}),
+    )  # fmt: skip
+
+
 WRONG = "0" * 64
 
 
@@ -310,6 +340,7 @@ def _column_forms(*, complete: bool) -> Change:
                  "ret_lo": [0.0], "ret_hi": [0.0], "policy_id": ["exit-value-v1"]}  # fmt: skip
         if complete:
             exits["ts_value_available"] = known
+        rewrite(m, files, INSTRUMENTS, instruments(delisted_on=DAY))  # R008: equal to exit_date
         forms = {
             "instrument_symbols": (symbols, {"column": "ts_known_from"}),
             "delistings": (exits, {"exit": "ts_exit_known", "value": "ts_value_available"}),
@@ -403,6 +434,13 @@ CASES: dict[str, tuple[Change, Change]] = {
         _instruments(venue_mic=pa.array(["XNYS"])),
         _instruments(venue_mic=pa.array(["xnys"])),
     ),
+    "TDS-R006": (
+        _instruments(underlying_instrument_id=pa.array(["US:AAA"])),
+        _instruments(underlying_instrument_id=pa.array(["US:ZZZ"])),
+    ),
+    "TDS-R007": (_facts("F1"), _facts("F9")),
+    "TDS-R008": (_exits(delisted=True), _exits(delisted=False)),  # an exit, no delisted_on
+    "TDS-R009": (_facts("F1"), _facts("F1", state_item="net_income")),
     **{
         code: (_hashes(code, False), _hashes(code, True))
         for code in ("TDS-H001", "TDS-H002", "TDS-H003")

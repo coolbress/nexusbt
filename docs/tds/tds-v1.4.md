@@ -421,6 +421,8 @@ Each dataset records the following. With it the engine reports before a run "is 
 
 Each column name is followed by its 3.2 type, which the value hash of 4.5 takes; the JSON-valued columns are `string`, the text as stored [2026-11-04].
 
+In `dictionary/columns`, `dataset` is the manifest `datasets[].name` of the dataset the column belongs to; a producer that wants one dictionary entry per panel registers each panel as its own dataset entry (R009) [v1.4, 2026-11-05].
+
 ### 4.5 Hashes (`hash_spec = "tds-hash-1"`) [v1.1, RV-C10]
 
 Three hashes are kept separately. The v1 "logical hash = Arrow IPC bytes" varied with the Arrow implementation, version and buffer alignment, so producers in other languages could not produce the same value; it was changed before 1.0.
