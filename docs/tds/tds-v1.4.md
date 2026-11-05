@@ -244,7 +244,7 @@ This is the canonical English text; a Korean translation is in tds-v1.4.ko.md.
 ### 3.5 Keys, sort, uniqueness
 
 - Each dataset has a `key` (a set of columns that must be unique) and a `sort` (row order inside files) (chapter 5). They are also written in the manifest.
-- Partition columns may be part of the key. Sort order is required only within a partition. For a partition with several files, the concatenation in file-name order must be sorted (K002).
+- Partition columns may be part of the key: K001 compares a row's key together with its partition values other than the time ranges `year=` and `date=` (a row under `edition=strict` and one under `edition=compare` have different keys; a row placed in two `year=` folders stays a duplicate, and K003 also catches the one outside its range) [v1.4, 2026-11-05]. Sort order is required only within a partition. For a partition with several files, the concatenation in file-name order must be sorted (K002).
 - Key uniqueness is checked across the whole dataset (K001).
 
 ### 3.6 Partitions and files
