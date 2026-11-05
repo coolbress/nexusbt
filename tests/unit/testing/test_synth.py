@@ -307,7 +307,7 @@ def called_names(source: str) -> set[str]:
 
 def test_small_value_path_uses_no_platform_math() -> None:
     for step in (synth._small, synth._actions, synth._terms, synth._dividend, synth._revise,
-                 synth._move, synth._delistings, synth._exit_value, daily._snap, daily._ratios,
+                 synth._move, synth._delistings, events.exit_value, daily._snap, daily._ratios,
                  daily._kr_rows, synth._tradability, synth._sample, synth._halts, synth._limits,
                  synth._wobble, synth._status, synth._last_traded, daily._share_counts,
                  daily._eligibility, daily._venues):  # fmt: skip
@@ -496,7 +496,7 @@ def test_a_halt_never_hides_a_close_a_factor_uses() -> None:
     for refs in ({(0, 3)}, set()):  # another event's factor uses session 3's close, or none
         bars: dict[str, list[Any]] = {n: [np.full(6, 100.0)] for n in (*daily.OHLC, "volume")}
         bars["obs_status"] = [["traded"] * 6]
-        halted = synth._halts([0], [5], split, refs, bars, rng)
+        halted = synth._halts([0], [5], split, refs, bars, rng, set())
         assert (bars["obs_status"][0][3] == "halted") == bool(halted) == (not refs)
 
 
@@ -667,7 +667,6 @@ def test_injected_event_overrides_random(tmp_path: Path, tiny: Path) -> None:
     assert dividend["ts_announced"] == dt.datetime(2020, 1, 21, 21, tzinfo=UTC)  # +09:00 read
     for wrong, error, words in (
         ({"dataset": "fundamentals_state"}, NotImplementedError, "not generated until M2"),
-        ({"dataset": "delistings"}, NotImplementedError, "not injected yet"),
         ({"kind": "merger"}, ValueError, "kind one of"),
         ({"ex_date": "2020-01-25"}, ValueError, "a session of its listing"),
         ({"price_factor": 0.25}, ValueError, "derived columns .'price_factor'"),
@@ -685,3 +684,116 @@ def test_injected_event_overrides_random(tmp_path: Path, tiny: Path) -> None:
             make_snapshot(tmp_path / "x", preset="tiny", events=wrong_events)
     for step in (events._cash, events._ratio, events.given, events.targets, synth._tiny_actions):
         assert not called_names(inspect.getsource(step)) & PLATFORM_MATH, step.__name__
+
+
+def exit_agrees(package: Path, iid: str) -> dict[str, Any]:
+    """`iid`'s one `delistings` row, after checking that its instrument row and bars agree."""
+    (out,) = (r for r in rows(package, "delistings") if r["instrument_id"] == iid)
+    (listed,) = (r for r in rows(package, "instruments") if r["instrument_id"] == iid)
+    held = sorted((b for b in rows(package, "bars") if b["instrument_id"] == iid),
+                  key=lambda b: b["session_date"])  # fmt: skip
+    assert (listed["delisted_on"], listed["last_session"]) == (
+        out["exit_date"], out["last_trading_date"])  # fmt: skip
+    assert held[-1]["session_date"] == out["last_trading_date"] == out["ref_date"]
+    assert held[-1]["close"] == out["ref_price"]
+    assert "0 errors" in synth._tds("check", str(package), "--level", "full").stdout
+    assert a001(read(package, "corporate_actions"), read(package, "bars_1d")) == 0
+    return out
+
+
+def test_injected_delisting_ends_the_listing(tmp_path: Path) -> None:
+    # #300, spec 4.8 EventSpec: no bar from the exit on, one delistings row with that exit
+    exit_ = {"dataset": "delistings", "instrument_id": "KR:T00003", "exit_date": "2020-03-02"}
+    out = exit_agrees(make_snapshot(tmp_path / "t", preset="tiny", events=[exit_]), "KR:T00003")
+    assert (out["exit_date"], out["last_trading_date"]) == (
+        dt.date(2020, 3, 2), dt.date(2020, 2, 28))  # fmt: skip
+    assert out["delist_type"] == synth.EXIT_TYPE[out["exit_value_status"]]  # 4.8 (6) fills it
+    early = exit_ | {ID: "KR:T00002", "exit_date": "2020-02-03"}  # before its ticker change
+    renamed = make_snapshot(tmp_path / "r", preset="tiny", events=[early])
+    spans = [(r["valid_from"], r["valid_to"]) for r in rows(renamed, "instrument_symbols")
+             if r[ID] == "KR:T00002"]  # fmt: skip
+    assert spans == [(dt.date(2020, 1, 2), exit_agrees(renamed, "KR:T00002")["exit_date"])]
+    # small: the given columns as given, the rest by 4.8 (6); an exit later than the drawn one
+    short: dict[str, Any] = {"markets": ("KR",), "start": dt.date(2019, 1, 2), "n_kr": 20}
+    drawn = rows(make_snapshot(tmp_path / "a", **short), "delistings")
+    iid = drawn[0]["instrument_id"]
+    given = exit_ | {"instrument_id": iid, "exit_date": "2019-12-02", "ret_policy": -0.25,
+                     "exit_value_status": "estimated",
+                     "ts_exit_known": "2019-11-01T06:30"}  # fmt: skip
+    out = exit_agrees(make_snapshot(tmp_path / "b", **short, events=[given]), iid)
+    assert drawn[0]["exit_date"] < out["exit_date"] == dt.date(2019, 12, 2)
+    assert (out["exit_value_status"], out["ret_policy"], out["delist_type"]) == (
+        "estimated", -0.25, "performance")  # fmt: skip
+    assert out["ts_exit_known"] == dt.datetime(2019, 11, 1, 6, 30, tzinfo=UTC)
+
+
+ID = "instrument_id"
+
+
+def clear_day(package: Path) -> tuple[str, dt.date]:
+    """A traded KR bar that 4.8 (5) does not keep clear: not a listing's first or last, and
+    not the session before an ex-date."""
+    ex = {(r["instrument_id"], r["ex_date"]) for r in rows(package, "corporate_actions")}
+    bars = sorted(rows(package, "bars"), key=lambda b: (b["instrument_id"], b["session_date"]))
+    trios = zip(bars, bars[1:], bars[2:], strict=False)
+    return next((b[ID], b["session_date"]) for a, b, c in trios
+                if a[ID] == b[ID] == c[ID] and b["obs_status"] == c["obs_status"] == "traded"
+                and (c[ID], c["session_date"]) not in ex)  # fmt: skip
+
+
+def test_injected_halt_blanks_its_bar(tmp_path: Path) -> None:
+    # #300: a full-day halt on a KR session, as 4.8 (5) makes them; ineligible that day (4.8 (10))
+    short: dict[str, Any] = {"markets": ("KR",), "start": dt.date(2019, 1, 2), "n_kr": 20}
+    iid, day = clear_day(make_snapshot(tmp_path / "a", **short))
+    halt = {"dataset": "tradability_daily", ID: iid, "session_date": day.isoformat(),
+            "halted_full_day": True}  # fmt: skip
+    package = make_snapshot(tmp_path / "b", **short, events=[halt])
+    on = {name: next(r for r in rows(package, name) if (r[ID], r["session_date"]) == (iid, day))
+          for name in ("bars", "tradability_daily", "eligibility_daily")}  # fmt: skip
+    bar = on["bars"]
+    assert [bar[c] for c in ("obs_status", "open", "high", "low", "close", "volume")] == [
+        "halted", None, None, None, None, 0.0]  # fmt: skip
+    assert (on["tradability_daily"]["halted_full_day"], on["tradability_daily"]["halt_count"]) == (
+        True, 0)  # fmt: skip
+    assert (on["eligibility_daily"]["is_eligible"], on["eligibility_daily"]["reason"]) == (
+        False, "no_price")  # fmt: skip
+    assert "0 errors" in synth._tds("check", str(package), "--level", "full").stdout
+    assert a001(read(package, "corporate_actions"), read(package, "bars_1d")) == 0
+
+
+def test_injected_exits_and_halts_are_refused_with_the_reason(tmp_path: Path) -> None:
+    # #300 Decisions: what is not injected, and 4.8 (5)'s sessions kept free of halts
+    exit_ = {"dataset": "delistings", ID: "KR:T00003", "exit_date": "2020-03-02"}
+    halt = {"dataset": "tradability_daily", ID: "KR:T00003", "session_date": "2020-03-02",
+            "halted_full_day": True}  # fmt: skip
+    for spec, error, words, preset in (
+        (exit_ | {"delist_type": "liquidation"}, ValueError, "liquidating distribution", "tiny"),
+        (halt | {"limit_up_close": True}, NotImplementedError, "limit closes and admin_s", "small"),
+        (halt | {"admin_status": "normal"}, NotImplementedError, "not injected yet", "small"),
+        (halt, NotImplementedError, r"tiny writes no tradability_daily yet \(4.8 \(5\)\)", "tiny"),
+        ({"dataset": "fundamentals_events"}, NotImplementedError, "not generated until M2", "tiny"),
+        (exit_ | {"ref_price": 1.0}, ValueError, "derived or unknown .'ref_price'", "tiny"),
+        (exit_ | {"exit_date": "2020-01-02"}, ValueError, "after its listing's first", "tiny"),
+        (exit_ | {"exit_value_status": "seen"}, ValueError, "exit_value_status one of", "tiny"),
+        (halt | {ID: "US:T00003"}, ValueError, "KR sessions only", "small"),
+        (halt | {"halted_full_day": False}, ValueError, "halted_full_day = True", "small"),
+    ):  # fmt: skip
+        opts: dict[str, Any] = {"preset": preset}
+        with pytest.raises(error, match=words):
+            make_snapshot(tmp_path / "x", **opts, events=[spec])
+    with pytest.raises(ValueError, match="two injected exits"):
+        make_snapshot(tmp_path / "x", preset="tiny", events=[exit_, exit_])
+    short: dict[str, Any] = {"markets": ("KR",), "start": dt.date(2019, 1, 2), "n_kr": 20}
+    plain = make_snapshot(tmp_path / "a", **short)
+    action = next(r for r in rows(plain, "corporate_actions") if r["status"] == "effective")
+    before = max(b["session_date"] for b in rows(plain, "bars")
+                 if b[ID] == action[ID] and b["session_date"] < action["ex_date"])  # fmt: skip
+    gone = next(r for r in rows(plain, "instruments") if r["delisted_on"])
+    for iid, day, words in (
+        (action[ID], before, r"4.8 \(5\) keeps the session before an ex-date, whose close"),
+        (gone[ID], gone["last_session"], r"4.8 \(5\) keeps a listing's last session free of"),
+        (gone[ID], gone["delisted_on"], "session_date must be a session of its listing"),
+    ):
+        with pytest.raises(ValueError, match=words):
+            make_snapshot(tmp_path / "b", **short,
+                          events=[halt | {ID: iid, "session_date": day}])  # fmt: skip
