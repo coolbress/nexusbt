@@ -37,7 +37,7 @@ Check = Callable[[tuple[str, ...], str], list[str]]
 #: 3.1 names a fresh `import nexusbt` does not bind yet, by the table's row (#47). A name
 #: leaves this list in the change that exports it; the spec names no single ticket for many.
 PENDING_3_1 = {
-    "Terms": "Factor Filter Classifier Pipeline factor filter classifier ops",
+    "Terms": "factor filter classifier ops",
     "Data": "Price Fund Meta Panel Label Trad Market Macro MacroTerm Events dataset Dataset"
     " universe",
     "Strategy": "Strategy param monthly weekly daily quarterly annually every on_event top bottom"
@@ -45,12 +45,12 @@ PENDING_3_1 = {
     " RiskContext TargetView RiskDecision Scalar execution exits ExitRule costs ml labels"
     " LabelTerm splits",
     "Functions": "open evaluate backtest screen live fill reconcile sweep compare run_pipeline"
-    " explain check describe runs rerun book override record_fills cash_flow acknowledge"
+    " explain check runs rerun book override record_fills cash_flow acknowledge"
     " preregister",
     "Results": "FactorReport Run Screen Orders BookUpdate ReconcileReport SweepResult Comparison"
     " ValidationResult Split PipelineResult Explanation DecisionExplanation CheckReport"
     " RunTable Description Preregistration Config Snapshot Book",
-    "Types": "Term BoundColumn Param Schedule PortfolioRule Sizer RiskRule ExecutionRule"
+    "Types": "Param Schedule PortfolioRule Sizer RiskRule ExecutionRule"
     " CostModel Window DecisionContext",
     "Modules": "compat testing __version__",
 }
