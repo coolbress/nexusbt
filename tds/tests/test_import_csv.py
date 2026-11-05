@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pyarrow.parquet as pq
@@ -17,8 +18,8 @@ INSTRUMENTS = """instrument_id,asset_class,market,calendar_id,currency,listed_on
 multiplier,is_synthetic
 XNYS:AAPL,equity,US,XNYS,USD,1980-12-12,1,1,false
 """
-BARS = """instrument_id,session_date,close,volume
-XNYS:AAPL,2024-01-02,185.64,82488700
+BARS = """instrument_id,session_date,close,volume,trade_count
+XNYS:AAPL,2024-01-02,185.64,82488700,5
 """
 #: TDS chapter 7's two CSVs; the market and price basis that 7 gives as flags, here in the mapping.
 MINIMAL = """profiles: [tds:minimal-daily@1.0]
@@ -105,6 +106,69 @@ def test_offsetless_time_requires_timezone(tmp_path: Path) -> None:
         "2024-01-02T16:00:00") + "XNYS:AAPL,2024-11-03,1,2024-11-03T01:30:00\n"})  # fmt: skip
     with pytest.raises(CsvImportError, match=r"line 3: .*daylight-saving overlap \(TDS-S004\)"):
         import_csv(tmp_path / "c" / "mapping.yaml", tmp_path / "c" / "pkg")
+    write(tmp_path / "d", {**files, "mapping.yaml": MINIMAL, "bars.csv": bars.format(
+        "2024-03-10T02:30:00")})  # fmt: skip  # a skipped hour: never shifted (#257 decision 6)
+    with pytest.raises(CsvImportError, match=r"line 2: .*daylight-saving gap"):
+        import_csv(tmp_path / "d" / "mapping.yaml", tmp_path / "d" / "pkg")
+
+
+TS = "instrument_id,session_date,close,ts_end\nXNYS:AAPL,2024-01-02,1,{}\n"
+IN_BARS = "    params:"  # where a key is put into the bars block
+DATE = "    columns: {session_date: {format: '%Y%m%d'}}\n" + IN_BARS
+
+
+def key(text: str) -> tuple[str, str]:
+    return IN_BARS, f"    {text}\n{IN_BARS}"
+
+
+@pytest.mark.parametrize(
+    ("change", "bars", "error"),
+    [
+        (("market: {code: US, ", "market: {"), BARS, "`market` needs at least a `code`"),
+        ((MINIMAL[MINIMAL.index("datasets:") :], "datasets: {}\n"), BARS, "`datasets` needs one"),
+        (("  instruments:\n    file: instruments.csv\n", "  instruments: x\n"), BARS, "is not a"),
+        (key("files: x"), BARS, "datasets.bars: unknown files"),
+        (key("kind: nope"), BARS, "kind 'nope' has no TDS schema file"),
+        (key("columns: [close]"), BARS, "datasets.bars.columns is not a block"),
+        (key("columns: {close: x}"), BARS, "datasets.bars.columns.close is not a block"),
+        (key("columns: {nope: {from: close}}"), BARS, "datasets.bars.columns: unknown nope"),
+        (key("columns: {close: {from: price}}"), BARS, "bars.csv: no column for close"),
+        (("{freq: 1d, price_basis: total_adjusted}", "x"), BARS, "params is not a block"),
+        (("file: bars.csv", "file: gone.csv"), BARS, "datasets.bars: [Errno 2]"),
+        (("", ""), BARS + "XNYS:AAPL,2024-01-03\n", "line 3: 2 fields, the header has 5"),
+        (("", ""), BARS.replace("185.64", "abc"), "'abc' is not a f64"),
+        (("", ""), BARS.replace("82488700", "1_000"), "'1_000' is not a f64"),
+        (("", ""), BARS.replace("185.64", " 5"), "' 5' is not a f64"),
+        (("", ""), BARS.replace(",5\n", ",1.5\n"), "'1.5' is not a i64"),
+        (("", ""), BARS.replace(",5\n", ",9223372036854775808\n"), "is not a i64"),
+        ((IN_BARS, DATE), BARS.replace("2024-01-02", "2024013"), "'2024013' is not a date"),
+        (("", ""), "instrument_id,close\nXNYS:AAPL,1\n", "no column for session_date, the sort"),
+        (("", ""), BARS + "XNYS:AAPL,,1,2,3\n", "year= partition needs one or more rows"),
+        (("", ""), BARS.splitlines()[0] + "\n", "year= partition needs one or more rows"),
+        (key("kind: trades"), "conditions\nX\n", "a list<code> column is not imported"),
+        (key("kind: events"), "value\n1\n", "partition event_type= is not imported"),
+        (key("missing_values: NA"), BARS, "missing_values is a list"),
+        (("", ""), TS.format("2024-01-02"), "'2024-01-02' is not a ts_us"),  # not RFC 3339
+        (("", ""), TS.format("2024-01-02T21:00:00.123456789Z"), "is not a ts_us"),  # below us
+        (("", ""), BARS.replace("volume", "close"), "column close given twice"),
+        (
+            ("    params:", "    columns: {instrument_id: {template: X}}\n    params:"),
+            BARS,
+            "template needs {value}",
+        ),
+        (("    file: bars.csv\n", ""), BARS, "datasets.bars: `file` is missing"),
+        (("freq: 1d, ", ""), BARS, "partitions for params.freq None"),  # not guessed
+        (("America/New_York", "Mars/Base"), TS.format("2024-01-02T16:00:00"), "unknown timezone"),
+    ],
+)
+def test_input_that_cannot_be_read_stops(
+    tmp_path: Path, change: tuple[str, str], bars: str, error: str
+) -> None:
+    path = write(tmp_path, {"instruments.csv": INSTRUMENTS, "bars.csv": bars,
+                            "mapping.yaml": MINIMAL.replace(*change)})  # fmt: skip
+    with pytest.raises(CsvImportError, match=re.escape(error)):
+        import_csv(path, tmp_path / "pkg")
+    assert not (tmp_path / "pkg").exists()  # stopped before writing anything
 
 
 def test_package_defaults_and_layout(tmp_path: Path) -> None:
@@ -113,6 +177,7 @@ def test_package_defaults_and_layout(tmp_path: Path) -> None:
                                "mapping.yaml": MINIMAL})  # fmt: skip
     out = import_csv(mapping, tmp_path / "pkg")
     assert rows(out, "instruments")[0]["is_synthetic"] is False
+    assert rows(out, "bars")[0]["trade_count"] == 5
     manifest = json.loads((out / "tds.json").read_text(encoding="utf-8"))
     bars = next(d for d in manifest["datasets"] if d["kind"] == "bars")
     assert (bars["pit_quality"], bars["availability"]) == ("backfilled", {"rule": "ts_end"})
@@ -120,3 +185,7 @@ def test_package_defaults_and_layout(tmp_path: Path) -> None:
     assert check(out, level="full").error_count == 0
     with pytest.raises(CsvImportError, match="not empty"):  # never writes over a folder
         import_csv(mapping, out)
+    # a header-only, unpartitioned CSV: one file of no rows
+    empty = write(tmp_path / "e", {"instruments.csv": INSTRUMENTS.splitlines()[0] + "\n",
+                                   "mapping.yaml": MINIMAL.split("  bars:")[0]})  # fmt: skip
+    assert rows(import_csv(empty, tmp_path / "e" / "pkg"), "instruments") == []
