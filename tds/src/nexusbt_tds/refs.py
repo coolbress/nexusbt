@@ -47,12 +47,12 @@ def check_refs(m: Manifest, only: Sequence[str] | None, blind: set[str]) -> list
     by_kind: defaultdict[object, list[Row]] = defaultdict(list)
     for kind, rs in rows.values():
         by_kind[kind] += rs
-    ids = (
-        {r.get("instrument_id") for r in by_kind["instruments"]} if by_kind["instruments"] else None
-    )
-    calendar = {r.get("instrument_id"): r.get("calendar_id") for r in by_kind["instruments"]}
+    present = {kind for kind, _ in rows.values()}  # a table with no rows is present, not absent
+    listed = by_kind["instruments"]
+    ids = {r.get("instrument_id") for r in listed} if "instruments" in present else None
+    calendar = {r.get("instrument_id"): r.get("calendar_id") for r in listed}
     sessions: defaultdict[object, set[object]] | None = None
-    if by_kind["calendar_sessions"]:
+    if "calendar_sessions" in present:
         sessions = defaultdict(set)
         for r in by_kind["calendar_sessions"]:
             sessions[r.get("calendar_id")].add(r.get("session_date"))

@@ -193,6 +193,11 @@ def _no_instruments(m: dict[str, Any], f: Any) -> None:  # a calendar but no ins
     [
         (_no_instruments, [], ["TDS-R001", "TDS-R003"]),
         (_not_parquet, [], R_CODES),
+        (  # an instruments table with no rows: every id is missing, not unchecked
+            lambda m, f: build.rewrite(m, f, build.INSTRUMENTS, build.instruments().slice(0, 0)),
+            ["TDS-R001"],
+            ["TDS-R002", "TDS-R003"],
+        ),
         (  # any of the four currency columns; no calendar_sessions, so R002 and R003 wait
             build._instruments(settlement_currency=pa.array(["usd"])),
             ["TDS-R004"],
