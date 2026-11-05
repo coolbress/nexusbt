@@ -1,4 +1,4 @@
-"""The `full` level's key checks from the rows: K001~K004 (TDS 3.5, 3.6); K010 and K011 follow.
+"""The `full` level's key checks from the rows: K001~K004 (TDS 3.5, 3.6), K010 (5.2), K011 (5.4).
 
 Rules chosen with the maintainer (#224, 2026-11-05): a `year=` or `date=` folder holds the rows
 whose `session_date` (`period` for the 5.25 panels) falls in it, and a kind without that column
@@ -13,7 +13,7 @@ import re
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import replace
-from itertools import pairwise
+from itertools import combinations, pairwise
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -24,7 +24,7 @@ from .check import KEY_CODES, Finding, _unsafe
 from .manifest import Manifest
 from .profiles import meets
 
-K001, K002, K003, K004 = KEY_CODES
+K001, K002, K003, K004, K010, K011 = KEY_CODES
 TIME_PARTS = ("year", "date")  # the partitions that are time ranges, K003's (TDS 3.5)
 PANELS = frozenset({"feature_panels", "label_panels"})
 _STAMP = r"(\d{4}-\d\d-\d\dT\d\d)-(\d\d)-(\d\d)(?:-(\d{1,9}))?(Z|[+-]\d\d-\d\d)"
@@ -50,6 +50,9 @@ def check_keys(m: Manifest, only: Sequence[str] | None, blind: set[str]) -> list
         found = [*_duplicates(files, key, blind), *_unsorted(files, sort, blind)]
         found += [*_off_partition(files, "period" if kind in PANELS else "session_date", blind)]
         found += [*_overlaps(files)]
+        rows = [r for _, _, rs in files for r in rs]
+        found += _reused(rows, blind) if kind == "instrument_symbols" else []
+        found += _numbering(rows) if kind == "calendar_sessions" else []
         out += [replace(f, dataset=ds.get("name")) for f in found]
     return out
 
@@ -104,12 +107,16 @@ def _duplicates(files: list[File], key: list[str] | None, blind: set[str]) -> It
         yield Finding(K001, "error", msg, key=_shown(list(first), first), count=n)
 
 
+def _group(items: Iterable[Any], by: Any) -> dict[Any, list[Any]]:
+    out: defaultdict[Any, list[Any]] = defaultdict(list)
+    for item in items:
+        out[by(item)].append(item)
+    return out
+
+
 def _folders(files: list[File]) -> dict[str, list[File]]:
     """The files of each partition folder, in file-name order (3.5)."""
-    out: defaultdict[str, list[File]] = defaultdict(list)
-    for f in sorted(files, key=lambda f: f[0]):
-        out[f[0].rpartition("/")[0]].append(f)
-    return out
+    return _group(sorted(files, key=lambda f: f[0]), lambda f: f[0].rpartition("/")[0])
 
 
 def _unsorted(files: list[File], sort: list[str] | None, blind: set[str]) -> Iterable[Finding]:
@@ -163,3 +170,43 @@ def _overlaps(files: list[File]) -> Iterable[Finding]:
             if last and start <= last[0]:
                 yield Finding(K004, "error", f"time range overlaps {last[1]}", file=rel)
             last = (end, rel) if not last or end > last[0] else last
+
+
+def _before(a: Any, b: Any) -> bool | None:  # `a < b`; a null end is open, a null start unknown
+    return True if b is None else None if a is None else bool(a < b)
+
+
+def _reused(rows: list[Row], blind: set[str]) -> list[Finding]:
+    """K010: one `(symbol_type, symbol, venue_mic)` pointing to two ids in an effective and a
+    known period they share (5.2). A null `ts_known_from` is the session open of `valid_from`:
+    a pair it decides leaves K010 unchecked, unless another pair found it."""
+    symbol, unknown = ("symbol_type", "symbol", "venue_mic"), False
+    out: list[Finding] = []
+    if any(c not in r for r in rows for c in (*symbol, "instrument_id", "valid_from")):
+        blind.add(K010)
+        return out
+    for same in _group(rows, lambda r: tuple(r[c] for c in symbol)).values():
+        for a, b in combinations(same, 2):
+            tests = [_before(x.get(f"{t}_from"), y.get(f"{t}_to"))
+                     for t in ("valid", "ts_known") for x, y in ((a, b), (b, a))]  # fmt: skip
+            if a["instrument_id"] == b["instrument_id"] or False in tests:
+                continue
+            if None in tests:
+                unknown = True
+                continue
+            msg = f"points to {a['instrument_id']} and {b['instrument_id']} in the same period"
+            out.append(Finding(K010, "error", msg, key=_shown(symbol, a)))
+            break
+    if unknown and not out:
+        blind.add(K010)
+    return out
+
+
+def _numbering(rows: list[Row]) -> Iterable[Finding]:
+    """K011: a calendar's `session_ord`, when it has one, is 0, 1, … in session order (5.4)."""
+    for calendar, sessions in _group(rows, lambda r: r.get("calendar_id")).items():
+        sessions.sort(key=lambda r: (r.get("session_date") is None, r.get("session_date")))
+        numbers = [r.get("session_ord") for r in sessions]
+        if any(n is not None for n in numbers) and numbers != list(range(len(numbers))):
+            msg = f"session_ord {numbers[:3]}… is not 0, 1, … in session_date order"
+            yield Finding(K011, "error", msg, key={"calendar_id": str(calendar)})
