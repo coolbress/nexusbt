@@ -23,6 +23,7 @@ import pyarrow.compute as pc
 import pyarrow.parquet as pq
 import pytest
 
+from nexusbt.testing import _synth_daily as daily
 from nexusbt.testing import synth
 from nexusbt.testing.synth import a001, main, make_snapshot, read
 
@@ -305,10 +306,10 @@ def called_names(source: str) -> set[str]:
 
 def test_small_value_path_uses_no_platform_math() -> None:
     for step in (synth._small, synth._actions, synth._terms, synth._dividend, synth._revise,
-                 synth._move, synth._delistings, synth._exit_value, synth._snap, synth._ratios,
-                 synth._kr_rows, synth._tradability, synth._sample, synth._halts, synth._limits,
-                 synth._wobble, synth._status, synth._last_traded, synth._share_counts,
-                 synth._eligibility):  # fmt: skip
+                 synth._move, synth._delistings, synth._exit_value, daily._snap, daily._ratios,
+                 daily._kr_rows, synth._tradability, synth._sample, synth._halts, synth._limits,
+                 synth._wobble, synth._status, synth._last_traded, daily._share_counts,
+                 daily._eligibility, daily._venues):  # fmt: skip
         assert not called_names(inspect.getsource(step)) & PLATFORM_MATH, step.__name__
     # the check refuses what it is for, so the pass above is not vacuous
     bad = "def f(rng, p):\n    return np.exp(rng.normal(0, 1)) * p.sqrt() + math.log(2) ** 2\n"
@@ -494,7 +495,7 @@ def test_kr_prices_on_grid_with_halts_and_limits(small: Path) -> None:
 def test_a_halt_never_hides_a_close_a_factor_uses() -> None:
     rng, split = np.random.Generator(np.random.PCG64(0)), [(0, 3, "split")]  # G-54: from 3
     for refs in ({(0, 3)}, set()):  # another event's factor uses session 3's close, or none
-        bars: dict[str, list[Any]] = {n: [np.full(6, 100.0)] for n in (*synth.OHLC, "volume")}
+        bars: dict[str, list[Any]] = {n: [np.full(6, 100.0)] for n in (*daily.OHLC, "volume")}
         bars["obs_status"] = [["traded"] * 6]
         halted = synth._halts([0], [5], split, refs, bars, rng)
         assert (bars["obs_status"][0][3] == "halted") == bool(halted) == (not refs)
