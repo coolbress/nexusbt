@@ -74,8 +74,26 @@ Fields, labels and syntax that automation depends on are followed exactly:
 `Closes` auto-closes, a label drives triage queries, and a form's field id is
 read by tooling. Precision there is not style.
 
+### Public records
+
+Write issues and pull requests as public records, which they are on a public
+repository: they record the product, not the computer it was made on. An
+environment detail goes in when a result depends on it or it limits what was
+observed, written as the condition without the person: "a checkout path
+containing a space", "git 2.36", "on one machine". Home paths, account and
+folder names and credential values stay out, or are replaced by what matters
+about them: `~/...` for a path in the home folder, or the condition the path
+shows ("a path containing a space"). A pasted error message is the usual way in,
+since tools print full home paths: read it before it goes in. Local housekeeping
+the result does not depend on stays out too: what was installed, registered or
+removed on the person's computer. Keep decisions, dates, numbers, links,
+acceptance criteria and checkbox states. An issue's or pull request's edit
+history is public too: text taken out later is still in the earlier revisions
+until someone with write access deletes them.
+
 ## Conventions
 
+- **Another repository's issue or pull request**: A reference to another repository's issue or pull request is `owner/repo#N`; a bare `#N`, or `plinth #N`, links to this repository's own `#N`. That holds in bodies, comments and the closing line alike.
 - **Create an issue**: `gh issue create --title "..." --body "..."`. Multi-line bodies via heredoc.
 - **Title**: one sentence saying what the issue does, such as "Make the engine spec English canonical with a Korean translation". Not a pull request's `type(scope):` form: nothing reads an issue title but people scanning a list. A record may start with its kind, such as `Research:`.
 - **A ticket from a spec or plan**: keep its id (such as `T6.16`) and its original title in `## Parent`, beside the parent's `#N`, so a search for the id still finds it.
