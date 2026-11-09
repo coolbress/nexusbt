@@ -332,6 +332,16 @@ def test_datasets_named_bound_the_hashes_and_leave_H003_unchecked(tmp_path: Path
     assert any(n.startswith("TDS-H003 not checked") for n in result.notes)
 
 
+def test_a_file_listed_twice_in_a_named_dataset_is_not_hashed_twice(tmp_path: Path) -> None:
+    def twice(m: dict[str, Any], f: Any) -> None:  # M013's; its rows are not the dataset's twice
+        build.bars(m)["files"] *= 2
+        build.bars(m)["value_sha256"] = "0" * 64
+
+    result = check(write(tmp_path / "pkg", twice), level="full", datasets=["bars_1d"])
+    assert "TDS-H002" not in [f.code for f in result.errors]
+    assert "TDS-H002" in result.unchecked
+
+
 def test_full_level_says_where_sorted_runs_went(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -287,6 +287,8 @@ def dataset_hashes(
         raise HashError(f"{entry['name']}: kind {entry['kind']} has no schema file, no types")
     if not entry["files"]:
         raise HashError(f"{entry['name']}: no files, no rows to hash")
+    if len({f["path"] for f in entry["files"]}) < len(entry["files"]):
+        raise HashError(f"{entry['name']}: a file is listed twice (TDS-M013)")
     names = []
     for f in entry["files"]:
         stored = pq.read_schema(inside(root, f["path"])).names
