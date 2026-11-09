@@ -38,6 +38,8 @@ class Effects:
     gross_or_net: str | None = None
     new_instrument_id: str | None = None
     ratio_new_per_old: float | None = None
+    ratio_num: int | None = None  # the exact ratio, for integer quantities `(q * num) // den`
+    ratio_den: int | None = None
     pay_date: dt.date | None = None
     pay_date_status: str | None = None
 
@@ -87,15 +89,15 @@ def _ts_terms(row: Row) -> dt.datetime:
 
 
 def _share_factor(row: Row) -> float | None:
+    num, den, r = row.get("ratio_num"), row.get("ratio_den"), row.get("ratio_new_per_old")
+    if (num is None) != (den is None) or (num is not None and min(num, den) <= 0):
+        raise ActionsError(f"`{row['event_id']}`: malformed `ratio_num/ratio_den` (TDS-A010)")
+    if row["kind"] in SPLIT_LIKE and num is not None:
+        return float(num / den)  # the exact ratio is canonical (TDS 5.11, spec 5.6.1)
     if row.get("share_factor") is not None:
         return float(row["share_factor"])
-    if row["kind"] not in SPLIT_LIKE:
+    if row["kind"] not in SPLIT_LIKE or r is None:
         return None  # never the reciprocal of the price factor
-    num, den, r = row.get("ratio_num"), row.get("ratio_den"), row.get("ratio_new_per_old")
-    if num is not None and den is not None:
-        return float(num / den)
-    if r is None:
-        return None
     return float(1 + r if row["kind"] in ("stock_dividend", "bonus_issue") else r)
 
 
@@ -132,7 +134,8 @@ def _resolve(chain_id: str, versions: list[Row], cutoff: dt.datetime | None) -> 
     effective = row["status"] == "effective" or (row["status"] == "announced" and not after)
     effects = _effects(row) if effective else Effects()
     if pending:
-        amounts = ("price_factor", "share_factor", "cash_per_share", "ratio_new_per_old")
+        amounts = ("price_factor", "share_factor", "cash_per_share", "ratio_new_per_old",
+                   "ratio_num", "ratio_den")  # fmt: skip
         effects = dataclasses.replace(effects, **dict.fromkeys(amounts))
     return dataclasses.replace(
         out, event_id=row["event_id"], status=row["status"], ts_effective=row["ts_effective"],

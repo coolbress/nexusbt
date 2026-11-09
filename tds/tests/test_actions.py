@@ -89,12 +89,22 @@ def test_share_factor_explicit_not_inferred() -> None:
     events = table(
         ev("r", "A", "rights_issue", 1, price_factor=0.9),  # no share_factor: not 1/0.9
         ev("s", "B", "split", 1, ratio_num=5, ratio_den=2, ratio_new_per_old=9.0),
-        ev("x", "C", "split", 1, ratio_num=5, ratio_den=2, share_factor=4.0),  # explicit wins
+        ev("x", "C", "split", 1, ratio_num=5, ratio_den=2, share_factor=4.0),  # exact ratio wins
         ev("b", "D", "stock_dividend", 1, ratio_new_per_old=0.05),  # b -> 1 + b
         ev("m", "E", "stock_merger", 1, ratio_new_per_old=0.4, price_factor=1.0),
+        ev("w", "F", "rights_issue", 1, share_factor=1.0, ratio_num=1, ratio_den=5),  # explicit
     )
-    got = {k: v.effects.share_factor for k, v in resolve(events, day(20)).chains.items()}
-    assert got == {"r": None, "s": 2.5, "x": 4.0, "b": 1.05, "m": None}
+    chains = resolve(events, day(20)).chains
+    got = {k: v.effects.share_factor for k, v in chains.items()}
+    assert got == {"r": None, "s": 2.5, "x": 2.5, "b": 1.05, "m": None, "w": 1.0}
+    assert (chains["x"].effects.ratio_num, chains["x"].effects.ratio_den) == (5, 2)
+    for bad in (
+        {"ratio_num": 2, "ratio_den": 0},
+        {"ratio_num": -1, "ratio_den": 1},
+        {"ratio_num": 2},
+    ):
+        with pytest.raises(ActionsError, match="TDS-A010"):
+            resolve(table(ev("y", "A", "split", 1, **bad)), None)
 
 
 def test_revision_cycle_A007() -> None:
