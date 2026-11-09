@@ -124,6 +124,20 @@ def test_cases_v31_M1_expected_present(case_id: str) -> None:  # noqa: N802 - sp
     assert nan_as_text(rows) == nan_as_text(case["expected"])
 
 
+#: The M1 time and pipeline cases (T1.G, spec 8.2): T-10 a start date on a holiday, T-20 a late
+#: bar under `ready_delay`, T-23 the `every(n)` calendar anchor. T-07, T-09, T-11, T-12 and T-15
+#: come in the next pull requests of #222.
+TIME_M1 = ("T-10", "T-20", "T-23")
+
+
+@pytest.mark.parametrize("case_id", TIME_M1)
+def test_time_cases_M1_expected_present(case_id: str) -> None:  # noqa: N802 - spec 10.1's name
+    case, rows = _case(case_id)
+    assert case["id"] == case_id
+    assert case["expected"], f"{case_id} has no expected rows"
+    assert nan_as_text(rows) == nan_as_text(case["expected"])
+
+
 def test_nan_as_text_tells_nan_apart() -> None:
     assert nan_as_text([{"v": (1.0, math.nan)}]) == [{"v": [1.0, "NaN"]}]
     assert nan_as_text([math.nan]) != nan_as_text([0.0])

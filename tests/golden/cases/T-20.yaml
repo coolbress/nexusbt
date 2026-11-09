@@ -1,0 +1,49 @@
+# Golden case T-20 (spec 8.2): a late bar and `ready_delay` (5.1.2, 5.3.1, INV-01).
+# Expected values are literals. `check/T-20.py` reaches them by arithmetic only, and
+# `tests/golden/test_handcalc_self.py` compares the two. An implementation pull request does
+# not change this file (`tests/repo/test_golden_guard.py`); a wrong value reopens the golden
+# ticket ("spec deviation").
+id: T-20
+description: >-
+  Market KR (tiny XKRX, close 06:30Z) whose bars have the column availability rule with
+  `params.ready_delay = PT5M`, so every row freezes at ready(s) = ts_close(s) + 5 minutes and
+  a close decision at s has decision_ts = ready(s). Instruments A (KR:T00001) and B (KR:T00002).
+  A's bar of 2020-01-06 arrives late: ts_available 2020-01-07T06:33Z, after ready(2020-01-06),
+  so it is NaN in its own row (LateBar). It is never moved to the next row; the window of
+  2020-01-07, whose ready 06:35Z reaches 06:33Z, reads it at its own position. Every other
+  bar has ts_available = ready(s). Signal SMA(3) of close, top(1).
+spec: "8.2 T-20; 5.1.2 freeze time and visibility, 5.3.1 blocks, 3.4 SMA, 1.3 INV-01"
+
+bars:
+  availability: {column: ts_available}
+  params: {ready_delay: PT5M}
+  rows:                                 # A; the 2020-01-06 bar is the late one
+    - {instrument_id: "KR:T00001", session_date: "2020-01-02", close: 10, ts_available: "2020-01-02T06:35:00Z"}
+    - {instrument_id: "KR:T00001", session_date: "2020-01-03", close: 11, ts_available: "2020-01-03T06:35:00Z"}
+    - {instrument_id: "KR:T00001", session_date: "2020-01-06", close: 18, ts_available: "2020-01-07T06:33:00Z"}
+    - {instrument_id: "KR:T00001", session_date: "2020-01-07", close: 13, ts_available: "2020-01-07T06:35:00Z"}
+    - {instrument_id: "KR:T00001", session_date: "2020-01-08", close: 14, ts_available: "2020-01-08T06:35:00Z"}
+                                        # B; every bar on time, close 12.2
+    - {instrument_id: "KR:T00002", session_date: "2020-01-02", close: 12.2, ts_available: "2020-01-02T06:35:00Z"}
+    - {instrument_id: "KR:T00002", session_date: "2020-01-03", close: 12.2, ts_available: "2020-01-03T06:35:00Z"}
+    - {instrument_id: "KR:T00002", session_date: "2020-01-06", close: 12.2, ts_available: "2020-01-06T06:35:00Z"}
+    - {instrument_id: "KR:T00002", session_date: "2020-01-07", close: 12.2, ts_available: "2020-01-07T06:35:00Z"}
+    - {instrument_id: "KR:T00002", session_date: "2020-01-08", close: 12.2, ts_available: "2020-01-08T06:35:00Z"}
+
+# One row per session and close decision. `a_close`: A's term value of `close` at that row
+# (the cell as the row's reference time ready(s) sees it). `a_sma3`, `b_sma3`: SMA(3) at the
+# row, null while the window is not yet full (warm-up 2 rows). `target`: top(1).
+#
+# Worked by hand, not yet checked by the person:
+#   ready(2020-01-06) = 06:35Z < 06:33Z of the next day: the late bar is NaN in its row
+#   2020-01-06 A: nanmean(10, 11) = 10.5 < 12.2 -> B
+#   ready(2020-01-07) = 2020-01-07T06:35Z >= 06:33Z: the window (11, 18, 13)/3 = 14 -> A
+#   2020-01-08: (18 + 13 + 14)/3 = 15 -> A
+#   With ready_delay 0 (not this case) ready(2020-01-07) = 06:30Z < 06:33Z, and the bar would
+#   first be seen at 2020-01-08.
+expected:
+  - {session: "2020-01-02", ready: "2020-01-02T06:35:00Z", a_available: "2020-01-02T06:35:00Z", a_close: 10, a_sma3: null, b_sma3: null, target: null}
+  - {session: "2020-01-03", ready: "2020-01-03T06:35:00Z", a_available: "2020-01-03T06:35:00Z", a_close: 11, a_sma3: null, b_sma3: null, target: null}
+  - {session: "2020-01-06", ready: "2020-01-06T06:35:00Z", a_available: "2020-01-07T06:33:00Z", a_close: .nan, a_sma3: 10.5, b_sma3: 12.2, target: "KR:T00002"}
+  - {session: "2020-01-07", ready: "2020-01-07T06:35:00Z", a_available: "2020-01-07T06:35:00Z", a_close: 13, a_sma3: 14.0, b_sma3: 12.2, target: "KR:T00001"}
+  - {session: "2020-01-08", ready: "2020-01-08T06:35:00Z", a_available: "2020-01-08T06:35:00Z", a_close: 14, a_sma3: 15.0, b_sma3: 12.2, target: "KR:T00001"}
