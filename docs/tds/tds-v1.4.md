@@ -1000,8 +1000,8 @@ bars.csv:         instrument_id,session_date,close,volume
 
 ```
 tds check PATH [--profile P ...] [--level manifest|schema|full] [--datasets a,b]
-               [--max-errors N] [--format text|json] [--strict] [--sample-rows N]
-tds hash PATH [--write]            # compute file, dataset and package hashes (physical, value, semantic) (--write updates tds.json)
+               [--max-errors N] [--format text|json] [--strict] [--sample-rows N] [--tmp-dir DIR]
+tds hash PATH [--write] [--tmp-dir DIR]  # compute file, dataset and package hashes (physical, value, semantic) (--write updates tds.json)
 tds manifest build PATH            # scan a folder and draft tds.json (rules and descriptions filled in by a person)
 tds describe PATH [DATASET]        # summary of coverage, columns, profiles
 tds derive fundamentals-state ...  # 5.18 reference conversion

@@ -1000,8 +1000,8 @@ bars.csv:         instrument_id,session_date,close,volume
 
 ```
 tds check PATH [--profile P ...] [--level manifest|schema|full] [--datasets a,b]
-               [--max-errors N] [--format text|json] [--strict] [--sample-rows N]
-tds hash PATH [--write]            # 파일·데이터셋·패키지 해시(물리·값·의미) 계산(--write면 tds.json 갱신)
+               [--max-errors N] [--format text|json] [--strict] [--sample-rows N] [--tmp-dir DIR]
+tds hash PATH [--write] [--tmp-dir DIR]  # 파일·데이터셋·패키지 해시(물리·값·의미) 계산(--write면 tds.json 갱신)
 tds manifest build PATH            # 폴더를 훑어 tds.json 초안 생성(규칙·설명은 사람이 채움)
 tds describe PATH [DATASET]        # 적용 범위·칼럼·프로필 요약
 tds derive fundamentals-state ...  # 5.18 참조 변환

@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import NoReturn
 
 from .check import CheckResult, check
-from .hash import HashError, package_hashes, write_hashes
+from .hash import HashError, package_hashes, spilled_note, write_hashes
 from .import_csv import REPORT, CsvImportError, import_csv
 from .manifest import ManifestError, read_manifest
 
@@ -27,6 +27,7 @@ COMMANDS: tuple[tuple[str, str], ...] = (
     ("import", "build a package from another format (csv)"),
 )
 OK, ERRORS, WARNINGS, USAGE, NO_INPUT, INTERNAL = 0, 1, 2, 64, 66, 70
+_TMP = "folder for the value hash's temporary sorted runs (default: beside the package)"
 
 
 class _Parser(argparse.ArgumentParser):
@@ -51,12 +52,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             sub.add_argument("--format", choices=["text", "json"], default="text")
             sub.add_argument("--strict", action="store_true", help="exit 2 on warnings")
             sub.add_argument("--sample-rows", type=int, help="full level only")
+            sub.add_argument("--tmp-dir", type=Path, help=_TMP)
         elif name == "describe":
             sub.add_argument("path", type=Path)
             sub.add_argument("dataset", nargs="?")
         elif name == "hash":
             sub.add_argument("path", type=Path)
             sub.add_argument("--write", action="store_true", help="write the hashes into tds.json")
+            sub.add_argument("--tmp-dir", type=Path, help=_TMP)
         elif name == "import":
             sub.add_argument("source", choices=["csv"])  # TDS 8.1: the others are planned
             sub.add_argument("path", type=Path, metavar="MAPPING")
@@ -84,6 +87,7 @@ def _check(args: argparse.Namespace) -> int:
         profiles=args.profile,
         datasets=args.datasets.split(",") if args.datasets else None,
         max_errors=args.max_errors,
+        tmp_dir=args.tmp_dir,
     )
     sys.stdout.write(result.to_jsonl() if args.format == "json" else _text(result))
     if result.failed:
@@ -111,11 +115,16 @@ def _text(result: CheckResult) -> str:
 
 def _hash(args: argparse.Namespace) -> int:
     """Package hashes, then `<dataset> <value_sha256>`, then `<file> <sha256> <value_sha256>`."""
+    spilled: list[Path] = []
     try:
-        hashes = write_hashes(args.path) if args.write else package_hashes(args.path)
+        run = write_hashes if args.write else package_hashes
+        hashes = run(args.path, tmp_dir=args.tmp_dir, spilled=spilled)
     except (ManifestError, HashError) as exc:
         print(f"tds hash: {exc}", file=sys.stderr)
         return ERRORS
+    finally:
+        if spilled:
+            print(f"tds hash: {spilled_note(spilled)}", file=sys.stderr)
     for name in ("physical_sha256", "value_sha256", "semantic_sha256"):
         print(f"{name} {hashes[name]}")
     for name, value in sorted(hashes["datasets"].items()):
