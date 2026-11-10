@@ -634,8 +634,59 @@ def test_a_column_of_the_wrong_type_is_S002_and_leaves_the_V_codes_unchecked(
 
 def test_book_and_T015d_codes_stay_unchecked(tmp_path: Path) -> None:
     result = check(write(tmp_path, build.CASES["TDS-V030"][0]), level="full")
-    assert {"TDS-V031", "TDS-V032", "TDS-V011", "TDS-V012"} <= set(result.unchecked)
+    assert {"TDS-V031", "TDS-V032", "TDS-V012"} <= set(result.unchecked)
     assert not set(V_CODES) & set(result.unchecked)
+
+
+@pytest.mark.usefixtures("refs_batches")
+def test_V011(tmp_path: Path) -> None:
+    """TDS 3.4: one warning per instrument and year whose median R is outside [0.5, 2]."""
+    test_K_codes("TDS-V011", tmp_path)  # R = 100 in the fail package, 1 in the pass package
+    [found] = check(tmp_path / "fail", level="full").warnings
+    assert (found.key, found.count) == ({"instrument_id": "US:AAA", "year": 2024}, 1)
+    assert (found.message, found.hint) == ("median R = 100 over 1 bar(s)", "volume may be in lots")
+
+
+def _years(*rows: tuple[str, int, float | None]) -> Any:
+    """Bars at 10.0 with `value_traded` 1000, one per (instrument, year, volume), a day apart."""
+    ids, years, volumes = zip(*rows, strict=True)
+    days = [dt.date(y, 1, 2 + n) for n, y in enumerate(years)]
+    tens, table = pa.array([10.0] * len(rows)), build.instruments()
+    listed = pa.table({c: [table[c][0].as_py()] * 2 for c in table.column_names})
+    listed = listed.set_column(0, "instrument_id", pa.array(["US:AAA", "US:BBB"]))
+    return build._both(
+        lambda m, f: build.rewrite(m, f, build.INSTRUMENTS, listed),
+        build._bars(instrument_id=pa.array(ids), session_date=pa.array(days), high=tens,
+                    low=tens, close=tens, volume=pa.array(volumes, pa.float64()),
+                    value_traded=pa.array([1000.0] * len(rows))),
+    )  # fmt: skip
+
+
+@pytest.mark.parametrize(
+    ("change", "keys", "unchecked"),
+    [  # the median of 1, 1, 100 is 1; of 1, 100, 100 it is 100; R = 2 and 0.5 are inside
+        (_years(("US:AAA", 2024, 100), ("US:AAA", 2024, 100), ("US:AAA", 2024, 1)), [], False),
+        (_years(("US:AAA", 2024, 100), ("US:AAA", 2024, 1), ("US:AAA", 2024, 1)),
+         [("US:AAA", 2024, 3)], False),
+        (_years(("US:AAA", 2024, 50), ("US:BBB", 2024, 200)), [], False),
+        (_years(("US:AAA", 2024, 49), ("US:BBB", 2024, 201)),
+         [("US:AAA", 2024, 1), ("US:BBB", 2024, 1)], False),
+        # a bar with no volume, or a volume of 0, has no R: the other bars decide
+        (_years(("US:AAA", 2024, None), ("US:AAA", 2024, 0), ("US:AAA", 2024, 1)),
+         [("US:AAA", 2024, 1)], False),
+        (_years(("US:AAA", 2024, None)), [], True),  # no bar with an R: unverified
+        (build._bars(volume=pa.array([1.0])), [], True),  # no value_traded column
+    ],
+)  # fmt: skip
+def test_V011_rows(
+    change: Any, keys: list[tuple[str, int, int]], unchecked: bool, tmp_path: Path
+) -> None:
+    result = check(write(tmp_path, change), level="full")
+    found = [(f.key["instrument_id"], f.key["year"], f.count) for f in result.warnings if f.key]
+    assert ([f.code for f in result.warnings], found) == (["TDS-V011"] * len(keys), keys)
+    assert ("TDS-V011" in result.unchecked) == unchecked
+    said = [n for n in result.notes if n.startswith("TDS-V011 not checked: volume unit unverified")]
+    assert len(said) == unchecked
 
 
 def _files_reversed(change: Any) -> Any:
@@ -718,6 +769,18 @@ def test_H_codes(code: str, tmp_path: Path) -> None:
     assert codes(build.write(tmp_path / "pass", *build.package(code, "pass")), "full") == []
 
 
+@pytest.mark.parametrize("named", [None, ["bars_1d"]])
+def test_H004(named: list[str] | None, tmp_path: Path) -> None:
+    """TDS 4.2: a file's optional `value_sha256` is advisory, so a wrong one is a warning."""
+    test_H_codes("TDS-H004", tmp_path)
+    result = check(tmp_path / "fail", level="full", datasets=named)
+    [found] = result.warnings
+    assert (found.code, found.dataset, found.file) == ("TDS-H004", "bars_1d", build.BARS)
+    assert (result.errors, "TDS-H004" in result.unchecked) == ((), False)
+    passed = check(tmp_path / "pass", level="full", datasets=named)
+    assert (passed.warnings, "TDS-H004" in passed.unchecked) == ((), False)
+
+
 @pytest.mark.parametrize("code", ["TDS-H002", "TDS-H003"])
 def test_H002_H003_are_judged_on_a_package_with_a_dictionary(code: str, tmp_path: Path) -> None:
     manifest, files = build.package(code, "pass")
@@ -779,13 +842,14 @@ def test_full_level_checks_only_the_keys_references_and_hashes_so_far(tmp_path: 
     assert result.profiles == {
         "tds:minimal-daily@1.0": ProfileStatus(True, "schema", "not_checked")
     }
-    assert {"TDS-T001", "TDS-H004"} <= set(result.unchecked)
-    judged = {*K_CODES, *R_CODES, "TDS-H001", "TDS-H002", "TDS-H003"} - {*_NO_CAL, *_NO_EXITS}
+    assert {"TDS-T001", "TDS-V012"} <= set(result.unchecked)
+    hashes = {"TDS-H001", "TDS-H002", "TDS-H003", "TDS-H004"}
+    judged = {*K_CODES, *R_CODES, *hashes} - {*_NO_CAL, *_NO_EXITS}
     assert not judged & set(result.unchecked)
     assert {*_NO_CAL, *_NO_EXITS} <= set(result.unchecked)  # no calendar_sessions, delistings
     # a column whose type is declared nowhere: no value hash, so H002 and H003 are not checked
     untyped = check(write(tmp_path / "untyped", _bars(x_cf_note=pa.array([[1]]))), level="full")
-    assert {"TDS-H002", "TDS-H003"} <= set(untyped.unchecked)
+    assert {"TDS-H002", "TDS-H003", "TDS-H004"} <= set(untyped.unchecked)
     assert "TDS-H001" not in untyped.unchecked
 
 

@@ -4,25 +4,38 @@
 Rules chosen with the maintainer (#227, 2026-11-10): V001 compares a bar whose open, high, low
 and close are all present; V002 reads bars, and an instrument with `asset_class` `index` or
 `category` `spread` may have negative prices, never a negative `volume` or `value_traded`; V010
-reads the bars of `equity` instruments. V031 and V032 are not judged (follow-up issues), V011
-and V012 are T0.15d's: they stay `unchecked`.
+reads the bars of `equity` instruments. V031 and V032 are not judged (follow-up issues), V012
+is T0.15d's: it stays `unchecked`.
+
+V011 (TDS 3.4) reads every bars dataset as written: R = value_traded / (volume * (high + low +
+close) / 3) of each bar that has the five values and a positive denominator, its median per
+instrument and year of `session_date`; a dataset where no bar has an R is "volume unit
+unverified". It holds one partition year's R values at a time (8 bytes a bar).
 """
 
 from __future__ import annotations
 
+import math
+import statistics
+from array import array
+from collections import defaultdict
 from collections.abc import Mapping, Sequence
+from itertools import groupby
 from pathlib import Path
 from typing import Any
 
 import pyarrow as pa
 
 from .check import VALUE_CODES, Finding, Severity
+from .keys import listed
 from .manifest import Manifest
 from .refs import _rows, _stored
 
-V001, V002, V004, V005, V010, V020, V030, V040, V041, V050 = VALUE_CODES
+V001, V002, V004, V005, V010, V011, V020, V030, V040, V041, V050 = VALUE_CODES
 WARNINGS = frozenset({V010, V030, V041})
 PRICES = ("open", "high", "low", "close", "vwap")
+RATIO = ("instrument_id", "session_date", "high", "low", "close", "volume", "value_traded")
+_UNREAD = (OSError, pa.ArrowException, TypeError, ValueError)
 #: TDS 5.1's V020: the columns each `asset_class` needs.
 NEEDS = {
     "option": ("underlying_instrument_id", "strike", "option_right", "exercise_style",
@@ -55,17 +68,51 @@ SAID = {V001: "bar(s) whose high and low do not enclose open and close",
         V050: "label column(s) also in feature_panels"}  # fmt: skip
 
 
-def check_values(m: Manifest, only: Sequence[str] | None, blind: set[str]) -> list[Finding]:
+def check_values(
+    m: Manifest, only: Sequence[str] | None, blind: set[str], notes: list[str]
+) -> list[Finding]:
     """V001~V050 on the checked datasets; a file the codes cannot read leaves them unchecked."""
+    unverified: list[str] = []
     try:
-        return _check(m, only)
-    except (OSError, pa.ArrowException, TypeError, ValueError):  # unreadable, or a column of
-        # the wrong type (S010's, S002's): its rows are not compared
+        found = _check(m, only, unverified)
+    except (*_UNREAD, AttributeError):  # unreadable, or a column of the wrong type (S010's,
+        # S002's; a `session_date` that is no date has no year): its rows are not compared
         blind.update(VALUE_CODES)
         return []
+    if unverified:
+        blind.add(V011)
+        notes.append(f"{V011} not checked: volume unit unverified, no bar with value_traded, "
+                     f"volume, high, low and close in {', '.join(unverified)}")  # fmt: skip
+    return found
 
 
-def _check(m: Manifest, only: Sequence[str] | None) -> list[Finding]:
+def _volume_units(root: Path, ds: Mapping[str, Any], unverified: list[str]) -> list[Finding]:
+    """V011 on one bars dataset, the files of one partition year at a time."""
+
+    def year(file: tuple[str, dict[str, str]]) -> str:
+        return file[1].get("year") or file[1].get("date", "")[:4]
+
+    out, name, judged = [], str(ds.get("name")), False
+    for _, files in groupby(sorted(listed(root, ds), key=year), key=year):
+        ratios: defaultdict[tuple[Any, Any], array[float]] = defaultdict(lambda: array("d"))
+        for i, day, high, low, close, volume, value in _rows(
+            root, {"files": [{"path": rel} for rel, _ in files]}, RATIO
+        ):
+            if None in (day, high, low, close, volume, value) or volume * (high + low + close) <= 0:
+                continue
+            if math.isfinite(r := 3 * value / (volume * (high + low + close))):
+                ratios[i, day.year].append(r)
+        for i, y in sorted(ratios, key=str):
+            if not 0.5 <= (r := statistics.median(rs := ratios[i, y])) <= 2:
+                out.append(Finding(V011, "warning", f"median R = {r:.6g} over {len(rs)} bar(s)",
+                                   name, key={"instrument_id": i, "year": y}, count=len(rs),
+                                   hint="volume may be in lots"))  # fmt: skip
+        judged = judged or bool(ratios)
+    unverified += [] if judged else [name]
+    return out
+
+
+def _check(m: Manifest, only: Sequence[str] | None, unverified: list[str]) -> list[Finding]:
     from .schemas.verify import load_schemas
 
     root, schemas = m.root.resolve(), load_schemas()
@@ -87,6 +134,7 @@ def _check(m: Manifest, only: Sequence[str] | None) -> list[Finding]:
             severity: Severity = "warning" if code in WARNINGS else "error"
             msg, key = f"{n} {SAID[code]}", {named: str(first)}
             out.append(Finding(code, severity, msg, str(ds.get("name")), key=key, count=n))
+        out += _volume_units(root, ds, unverified) if kind == "bars" else []
     return out
 
 
