@@ -1,0 +1,57 @@
+# Golden case T-15 (spec 8.2): a `price_factor` null event makes the earlier rows of the window
+# NaN (4.6, 5.3.3, INV-12).
+# Expected values are literals. `check/T-15.py` reaches them by arithmetic only, and
+# `tests/golden/test_handcalc_self.py` compares the two. An implementation pull request does
+# not change this file (`tests/repo/test_golden_guard.py`); a wrong value reopens the golden
+# ticket ("spec deviation").
+id: T-15
+description: >-
+  KR:T00001 on the tiny XKRX calendar, bars from 2020-01-02. A spinoff takes effect on
+  2020-01-07: one share of the new instrument KR:T00007 per old share (exact ratio 1/1,
+  `new_instrument_id` present, so TDS A006 and A010 pass and 5.6.1's exclusion of instruments
+  without an exact ratio does not apply), the parent's share count unchanged (share factor 1).
+  The only thing missing is the price factor, which the producer could not compute:
+  `price_factor` null, `factor_method = unavailable`, so m_e = "none" (4.6). Announced before
+  the run. When the window of computation day t has a row s with s < e <= t, the adjusted close
+  of every row before e is NaN; the row e itself and later rows are as traded. No 1.0 is
+  substituted: not by default, and not from the package's `cum_factor_split`, which here holds
+  1.0 after the event (the resolver leaves the ratio across e as none). SMA(3) of close is
+  nanmean (3.4), so it ignores the NaN cells. The event is in the split class (`affects =
+  split_and_total`): the 4.6 kind table gives a spinoff's adjustment as `price_factor` without
+  the `total_only` mark that cash distributions carry, so `C_split` sees it; `C_total` sees it
+  too, and SMA(3) of `close_tr` gives the same rows.
+spec: "8.2 T-15; 4.6 null price_factor, 5.3.3 adjustment, 3.4 SMA, 1.3 INV-12; TDS 5.11, 8.3 A003"
+
+calendar: "XKRX tiny: 2020-01-02, 01-03, 01-06, 01-07, 01-08, 01-09, 01-10 (rows 0..6)"
+instruments: "KR:T00001 (the parent, the only one with bars here); KR:T00007 (received, no bars)"
+corporate_actions:                      # TDS 5.11; the factor is null, not 1.0 (A003)
+  - {event_id: "CA-T15-1", instrument_id: "KR:T00001", kind: spinoff, ex_date: "2020-01-07", ts_effective: "2020-01-07T00:00:00Z", ts_announced: "2019-12-20T07:00:00Z", ts_terms_available: "2019-12-20T07:00:00Z", ratio_num: 1, ratio_den: 1, ratio_new_per_old: 1.0, new_instrument_id: "KR:T00007", price_factor: null, share_factor: 1.0, affects: split_and_total, factor_method: unavailable, status: effective}
+bars:                                   # KR:T00001 as traded; the package's 1.0 after e is not used
+  - {session_date: "2020-01-02", close: 100, cum_factor_split: 1.0}
+  - {session_date: "2020-01-03", close: 102, cum_factor_split: 1.0}
+  - {session_date: "2020-01-06", close: 104, cum_factor_split: 1.0}
+  - {session_date: "2020-01-07", close: 90, cum_factor_split: 1.0}
+  - {session_date: "2020-01-08", close: 91, cum_factor_split: 1.0}
+  - {session_date: "2020-01-09", close: 92, cum_factor_split: 1.0}
+  - {session_date: "2020-01-10", close: 93, cum_factor_split: 1.0}
+
+# One row per computation day t with a 3-row window. `raw_window`: the closes as traded.
+# `adjusted_window`: what the window kernel sees (NaN before e while the window crosses e).
+# `sma3`: nanmean of the adjusted window. `hidden_one_sma3`: what a silent 1.0 would give; it
+# must not appear (INV-12), and differs from `sma3` in the two rows that cross e.
+# The `AdjustmentUnavailable` diagnostic is counted (4.6) but its unit is not fixed there: here
+# the NaN cells are 3, in 2 rows, from 1 event. The rows do not fix the count; T1.8 settles it.
+#
+# Hand-checked 2026-11-10 (#222), via the coordinating session, recomputed from 5.3.3 / 4.6 / 3.4
+# without this file, all five rows:
+#   e = 2020-01-07 (row 3). Row t crosses e when t - 2 < 3 <= t: t = 3 and t = 4 only.
+#   t = 2020-01-07: rows 1, 2 NaN, row 3 as traded -> nanmean(NaN, NaN, 90) = 90;
+#     a silent 1.0 would give (102 + 104 + 90) / 3 = 98.666667
+#   t = 2020-01-08: row 2 NaN -> nanmean(NaN, 90, 91) = 90.5; silent 1.0: (104 + 90 + 91) / 3 = 95
+#   t = 2020-01-09 and after: no row before e in the window -> as traded, (90 + 91 + 92) / 3 = 91
+expected:
+  - {session: "2020-01-06", raw_window: [100, 102, 104], adjusted_window: [100, 102, 104], sma3: 102.0, hidden_one_sma3: 102.0}
+  - {session: "2020-01-07", raw_window: [102, 104, 90], adjusted_window: [.nan, .nan, 90], sma3: 90.0, hidden_one_sma3: 98.666667}
+  - {session: "2020-01-08", raw_window: [104, 90, 91], adjusted_window: [.nan, 90, 91], sma3: 90.5, hidden_one_sma3: 95.0}
+  - {session: "2020-01-09", raw_window: [90, 91, 92], adjusted_window: [90, 91, 92], sma3: 91.0, hidden_one_sma3: 91.0}
+  - {session: "2020-01-10", raw_window: [91, 92, 93], adjusted_window: [91, 92, 93], sma3: 92.0, hidden_one_sma3: 92.0}
