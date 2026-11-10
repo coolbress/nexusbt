@@ -232,14 +232,15 @@ def _symbols(second_from: dt.date) -> Change:
     return change
 
 
-def _sessions(first: int, on: tuple[int, int] = (2, 3)) -> Change:
+def _sessions(first: int, on: tuple[int, ...] = (2, 3)) -> Change:
     """XNYS sessions on days `on` of January 2024 numbered from `first` (TDS 5.4)."""
-    days = [dt.datetime(2024, 1, d, tzinfo=dt.UTC) for d in on]
+    days, n = [dt.datetime(2024, 1, d, tzinfo=dt.UTC) for d in on], len(on)
     return _add("calendar_sessions", {
-        "calendar_id": ["XNYS"] * 2, "session_date": pa.array([d.date() for d in days]),
+        "calendar_id": ["XNYS"] * n, "session_date": pa.array([d.date() for d in days]),
         "ts_open": pa.array([d.replace(hour=14, minute=30) for d in days], TS_UTC),
         "ts_close": pa.array([d.replace(hour=21) for d in days], TS_UTC),
-        "session_ord": pa.array([first, first + 1], pa.int32()), "session_kind": ["regular"] * 2,
+        "session_ord": pa.array(range(first, first + n), pa.int32()),
+        "session_kind": ["regular"] * n,
     })  # fmt: skip
 
 
@@ -357,6 +358,59 @@ def _column_forms(*, complete: bool) -> Change:
     return change
 
 
+def _at(day: int, hour: int = 14, minute: int = 30) -> dt.datetime:
+    return dt.datetime(2024, 1, day, hour, minute, tzinfo=dt.UTC)
+
+
+#: TDS 5.11's columns the A codes read, with their types; a 2:1 split of US:AAA on 2024-01-03.
+ACTION_TYPES = {"event_id": pa.string(), "instrument_id": pa.string(), "kind": pa.string(),
+    "ex_date": pa.date32(), "ts_effective": TS_UTC, "pay_date_status": pa.string(),
+    "ts_announced": TS_UTC, "ts_terms_available": TS_UTC, "ratio_num": pa.int64(),
+    "ratio_den": pa.int64(), "ratio_new_per_old": pa.float64(), "new_instrument_id": pa.string(),
+    "cash_per_share": pa.float64(), "price_factor": pa.float64(), "affects": pa.string(),
+    "factor_method": pa.string(), "factor_ref_price": pa.float64(), "revision_of": pa.string(),
+    "status": pa.string()}  # fmt: skip
+SPLIT = {"event_id": "US:E1", "instrument_id": "US:AAA", "kind": "split",
+    "ex_date": dt.date(2024, 1, 3), "ts_effective": _at(3), "pay_date_status": "missing",
+    "ts_announced": NEW_YEAR, "ratio_num": 2, "ratio_den": 1, "ratio_new_per_old": 2.0,
+    "price_factor": 0.5, "affects": "split_and_total", "factor_method": "ratio",
+    "status": "effective"}  # fmt: skip
+
+
+def _actions(
+    *events: dict[str, Any], split: tuple[float, ...] = (1.0, 0.5), total: Any = None,
+    on: tuple[int, ...] = (2, 3), bars_on: tuple[int, ...] = (), with_bbb: bool = False,
+) -> Change:  # fmt: skip
+    """`events` (each a change of SPLIT) in `corporate_actions`, XNYS sessions on days `on` and
+    US:AAA's bars on days `bars_on` (default `on`) with `cum_factor_split` `split` and
+    `cum_factor_total` `total` (default `split`); `with_bbb` adds instrument US:BBB."""
+
+    def change(m: dict[str, Any], files: Files) -> None:
+        n = len(bars_on or on)
+        rows = [SPLIT | e for e in events]
+        _add("corporate_actions", pa.Table.from_pylist(rows, pa.schema(ACTION_TYPES)))(m, files)
+        _sessions(0, on)(m, files)
+        days = pa.array([dt.date(2024, 1, d) for d in bars_on or on])
+        _bars(instrument_id=pa.array(["US:AAA"] * n), session_date=days,
+              close=pa.array([10.0] * n), cum_factor_split=pa.array(split),
+              cum_factor_total=pa.array(total or split))(m, files)  # fmt: skip
+        if with_bbb:
+            bbb = instruments(instrument_id=pa.array(["US:BBB"]))
+            rewrite(m, files, INSTRUMENTS, pa.concat_tables([instruments(), bbb]))
+
+    return change
+
+
+_REVISED = {"event_id": "US:E2", "revision_of": "US:E1"}
+_DIVIDEND = {"kind": "cash_dividend", "cash_per_share": 1.0, "factor_ref_price": 10.0,
+             "affects": "total_only", "factor_method": "cash_prev_close", "ratio_num": None,
+             "ratio_den": None, "ratio_new_per_old": None}  # fmt: skip
+_MERGER = {"kind": "stock_merger", "new_instrument_id": "US:BBB", "price_factor": 1.0,
+           "affects": "none", "factor_method": "vendor"}  # fmt: skip
+_SPINOFF = {"kind": "spinoff", "new_instrument_id": "US:BBB", "price_factor": 0.8,
+            "affects": "total_only", "factor_method": "spinoff_first_close"}  # fmt: skip
+_SPUN: dict[str, Any] = {"split": (1.0, 1.0), "total": (1.0, 0.8), "with_bbb": True}
+
 #: Code → (pass change, fail change). M005, M011 and S005 are warnings: their fail package warns.
 CASES: dict[str, tuple[Change, Change]] = {
     "TDS-M001": (_keep, lambda m, f: m.clear()),  # `[]` is written, see write()
@@ -445,6 +499,36 @@ CASES: dict[str, tuple[Change, Change]] = {
     "TDS-R007": (_facts("F1"), _facts("F9")),
     "TDS-R008": (_exits(delisted=True), _exits(delisted=False)),  # an exit, no delisted_on
     "TDS-R009": (_facts("F1"), _facts("F1", state_item="net_income")),
+    "TDS-A001": (_actions({}), _actions({}, split=(1.0, 0.4))),
+    "TDS-A002": (_actions({}), _actions({}, split=(2.0, 1.0))),  # the ratio is still 0.5
+    "TDS-A003": (  # a null factor: A001 does not compare across it
+        _actions({"price_factor": None, "factor_method": "unavailable"}, split=(1.0, 0.4)),
+        _actions({"price_factor": None}, split=(1.0, 0.4)),
+    ),
+    "TDS-A004": (  # 1 - 1.0/10.0 = 0.9
+        _actions(_DIVIDEND | {"price_factor": 0.9}, split=(1.0, 1.0), total=(1.0, 0.9)),
+        _actions(_DIVIDEND | {"price_factor": 0.95}, split=(1.0, 1.0), total=(1.0, 0.95)),
+    ),
+    "TDS-A005": (  # sessions on the 2nd and 4th: the 3rd is no session
+        _actions({"ex_date": dt.date(2024, 1, 4), "ts_effective": _at(4)}, on=(2, 4)),
+        _actions({}, on=(2, 4)),
+    ),
+    "TDS-A006": (
+        _actions(_MERGER, split=(1.0, 1.0), with_bbb=True),
+        _actions(_MERGER | {"new_instrument_id": None}, split=(1.0, 1.0), with_bbb=True),
+    ),
+    "TDS-A007": (
+        _actions({}, _REVISED),
+        _actions({"revision_of": "US:E2"}, _REVISED),
+    ),
+    "TDS-A008": (
+        _actions({"ts_terms_available": _at(2)}),
+        _actions({"ts_terms_available": _at(3, 15)}),  # after the 14:30 open it takes effect
+    ),
+    "TDS-A009": (  # the 3rd's close is 21:00; a spinoff is no A008, its share count stays
+        _actions(_SPINOFF | {"ts_terms_available": _at(3, 21, 0)}, **_SPUN),
+        _actions(_SPINOFF | {"ts_terms_available": _at(3, 20, 0)}, **_SPUN),
+    ),
     **{
         code: (_hashes(code, False), _hashes(code, True))
         for code in ("TDS-H001", "TDS-H002", "TDS-H003")
@@ -476,6 +560,10 @@ FAILS: dict[str, tuple[str | None, ...]] = {
     "TDS-K011": ("calendar_sessions",),
     "TDS-R007": ("fundamentals_state",),
     "TDS-R009": ("fundamentals_state",),
+    **dict.fromkeys(["TDS-A001", "TDS-A002"], ("bars_1d",)),
+    **dict.fromkeys(
+        [f"TDS-A00{n}" for n in range(3, 10)], ("corporate_actions",)
+    ),
 }
 # fmt: on
 

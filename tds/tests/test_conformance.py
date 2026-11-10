@@ -484,6 +484,79 @@ def test_R009_names_the_missing_dictionary_once_per_dataset(
     assert all(f"no {dictionary}" in f.message for f in r009)
 
 
+A_CODES = [f"TDS-A{n:03}" for n in range(1, 10)]
+
+
+@pytest.mark.usefixtures("refs_batches")
+@pytest.mark.parametrize("code", A_CODES)
+def test_A_codes(code: str, tmp_path: Path) -> None:
+    test_K_codes(code, tmp_path)  # the same contract: once in its fail package, judged in both
+
+
+def _changed(*events: dict[str, Any], **opts: Any) -> Any:
+    return build._actions(*events, **opts)
+
+
+def _daily_factors(*split: float) -> Any:  # US:AAA from 2024-01-02, no corporate_actions
+    days = pa.array([dt.date(2024, 1, 2 + n) for n in range(len(split))])
+    ids, close = pa.array(["US:AAA"] * len(split)), pa.array([10.0] * len(split))
+    factors = pa.array(split)
+    return build._bars(instrument_id=ids, session_date=days, close=close, cum_factor_split=factors)
+
+
+def test_reverse_split_not_flagged(tmp_path: Path) -> None:
+    """1:10 on the 3rd (m = 10), 2:1 on the 4th (m = 0.5): the factor goes up, then down."""
+    reverse = {"kind": "reverse_split", "ratio_num": 1, "ratio_den": 10, "price_factor": 10.0,
+               "ratio_new_per_old": 0.1}  # fmt: skip
+    split = {"event_id": "US:E2", "ex_date": dt.date(2024, 1, 4), "ts_effective": build._at(4)}
+    change = _changed(reverse, split, split=(1.0, 10.0, 5.0), on=(2, 3, 4))
+    assert codes(write(tmp_path, change), "full") == []
+
+
+_LATER = dt.datetime(2024, 1, 2, tzinfo=dt.UTC)  # E2 is known after E1 (TDS 5.11 step 2)
+
+
+@pytest.mark.parametrize(
+    ("revision", "after", "found"),
+    [
+        ({"ratio_num": 4, "ratio_new_per_old": 4.0, "price_factor": 0.25}, 0.25, []),
+        ({"ratio_num": 4, "ratio_new_per_old": 4.0, "price_factor": 0.25}, 0.125, ["TDS-A001"]),
+        ({"ratio_num": 4, "ratio_new_per_old": 4.0, "price_factor": 0.25}, 0.5, ["TDS-A001"]),
+        ({"status": "cancelled"}, 1.0, []),  # a cancelled chain is 1.0
+        ({"status": "cancelled"}, 0.5, ["TDS-A001"]),
+    ],
+)
+def test_A001_multiplies_latest_revision_once(
+    revision: dict[str, Any], after: float, found: list[str], tmp_path: Path
+) -> None:
+    amended = {"event_id": "US:E2", "revision_of": "US:E1", "ts_announced": _LATER} | revision
+    assert codes(write(tmp_path, _changed({}, amended, split=(1.0, after))), "full") == found
+
+
+@pytest.mark.parametrize(
+    ("change", "found", "unchecked"),
+    [  # sparse bars on the 2nd and 4th: the 3rd's split lies between them
+        (_changed({}, on=(2, 3, 4), bars_on=(2, 4), split=(1.0, 0.5)), [], []),
+        (_changed({}, on=(2, 3, 4), bars_on=(2, 4), split=(1.0, 1.0)), ["TDS-A001"], []),
+        # no corporate_actions: a factor that moves is not judged; one that does not, is
+        (build._bars(cum_factor_split=pa.array([1.0])), [], []),
+        (_daily_factors(1.0, 0.5), [], ["TDS-A001"]),
+        # chains the resolver cannot tie (A007) leave A001 unchecked
+        (build.CASES["TDS-A007"][1], ["TDS-A007"], ["TDS-A001"]),
+        # no calendar: the sessions A005 and A009 look up are unknown
+        (_without("calendar_sessions", build.CASES["TDS-A009"][0]), [],
+         ["TDS-A005", "TDS-A009"]),
+    ],
+)  # fmt: skip
+def test_adjustment_rules_edges(
+    change: Any, found: list[str], unchecked: list[str], tmp_path: Path
+) -> None:
+    result = check(write(tmp_path, change), level="full")
+    assert [f.code for f in (*result.errors, *result.warnings)] == found
+    assert set(unchecked) <= set(result.unchecked)
+    assert not set(A_CODES) - set(unchecked) & set(result.unchecked)
+
+
 @pytest.mark.parametrize("code", ["TDS-H001", "TDS-H002", "TDS-H003"])
 def test_H_codes(code: str, tmp_path: Path) -> None:
     fail = build.write(tmp_path / "fail", *build.package(code, "fail"))
