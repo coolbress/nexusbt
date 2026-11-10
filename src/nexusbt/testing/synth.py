@@ -23,6 +23,7 @@ import argparse
 import datetime as dt
 import itertools
 import json
+import math
 import subprocess
 import sys
 import sysconfig
@@ -37,6 +38,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from nexusbt.contracts import ID_COLUMN as ID
+from nexusbt.testing import _synth_degrade as dg
 from nexusbt.testing import _synth_events as ev
 from nexusbt.testing._synth_daily import (
     OHLC,
@@ -865,12 +867,13 @@ def make_snapshot(
     takes none of `seed`, `start`, `end`, `n_kr`, `n_us`. `events` (4.8 `EventSpec`) injects
     `corporate_actions` and `delistings` rows, in `tiny` too, and KR halts in `small` and
     `full`. `full` is `small`'s rules over full's period and counts, the M1 datasets only;
-    its M2 datasets, `full_ci`, `overrides` and `degrade` come with later tickets (spec 10.1:
-    T0.8c, T0.16a).
+    its M2 datasets, `full_ci` and `overrides` come with later tickets (spec 10.1: T0.8c).
+    `degrade` takes 4.8's core values (T0.16a; `_synth_degrade`), the others with T0.16b/c.
     """
-    if preset not in ("tiny", *PRESETS) or overrides or degrade:
-        raise NotImplementedError("only presets tiny, small and full, without overrides or"
-                                  " degrade, are built so far (spec 4.8)")  # fmt: skip
+    if preset not in ("tiny", *PRESETS) or overrides:
+        raise NotImplementedError("only presets tiny, small and full, without overrides, are"
+                                  " built so far (spec 4.8)")  # fmt: skip
+    dg.check(degrade)
     root, chosen = Path(root), [m for m in MARKETS if m in markets]
     if not chosen or set(markets) - set(MARKETS):
         raise ValueError(f"markets {list(markets)}: choose one or more of {sorted(MARKETS)}")
@@ -891,23 +894,27 @@ def make_snapshot(
         else:
             calendars[cal] = _small_calendar(cal, first, final)
             tables[m] = _small(m, counts[m], calendars[cal], rngs[m], events)
+        if degrade:
+            tables[m] = dg.apply(m, {k: _arrow(v) for k, v in tables[m].items()}, degrade)
 
     def joined(name: str, key: list[str]) -> pa.Table:
         table = pa.concat_tables([_arrow(tables[m][name]) for m in chosen])
         return table.sort_by([(k, "ascending") for k in key])
 
-    sessions = pa.concat_tables([_arrow(calendars[c]) for c in sorted(calendars)])
-    files = {
-        name: [_write(root, f"{name}/part-00000.parquet", name, table)]
-        for name, table in (
-            ("instruments", joined("instruments", [ID])),
-            ("instrument_symbols", joined("instrument_symbols", [ID, "valid_from"])),
-            ("instrument_xref", pa.schema(XREF).empty_table()),
-            ("calendar_sessions", sessions),
-            ("corporate_actions", joined("corporate_actions", [ID, "ex_date", "event_id"])),
-            ("delistings", joined("delistings", [ID, "exit_date"])),
-        )
+    made: dict[str, Callable[[], pa.Table]] = {
+        "instruments": lambda: joined("instruments", [ID]),
+        "instrument_symbols": lambda: joined("instrument_symbols", [ID, "valid_from"]),
+        "instrument_xref": lambda: pa.schema(XREF).empty_table(),
+        "calendar_sessions": lambda: pa.concat_tables(
+            [_arrow(calendars[c]) for c in sorted(calendars)]),
+        "corporate_actions": lambda: joined("corporate_actions", [ID, "ex_date", "event_id"]),
+        "delistings": lambda: joined("delistings", [ID, "exit_date"]),
     }  # fmt: skip
+    files = {
+        name: [_write(root, f"{name}/part-00000.parquet", name, make())]
+        for name, make in made.items()
+        if name not in dg.absent(degrade)
+    }
     if all("share_counts" in tables[m] for m in chosen):  # tiny has none yet
         rows = joined("share_counts", [ID, "count_kind", "as_of_date"])
         files["share_counts"] = [_write(root, "share_counts/part-00000.parquet", "share_counts",
@@ -916,12 +923,12 @@ def make_snapshot(
     manifest = {
         "tds_version": "1.0", "name": f"synth-{preset}", "created": f"{final}T00:00:00Z",
         "snapshot_id": snapshot_id, "producer": {"name": PRODUCER, "hints": HINTS},
-        "profiles": ["tds:minimal-daily@1.0", "tds:equity-daily-core@1.0"],
+        "profiles": dg.profiles(["tds:minimal-daily@1.0", "tds:equity-daily-core@1.0"], degrade),
         "id_namespaces": {m: NAMESPACES[m] for m in chosen},
         "markets": {m: MARKETS[m] for m in chosen},
         "datasets": [
             {"name": name, "kind": name, "path": name, "schema_version": "1.0",
-             **FIELDS.get(name, {}), "files": entries}
+             **dg.fields(name, FIELDS.get(name, {}), degrade), "files": entries}
             for name, entries in files.items()
         ],
         "hashes": {"hash_spec": "tds-hash-1"},
@@ -941,15 +948,18 @@ def read(root: Path, name: str) -> pa.Table:
     return pa.concat_tables([pq.read_table(Path(root) / f["path"]) for f in ds["files"]])
 
 
-def a001(actions: pa.Table, bars: pa.Table) -> int:
+def a001(actions: pa.Table, bars: pa.Table) -> int | None:
     """TDS 5.11's A001 count: bars whose `cum_factor_*` step from the instrument's previous bar
-    is not, to 1e-12 relative, the product of the price factors effective that session.
+    is not, to 1e-12 relative, the product of the price factors effective after that bar and
+    by this one (one session in dense bars, more where sparse bars skip); None without them.
 
     Resolved at c = +inf: per `revision_of` chain only the version known last (5.11 step 2,
     ties to the last `event_id`), none when it is cancelled or only announced. The generator's
     own count until `tds check` runs A001 through `nexusbt_tds.actions` (#226, #227), which
     this module may not import (spec 2.5).
     """
+    if "cum_factor_split" not in bars.column_names:  # degrade no_cum_factors (F-04)
+        return None
     parent = {r["event_id"]: r["revision_of"] for r in actions.to_pylist()}
     latest: dict[str, tuple[Any, dict[str, Any]]] = {}
     for r in sorted(actions.to_pylist(), key=lambda r: r["event_id"]):
@@ -960,29 +970,31 @@ def a001(actions: pa.Table, bars: pa.Table) -> int:
         when = min(known, default=r["ts_effective"])
         if root not in latest or when >= latest[root][0]:
             latest[root] = (when, r)
-    want: dict[tuple[str, dt.date, str], float] = {}
+    want: dict[tuple[str, str], list[tuple[dt.date, float]]] = {}  # (id, basis) → ex, factor
     for _, r in latest.values():
         bases = {"split_and_total": ("total", "split"), "total_only": ("total",)}
         for basis in bases.get(r["affects"], ()) if r["status"] == "effective" else ():
-            key = (r[ID], r["ex_date"], basis)
-            want[key] = want.get(key, 1.0) * r["price_factor"]
+            want.setdefault((r[ID], basis), []).append((r["ex_date"], r["price_factor"]))
     rows = bars.select([ID, "session_date", "cum_factor_split", "cum_factor_total"])
     rows = rows.sort_by([(ID, "ascending"), ("session_date", "ascending")]).to_pylist()
     bad = 0
     for before, now in itertools.pairwise(rows):
         for basis in ("total", "split") if before[ID] == now[ID] else ():
             step = now[f"cum_factor_{basis}"] / before[f"cum_factor_{basis}"]
-            m = want.get((now[ID], now["session_date"], basis), 1.0)
+            m = math.prod(f for ex, f in want.get((now[ID], basis), ())
+                          if before["session_date"] < ex <= now["session_date"])  # fmt: skip
             bad += abs(step - m) > 1e-12 * abs(m)
     return bad
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """`python -m nexusbt.testing.synth --preset P --out DIR [--markets KR,US,ZZ] --validate`."""
+    """`python -m nexusbt.testing.synth --preset P --out DIR [--markets KR,US,ZZ]
+    [--degrade a,b] --validate`."""
     parser = argparse.ArgumentParser(prog="python -m nexusbt.testing.synth")
     parser.add_argument("--preset", choices=["tiny", "small", "full", "full_ci"], default="tiny")
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--markets", default="KR,US")
+    parser.add_argument("--degrade", default="", help="spec 4.8 degrade values, a,b")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--validate", action="store_true", help="then run tds check --level full")
     args = parser.parse_args(argv)
@@ -990,6 +1002,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     root = make_snapshot(
         args.out, preset=args.preset, seed=args.seed, markets=args.markets.split(","),
         snapshot_id=PRESETS.get(args.preset, PRESETS["small"]).snapshot_id,
+        degrade=[v for v in args.degrade.split(",") if v],
     )  # fmt: skip
     took = time.perf_counter() - began
     manifest = json.loads((root / "tds.json").read_text(encoding="utf-8"))
@@ -1003,14 +1016,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"{name} {manifest['hashes'][name]}")
     size = sum(f["bytes"] for ds in manifest["datasets"] for f in ds["files"])
     print(f"time {took:.1f} s, size {size} bytes")
+    print(f"profiles {', '.join(manifest['profiles'])}")
     if not args.validate:
         return 0
     bad = a001(actions, read(root, "bars_1d"))
-    print(f"TDS-A001: {bad}")
+    print(f"TDS-A001: {'no cum_factor_* columns' if bad is None else bad}")
     done = _tds("check", str(root), "--level", "full")
     sys.stdout.write(done.stdout)
     sys.stderr.write(done.stderr)
-    return done.returncode or int(bad > 0)
+    return done.returncode or int(bool(bad))
 
 
 if __name__ == "__main__":  # pragma: no cover - run by `python -m`, a separate process
