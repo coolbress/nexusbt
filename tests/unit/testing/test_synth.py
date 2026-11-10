@@ -384,6 +384,43 @@ def test_full_is_small_rules_at_full_scale(tmp_path: Path) -> None:
     assert "0 errors, 0 warnings at level full" in done.stdout
 
 
+@pytest.mark.parametrize(("term", "ref", "unit", "cash"), [
+    (20, 0.0075, 100, 0.01),  # a close under one cent: the one-cent floor is above it (#357)
+    (20, 1.0, 1, 1.0),  # a close of one won: the floor equals it, a factor of 0
+    (8000, 2.0, 1, 2.0),  # a return of capital of 80 % of 2 won rounds up to the close
+])  # fmt: skip
+def test_cash_reaching_the_previous_close_has_no_factor(
+    term: int, ref: float, unit: int, cash: float
+) -> None:
+    """TDS 5.11: 1 - D / close[e-1] is not positive, so the factor is null and its method
+    `unavailable`, never a value A003 refuses; one cent on a two-cent close keeps its factor."""
+    terms = synth._terms("cash_dividend", term, ref, unit, "USD")
+    assert (terms["cash_per_share"], terms["factor_ref_price"]) == (cash, ref)
+    assert (terms["price_factor"], terms["factor_method"]) == (None, "unavailable")
+    below = synth._terms("cash_dividend", 20, 0.02, 100, "USD")
+    assert (below["price_factor"], below["factor_method"]) == (0.5, "cash_prev_close")
+
+
+def test_full_slice_with_a_dividend_above_the_close_conforms(tmp_path: Path) -> None:
+    """#357: a slice of `full` (seed 49, 60 US instruments) where US:T00031 closes under a
+    cent from its 2022-05-18 dividend on. No factor is null or <= 0 under a method other than
+    `unavailable`, those dividends move no bar, and the package passes the full level (INV-17)."""
+    full = make_snapshot(tmp_path / "f", preset="full", seed=49, markets=("US",), n_us=60)
+    actions = rows(full, "corporate_actions")
+    none = [r for r in actions if r["factor_method"] == "unavailable"]
+    assert {(r["instrument_id"], r["kind"]) for r in none} == {("US:T00031", "cash_dividend")}
+    assert min(r["ex_date"] for r in none) == dt.date(2022, 5, 18)
+    total = steps(full, "total")
+    for r in none:  # the one-cent floor reaches the close: no factor, and the bars stay
+        assert r["price_factor"] is None
+        assert r["cash_per_share"] == 0.01 > r["factor_ref_price"]
+        assert total[r["instrument_id"], r["ex_date"]] == 1.0
+    assert all(r["price_factor"] > 0 for r in actions if r not in none)
+    assert min(b["close"] for b in rows(full, "bars")) > 0  # a negative factor flipped them
+    assert a001(read(full, "corporate_actions"), read(full, "bars_1d")) == 0
+    assert "0 errors" in synth._tds("check", str(full), "--level", "full").stdout
+
+
 def steps(package: Path, basis: str) -> dict[tuple[str, dt.date], float]:
     """cum_factor_<basis>[s] / [s-1] of each bar after an instrument's first."""
     bars = sorted(rows(package, "bars"), key=lambda b: (b["instrument_id"], b["session_date"]))
