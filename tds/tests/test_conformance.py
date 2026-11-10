@@ -632,6 +632,19 @@ def test_a_column_of_the_wrong_type_is_S002_and_leaves_the_V_codes_unchecked(
     assert set(V_CODES) <= set(result.unchecked)
 
 
+@pytest.mark.parametrize(
+    ("session_date", "wrong"),
+    [(pa.array([dt.date(2024, 1, 2)]), False), (pa.array(["2024-01-02"]), True)],
+)
+def test_a_tradability_daily_id_or_date_of_the_wrong_type_is_S002(
+    session_date: pa.Array, wrong: bool, tmp_path: Path
+) -> None:
+    # TDS 5.10 types the row `instrument_id, session_date` as id / date (#105).
+    row = {"instrument_id": ["US:AAA"], "session_date": session_date, "status_known": [True]}
+    found = codes(write(tmp_path, build._add("tradability_daily", row)), "schema")
+    assert ("TDS-S002" in found) is wrong
+
+
 def test_book_and_T015d_codes_stay_unchecked(tmp_path: Path) -> None:
     result = check(write(tmp_path, build.CASES["TDS-V030"][0]), level="full")
     assert {"TDS-V031", "TDS-V032", "TDS-V012"} <= set(result.unchecked)
