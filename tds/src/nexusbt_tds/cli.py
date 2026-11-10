@@ -1,8 +1,8 @@
 """`tds <command>`: the commands TDS 8.1 marks implemented for nexusbt-tds 1.0.x.
 
-`check`, `hash`, `describe` and `import csv` are built; another command raises
-`NotImplementedError` until its own ticket lands. Exit codes are TDS 8.1's: 0 pass, 1 errors,
-2 warnings with `--strict`, 64 usage, 66 input missing, 70 checker internal error.
+`check`, `hash`, `manifest build`, `describe` and `import csv` are built. Exit codes are TDS
+8.1's: 0 pass, 1 errors, 2 warnings with `--strict`, 64 usage, 66 input missing, 70 checker
+internal error.
 """
 
 from __future__ import annotations
@@ -14,9 +14,10 @@ from pathlib import Path
 from typing import NoReturn
 
 from .check import CheckResult, check
+from .draft import build_manifest
 from .hash import HashError, package_hashes, spilled_note, write_hashes
 from .import_csv import REPORT, CsvImportError, import_csv
-from .manifest import ManifestError, read_manifest
+from .manifest import MANIFEST, ManifestError, read_manifest
 
 #: TDS 8.1, in its order; `derive` and `export` are planned there, not implemented.
 COMMANDS: tuple[tuple[str, str], ...] = (
@@ -63,12 +64,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             sub.add_argument("source", choices=["csv"])  # TDS 8.1: the others are planned
             sub.add_argument("path", type=Path, metavar="MAPPING")
             sub.add_argument("--out", type=Path, required=True, help="the new package folder")
+        elif name == "manifest":
+            sub.add_argument("action", choices=["build"])
+            sub.add_argument("path", type=Path)
     args = parser.parse_args(argv)
-    run = {"check": _check, "describe": _describe, "hash": _hash, "import": _import}.get(
-        args.command
-    )
-    if run is None:
-        raise NotImplementedError(f"tds {args.command}: not built yet (its ticket is in spec 10.1)")
+    run = {"check": _check, "describe": _describe, "hash": _hash, "import": _import,
+           "manifest": _manifest}[args.command]  # fmt: skip
     if not args.path.exists():
         print(f"tds {args.command}: {args.path}: no such file or folder", file=sys.stderr)
         return NO_INPUT
@@ -140,6 +141,16 @@ def _import(args: argparse.Namespace) -> int:
         print(f"tds import csv: {exc}", file=sys.stderr)
         return ERRORS
     print(f"wrote {out} and {out.parent / REPORT}")
+    return OK
+
+
+def _manifest(args: argparse.Namespace) -> int:
+    try:
+        draft = build_manifest(args.path)
+    except ManifestError as exc:
+        print(f"tds manifest build: {exc}", file=sys.stderr)
+        return ERRORS
+    print(f"wrote {draft.root / MANIFEST}; fill in what its TODO lists, then run `tds check`")
     return OK
 
 

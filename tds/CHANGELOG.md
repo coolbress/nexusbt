@@ -7,4 +7,6 @@ package version follows the `tds_version` it checks (`1.0.x`), tagged
 ## [Unreleased]
 
 ### Added
+- `tds manifest build PATH`: a `tds.json` draft for a folder of Parquet files, with a `TODO` list
+  of what a person fills in
 - Package skeleton with the `tds` entry point
