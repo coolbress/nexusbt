@@ -515,7 +515,7 @@
 
 ### 5.3 `instrument_xref` (외부 식별자 연결)
 
-열쇠 (`instrument_id`, `id_type`, `id_value`, `valid_from`). 칼럼: `instrument_id`, `id_type`(열림: `figi`, `figi_composite`, `figi_share_class`, `isin`, `cusip`, `sedol`, `permno`, `permco`, `gvkey_iid`, `cik`, `lei`, `sharadar_permaticker`, `lean_sid`, `nautilus_instrument_id`, `databento_instrument_id`, `occ_osi`, `dart_corp_code` …), `id_value` string, `valid_from` date null(모름), `valid_to` date null, `link_quality` code(`primary`/`secondary`/`inferred`), `source`.
+열쇠 (`instrument_id`, `id_type`, `id_value`, `valid_from`). 칼럼: `instrument_id` id, `id_type` code(열림: `figi`, `figi_composite`, `figi_share_class`, `isin`, `cusip`, `sedol`, `permno`, `permco`, `gvkey_iid`, `cik`, `lei`, `sharadar_permaticker`, `lean_sid`, `nautilus_instrument_id`, `databento_instrument_id`, `occ_osi`, `dart_corp_code` …), `id_value` string, `valid_from` date null(모름), `valid_to` date null, `link_quality` code(`primary`/`secondary`/`inferred`), `source` string.
 - Databento처럼 날마다 바뀌는 게시자 id는 `valid_from = valid_to − 1일`의 하루 구간으로 적는다. 64비트 부호 없는 게시자 id는 `id_value`에 10진 문자열로(정밀도 손실 없음) [v1.1].
 - 앎 축: `instrument_xref`는 v1에서 앎 시각이 없다. 그래서 K6의 두 시간축 약속은 이 표에 **적용하지 않는다**(설명·대응용, 판단 입력 아님). 앎 시각이 필요한 연결은 다음 MINOR에서 `ts_known_from/to`를 선택 칼럼으로 더한다 [v1.1].
 - CRSP CCM 같은 회사 단위 연결(GVKEY ↔ PERMNO)은 `id_type = gvkey_iid`, `link_quality`에 LINKPRIM의 뜻을 옮긴다.
@@ -541,7 +541,7 @@
 - 24/7: `session_date` = UTC 날짜, `ts_open` = 00:00Z, `ts_close` = 다음 날 00:00Z.
 - 선물 야간 거래: 거래일 D의 세션은 D−1 저녁에 시작할 수 있다(`ts_open < session_date 00:00 현지`). 정상이다.
 
-`calendar_segments`(선택, 장중 구간): 열쇠 (`calendar_id`, `session_date`, `segment`, `ts_start`). `segment` code: `pre`, `opening_auction`, `continuous`, `break`, `closing_auction`, `post`, `single_price_period` 등. 장중 체결 모형(E4)과 한국 단일가 구간에 쓴다.
+`calendar_segments`(선택, 장중 구간): 열쇠 (`calendar_id`, `session_date`, `segment`, `ts_start`). 칼럼 `calendar_id` id, `session_date` date, `segment` code(`pre`, `opening_auction`, `continuous`, `break`, `closing_auction`, `post`, `single_price_period` 등), `ts_start` ts_us. 장중 체결 모형(E4)과 한국 단일가 구간에 쓴다.
 
 ### 5.5 `bars` (봉, 모든 주기)
 
@@ -603,13 +603,13 @@
 
 파티션·정렬은 `trades`와 같다. 열쇠 (`instrument_id`, `ts_event`, `sequence`).
 
-칼럼: `instrument_id`, `session_date`, `ts_event`, `ts_recv`, `sequence`, `bid_px` fixed null, `bid_sz` fixed null, `ask_px` fixed null, `ask_sz` fixed null, `bid_ct` i32 null, `ask_ct` i32 null, `venue_mic`, `conditions`, `flags`.
+칼럼: `instrument_id`, `session_date`, `ts_event`, `ts_recv`, `sequence`, `bid_px` fixed null, `bid_sz` fixed null, `ask_px` fixed null, `ask_sz` fixed null, `bid_ct` i32 null, `ask_ct` i32 null, `venue_mic`, `conditions`, `flags`. 여기서 형 없이 적은 칼럼은 스키마가 `experimental`을 벗어날 때 형을 정한다.
 - 행은 "그 순간 이후의 양쪽 최우선 호가 상태"다. 한쪽 호가가 비면 그쪽은 null. LEAN처럼 한쪽만 바뀐 틱은 가져올 때 다른 쪽을 직전 값으로 채운다(9장).
 - V030: `bid_px >= ask_px`(잠김·교차)는 경고(시장에 따라 정상일 수 있음).
 
 ### 5.8 `book_deltas`, `book_snapshots` (호가 L2/L3) — `experimental`
 
-`book_deltas` — 파티션 `venue=/date=`, 정렬 (`instrument_id`, `ts_event`, `sequence`), 시각 ns. 매개변수 `depth_kind`(`mbp` 가격 수준별 L2 / `mbo` 주문별 L3), `max_depth`(mbp일 때).
+`book_deltas` — 파티션 `venue=/date=`, 정렬 (`instrument_id`, `ts_event`, `sequence`), 시각 ns. 매개변수 `depth_kind`(`mbp` 가격 수준별 L2 / `mbo` 주문별 L3), `max_depth`(mbp일 때). 표에서 형이 빈 칼럼은 스키마가 `experimental`을 벗어날 때 형을 정한다.
 
 | 칼럼 | 형 | null | 뜻 |
 |---|---|---|---|
@@ -629,11 +629,11 @@
 - 재구성 규칙: 파일(또는 날짜) 첫머리는 `clear` 뒤 `is_snapshot = true` 행 묶음이거나, 이전 날짜 마지막 상태를 이어받는다고 `params.continuity = "carry"`로 선언.
 - 엔진은 `is_last = true`인 행 뒤에서만 호가를 읽는다. V031: 재구성 뒤 교차 호가 발생 시 경고, V032: `sequence` 빈칸(공급사가 연속 순번을 약속한 경우) 경고.
 
-`book_snapshots` — 일정 간격 또는 사건마다의 깊이 N 상태. 긴 모양: 열쇠 (`instrument_id`, `ts_event`, `side`, `level`). 칼럼 `ts_event`, `ts_recv`, `side`, `level`(0 = 최우선), `price`, `size`, `order_count`. Databento MBP-10·Nautilus OrderBookDepth를 행으로 편 모양.
+`book_snapshots` — 일정 간격 또는 사건마다의 깊이 N 상태. 긴 모양: 열쇠 (`instrument_id`, `ts_event`, `side`, `level`). 칼럼 `ts_event`, `ts_recv`, `side`, `level`(0 = 최우선), `price`, `size`, `order_count`. Databento MBP-10·Nautilus OrderBookDepth를 행으로 편 모양. 여기서 형 없이 적은 칼럼은 스키마가 `experimental`을 벗어날 때 형을 정한다.
 
 ### 5.9 `market_statistics` (공식 통계) — `experimental`
 
-열쇠 (`instrument_id`, `stat_type`, `ts_event`). 칼럼: `instrument_id`, `session_date`, `stat_type`(열림: `settlement_price`, `open_interest`, `official_open`, `official_close`, `auction_price`, `auction_volume`, `high_limit`, `low_limit`, `vwap`, `reference_price` …), `value` f64, `unit`, `ts_event`, `ts_available`, `is_final` bool(잠정/확정), `source`. Databento Statistics·Nautilus InstrumentClose에 해당. 선물 정산가·미결제약정의 공개 시각(보통 다음 날 아침)을 여기서 정확히 적는다.
+열쇠 (`instrument_id`, `stat_type`, `ts_event`). 칼럼: `instrument_id`, `session_date`, `stat_type`(열림: `settlement_price`, `open_interest`, `official_open`, `official_close`, `auction_price`, `auction_volume`, `high_limit`, `low_limit`, `vwap`, `reference_price` …), `value` f64, `unit`, `ts_event`, `ts_available`, `is_final` bool(잠정/확정), `source`. Databento Statistics·Nautilus InstrumentClose에 해당. 선물 정산가·미결제약정의 공개 시각(보통 다음 날 아침)을 여기서 정확히 적는다. 여기서 형 없이 적은 칼럼은 스키마가 `experimental`을 벗어날 때 형을 정한다.
 
 ### 5.10 거래 가능 상태: `tradability_daily`, `trading_status_events`
 
@@ -641,7 +641,7 @@
 
 | 칼럼 | 형 | null | 뜻 |
 |---|---|---|---|
-| instrument_id, session_date | | 아니오 | |
+| instrument_id, session_date | id / date | 아니오 | |
 | status_known | bool | 아니오 | 거짓 = 그날 상태를 모름(미국 2019-08-23 전) |
 | halted_full_day | bool | 예 | 하루 종일 정지 |
 | halt_count | i32 | 예 | 장중 정지 건수 |
@@ -654,7 +654,7 @@
 | ts_available | ts_us | 예 | 칼럼 묶음별 규칙 **`params.availability_by_column` 필수**(v1.1): 사전 정보(`price_limit_ratio`, `up/down_limit_price`, `reference_price`, `admin_status`)는 `session_open`, 하루 결과(`halted_full_day`, `halt_count`, `limit_up_close`, `limit_down_close`, `locked_up`, `locked_down`)는 `session_close` [RV-Q10] |
 | source | code | 예 | |
 
-`trading_status_events` — 장중 상태 변화. 열쇠 (`instrument_id`, `ts_event`, `sequence`). 칼럼 `ts_event`(ns), `ts_recv`, `status`(`halted`, `resumed`, `auction`, `pre_open`, `closed`, `luld_pause` …), `reason`(원 코드), `reason_group`, `source`, `source_record_id`. Databento Status, Nautilus InstrumentStatus에 해당.
+`trading_status_events` — 장중 상태 변화. 열쇠 (`instrument_id`, `ts_event`, `sequence`). 칼럼 `instrument_id` id, `ts_event` ts_ns, `sequence` i64, `ts_recv` ts_ns, `status` code(`halted`, `resumed`, `auction`, `pre_open`, `closed`, `luld_pause` …), `reason` string(원 코드), `reason_group` code, `source` string, `source_record_id` string. Databento Status, Nautilus InstrumentStatus에 해당.
 
 ### 5.11 `corporate_actions` (기업행동 사건, 배당 포함)
 
@@ -741,7 +741,7 @@ LEAN 계수 파일·Qlib `factor`·공급사 조정 종가만 있는 사용자�
 
 ### 5.14 `share_counts` (주식 수, PIT)
 
-열쇠 (`instrument_id`, `count_kind`, `as_of_date`, `ts_available`). 칼럼 `instrument_id`, `count_kind`(`listed`(상장주식수), `outstanding`(발행 유통), `float`, `treasury`), `as_of_date` date(그 수가 맞는 날짜), `shares` f64, `ts_available`, `source`, `evidence_id`. 한국 상장주식수(거래소 일별)는 `as_of_date = 세션, ts_available = 세션 마감`, 미국 SEC dei 주식 수는 `as_of_date = 표지 기준일, ts_available = 제출 순간`.
+열쇠 (`instrument_id`, `count_kind`, `as_of_date`, `ts_available`). 칼럼 `instrument_id` id, `count_kind` code(`listed`(상장주식수), `outstanding`(발행 유통), `float`, `treasury`), `as_of_date` date(그 수가 맞는 날짜), `shares` f64, `ts_available` ts_us, `source` string, `evidence_id` string. 한국 상장주식수(거래소 일별)는 `as_of_date = 세션, ts_available = 세션 마감`, 미국 SEC dei 주식 수는 `as_of_date = 표지 기준일, ts_available = 제출 순간`.
 
 ### 5.15 `fx_rates` (환율)
 
@@ -761,7 +761,7 @@ LEAN 계수 파일·Qlib `factor`·공급사 조정 종가만 있는 사용자�
 
 ### 5.16 `rates` (금리 곡선, 옵션 그릭 입력)
 
-열쇠 (`curve_id`, `tenor_days`, `ts_event`). 칼럼 `curve_id`(예 `USD-SOFR`, `USD-TBILL`, `KRW-CD91`), `currency`, `tenor_days` i32, `rate` f64(연율, ratio), `compounding` code(`simple`/`annual`/`continuous`), `day_count` code(`ACT/360` 등), `ts_event`, `ts_available`, `source`.
+열쇠 (`curve_id`, `tenor_days`, `ts_event`). 칼럼 `curve_id` id(예 `USD-SOFR`, `USD-TBILL`, `KRW-CD91`), `currency` code, `tenor_days` i32, `rate` f64(연율, ratio), `compounding` code(`simple`/`annual`/`continuous`), `day_count` code(`ACT/360` 등), `ts_event` ts_us, `ts_available` ts_us, `source` string.
 
 ### 5.17 `fundamentals_events` (재무 사실, 원 PIT 사건)
 
@@ -831,7 +831,7 @@ LEAN 계수 파일·Qlib `factor`·공급사 조정 종가만 있는 사용자�
 
 열쇠 (`instrument_id`, `scheme`, `level`, `edition`, `effective_from`, `ts_known_from`)(v1.1: `level`·`edition` 추가 — v1 열쇠로는 GICS 섹터·산업 행이나 strict/compare 행이 같은 날 오면 K001 중복이었다) [RV-C08]. 정렬 같음.
 
-칼럼: `instrument_id`, `scheme`(예 `gics`, `krx_sector`, `sic`, `industry_pit`, `market_segment`, `is_financial`, `category`, `venue_mic`), `level` i8 **null 금지**(단일 수준 체계는 0, 다단계는 1 = 가장 굵은 수준), `code` string, `label` string null, `effective_from` date, `effective_to` date null, `ts_known_from` ts_us, `ts_known_to` ts_us null, `edition` code(`strict`/`compare`/`both`, 기본 both), `pit_quality` code(행 단위), `source`.
+칼럼: `instrument_id` id, `scheme` code(예 `gics`, `krx_sector`, `sic`, `industry_pit`, `market_segment`, `is_financial`, `category`, `venue_mic`), `level` i8 **null 금지**(단일 수준 체계는 0, 다단계는 1 = 가장 굵은 수준), `code` string, `label` string null, `effective_from` date, `effective_to` date null, `ts_known_from` ts_us, `ts_known_to` ts_us null, `edition` code(`strict`/`compare`/`both`, 기본 both), `pit_quality` code(행 단위), `source` string.
 - 조회: 직사각형(6.3) — `ts_known_from <= t < ts_known_to` 그리고 `effective_from <= date(t) < effective_to`, 판 필터(strict = `strict`+`both`, compare = `compare`+`both`), strict는 행 단위 `backfilled` 제외. 같은 (종목, 체계, 수준, 판 필터)에서 이 조건을 만족하는 행은 하나(T012).
 - scheme `tick_rule_id` [2026-11-01]: 종목의 시기별 호가 단위 규칙. `level` 0, `code` = `rule_kind = tick_band`인 `market_rules.rule_id`(5.27), `effective_from` = 적용되는 첫 세션, `ts_known_from` = 배정이 발표된 시각. 규칙 묶음의 가격대 값은 `market_rules`에 두고, 이 scheme은 종목이 어느 묶음을 쓰는지만 유효 구간과 알려진 시각으로 담는다. 종목과 기간마다 다른 배정을 싣는다. 예: US Reg NMS Rule 612 개정 — $1 이상에서 시간가중 평균 호가 스프레드에 따라 $0.005 또는 $0.01, 반년마다 다시 배정, 준수는 2027년 11월 첫 영업일부터([SEC Release 34-105656](https://www.sec.gov/files/rules/exorders/2026/34-105656.pdf)). 판단 시각에 유효한 행은 격자 원천 순서에서 `instruments.tick_size`와 `instruments.tick_rule_id`보다 앞선다(5.27).
 - `dictionary/columns.alias_of`로 소비자 이름(예 `sector`)을 `"<scheme>@<level>"`에 대응할 수 있다.
@@ -839,20 +839,20 @@ LEAN 계수 파일·Qlib `factor`·공급사 조정 종가만 있는 사용자�
 
 ### 5.20 유니버스: `universe_membership`, `eligibility_daily`
 
-`universe_membership`(지수 편입 등 기간): 열쇠 (`universe_id`, `instrument_id`, `effective_from`, `ts_known_from`), 조회는 직사각형(6.3). 칼럼 `universe_id`(예 `index:KOSPI200`, `index:SP500`), `instrument_id`, `effective_from` date, `effective_to` date null, `ts_known_from`, `ts_known_to`, `weight` f64 null, `source`. 지수 변경은 발표가 효력보다 앞서므로 두 축이 모두 필요하다.
+`universe_membership`(지수 편입 등 기간): 열쇠 (`universe_id`, `instrument_id`, `effective_from`, `ts_known_from`), 조회는 직사각형(6.3). 칼럼 `universe_id` id(예 `index:KOSPI200`, `index:SP500`), `instrument_id` id, `effective_from` date, `effective_to` date null, `ts_known_from` ts_us, `ts_known_to` ts_us null, `weight` f64 null, `source` string. 지수 변경은 발표가 효력보다 앞서므로 두 축이 모두 필요하다.
 
-`eligibility_daily`(만든 쪽의 투자 대상 판정): 파티션 `market=/year=`, 열쇠 (`rule_id`, `instrument_id`, `session_date`). 칼럼 `rule_id`(예 `investable-v1`), `is_eligible` bool, `reason` code null(열림: `not_common`, `administrative`, `unit`, `preferred`, `fund`, `no_price`, `no_mcap` …), `ts_available`(v1.1 **기본 `session_close`** — 판정이 그날 정보를 쓰는 경우가 보통이라 보수적 기본; 판정이 개장 전 정보만 쓴다고 생산자가 선언할 때만 `session_open`) [RV-C09]. dense일 필요 없음. **읽는 규칙**(v1.1): 판단 세션 s에서는 그 세션의 행 하나만 본다; 행이 없거나 `ts_available > 판단 시각`이면 **대상 아님(거짓)**이다 — 앞 세션의 참을 이어 쓰지 않는다(`params.missing_means = false`는 이 뜻의 선언이고 다른 값은 v1.1에 없음). 이월 상태가 필요한 생산자는 이월을 미리 풀어 dense로 내보낸다.
+`eligibility_daily`(만든 쪽의 투자 대상 판정): 파티션 `market=/year=`, 열쇠 (`rule_id`, `instrument_id`, `session_date`). 칼럼 `rule_id` id(예 `investable-v1`), `instrument_id` id, `session_date` date, `is_eligible` bool, `reason` code null(열림: `not_common`, `administrative`, `unit`, `preferred`, `fund`, `no_price`, `no_mcap` …), `ts_available` ts_us(v1.1 **기본 `session_close`** — 판정이 그날 정보를 쓰는 경우가 보통이라 보수적 기본; 판정이 개장 전 정보만 쓴다고 생산자가 선언할 때만 `session_open`) [RV-C09]. dense일 필요 없음. **읽는 규칙**(v1.1): 판단 세션 s에서는 그 세션의 행 하나만 본다; 행이 없거나 `ts_available > 판단 시각`이면 **대상 아님(거짓)**이다 — 앞 세션의 참을 이어 쓰지 않는다(`params.missing_means = false`는 이 뜻의 선언이고 다른 값은 v1.1에 없음). 이월 상태가 필요한 생산자는 이월을 미리 풀어 dense로 내보낸다.
 
 ### 5.21 사건·대체 자료: `events`, `series_observations`
 
-`events`(일반 사건: 실적 발표, 공시, 내부자 거래, 뉴스 점수, 전망치 스냅숏 …): 열쇠 `event_id`. 파티션 `event_type=`(이름공간 있는 문자열, 예 `filing.kr_dart`, `earnings.announcement`, `estimate.snapshot`). 칼럼 `event_id`, `event_type`, `instrument_id` null, `issuer_id` null, `series_id` null [v1.4: 거시 발표 같은 시장 수준 사건 — 셋 중 적어도 하나는 있어야 함, 아니면 검사 V041(W)], `ts_event`(사건이 일어난 순간), `ts_available`(필수, 내용이 공개된 순간 — 소비자는 이 시각 전에 사건을 보이지 않아야 함), `ts_recorded` null, `value` f64 null, `consensus` f64 null [v1.4: 발표 전 시장 예상치, 있으면 서프라이즈 = value − consensus], `unit` null, `payload` json null, `source`, `doc_id`. 같은 사건의 정정은 새 `event_id` + `payload.revision_of` [v1.4, R4F-EV-02]. 자주 쓰는 사건은 `params.columns`로 정한 형 있는 칼럼을 더할 수 있다(그 경우 사건 종류별 데이터셋 `name`을 따로 주고 `kind = events`).
+`events`(일반 사건: 실적 발표, 공시, 내부자 거래, 뉴스 점수, 전망치 스냅숏 …): 열쇠 `event_id`. 파티션 `event_type=`(이름공간 있는 문자열, 예 `filing.kr_dart`, `earnings.announcement`, `estimate.snapshot`). 칼럼 `event_id` id, `event_type` code, `instrument_id` id null, `issuer_id` id null, `series_id` id null [v1.4: 거시 발표 같은 시장 수준 사건 — 셋 중 적어도 하나는 있어야 함, 아니면 검사 V041(W)], `ts_event` ts_us(사건이 일어난 순간), `ts_available` ts_us(필수, 내용이 공개된 순간 — 소비자는 이 시각 전에 사건을 보이지 않아야 함), `ts_recorded` ts_us null, `value` f64 null, `consensus` f64 null [v1.4: 발표 전 시장 예상치, 있으면 서프라이즈 = value − consensus], `unit` code null, `payload` json null, `source` string, `doc_id` string. 같은 사건의 정정은 새 `event_id` + `payload.revision_of` [v1.4, R4F-EV-02]. 자주 쓰는 사건은 `params.columns`로 정한 형 있는 칼럼을 더할 수 있다(그 경우 사건 종류별 데이터셋 `name`을 따로 주고 `kind = events`).
 
-`series_observations`(거시·대체 시계열, 판(vintage) 포함): 열쇠 (`series_id`, `obs_period_end`, `ts_available`). 칼럼 `series_id`, `obs_period_start` date null, `obs_period_end` date, `value` f64, `unit`, `ts_available`(그 판 발표 순간 — 관측 기간 끝이 아님: 9월 CPI는 10월 발표 순간), `is_revision` bool, `consensus` f64 null [v1.4], `frequency` code null(`D`/`W`/`M`/`Q`/`A`) [v1.4], `source`. ALFRED식 판 저장: 같은 기간 값의 정정은 새 행; 첫 발표 판 = 그 기간에서 `ts_available`이 가장 이른 행 [v1.4, R4F-EV-01].
+`series_observations`(거시·대체 시계열, 판(vintage) 포함): 열쇠 (`series_id`, `obs_period_end`, `ts_available`). 칼럼 `series_id` id, `obs_period_start` date null, `obs_period_end` date, `value` f64, `unit` code, `ts_available` ts_us(그 판 발표 순간 — 관측 기간 끝이 아님: 9월 CPI는 10월 발표 순간), `is_revision` bool, `consensus` f64 null [v1.4], `frequency` code null(`D`/`W`/`M`/`Q`/`A`) [v1.4], `source` string. ALFRED식 판 저장: 같은 기간 값의 정정은 새 행; 첫 발표 판 = 그 기간에서 `ts_available`이 가장 이른 행 [v1.4, R4F-EV-01].
 
 ### 5.22 선물: 계약, 롤 일정, 연속 계약 — `experimental`
 
 - 계약 = `instruments`(asset_class `future`) 행. 계약 id 권장 `CME:ESZ2024`(연도 4자리; `ESZ4`는 10년마다 재사용되므로 id로 쓰지 않음, 기호 이력에는 남김).
-- `roll_calendar`: 열쇠 (`roll_rule_id`, `root`, `session_date`, `rank`). 칼럼 `roll_rule_id`, `root`, `session_date`, `rank` i16(0 = 앞), `instrument_id`, `ts_available`(OI·거래량 기준 롤은 **전날** 자료로 정해지므로 전날 통계 공개 순간; Databento `.n.`·`.v.`도 전날 기준 [확인]).
+- `roll_calendar`: 열쇠 (`roll_rule_id`, `root`, `session_date`, `rank`). 칼럼 `roll_rule_id`, `root`, `session_date`, `rank` i16(0 = 앞), `instrument_id`, `ts_available`(OI·거래량 기준 롤은 **전날** 자료로 정해지므로 전날 통계 공개 순간; Databento `.n.`·`.v.`도 전날 기준 [확인]). 여기서 형 없이 적은 칼럼은 스키마가 `experimental`을 벗어날 때 형을 정한다.
 - 매니페스트 `roll_rules`: `{"ES-c": {"mapping": "calendar", "offset_sessions": -5, "anchor": "last_trade"}, "CL-n": {"mapping": "open_interest"}}`. `mapping` ∈ {`calendar`, `last_trade`, `first_notice`, `open_interest`, `volume`}; `normalization` ∈ {`none`, `ratio`, `difference`}(연속 봉을 낼 때만).
 - 연속 계약 봉은 선택 파생물: `instruments(is_synthetic = true, asset_class = future, root, x_roll_rule)` + `bars`. **신호용**이며 체결·손익은 실제 계약으로(명세서 11.3).
 - 정산가·미결제약정은 `market_statistics`.
@@ -860,22 +860,22 @@ LEAN 계수 파일·Qlib `factor`·공급사 조정 종가만 있는 사용자�
 ### 5.23 옵션: 계약, 체인 스냅숏, 그릭 입력 — `experimental`
 
 - 계약 = `instruments`(asset_class `option`; underlying·strike·right·exercise_style·ts_expiry·multiplier·settlement_type 필수). 미국 상장 옵션은 OCC 기호(OSI)를 `instrument_xref.occ_osi`에. id 권장 `OPRA:AAPL240621C00190000`.
-- `option_chain_snapshots`: 파티션 `underlying=/date=`. 열쇠 (`instrument_id`, `ts_snapshot`). 칼럼 `instrument_id`, `underlying_instrument_id`, `session_date`, `ts_snapshot`(ts_us), `ts_available`, `bid`, `ask`, `bid_size`, `ask_size`, `last`, `volume`, `open_interest`, `underlying_price`, `underlying_price_kind`(`mid`/`last`/`close`), `iv_vendor`, `delta_vendor`, `gamma_vendor`, `vega_vendor`, `theta_vendor`, `rho_vendor`, `greeks_model`(공급사 모형 이름) — **공급사 값만 저장**한다. 엔진이 다시 계산한 값은 입력이 아니다(명세서 11.3 "공급자 값과 재계산 값 구분").
+- `option_chain_snapshots`: 파티션 `underlying=/date=`. 열쇠 (`instrument_id`, `ts_snapshot`). 칼럼 `instrument_id`, `underlying_instrument_id`, `session_date`, `ts_snapshot`(ts_us), `ts_available`, `bid`, `ask`, `bid_size`, `ask_size`, `last`, `volume`, `open_interest`, `underlying_price`, `underlying_price_kind`(`mid`/`last`/`close`), `iv_vendor`, `delta_vendor`, `gamma_vendor`, `vega_vendor`, `theta_vendor`, `rho_vendor`, `greeks_model`(공급사 모형 이름) — **공급사 값만 저장**한다. 엔진이 다시 계산한 값은 입력이 아니다(명세서 11.3 "공급자 값과 재계산 값 구분"). 여기서 형 없이 적은 칼럼은 스키마가 `experimental`을 벗어날 때 형을 정한다.
 - 그릭 재계산 입력: 기초 가격(위 칼럼 또는 기초 `bars`/`quotes`), 금리 `rates`, 배당 `corporate_actions`(발표된 미래 배당) + 선택 `dividend_forecasts`(`events` 종류), 대차 비용(선택 `series_observations`).
 - 틱 단위 옵션 호가는 `quotes`를 그대로 쓴다.
 
 ### 5.24 코인: 24/7, 무기한 계약 — `experimental`
 
 - 달력 `CRYPTO-UTC`(5.4). 종목 id 권장 `<거래소>:<기호>`(`BINANCE:BTCUSDT`, `BINANCE:BTCUSDT-PERP`).
-- `funding_rates`: 열쇠 (`instrument_id`, `ts_event`). 칼럼 `ts_event`(지급 순간), `rate` f64(그 구간 비율), `interval_hours` f64, `is_predicted` bool(예측치), `ts_available`, `source`. Nautilus FundingRateUpdate.
-- `reference_prices`: 열쇠 (`instrument_id`, `price_kind`, `ts_event`). `price_kind` ∈ {`mark`, `index`, `settlement`}. Nautilus MarkPriceUpdate.
+- `funding_rates`: 열쇠 (`instrument_id`, `ts_event`). 칼럼 `ts_event`(지급 순간), `rate` f64(그 구간 비율), `interval_hours` f64, `is_predicted` bool(예측치), `ts_available`, `source`. Nautilus FundingRateUpdate. 여기서 형 없이 적은 칼럼은 스키마가 `experimental`을 벗어날 때 형을 정한다.
+- `reference_prices`: 열쇠 (`instrument_id`, `price_kind`, `ts_event`). `price_kind` ∈ {`mark`, `index`, `settlement`}. Nautilus MarkPriceUpdate. 여기서 형 없이 적은 칼럼은 스키마가 `experimental`을 벗어날 때 형을 정한다.
 - 수량은 소수: `size_exponent`(틱), 봉 `volume` f64.
 
 ### 5.25 `feature_panels`, `label_panels` (만든 쪽이 계산한 넓은 표)
 
-`feature_panels` — 파티션 `name=/edition=/year=`. 열쇠 (`instrument_id`, `period`). 칼럼 `instrument_id`, `period` date(그 기간 첫날, 예 월 = 1일), `as_of_date` date(경제적 기준일), `ts_available`(행 단위 필수; 예: 월간 패널은 `as_of_date` 다음 세션 개장), 그리고 특징 칼럼들(각각 `dictionary/columns`에 단위·뜻·`is_label = false`). 계보 표시 칼럼(`x_ex_fin_strict_row` 등)은 확장 칼럼.
+`feature_panels` — 파티션 `name=/edition=/year=`. 열쇠 (`instrument_id`, `period`). 칼럼 `instrument_id` id, `period` date(그 기간 첫날, 예 월 = 1일), `as_of_date` date(경제적 기준일), `ts_available` ts_us(행 단위 필수; 예: 월간 패널은 `as_of_date` 다음 세션 개장), 그리고 특징 칼럼들(각각 `dictionary/columns`에 단위·뜻·`is_label = false`). 계보 표시 칼럼(`x_ex_fin_strict_row` 등)은 확장 칼럼.
 
-`label_panels` — 같은 모양 + `entry_date`, `entry_price_basis`, `exit_date`, `horizon`, `return_definition`(예 `econ_reinvest_ex_close`, `adj_ratio`), `terminal_policy_id`, 그리고 선택 시각 칼럼 `ts_label_start`, `ts_label_end`(결과의 끝), `ts_label_available`(그 정답 값을 처음 계산할 수 있던 순간 — 늦게 공개된 폐지 회수액·배당 금액을 포함) [v1.1, RV-C04]. 시각 칼럼이 없으면 소비자는 `entry/exit_date`와 `entry_price_basis`로 앞의 둘을 만들고 `ts_label_available = ts_label_end`로 가정한다(가정 기록). 모든 값 칼럼은 `is_label = true`. **엔진은 판단 입력으로 읽지 않는다**(명세서 R-16). 검사 V050: `label_panels` 칼럼 이름이 `feature_panels`에 있으면 오류(이름 충돌로 새는 것 막기).
+`label_panels` — 같은 모양 + `entry_date` date, `entry_price_basis` code, `exit_date` date, `horizon` string, `return_definition` code(예 `econ_reinvest_ex_close`, `adj_ratio`), `terminal_policy_id` id, 그리고 선택 시각 칼럼 `ts_label_start` ts_us, `ts_label_end` ts_us(결과의 끝), `ts_label_available` ts_us(그 정답 값을 처음 계산할 수 있던 순간 — 늦게 공개된 폐지 회수액·배당 금액을 포함) [v1.1, RV-C04]. 시각 칼럼이 없으면 소비자는 `entry/exit_date`와 `entry_price_basis`로 앞의 둘을 만들고 `ts_label_available = ts_label_end`로 가정한다(가정 기록). 모든 값 칼럼은 `is_label = true`. **엔진은 판단 입력으로 읽지 않는다**(명세서 R-16). 검사 V050: `label_panels` 칼럼 이름이 `feature_panels`에 있으면 오류(이름 충돌로 새는 것 막기).
 
 ### 5.26 벤치마크
 
@@ -1291,6 +1291,7 @@ datasets:
 | 열쇠·정렬·파티션 변경 | MAJOR |
 | 새 오류(E) 검사 추가 | MAJOR. 단 "원래 표준 문장이 금지했는데 검사가 없었던 것"은 MINOR + 한 판 동안 W로 먼저 |
 | 문장 고침(뜻 그대로) | 판 안 바꿈(문서 고침 기록만) |
+| 표준이 초안인 동안(10.5), 5장이 형이나 null 여부 없이 적은 칼럼에 그것을 적는 것 | 판 안 바꿈(문장 고침; 문서 고침 기록만) |
 
 ### 10.3 읽는 쪽·쓰는 쪽 의무
 
@@ -1521,3 +1522,4 @@ datasets:
 - 2026-11-10: **v1.4** 안에서. 5.11 `ratio_num, ratio_den`과 8.3 TDS-A010: 둘 다 있고 양수이지만 f64 칼럼과 상대 1e-12 넘게 다른 정확 비율은 생산자에게 오류 그대로이고, 소비자는 그 사건을 없는 비율에 대한 설정대로 다루며 어긋나는 비율은 쓰지 않는다(엔진 명세 5.6.1, 4.4 4단계; 사용자 결정 2026-11-04, #188). `tds_version` `"1.0"` 그대로(문구 명확화, 초안).
 - 2026-11-10: **v1.4** 안에서. 8.1: `tds check`에서 `--sample-rows`를 뺀다. 검사기가 받기만 하고 쓰지 않던 옵션이다. 패키지 일부만 검사하려면 `--datasets`를 쓴다(사용자 결정 2026-11-05, #309). `tds_version` `"1.0"` 그대로(검사기 동작, 형식 변경 없음).
 - 2026-11-10: **v1.4** 안에서. 8.2: `instrument_xref`는 T006에서는 시간이 없는 표다. 최신 데이터 검사가 읽지 않고, 유효 구간(5.3)은 그대로이며, 판단 입력이 아니다(결정 2026-11-10, #332). `tds_version` `"1.0"` 그대로(문구, 형식 변경 없음).
+- 2026-11-11: **v1.4** 안에서. 5장: stable 데이터셋이 형 없이 적던 칼럼 67개에 3.2의 형을 적는다(5.3, 5.4 `calendar_segments`, 5.10, 5.14, 5.16, 5.19, 5.20, 5.21, 5.25). `universe_membership.ts_known_to`는 null을 허용한다고 적는다. 끝이 열린 알려진 구간(6.3)에 이미 필요하던 것이다. 형 없는 칼럼이 있는 실험 판 데이터셋(5.7, 5.8, 5.9, 5.22, 5.23, 5.24)은 스키마가 `experimental`을 벗어날 때 그 형을 정한다고 적는다. 10.2: 표준이 초안인 동안 적지 않았던 형을 적는 것은 문장 고침이다(결정 2026-11-03, #105). `tds_version` `"1.0"` 그대로(문장 고침; 초안).
