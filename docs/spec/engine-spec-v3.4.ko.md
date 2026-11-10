@@ -2921,7 +2921,7 @@ pytest 표시: `unit`, `golden`, `property`, `docs`, `examples`, `parity`, `perf
 
 1. M0 첫 티켓(T0.1)이 이 명세를 `docs/spec/engine-spec-v3.4.md`로, TDS v1.4을 `tds/spec/tds-v1.md`로 넣는다(내용 그대로; 이름 문자열만 저장소 이름에 맞추고, 비공개 주석·TDS 11장·사용자 개인 정보·호스트·자료 경로를 뺀 공개판, 2.7).
 2. 사용자: `claude plugin install mattpocock-skills-extra@plinth`(한 번) → 새 세션 → `/to-spec docs/spec/engine-spec-v3.4.md`. 계획 이슈 하나("spec: NexusBT v1 (spec v3.4)") [R6-02]가 생긴다. 본문 = 1장 범위, 10장 마일스톤 표, 12장 열린 것, 그리고 명세 파일 링크.
-3. `/to-tickets` on 그 계획 이슈. 10장의 티켓은 이미 잘려 있으므로 그대로 이슈로 만든다: 제목 = 티켓 제목, 본문 = Context / Done means / Acceptance tests / Spec 절, 라벨 = `task`와 분류 라벨(마일스톤·모듈 라벨은 없다: 본문 `## Parent`의 티켓 id가 마일스톤을 말한다), "Blocked by #N" = 의존 티켓의 이슈 번호. 티켓을 다시 쪼개야 하면 같은 형식을 지킨다(400줄 규칙). 이슈로 만들기 전에 `tests/repo/test_ticket_graph.py`(이 명세 10장 표를 읽어 의존 그래프가 비순환이고 각 티켓의 "Blocked by"가 같거나 앞 마일스톤인지 확인)를 한 번 돌린다(T0.12가 만든다).
+3. `/to-tickets` on 그 계획 이슈. 10장의 티켓은 이미 잘려 있으므로 그대로 이슈로 만든다: 제목 = 티켓 제목, 본문 = Context / Done means / Acceptance tests / Spec 절, 라벨 = `task`와 분류 라벨(마일스톤·모듈 라벨은 없다: 본문 `## Parent`의 마일스톤 표시(`M1` 등)가 마일스톤을 말하며, 티켓 id 앞자리와 늘 같지는 않다), "Blocked by #N" = 의존 티켓의 이슈 번호. 티켓을 다시 쪼개야 하면 같은 형식을 지킨다(400줄 규칙). 이슈로 만들기 전에 `tests/repo/test_ticket_graph.py`(이 명세 10장 표를 읽어 의존 그래프가 비순환이고 각 티켓의 "Blocked by"가 같거나 앞 마일스톤인지 확인)를 한 번 돌린다(T0.12가 만든다).
 4. GitHub milestone은 만들지 않는다. 마일스톤 추적 이슈는 계획 이슈 자체다: 그 `## Milestone status` 표가 마일스톤마다 끝난 티켓과 PR, 그리고 "끝 조건"(10장)과 "보여 줄 명령"을 언제 채웠는지 적는다. 이 명세가 수치나 체크리스트를 "마일스톤 추적 이슈에" 두라고 하는 곳은 모두 그 표의 해당 마일스톤 줄이다.
 5. 생산자 쪽 일은 생산자 저장소에서 따로 다룬다(이 엔진 저장소가 아님).
 
@@ -2946,7 +2946,7 @@ pytest 표시: `unit`, `golden`, `property`, `docs`, `examples`, `parity`, `perf
 4. zipline 대조 차이는 먼저 "알려진 차이 표"에 있는지 보고, 없으면 시점 맞춤(8.1)·반올림 입력·sid 순서를 확인한다. 우리 OHLC 규칙과 zipline의 차이는 버그가 아니다(8.1 범위).
 
 ### 9.8 단계 8~9: 멈추기, 돌아오기, 건강
-- 멈추기 전: 진행 중 PR 설명에 남은 일, 마일스톤 추적 이슈 체크리스트 갱신, 결정은 ADR, `/handoff`.
+- 멈추기 전: 진행 중 PR 설명에 남은 일, 마일스톤 추적 이슈의 해당 마일스톤 줄 갱신(9.4), 결정은 ADR, `/handoff`.
 - 돌아올 때 "Where is this project, and what's next?"의 답 원천: 마일스톤 추적 이슈, 열린 티켓의 "Blocked by", `docs/requirements.md`(R마다 implemented/deferred/replaced + PR 번호), `bench/results/`, `tests/parity/evidence/`.
 - 건강: numpy·numba·pyarrow·polars는 서로 묶여 있으니 한 PR에 하나씩(numba가 지원하는 numpy 범위 확인). zipline 고정판은 대조 기준이라 올리지 않는다(올리면 ADR + 대조 증거 다시). plinth 템플릿 갱신 뒤 `/plinth:floor-check`.
 
