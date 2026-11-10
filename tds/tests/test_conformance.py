@@ -493,6 +493,37 @@ def test_A_codes(code: str, tmp_path: Path) -> None:
     test_K_codes(code, tmp_path)  # the same contract: once in its fail package, judged in both
 
 
+#: V011 and V012 are T0.15d's; V031 and V032 are not judged yet (#227, 2026-11-10).
+V_CODES = [f"TDS-V{n:03}" for n in (1, 2, 4, 5, 10, 20, 30, 40, 41, 50)]
+
+
+@pytest.mark.usefixtures("refs_batches")
+@pytest.mark.parametrize("code", V_CODES)
+def test_V_codes(code: str, tmp_path: Path) -> None:
+    test_K_codes(code, tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("change", "found"),
+    [  # V001 and V002 judge a row only on the values it has; an index's price may be negative
+        (build._bars(open=pa.array([None], pa.float64()), low=pa.array([11.0])), []),
+        (build._both(build._instruments(asset_class=pa.array(["index"])),
+                     build._bars(close=pa.array([-1.0]), volume=pa.array([-1.0]))), ["TDS-V002"]),
+        (build._bars(volume=pa.array([1.5])), ["TDS-V010"]),  # US:AAA is equity
+        (build._both(build._instruments(asset_class=pa.array(["etf"])),
+                     build._bars(volume=pa.array([1.5]))), []),
+    ],
+)  # fmt: skip
+def test_value_rules_edges(change: Any, found: list[str], tmp_path: Path) -> None:
+    assert codes(write(tmp_path, change), "full") == found
+
+
+def test_book_and_T015d_codes_stay_unchecked(tmp_path: Path) -> None:
+    result = check(write(tmp_path, build.CASES["TDS-V030"][0]), level="full")
+    assert {"TDS-V031", "TDS-V032", "TDS-V011", "TDS-V012"} <= set(result.unchecked)
+    assert not set(V_CODES) & set(result.unchecked)
+
+
 def _files_reversed(change: Any) -> Any:
     """`change`, then its two bars rows in two files of one folder, listed last file first."""
 
