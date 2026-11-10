@@ -66,7 +66,10 @@ def _batches(root: Path, ds: Mapping[str, Any], columns: Sequence[str]) -> Itera
     file does not store takes its partition value from the path, and one in neither is left out."""
     for rel, parts in listed(root, ds):
         source = pq.ParquetFile(root / rel)
-        stored = [c for c in columns if c in source.schema_arrow.names]
+        names = source.schema_arrow.names
+        if len(set(names)) < len(names):  # which of two `instrument_id`s? its rows unseen
+            raise pa.ArrowInvalid(f"{rel}: a column name twice")
+        stored = [c for c in columns if c in names]
         for batch in source.iter_batches(batch_size=BATCH_ROWS, columns=stored):
             given = {c: [parts[c]] * batch.num_rows for c in columns if c in parts}
             yield given | {c: batch.column(c).to_pylist() for c in stored}
@@ -81,8 +84,9 @@ def _rows(root: Path, ds: Mapping[str, Any], columns: Sequence[str]) -> Iterator
 
 def check_refs(m: Manifest, only: Sequence[str] | None, blind: set[str]) -> list[Finding]:
     """R001~R009 reading, of the datasets checked, the columns these codes look at, and of the
-    tables they point to only `LOOKUPS`' columns: memory holds a batch and the distinct values,
-    not the rows (#309)."""
+    tables they point to only `LOOKUPS`' columns (#309). Memory holds a batch, each checked
+    column's distinct values and the lookups; `instruments` is kept as rows of three columns.
+    A file the codes cannot read, or one with a column name twice, leaves them unchecked."""
     try:
         return _check(m, only, blind)
     except (OSError, pa.ArrowException):  # a file Parquet cannot read: S010's, its rows unseen
@@ -133,7 +137,7 @@ def _check(m: Manifest, only: Sequence[str] | None, blind: set[str]) -> list[Fin
         off, first, dated = 0, None, False
         for b in _batches(root, ds, VALUES):
             for column in b.keys() - {"session_date"}:
-                seen[column].update(b[column])
+                seen[column].update(v for v in b[column] if not isinstance(v, list | dict))
             if "instrument_id" not in b or "session_date" not in b or kind == "calendar_sessions":
                 continue
             dated = dated or bool(b["session_date"])

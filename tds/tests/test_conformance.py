@@ -311,6 +311,32 @@ def test_refs_with_datasets_reads_the_named_and_the_lookup_columns(
     assert [bars for bars, _ in read].count(True) == 1
 
 
+def _named_twice(m: dict[str, Any], f: Any) -> None:  # a bars file storing `instrument_id` twice
+    t = build.bars_table()
+    names = [*t.column_names, "instrument_id"]
+    build.rewrite(m, f, build.BARS, pa.Table.from_arrays([*t.columns, t["instrument_id"]], names))
+
+
+@pytest.mark.usefixtures("refs_batches")
+@pytest.mark.parametrize(
+    ("change", "unchecked"),
+    [  # the full level ends with a result, not a traceback (#309's review)
+        (build._bars(currency=pa.array([["USD"]])), [*_NO_CAL, *_NO_EXITS]),  # a list: no code
+        (
+            build._bars(calendar_id=pa.array([["X"]]), item=pa.array([{"a": 1}])),
+            [*_NO_CAL, *_NO_EXITS],
+        ),
+        (_named_twice, R_CODES),  # which `instrument_id`? unseen, as an unreadable file
+    ],
+)
+def test_refs_on_columns_it_cannot_compare(
+    change: Any, unchecked: list[str], tmp_path: Path
+) -> None:
+    result = check(write(tmp_path, change), level="full")
+    assert not [f.code for f in (*result.errors, *result.warnings) if f.code in R_CODES]
+    assert [c for c in R_CODES if c in result.unchecked] == unchecked
+
+
 @pytest.mark.parametrize(
     ("change", "dataset", "dictionary"),
     [
