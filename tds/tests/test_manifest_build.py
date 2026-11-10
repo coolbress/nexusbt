@@ -129,6 +129,22 @@ def test_folder_the_schema_files_do_not_name(
         with pytest.raises(ManifestError, match="a folder of its own"):
             build_manifest(package)
         (package / odd).replace(package / "notes" / "sub" / "a.parquet")
+    # rows that are not the kind's (an integer id), metadata that is not text: a draft all the same
+    odd_rows = pa.table({"instrument_id": [1, 2]}).replace_schema_metadata({b"blob": b"\xff\xfe"})
+    pq.write_table(odd_rows, package / "instruments" / "part-00000.parquet")
+    assert "value_sha256" not in build_manifest(package).data["datasets"][1]
+    (package / "tds.json").unlink()
+    # two folders under one name (`notes/sub`, `notes_sub`), a tds.json that links to nowhere
+    (package / "notes_sub").mkdir()
+    pq.write_table(pa.table({"x": [1]}), package / "notes_sub" / "a.parquet")
+    with pytest.raises(ManifestError, match="two folders give the dataset name notes_sub"):
+        build_manifest(package)
+    (package / "notes_sub" / "a.parquet").unlink()
+    (package / "tds.json").symlink_to(tmp_path / "elsewhere.json")
+    with pytest.raises(ManifestError, match="already there"):
+        build_manifest(package)
+    (package / "tds.json").unlink()
+    assert not (tmp_path / "elsewhere.json").exists()
     (package / "notes" / "sub" / "a.parquet").write_bytes(b"not parquet")
     with pytest.raises(ManifestError, match="is not read as Parquet"):
         build_manifest(package)

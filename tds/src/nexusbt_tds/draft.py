@@ -1,7 +1,8 @@
 """`build_manifest(path) -> Manifest`: a tds.json draft for a folder of Parquet files (TDS 8.1).
 
 The draft holds what the files say: the datasets (the folder above the first `key=value` part,
-named by the files' `tds.dataset` when they agree), each file's rows, bytes and sha256, the
+named by the files' `tds.dataset` when they agree, `schema_version` theirs or else `1.0`, the
+only one there is), each file's rows, bytes and sha256, the
 physical hash, and a dataset's value hash where its kind and key are known. What the files do
 not say is a person's (#258 Decisions): `profiles`, `id_namespaces`, `markets` and a `kind` no
 schema file names are left out, so `tds check` reports each as TDS-M003; `availability` is
@@ -13,6 +14,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import struct
 from importlib.metadata import version
 from pathlib import Path
 from typing import Any
@@ -41,7 +43,7 @@ def build_manifest(path: Path) -> Manifest:
     """Write `<path>/tds.json` as a draft and return it; `ManifestError` when one is there, the
     folder has no Parquet file or a file cannot be read."""
     root = Path(path)
-    if (root / MANIFEST).exists():
+    if (root / MANIFEST).exists() or (root / MANIFEST).is_symlink():  # a link to nowhere too
         raise ManifestError(f"{MANIFEST} is already there in {root}; it is not replaced")
     groups: dict[str, list[str]] = {}
     for file in sorted(p for p in root.rglob("*.parquet") if p.is_file() and not p.is_symlink()):
@@ -63,8 +65,9 @@ def build_manifest(path: Path) -> Manifest:
                 meta = pq.read_metadata(root / rel)
             except (OSError, pa.ArrowException) as exc:
                 raise ManifestError(f"{rel} is not read as Parquet: {exc}") from None
-            keys = {k.decode(): v.decode() for k, v in (meta.metadata or {}).items()}
-            said.add((keys.get("tds.dataset"), keys.get("tds.schema_version")))
+            keys = meta.metadata or {}  # only these two are read; any other may be bytes
+            said.add(tuple(keys.get(k, b"").decode("utf-8", "replace") or None
+                           for k in (b"tds.dataset", b"tds.schema_version")))  # fmt: skip
             created_by = created_by or meta.created_by
             sha256[rel] = file_sha256(root / rel)
             files.append({"path": rel, "rows": meta.num_rows,
@@ -86,9 +89,14 @@ def build_manifest(path: Path) -> Manifest:
             entry["value_sha256"], values = dataset_hashes(root, entry, spill, [])
             for f in files:
                 f["value_sha256"] = values[f["path"]]
-        except (HashError, OSError, KeyError, TypeError, ValueError, pa.ArrowException):
+        except (HashError, OSError, LookupError, TypeError, ValueError, AttributeError,
+                ArithmeticError, struct.error, pa.ArrowException):  # fmt: skip
             pass  # no kind or params yet, or rows that are not the kind's: `tds hash --write`
         datasets.append(entry)
+    names = [d["name"] for d in datasets]
+    if twice := sorted({n for n in names if names.count(n) > 1}):
+        raise ManifestError(f"two folders give the dataset name {', '.join(twice)}; a dataset's"
+                            " files are in one folder, under one name")  # fmt: skip
     created = dt.datetime.now(dt.UTC).replace(microsecond=0)
     draft = {
         "TODO": [f"{field}: {what}" for field, what in todo.items()],
