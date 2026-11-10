@@ -62,9 +62,9 @@ Generated from `docs/spec/engine-spec-v3.4.md` (chapter 10) by the spec checker 
 | T1.7a | `feat(compute): planner with window and shift row propagation` | 5.3.2 | — | T1.4, T1.5 |
 | T1.7b | `feat(compute): reference executor with fixed summation order and budgeted chunking` | 5.3.8, 5.3.10 | — | T1.7a |
 | T1.8 | `feat(compute): as-of adjustment reference and registered kernel classes` | 5.3.3, 5.3.3a, 5.3.4, 4.6 | T-07 | T1.7b, T0.15a, T1.G |
-| T1.9 | `feat(factors): returns, moving averages, volatility and traded value` | 3.4, 5.3.10 | T-12 | T1.8, T1.Gb |
+| T1.9 | `feat(factors): returns, moving averages, volatility and traded value` | 3.4, 5.3.10 | T-12, G-TIME-LATE | T1.8, T1.Gb |
 | T1.10 | `feat(factors): ewma, vwap, rsi, max drawdown and ops` | 3.3, 3.4 | — | T1.9, T1.Gb |
-| T1.11 | `feat(compute): cross-sectional operators with mask and groupby, sorted-index reductions` | 5.4, 5.3.10 | T-11, T-27 | T1.7b, T1.Gb |
+| T1.11 | `feat(compute): cross-sectional operators with mask and groupby, sorted-index reductions` | 5.4, 5.3.10 | T-11, T-27, G-TIME-LATE | T1.7b, T1.Gb |
 | T1.12 | `feat(pipeline): window-style user functions` | 3.3, 5.3.7, 6.5 | — | T1.8, T1.11 |
 | T1.14a | `feat(artifacts): sealed run folders with crash recovery and source capture` | 5.9.1–5.9.3, 2.6 | — | T0.5a |
 | T1.14b | `feat(artifacts): run index with candidates, observations, cohorts, pins and environment numerics` | 5.9.2, 5.9.5 | — | T1.14a |
@@ -132,7 +132,7 @@ Generated from `docs/spec/engine-spec-v3.4.md` (chapter 10) by the spec checker 
 | T3.1 | `feat(portfolio): pure target construction with stages and risk slot` | 3.7, 5.5 | — | T1.11, T1.9, T2.15, T1.Gb |
 | T3.2 | `feat(api): Strategy, schedules, params and strategy screen` | 3.7, 3.8 | — | T3.1, T1.13 |
 | T3.3 | `feat(accounting): columnar account state, integer money, valuation and NAV bridge` | 5.6.1, 5.6.9 | G-01, G-48 | T0.3, T3.Gc |
-| T3.4 | `feat(execution): order table, lifecycle, trigger state, quantity conservation, sizing and session loop skeleton` | 5.6.2, 5.6.3, 5.6.7 | G-10, G-14..G-15 | T3.3, T3.Ga |
+| T3.4 | `feat(execution): order table, lifecycle, trigger state, quantity conservation, sizing and session loop skeleton` | 5.6.2, 5.6.3, 5.6.7 | G-10, G-14..G-15, G-TIME-LATE | T3.3, T3.Ga |
 | T3.8 | `feat(execution): cost models, general impact form and cost table coverage` | 5.6.8, 4.7 | — | T3.4 |
 | T3.5a | `feat(execution): market fills at open with tradability rules` | 5.6.3–5.6.5 | G-01, G-11, G-13..G-14, G-31 | T3.4, T3.Ga |
 | T3.5b | `feat(execution): volume cap and affordable cash allocation with the actual cost function` | 5.6.6, 5.6.7 | G-10, G-12, G-41, G-53 | T3.5a, T3.8, T3.Gd |
