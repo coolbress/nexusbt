@@ -22,7 +22,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from .check import REF_CODES, Finding, Severity
-from .keys import listed
+from .keys import Batch, batches, listed
 from .manifest import Manifest
 
 R001, R002, R003, R004, R005, R006, R007, R008, R009 = REF_CODES
@@ -45,7 +45,6 @@ LOOKUPS = {
     "dictionary/columns": ("dataset", "column"),
 }
 BATCH_ROWS = 65_536
-Batch = dict[str, list[Any]]
 _MIC = re.compile(r"[A-Z0-9]{4}")  # R005, ISO 10383
 #: ISO 4217 list one as SIX published it on 2026-09-17 (six-group.com, list-one.xml).
 _ISO = """
@@ -62,17 +61,9 @@ ISO_4217 = frozenset(_ISO.split())
 
 
 def _batches(root: Path, ds: Mapping[str, Any], columns: Sequence[str]) -> Iterator[Batch]:
-    """`columns` of each listed file, `BATCH_ROWS` rows at a time, as Python lists; a column the
-    file does not store takes its partition value from the path, and one in neither is left out."""
+    """`columns` of each listed file, `BATCH_ROWS` rows at a time (`keys.batches`)."""
     for rel, parts in listed(root, ds):
-        source = pq.ParquetFile(root / rel)
-        names = source.schema_arrow.names
-        if len(set(names)) < len(names):  # which of two `instrument_id`s? its rows unseen
-            raise pa.ArrowInvalid(f"{rel}: a column name twice")
-        stored = [c for c in columns if c in names]
-        for batch in source.iter_batches(batch_size=BATCH_ROWS, columns=stored):
-            given = {c: [parts[c]] * batch.num_rows for c in columns if c in parts}
-            yield given | {c: batch.column(c).to_pylist() for c in stored}
+        yield from (b for _, b in batches(root, rel, parts, columns, BATCH_ROWS))
 
 
 def _rows(root: Path, ds: Mapping[str, Any], columns: Sequence[str]) -> Iterator[tuple[Any, ...]]:
