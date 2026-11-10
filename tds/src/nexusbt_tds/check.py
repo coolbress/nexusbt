@@ -11,7 +11,6 @@ listed in `unchecked`, and the profile is `not_checked`.
 from __future__ import annotations
 
 import datetime as dt
-import hashlib
 import json
 import math
 import os
@@ -147,6 +146,7 @@ def check(
     profiles: Sequence[str] | None = None,
     datasets: Sequence[str] | None = None,
     max_errors: int = 1000,
+    tmp_dir: Path | None = None,
 ) -> CheckResult:
     manifest: Manifest | None = None
     blind: set[str] = set()  # codes this package's files hide from the level (no statistics)
@@ -163,7 +163,7 @@ def check(
 
             found += check_keys(manifest, datasets, blind)
             found += check_refs(manifest, datasets, blind)
-            found += _check_hashes(manifest, datasets, blind, notes)
+            found += _check_hashes(manifest, datasets, blind, notes, tmp_dir)
     except ManifestError as exc:
         found = [Finding("TDS-M001", "error", str(exc))]
     declared = {profile_id(p) for p in manifest.profiles} if manifest else set()
@@ -209,13 +209,22 @@ FULL_CODES = (*KEY_CODES, *REF_CODES, *HASH_CODES)
 
 
 def _check_hashes(
-    m: Manifest, only: Sequence[str] | None, blind: set[str], notes: list[str]
+    m: Manifest, only: Sequence[str] | None, blind: set[str], notes: list[str], tmp: Path | None
 ) -> list[Finding]:
     """H001 each declared file sha256, H002 each dataset value hash, H003 the package hashes;
-    `notes` gets the dataset that stopped the value hash, when one did."""
-    from .hash import HashError, inside, package_hashes
+    `notes` gets the dataset that stopped the value hash, when one did, and where sorted runs
+    went. With `only`, the named datasets' rows alone are read and H003 is not checked (#309)."""
+    from .hash import (
+        HashError,
+        dataset_hashes,
+        file_sha256,
+        inside,
+        package_hashes,
+        spill_folder,
+        spilled_note,
+    )
 
-    out = []
+    out, spilled, hashes = [], list[Path](), dict[str, Any]()
     seen: set[object] = set()  # a path listed twice is M013's; its H001, once
     datasets = [d for d in m.datasets if only is None or d.get("name") in only]
     for ds in datasets:
@@ -224,25 +233,36 @@ def _check_hashes(
                 continue
             seen.add(f.get("path"))
             try:
-                actual = hashlib.sha256(inside(m.root, f.get("path")).read_bytes()).hexdigest()
+                actual = file_sha256(inside(m.root, f.get("path")))
             except (HashError, OSError):
                 continue  # outside the package or missing: the manifest level's (M004, M012)
             if actual != f["sha256"]:
                 message = f"sha256 {actual}, declared {f['sha256']}"
                 out.append(Finding("TDS-H001", "error", message, ds.get("name"), f["path"]))
     try:
-        hashes = package_hashes(m.root)
+        if only is None:
+            hashes = package_hashes(m.root, tmp_dir=tmp, spilled=spilled)
+        else:
+            folder = spill_folder(m.root, tmp)
+            hashes["datasets"] = {
+                d.get("name"): dataset_hashes(m.root, d, folder, spilled)[0] for d in datasets
+            }
     except Exception as exc:  # no value hash for this package, whatever the cause: not judged
         blind.update(HASH_CODES[1:])
         notes.append(f"{', '.join(HASH_CODES[1:])} not checked: {str(exc) or repr(exc)}")
         return out
+    finally:
+        notes.extend([spilled_note(spilled)] if spilled else [])
+    if only is not None:
+        blind.add("TDS-H003")
+        notes.append("TDS-H003 not checked: the package hashes need every dataset, not --datasets")
     for ds in datasets:
         declared, actual = ds.get("value_sha256"), hashes["datasets"].get(ds.get("name"))
         if declared is not None and declared != actual:
             out.append(Finding("TDS-H002", "error", f"value hash {actual}, declared {declared}",
                                dataset=ds.get("name")))  # fmt: skip
     declared_hashes = m.data.get("hashes")
-    for key in ("physical_sha256", "value_sha256", "semantic_sha256"):
+    for key in ("physical_sha256", "value_sha256", "semantic_sha256") if only is None else ():
         declared = declared_hashes.get(key) if isinstance(declared_hashes, dict) else None
         if declared is not None and declared != hashes[key]:
             out.append(Finding("TDS-H003", "error", f"{key} {hashes[key]}, declared {declared}"))

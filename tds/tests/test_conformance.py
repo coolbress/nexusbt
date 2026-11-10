@@ -321,6 +321,43 @@ def test_a_wrong_dictionary_value_hash_is_H002(tmp_path: Path) -> None:
     assert [(f.code, f.dataset) for f in result.errors] == [("TDS-H002", "dictionary/codes")]
 
 
+def test_datasets_named_bound_the_hashes_and_leave_H003_unchecked(tmp_path: Path) -> None:
+    manifest, files = build.package("TDS-H003", "fail")  # a wrong package hash, then H002 too
+    named = next(d for d in manifest["datasets"] if d["kind"] == "dictionary/codes")
+    named["value_sha256"] = "0" * 64
+    result = check(build.write(tmp_path, manifest, files), level="full", datasets=[named["name"]])
+    assert [(f.code, f.dataset) for f in result.errors] == [("TDS-H002", named["name"])]
+    assert "TDS-H003" in result.unchecked
+    assert "TDS-H002" not in result.unchecked
+    assert any(n.startswith("TDS-H003 not checked") for n in result.notes)
+
+
+def test_a_file_listed_twice_in_a_named_dataset_is_not_hashed_twice(tmp_path: Path) -> None:
+    def twice(m: dict[str, Any], f: Any) -> None:  # M013's; its rows are not the dataset's twice
+        build.bars(m)["files"] *= 2
+        build.bars(m)["value_sha256"] = "0" * 64
+
+    result = check(write(tmp_path / "pkg", twice), level="full", datasets=["bars_1d"])
+    assert "TDS-H002" not in [f.code for f in result.errors]
+    assert "TDS-H002" in result.unchecked
+
+
+def test_full_level_says_where_sorted_runs_went(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("nexusbt_tds.hash.BATCH_ROWS", 1)  # a run per row: a temporary file
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    days = pa.array([dt.date(2024, 1, 2), dt.date(2024, 1, 3)])
+    ids, close = pa.array(["US:AAA"] * 2), pa.array([1.0, 2.0])
+    two = _bars(instrument_id=ids, session_date=days, close=close)
+    result = check(write(tmp_path / "pkg", two), level="full", tmp_dir=scratch)
+    assert (result.errors, list(scratch.iterdir())) == ((), [])
+    (said,) = [n for n in result.notes if str(scratch) in n]  # one line names the folder
+    assert "temporary file(s) of sorted rows" in said
+    assert said.endswith("removed")
+
+
 def test_full_level_checks_only_the_keys_references_and_hashes_so_far(tmp_path: Path) -> None:
     result = check(write(tmp_path / "pkg"), level="full")
     assert (result.errors, result.warnings) == ((), ())

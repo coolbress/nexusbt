@@ -14,10 +14,12 @@ import pyarrow.parquet as pq
 import pytest
 
 from nexusbt_tds import cli
+from nexusbt_tds import hash as tds_hashes
 from nexusbt_tds.hash import (
     HashError,
     canonical_json,
     encode_table,
+    package_hashes,
     semantic_hash,
     semantic_json,
     value_hash,
@@ -32,6 +34,15 @@ ARROW = {
     "id": pa.string(), "code": pa.string(), "ts_us": pa.timestamp("us", "UTC"),
     "ts_ns": pa.timestamp("ns", "UTC"), "list<code>": pa.list_(pa.string()), "json": pa.string(),
 }  # fmt: skip
+
+
+@pytest.fixture(autouse=True, params=["in memory", "in sorted runs"])
+def sorted_in(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> str:
+    """Every hash here twice: a dataset sorted whole, and one row per run (#309's external sort,
+    a run per batch written to a temporary file and merged): the same bytes either way."""
+    if request.param == "in sorted runs":
+        monkeypatch.setattr(tds_hashes, "BATCH_ROWS", 1)
+    return str(request.param)
 
 
 def arrow_table(vector: dict[str, Any]) -> pa.Table:
@@ -340,3 +351,37 @@ def test_file_value_hash_written(tmp_path: Path, capsys: pytest.CaptureFixture[s
         assert entry["value_sha256"] == value_hash(alone, "bars_1d")  # that file's rows only
         assert printed[entry["path"]] == f"{entry['sha256']} {entry['value_sha256']}"
     assert tds_hash(pkg, capsys) == printed  # writing the hashes does not change them
+
+
+def test_sorted_runs_go_beside_the_package_and_are_removed(tmp_path: Path, sorted_in: str) -> None:
+    pkg = package(tmp_path / "pkg", BARS_TWO, PARTS)
+    spilled: list[Path] = []
+    assert package_hashes(pkg, spilled=spilled)["value_sha256"]
+    assert [p.parent for p in spilled] == ([tmp_path] if sorted_in == "in sorted runs" else [])
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["pkg"]  # nothing left beside it
+
+
+def test_sorted_runs_are_removed_when_the_hash_fails(tmp_path: Path, sorted_in: str) -> None:
+    # `x_note` declared i64: the first file's nulls encode, the second file's text does not
+    note = {**BARS_TWO, "columns": [{"name": "x_note", "type": "i64"}]}
+    first, second = PARTS.values()
+    notes = [pa.nulls(2, pa.int64()), pa.array(["text"])]
+    tables = [t.append_column("x_note", n) for t, n in zip((first, second), notes, strict=True)]
+    pkg = package(tmp_path / "pkg", note, dict(zip(PARTS, tables, strict=True)))
+    spilled: list[Path] = []
+    with pytest.raises(HashError, match="bars_1d"):
+        package_hashes(pkg, spilled=spilled)
+    assert len(spilled) == (sorted_in == "in sorted runs")  # written, then the hash failed
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["pkg"]
+
+
+def test_tds_hash_writes_sorted_runs_to_the_folder_named(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], sorted_in: str
+) -> None:
+    pkg, scratch = package(tmp_path / "pkg", BARS_TWO, PARTS), tmp_path / "scratch"
+    scratch.mkdir()
+    assert cli.main(["hash", str(pkg), "--tmp-dir", str(scratch)]) == 0
+    out, err = capsys.readouterr()
+    assert f"bars_1d {PUBLISHED}" in out.splitlines()
+    assert (str(scratch) in err) == (sorted_in == "in sorted runs")  # where, on stderr
+    assert list(scratch.iterdir()) == []
