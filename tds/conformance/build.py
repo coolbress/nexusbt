@@ -254,12 +254,13 @@ def _crypto(declared: bool) -> Change:
     return _both(_instruments(currency=pa.array(["USDT"])), _set("currencies", usdt))
 
 
-def _exits(*, delisted: bool) -> Change:
-    """US:AAA's delisting on 2024-01-02 (5.13); `delisted` sets `instruments.delisted_on` too."""
+def _exits(*, delisted: bool, ret_lo: float = 0.0) -> Change:
+    """US:AAA's delisting on 2024-01-02 (5.13), `ret_hi` 0; `delisted` sets
+    `instruments.delisted_on` too."""
     exit_ = _add("delistings", {
         "delisting_id": ["US:L1"], "instrument_id": ["US:AAA"], "last_trading_date": DAY,
         "exit_date": DAY, "delist_type": ["merger"], "ref_date": DAY, "ref_price": [10.0],
-        "exit_value_status": ["observed"], "ret_lo": [0.0], "ret_hi": [0.0],
+        "exit_value_status": ["observed"], "ret_lo": [ret_lo], "ret_hi": [0.0],
         "policy_id": ["exit-value-v1"],
     })  # fmt: skip
     return _both(exit_, _instruments(delisted_on=DAY)) if delisted else exit_
@@ -411,6 +412,60 @@ _SPINOFF = {"kind": "spinoff", "new_instrument_id": "US:BBB", "price_factor": 0.
             "affects": "total_only", "factor_method": "spinoff_first_close"}  # fmt: skip
 _SPUN: dict[str, Any] = {"split": (1.0, 1.0), "total": (1.0, 0.8), "with_bbb": True}
 
+
+def _fx(rate: float) -> Change:
+    """One USD/KRW fixing at `rate` (5.15)."""
+    return _add("fx_rates", {
+        "base": ["USD"], "quote": ["KRW"], "rate_kind": ["fixing"], "obs_date": DAY,
+        "ts_event": pa.array([NEW_YEAR], TS_UTC), "ts_available": pa.array([NEW_YEAR], TS_UTC),
+        "rate": [rate], "source": ["synthetic"],
+    })  # fmt: skip
+
+
+def _quote(bid: int, ask: int) -> Change:
+    """One US:AAA quote (5.7, experimental) on 2024-01-02; prices are `fixed` integers."""
+    rel = "quotes/venue=XNYS/date=2024-01-02/part-00000.parquet"
+    return _add("quotes", {
+        "instrument_id": ["US:AAA"], "session_date": DAY,
+        "ts_event": pa.array([NEW_YEAR], pa.timestamp("ns", "UTC")), "sequence": [1],
+        "bid_px": [bid], "ask_px": [ask],
+    }, rel)  # fmt: skip
+
+
+def _event(**ids: list[str | None]) -> Change:
+    """One `events` row (5.21) with the ids `ids` (each a one-item list)."""
+    rel = "events/event_type=earnings.announcement/part-00000.parquet"
+    return _add("events", {
+        "event_id": ["US:EV1"], "ts_event": pa.array([NEW_YEAR], TS_UTC),
+        "ts_available": pa.array([NEW_YEAR], TS_UTC), "source": ["synthetic"], "doc_id": ["d1"],
+        **{k: pa.array(v, pa.string()) for k, v in ids.items()},
+    }, rel)  # fmt: skip
+
+
+def _labels(column: str) -> Change:
+    """Feature panel `f` with column `mom` and label panel `l` with `column`, both described."""
+    row = {"instrument_id": ["US:AAA"], "period": pa.array([dt.date(2024, 1, 1)]),
+           "as_of_date": pa.array([dt.date(2023, 12, 29)]),
+           "ts_available": pa.array([NEW_YEAR], TS_UTC)}  # fmt: skip
+    label = "label_panels/name=l/edition=strict/year=2024/part-00000.parquet"
+    return _both(
+        _panels("strict", mom=[1.0]),
+        _add("label_panels", row | {column: [0.1]}, label),
+        _add("dictionary/columns", {"dataset": ["feature_panels", "label_panels"],
+                                    "column": ["mom", column]}),
+        lambda m, f: [d.update(columns=[{"name": c, "type": "f64"}]) for d, c in
+                      zip(m["datasets"][-3:-1], ("mom", column), strict=True)],
+    )  # fmt: skip
+
+
+def _future(**columns: Any) -> Change:
+    """US:AAA as a future (5.1) with `columns`."""
+    return _instruments(asset_class=pa.array(["future"]), **columns)
+
+
+_FUTURE = {"root": pa.array(["AA"]), "ts_expiry": pa.array([NEW_YEAR], TS_UTC),
+           "settlement_type": pa.array(["cash"])}  # fmt: skip
+
 #: Code → (pass change, fail change). M005, M011 and S005 are warnings: their fail package warns.
 CASES: dict[str, tuple[Change, Change]] = {
     "TDS-M001": (_keep, lambda m, f: m.clear()),  # `[]` is written, see write()
@@ -529,6 +584,25 @@ CASES: dict[str, tuple[Change, Change]] = {
         _actions(_SPINOFF | {"ts_terms_available": _at(3, 21, 0)}, **_SPUN),
         _actions(_SPINOFF | {"ts_terms_available": _at(3, 20, 0)}, **_SPUN),
     ),
+    "TDS-V001": (
+        _bars(open=pa.array([10.0]), high=pa.array([11.0]), low=pa.array([9.0])),
+        _bars(open=pa.array([10.0]), high=pa.array([11.0]), low=pa.array([10.5])),
+    ),
+    "TDS-V002": (
+        _both(_instruments(asset_class=pa.array(["index"])), _bars(close=pa.array([-1.0]))),
+        _bars(close=pa.array([-1.0])),
+    ),
+    "TDS-V004": (
+        _bars(obs_status=pa.array(["halted"]), close=pa.array([None], pa.float64())),
+        _bars(obs_status=pa.array(["traded"]), close=pa.array([None], pa.float64())),
+    ),
+    "TDS-V005": (_fx(1400.0), _fx(0.0)),
+    "TDS-V010": (_bars(volume=pa.array([2.0])), _bars(volume=pa.array([2.5]))),
+    "TDS-V020": (_future(**_FUTURE), _future(**_FUTURE | {"root": None})),
+    "TDS-V030": (_quote(99, 100), _quote(100, 100)),  # locked
+    "TDS-V040": (_exits(delisted=True, ret_lo=-0.5), _exits(delisted=True, ret_lo=0.5)),
+    "TDS-V041": (_event(series_id=["US:CPI"]), _event()),
+    "TDS-V050": (_labels("fwd_ret"), _labels("mom")),
     **{
         code: (_hashes(code, False), _hashes(code, True))
         for code in ("TDS-H001", "TDS-H002", "TDS-H003")
@@ -564,6 +638,13 @@ FAILS: dict[str, tuple[str | None, ...]] = {
     **dict.fromkeys(
         [f"TDS-A00{n}" for n in range(3, 10)], ("corporate_actions",)
     ),
+    **dict.fromkeys(["TDS-V001", "TDS-V002", "TDS-V004", "TDS-V010"], ("bars_1d",)),
+    "TDS-V005": ("fx_rates",),
+    "TDS-V020": ("instruments",),
+    "TDS-V030": ("quotes",),
+    "TDS-V040": ("delistings",),
+    "TDS-V041": ("events",),
+    "TDS-V050": ("label_panels",),
 }
 # fmt: on
 

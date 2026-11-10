@@ -162,6 +162,7 @@ def check(
             from .hash import spilled_note
             from .keys import check_keys
             from .refs import check_refs
+            from .values import check_values
 
             spilled: list[Path] = []
             try:
@@ -170,6 +171,7 @@ def check(
                 notes.extend([spilled_note(spilled, "key check")] if spilled else [])
             found += check_refs(manifest, datasets, blind)
             found += check_actions(manifest, datasets, blind, notes)
+            found += check_values(manifest, datasets, blind)
             found += _check_hashes(manifest, datasets, blind, notes, tmp_dir)
     except ManifestError as exc:
         found = [Finding("TDS-M001", "error", str(exc))]
@@ -213,7 +215,9 @@ HASH_CODES = ("TDS-H001", "TDS-H002", "TDS-H003")
 KEY_CODES = ("TDS-K001", "TDS-K002", "TDS-K003", "TDS-K004", "TDS-K010", "TDS-K011")  # `keys`
 REF_CODES = tuple(f"TDS-R{n:03}" for n in range(1, 10))  # `refs` checks them
 ACTION_CODES = tuple(f"TDS-A{n:03}" for n in range(1, 10))  # `adjustments` checks them
-FULL_CODES = (*KEY_CODES, *REF_CODES, *ACTION_CODES, *HASH_CODES)
+#: `values` checks them; V011, V012 (T0.15d), V031 and V032 (#227) are not judged yet.
+VALUE_CODES = tuple(f"TDS-V{n:03}" for n in (1, 2, 4, 5, 10, 20, 30, 40, 41, 50))
+FULL_CODES = (*KEY_CODES, *REF_CODES, *ACTION_CODES, *VALUE_CODES, *HASH_CODES)
 
 
 def _check_hashes(
