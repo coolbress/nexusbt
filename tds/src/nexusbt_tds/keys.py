@@ -13,7 +13,7 @@ import re
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import replace
-from itertools import combinations, pairwise
+from itertools import combinations
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -30,31 +30,117 @@ PANELS = frozenset({"feature_panels", "label_panels"})
 _STAMP = r"(\d{4}-\d\d-\d\dT\d\d)-(\d\d)-(\d\d)(?:-(\d{1,9}))?(Z|[+-]\d\d-\d\d)"
 _RANGE = re.compile(rf"{_STAMP}_{_STAMP}\.parquet")  # 3.6, `:` and `.` written as `-`
 
+#: The columns K010 and K011 keep as rows, of the two small tables they judge.
+KEPT = {
+    "instrument_symbols": ("symbol_type", "symbol", "venue_mic", "instrument_id", "valid_from",
+                           "valid_to", "ts_known_from", "ts_known_to"),
+    "calendar_sessions": ("calendar_id", "session_date", "session_ord"),
+}  # fmt: skip
+BATCH_ROWS = 65_536
 Row = dict[str, Any]
-File = tuple[str, dict[str, str], list[Row]]  # path, partition values, rows
+Batch = dict[str, list[Any]]
 
 
 def check_keys(m: Manifest, only: Sequence[str] | None, blind: set[str]) -> list[Finding]:
+    """K001~K011 reading, of the datasets checked, the key, sort and date columns in batches
+    (#309). Memory holds a batch, the distinct keys (K001), the last row of each folder (K002)
+    and, of `KEPT`'s tables, their columns as rows. A file the codes cannot read, or one with a
+    column name twice, leaves them unchecked."""
     from .schemas.verify import load_schemas
 
     schemas, root, out = load_schemas(), m.root.resolve(), []
     for ds in (d for d in m.datasets if only is None or d.get("name") in only):
         kind, schema = ds.get("kind"), schemas.get(str(ds.get("kind")))
-        files = _read(root, ds)
-        if files is None:  # a file Parquet cannot read: S010's, its rows unseen
-            blind.update(KEY_CODES)
-            continue
         params = ds["params"] if isinstance(ds.get("params"), dict) else {}
         key = _variant(ds.get("key", schema.key if schema else None), params)
         sort = _variant(ds.get("sort", schema.sort if schema else None), params)
-        found = [*_duplicates(files, key, blind), *_unsorted(files, sort, blind)]
-        found += [*_off_partition(files, "period" if kind in PANELS else "session_date", blind)]
-        found += [*_overlaps(files)]
-        rows = [r for _, _, rs in files for r in rs]
-        found += _reused(rows, blind) if kind == "instrument_symbols" else []
-        found += _numbering(rows) if kind == "calendar_sessions" else []
+        try:
+            found = _scan(root, ds, str(kind), key, sort, blind)
+        except (OSError, pa.ArrowException):  # a file Parquet cannot read: S010's, rows unseen
+            blind.update(KEY_CODES)
+            continue
         out += [replace(f, dataset=ds.get("name")) for f in found]
     return out
+
+
+def batches(
+    root: Path, rel: str, parts: Mapping[str, str], columns: Sequence[str], size: int
+) -> Iterator[tuple[int, Batch]]:
+    """`columns` of the file `rel`, `size` rows at a time, as (rows, Python lists); a column the
+    file does not store takes its partition value from the path, and one in neither is left out."""
+    source = pq.ParquetFile(root / rel)
+    names = source.schema_arrow.names
+    if len(set(names)) < len(names):  # which of two `instrument_id`s? its rows unseen
+        raise pa.ArrowInvalid(f"{rel}: a column name twice")
+    stored = [c for c in columns if c in names]
+    for batch in source.iter_batches(batch_size=size, columns=stored):
+        given = {c: [parts[c]] * batch.num_rows for c in columns if c in parts}
+        yield batch.num_rows, given | {c: batch.column(c).to_pylist() for c in stored}
+
+
+def _scan(
+    root: Path, ds: Mapping[str, Any], kind: str, key: list[str] | None,
+    sort: list[str] | None, blind: set[str],
+) -> list[Finding]:  # fmt: skip
+    """One pass over the files in path order, so each folder's files come in name order (3.5)."""
+    date, kept = "period" if kind in PANELS else "session_date", KEPT.get(kind, ())
+    files = sorted(listed(root, ds))
+    unseen = {c for c, cols in ((K001, key), (K002, sort)) if cols is None}  # not judged
+    counts: Counter[tuple[Any, Any]] = Counter()
+    last: dict[str, list[Any]] = {}  # K002, per folder: the last row's sort values
+    unsorted: dict[str, tuple[int, str, Row]] = {}  # per folder: count, first file and row
+    off: list[Finding] = []
+    rows: list[Row] = []
+    for rel, parts in files:
+        folder = rel.rpartition("/")[0]
+        own = tuple(sorted((p, v) for p, v in parts.items() if p not in TIME_PARTS))
+        times = [(p, parts[p]) for p in TIME_PARTS if p in parts]
+        wanted = dict.fromkeys([*(key or []), *(sort or []), *([date] if times else []), *kept])
+        days: list[Any] = []  # K003: this file's dates outside one of its folders
+        dateless = False  # a row without the date column: K003 unchecked for this file
+        for n, b in batches(root, rel, parts, list(wanted), BATCH_ROWS):
+            if not n:  # pragma: no cover - a row group of no rows, which pyarrow does not write
+                continue
+            if key is None or any(c not in b for c in key):
+                unseen.add(K001)
+            else:
+                counts.update((k, own) for k in zip(*(b[c] for c in key), strict=True))
+            if sort is None or any(c not in b for c in sort):
+                unseen.add(K002)
+            else:
+                ordered = zip(*([(v is None, v) for v in b[c]] for c in sort), strict=True)
+                for i, now in enumerate(map(list, ordered)):  # a null sorts last
+                    if folder in last and now < last[folder]:
+                        seen = unsorted.get(folder) or (0, rel, {c: b[c][i] for c in sort})
+                        unsorted[folder] = (seen[0] + 1, *seen[1:])
+                    last[folder] = now
+            dateless = dateless or (bool(times) and date not in b)
+            if times and not dateless:
+                days += [d for d in b[date] if isinstance(d, dt.date)
+                         and any(_folder(p, d) != value for p, value in times)]  # fmt: skip
+            have = [c for c in kept if c in b]  # none: n rows without them, for K010 to see
+            rows += [{c: b[c][i] for c in have} for i in range(n)] if kept else []
+        if dateless:
+            unseen.add(K003)
+            continue
+        for part, value in times:
+            if bad := [d for d in days if _folder(part, d) != value]:
+                msg = f"{len(bad)} row(s) with {date} outside {part}={value}, e.g. {bad[0]}"
+                off.append(Finding(K003, "error", msg, file=rel, count=len(bad)))
+    blind.update(unseen)
+    found = [] if K001 in unseen else list(_duplicates(counts, key or []))
+    for count, rel, row in [] if K002 in unseen else unsorted.values():
+        msg = f"{count} row(s) sort before the row above them by {', '.join(sort or [])}"
+        found.append(Finding(K002, "error", msg, file=rel, key=_shown(list(row), row), count=count))
+    found += [*off, *_overlaps([rel for rel, _ in files])]
+    found += _reused(rows, blind) if kind == "instrument_symbols" else []
+    found += _numbering(rows) if kind == "calendar_sessions" else []
+    return found
+
+
+def _folder(part: str, day: dt.date) -> str:
+    """The `year=` or `date=` folder a day belongs in."""
+    return str(day.year) if part == "year" else day.isoformat()
 
 
 def listed(root: Path, ds: Mapping[str, Any]) -> Iterator[tuple[str, dict[str, str]]]:
@@ -71,17 +157,6 @@ def listed(root: Path, ds: Mapping[str, Any]) -> Iterator[tuple[str, dict[str, s
             yield rel, dict(p.split("=", 1) for p in PurePosixPath(rel).parent.parts if "=" in p)
 
 
-def _read(root: Path, ds: Mapping[str, Any]) -> list[File] | None:
-    out = []
-    for rel, parts in listed(root, ds):
-        try:
-            rows = pq.read_table(root / rel).to_pylist()
-        except (OSError, pa.ArrowException):
-            return None
-        out.append((rel, parts, [parts | row for row in rows]))
-    return out
-
-
 def _variant(value: object, params: Mapping[str, Any]) -> list[str] | None:
     """A schema `key` or `sort`; bars name an intraday one (`freq<1d`, TDS 5.5) and a daily one."""
     if isinstance(value, dict):
@@ -95,17 +170,9 @@ def _shown(columns: Sequence[str], row: Row) -> dict[str, object]:
     return {c: row[c] if isinstance(row[c], plain) else str(row[c]) for c in columns}
 
 
-def _duplicates(files: list[File], key: list[str] | None, blind: set[str]) -> Iterable[Finding]:
+def _duplicates(counts: Counter[tuple[Any, Any]], key: list[str]) -> Iterable[Finding]:
     """K001: a key on two rows anywhere in the dataset, with the row's partition values other
-    than `year=` and `date=` (TDS 3.5; #224, 2026-11-05)."""
-    own = [(rs, {p: v for p, v in parts.items() if p not in TIME_PARTS}) for _, parts, rs in files]
-    rows = [(r, folder) for rs, folder in own for r in rs]
-    if key is None or any(c not in r for r, _ in rows for c in key):
-        blind.add(K001)
-        return
-    counts = Counter(
-        (tuple(r[c] for c in key), tuple(sorted(folder.items()))) for r, folder in rows
-    )
+    than `year=` and `date=` (TDS 3.5; #224, 2026-11-05). `counts` is (key, partition values)."""
     if twice := [k for k, n in counts.items() if n > 1]:
         first = dict(zip(key, twice[0][0], strict=True)) | dict(twice[0][1])
         msg, n = f"{len(twice)} key value(s) on more than one row", sum(counts[k] for k in twice)
@@ -119,39 +186,6 @@ def _group(items: Iterable[Any], by: Any) -> dict[Any, list[Any]]:
     return out
 
 
-def _folders(files: list[File]) -> dict[str, list[File]]:
-    """The files of each partition folder, in file-name order (3.5)."""
-    return _group(sorted(files, key=lambda f: f[0]), lambda f: f[0].rpartition("/")[0])
-
-
-def _unsorted(files: list[File], sort: list[str] | None, blind: set[str]) -> Iterable[Finding]:
-    """K002: rows out of `sort` order in a file, or across a folder's files in name order."""
-    if sort is None or any(c not in r for _, _, rows in files for r in rows for c in sort):
-        blind.add(K002)
-        return
-    for group in _folders(files).values():
-        rows = [(rel, [(r[c] is None, r[c]) for c in sort], r) for rel, _, rs in group for r in rs]
-        bad = [b for a, b in pairwise(rows) if b[1] < a[1]]
-        if bad:
-            rel, _, row = bad[0]
-            msg = f"{len(bad)} row(s) sort before the row above them by {', '.join(sort)}"
-            yield Finding(K002, "error", msg, file=rel, key=_shown(sort, row), count=len(bad))
-
-
-def _off_partition(files: list[File], column: str, blind: set[str]) -> Iterable[Finding]:
-    """K003: a row whose `column` lies outside its `year=` or `date=` folder."""
-    for rel, parts, rows in files:
-        for part, value in ((p, parts[p]) for p in TIME_PARTS if p in parts):
-            if any(column not in r for r in rows):
-                blind.add(K003)
-                continue
-            days = [r[column] for r in rows if isinstance(r[column], dt.date)]
-            bad = [d for d in days if (str(d.year) if part == "year" else d.isoformat()) != value]
-            if bad:
-                msg = f"{len(bad)} row(s) with {column} outside {part}={value}, e.g. {bad[0]}"
-                yield Finding(K003, "error", msg, file=rel, count=len(bad))
-
-
 def _instant(match: Sequence[str | None]) -> tuple[dt.datetime, int]:
     """One `_STAMP` of a file name as (instant to the second, nanoseconds)."""
     hour, minute, second, fraction, zone = match
@@ -160,11 +194,11 @@ def _instant(match: Sequence[str | None]) -> tuple[dt.datetime, int]:
     return when, int((fraction or "").ljust(9, "0"))
 
 
-def _overlaps(files: list[File]) -> Iterable[Finding]:
+def _overlaps(files: list[str]) -> Iterable[Finding]:
     """K004: two `<ts_min>_<ts_max>` files of one folder whose ranges share an instant."""
-    for group in _folders(files).values():
+    for group in _group(sorted(files), lambda rel: rel.rpartition("/")[0]).values():
         spans = []
-        for rel, _, _ in group:
+        for rel in group:
             if match := _RANGE.fullmatch(PurePosixPath(rel).name):
                 try:
                     spans.append((_instant(match.groups()[:5]), _instant(match.groups()[5:]), rel))

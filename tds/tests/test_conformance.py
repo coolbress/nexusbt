@@ -10,7 +10,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from nexusbt_tds import ProfileStatus, check, refs
+from nexusbt_tds import ProfileStatus, check, keys, refs
 from nexusbt_tds.check import Level
 from nexusbt_tds.manifest import read_manifest
 
@@ -55,6 +55,14 @@ def test_S_codes(code: str, tmp_path: Path) -> None:
 K_CODES = ["TDS-K001", "TDS-K002", "TDS-K003", "TDS-K004", "TDS-K010", "TDS-K011"]
 
 
+@pytest.fixture(params=["whole", "a row per batch"])
+def keys_batches(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The K codes twice: files read in one batch, and one row per batch (#309): same findings."""
+    if request.param == "a row per batch":
+        monkeypatch.setattr(keys, "BATCH_ROWS", 1)
+
+
+@pytest.mark.usefixtures("keys_batches")
 @pytest.mark.parametrize("code", K_CODES)
 def test_K_codes(code: str, tmp_path: Path) -> None:
     fail = check(build.write(tmp_path / "fail", *build.package(code, "fail")), level="full")
@@ -106,6 +114,13 @@ def _no_venue(m: dict[str, Any], f: Any) -> None:  # a symbol column missing: K0
     build.rewrite(m, f, rel, table)
 
 
+def _only_source(m: dict[str, Any], f: Any) -> None:  # rows, but none of K010's columns
+    build.CASES["TDS-K010"][1](m, f)
+    rel = "instrument_symbols/part-00000.parquet"
+    rows = pq.read_table(pa.BufferReader(f[rel])).num_rows
+    build.rewrite(m, f, rel, pa.table({"x_note": ["n"] * rows}))
+
+
 def _ranges(*names: str) -> Any:
     """K004's pass package with its bars files named `names`; a third holds US:BBB on 01-03."""
 
@@ -143,6 +158,7 @@ def _not_parquet(m: dict[str, Any], f: Any) -> None:  # S010: no rows read, no K
     build.bars(m)["files"][0]["bytes"] = len(f[build.BARS])
 
 
+@pytest.mark.usefixtures("keys_batches")
 @pytest.mark.parametrize(
     ("change", "errors", "unchecked"),
     [
@@ -153,10 +169,12 @@ def _not_parquet(m: dict[str, Any], f: Any) -> None:  # S010: no rows read, no K
         (_symbols(_unknown), [], ["TDS-K010"]),
         (_symbols(_unknown_then_found), ["TDS-K010"], []),
         (_no_venue, [], ["TDS-K001", "TDS-K002", "TDS-K010"]),  # venue_mic is in key and sort
+        (_only_source, [], ["TDS-K001", "TDS-K002", "TDS-K010"]),
         (_weekly, ["TDS-K002"], []),
         (_not_parquet, [], K_CODES),
         (lambda m, f: f.pop(build.BARS), [], []),  # M004: a missing file has no rows
         (_ranges("2024-01-02T25-00-00Z_2024-01-02T26-00-00Z", _B), [], []),  # hour 25: no range
+        (lambda m, f: _named_twice(m, f), [], K_CODES),  # which `instrument_id`? rows unseen
     ],
 )
 def test_key_rules_edges(
@@ -165,6 +183,29 @@ def test_key_rules_edges(
     result = check(write(tmp_path, change), level="full")
     assert [f.code for f in result.errors if f.code in K_CODES] == errors
     assert [c for c in K_CODES if c in result.unchecked] == unchecked
+
+
+def test_keys_read_the_named_datasets_and_only_their_key_columns(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """TDS 8.1 `--datasets` bounds what `keys` reads (#309): of the named datasets, the key,
+    sort and date columns, in batches; a broken file of another dataset hides nothing."""
+    read: list[list[str]] = []
+    batches = pq.ParquetFile.iter_batches
+
+    def record(self: pq.ParquetFile, *args: Any, columns: Any = None, **kw: Any) -> Any:
+        read.append(sorted(columns))
+        return batches(self, *args, columns=columns, **kw)
+
+    monkeypatch.setattr(pq.ParquetFile, "iter_batches", record)
+    blind: set[str] = set()
+    m = read_manifest(write(tmp_path / "broken", _not_parquet))  # bars unreadable, not named
+    assert keys.check_keys(m, ["instruments"], blind) == []
+    assert blind == set()
+    assert read == [["instrument_id"]]  # its key and its sort; no date folder, no date
+    read.clear()
+    assert keys.check_keys(read_manifest(write(tmp_path / "ok")), ["bars_1d"], blind) == []
+    assert read == [["instrument_id", "session_date"]]  # daily bars: no close, no volume
 
 
 def test_classification_levels_not_duplicate(tmp_path: Path) -> None:
