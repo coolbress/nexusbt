@@ -25,6 +25,20 @@ def codes(path: Path, level: Level = "manifest", **kwargs: Any) -> list[str]:
     return [f.code for f in (*result.errors, *result.warnings)]
 
 
+def pairs(path: Path, level: Level = "manifest") -> list[tuple[str, str | None]]:
+    result = check(path, level=level)
+    return sorted(((f.code, f.dataset) for f in (*result.errors, *result.warnings)), key=str)
+
+
+def stated(code: str) -> list[tuple[str, str | None]]:
+    """The fail package's findings the builder states: its code, once per broken dataset (8.2)."""
+    return sorted(((code, dataset) for dataset in build.FAILS[code]), key=str)
+
+
+def test_every_fail_package_states_its_findings() -> None:
+    assert set(build.FAILS) == set(build.CASES)
+
+
 def write(root: Path, change: Any = None) -> Path:
     manifest, files = build.base()
     if change:
@@ -39,15 +53,15 @@ def add_bars_file(path: str, size: int = 1) -> Any:
 @pytest.mark.parametrize("code", [f"TDS-M{n:03}" for n in range(1, 15)])
 def test_M_codes(code: str, tmp_path: Path) -> None:
     package = tmp_path / "pkg"
-    assert codes(build.write(package / "fail", *build.package(code, "fail"))) == [code]
+    assert pairs(build.write(package / "fail", *build.package(code, "fail"))) == stated(code)
     assert codes(build.write(package / "pass", *build.package(code, "pass"))) == []
-    assert codes(package / "fail", "schema") == [code]  # also at the CLI's default level
+    assert pairs(package / "fail", "schema") == stated(code)  # also at the CLI's default level
 
 
 @pytest.mark.parametrize("code", [*S_CODES, "TDS-T002", "TDS-T006", "TDS-D002"])  # 8.2
 def test_S_codes(code: str, tmp_path: Path) -> None:
     fail = build.write(tmp_path / "fail", *build.package(code, "fail"))
-    assert codes(fail, "schema") == [code]
+    assert pairs(fail, "schema") == stated(code)
     assert codes(fail) == []  # the manifest level reads no Parquet
     assert codes(build.write(tmp_path / "pass", *build.package(code, "pass")), "schema") == []
 
@@ -66,7 +80,7 @@ def keys_batches(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
 @pytest.mark.parametrize("code", K_CODES)
 def test_K_codes(code: str, tmp_path: Path) -> None:
     fail = check(build.write(tmp_path / "fail", *build.package(code, "fail")), level="full")
-    assert [f.code for f in (*fail.errors, *fail.warnings)] == [code]
+    assert pairs(tmp_path / "fail", "full") == stated(code)
     assert code not in fail.unchecked
     assert codes(tmp_path / "fail", "schema") == []  # the schema level reads no rows
     passed = check(build.write(tmp_path / "pass", *build.package(code, "pass")), level="full")
@@ -401,7 +415,7 @@ def test_R009_names_the_missing_dictionary_once_per_dataset(
 @pytest.mark.parametrize("code", ["TDS-H001", "TDS-H002", "TDS-H003"])
 def test_H_codes(code: str, tmp_path: Path) -> None:
     fail = build.write(tmp_path / "fail", *build.package(code, "fail"))
-    assert codes(fail, "full") == [code]
+    assert pairs(fail, "full") == stated(code)
     assert codes(fail, "schema") == []  # the schema level reads no rows and hashes nothing
     assert codes(build.write(tmp_path / "pass", *build.package(code, "pass")), "full") == []
 
