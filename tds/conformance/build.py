@@ -328,18 +328,19 @@ def _watermark(ts_end: dt.datetime) -> Change:
 def _column_forms(*, complete: bool) -> Change:
     """`instrument_symbols` under `{"column": "ts_known_from"}` and `delistings` under
     `{"exit": …, "value": …}` (TDS 4.2, 6.2); `complete`: the delistings file holds
-    `ts_value_available`, the second column its availability names (T002 otherwise)."""
+    `ts_value_available`, the second column its availability names, and the symbols file
+    `ts_known_from`, the one column its availability names (T002 for each otherwise)."""
 
     def change(m: dict[str, Any], files: Files) -> None:
         known = pa.array([THROUGH], pa.timestamp("us", "UTC"))
         symbols = {"instrument_id": ["US:AAA"], "symbol_type": ["ticker"], "symbol": ["AAA"],
-                   "valid_from": DAY, "ts_known_from": known}  # fmt: skip
+                   "valid_from": DAY}  # fmt: skip
         exits = {"delisting_id": ["US:L1"], "instrument_id": ["US:AAA"], "last_trading_date": DAY,
                  "exit_date": DAY, "ts_exit_known": known, "delist_type": ["merger"],
                  "ref_date": DAY, "ref_price": [10.0], "exit_value_status": ["observed"],
                  "ret_lo": [0.0], "ret_hi": [0.0], "policy_id": ["exit-value-v1"]}  # fmt: skip
         if complete:
-            exits["ts_value_available"] = known
+            exits["ts_value_available"] = symbols["ts_known_from"] = known
         rewrite(m, files, INSTRUMENTS, instruments(delisted_on=DAY))  # R008: equal to exit_date
         forms = {
             "instrument_symbols": (symbols, {"column": "ts_known_from"}),
@@ -385,7 +386,10 @@ CASES: dict[str, tuple[Change, Change]] = {
     "TDS-M013": (_keep, lambda m, f: bars(m)["files"].append(dict(bars(m)["files"][0]))),
     "TDS-M014": (
         _set("availability", {"rule": "ts_end+PT15M"}, in_bars=True),
-        _set("availability", {"rule": "ts_end_when_ready"}, in_bars=True),
+        _both(  # an unknown rule name, and an object that is none of 6.2's forms (#276)
+            _set("availability", {"rule": "ts_end_when_ready"}, in_bars=True),
+            lambda m, f: m["datasets"][0].update(availability={"known": "ts_known_from"}),
+        ),
     ),
     "TDS-S001": (_bars(ts_end=TS), _bars(session_date=None)),
     "TDS-S002": (_keep, _bars(close=pa.array(["10.0"]))),
@@ -446,6 +450,34 @@ CASES: dict[str, tuple[Change, Change]] = {
         for code in ("TDS-H001", "TDS-H002", "TDS-H003")
     },
 }
+
+#: Code → the datasets its fail package breaks: the checker reports that code once for each,
+#: and nothing else (TDS 8.2: one failing example per code, which may break several datasets).
+#: `None`: a finding of the package as a whole.
+# fmt: off
+FAILS: dict[str, tuple[str | None, ...]] = {
+    **dict.fromkeys([
+        "TDS-M001", "TDS-M002", "TDS-M003", "TDS-M005", "TDS-M007", "TDS-M008", "TDS-R008",
+        "TDS-H003",
+    ], (None,)),
+    **dict.fromkeys([
+        "TDS-M004", "TDS-M006", "TDS-M009", "TDS-M010", "TDS-M011", "TDS-M012", "TDS-M013",
+        "TDS-S001", "TDS-S002", "TDS-S004", "TDS-S005", "TDS-S008", "TDS-S009", "TDS-S010",
+        "TDS-T006", "TDS-D002", "TDS-K002", "TDS-K003", "TDS-K004", "TDS-R001", "TDS-R003",
+        "TDS-H001", "TDS-H002",
+    ], ("bars_1d",)),
+    **dict.fromkeys([
+        "TDS-S003", "TDS-S006", "TDS-S007", "TDS-R002", "TDS-R004", "TDS-R005", "TDS-R006",
+    ], ("instruments",)),
+    "TDS-M014": ("bars_1d", "instruments"),  # the unknown rule, the unknown object
+    "TDS-T002": ("delistings", "instrument_symbols"),  # the two-instant form, the one-column
+    "TDS-K001": ("feature_panels",),
+    "TDS-K010": ("instrument_symbols",),
+    "TDS-K011": ("calendar_sessions",),
+    "TDS-R007": ("fundamentals_state",),
+    "TDS-R009": ("fundamentals_state",),
+}
+# fmt: on
 
 
 def package(code: str, side: str) -> Package:
