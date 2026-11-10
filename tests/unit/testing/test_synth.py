@@ -151,9 +151,10 @@ def test_zz_market_generated(tiny: Path, tmp_path: Path) -> None:
                for f in d["files"])  # fmt: skip
 
 
-@pytest.mark.parametrize(("preset", "markets"), [("full", ("KR",)), ("tiny", ()), ("tiny", "XX")])
+@pytest.mark.parametrize(("preset", "markets"),
+                         [("full_ci", ("KR",)), ("tiny", ()), ("tiny", "XX")])  # fmt: skip
 def test_refuses_unbuilt_preset_and_bad_markets(preset: Any, markets: Any, tmp_path: Path) -> None:
-    with pytest.raises(NotImplementedError if preset == "full" else ValueError):
+    with pytest.raises(NotImplementedError if preset == "full_ci" else ValueError):
         make_snapshot(tmp_path / "p", preset=preset, markets=markets)
 
 
@@ -172,11 +173,12 @@ def test_command_prints_counts_and_hashes_then_checks(
         "bars_1d 682 rows", "corporate_actions revisions 0, cancellations 0",
     ]  # fmt: skip
     hashes = json.loads((out / "tds.json").read_text(encoding="utf-8"))["hashes"]
-    assert lines[8:11] == [
+    assert lines[8:10] == [
         f"value_sha256 {hashes['value_sha256']}",
         f"semantic_sha256 {hashes['semantic_sha256']}",
-        "TDS-A001: 0",
     ]
+    assert re.fullmatch(r"time \d+\.\d s, size \d+ bytes", lines[10])
+    assert lines[11] == "TDS-A001: 0"
     assert "0 errors, 0 warnings at level full" in printed.out
     assert "tds:equity-daily-core@1.0: declared" in printed.out  # with empty events (TDS 7)
 
@@ -321,8 +323,49 @@ def test_small_takes_a_short_period(tmp_path: Path) -> None:
     week = make_snapshot(tmp_path / "w", preset="small", start=dt.date(2019, 12, 26),
                          end=dt.date(2019, 12, 31), n_kr=3, n_us=3)  # fmt: skip
     assert len(rows(week, "instruments")) == 6
-    with pytest.raises(ValueError, match="small only"):
+    with pytest.raises(ValueError, match="small and full only"):
         make_snapshot(tmp_path / "t", preset="tiny", n_kr=0)
+
+
+def test_full_preset_parameters_match_table(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """4.8's table and T0.8d: KR 5,500 + US 22,100 instruments ever listed, 1995-01-02 to
+    2024-12-31, snapshot `synth-full-m1-0001`; the command asks for it without CI making it."""
+    full = synth.PRESETS["full"]
+    assert (full.start, full.end) == (dt.date(1995, 1, 2), dt.date(2024, 12, 31))
+    assert (full.counts["KR"], full.counts["US"]) == (5_500, 22_100)
+    assert full.snapshot_id == "synth-full-m1-0001"
+    asked: dict[str, Any] = {}
+
+    def record(root: Path, **kwargs: Any) -> Path:  # makes tiny in full's place
+        asked.update(kwargs)
+        return make_snapshot(root, preset="tiny")
+
+    monkeypatch.setattr(synth, "make_snapshot", record)
+    assert main(["--preset", "full", "--out", str(tmp_path / "f")]) == 0
+    assert (asked["preset"], asked["snapshot_id"]) == ("full", "synth-full-m1-0001")
+    assert re.search(r"^time \d+\.\d s, size \d+ bytes$", capsys.readouterr().out, re.M)
+
+
+def test_full_is_small_rules_at_full_scale(tmp_path: Path) -> None:
+    """`full` with fewer instruments writes the same data as `small` over full's period, and
+    that period (from 1995, before KR price limits) passes `tds check --level full` (INV-17)."""
+    few: dict[str, Any] = {"n_kr": 6, "n_us": 6}
+    full = make_snapshot(tmp_path / "full", preset="full", **few)
+    small = make_snapshot(tmp_path / "small", preset="small", start=dt.date(1995, 1, 2),
+                          end=dt.date(2024, 12, 31), **few)  # fmt: skip
+    data, same = files_of(full), files_of(small)
+    assert data.pop("tds.json") != same.pop("tds.json")  # the name synth-full, the hashes alike
+    assert data == same
+    manifest = json.loads((full / "tds.json").read_text(encoding="utf-8"))
+    assert manifest["name"] == "synth-full"
+    paths = {f["path"] for d in manifest["datasets"] for f in d["files"]}
+    assert {f"bars/freq=1d/market={m}/year={y}/part-00000.parquet"
+            for m in ("KR", "US") for y in (1995, 2024)} <= paths  # fmt: skip
+    done = synth._tds("check", str(full), "--level", "full")
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert "0 errors, 0 warnings at level full" in done.stdout
 
 
 def steps(package: Path, basis: str) -> dict[tuple[str, dt.date], float]:
@@ -563,6 +606,25 @@ def test_limit_prices_round_inward_on_the_issue_example() -> None:
     dates = np.array(["2024-01-02"] * 2, dtype="datetime64[D]")
     up, down = synth._limit_prices(np.array([10030.0, 10000.0]), np.full(2, 0.3), dates, "XKRX")
     assert (up.tolist(), down.tolist()) == ([13030.0, 13000.0], [7030.0, 7000.0])
+
+
+def test_no_limit_hit_before_kr_had_a_price_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`kr_price_limits_v1` starts on 1995-04-01: a day before has no limit to close at, so no
+    hit falls there, and no price after it turns NaN (full's period starts 1995-01-02)."""
+    dates = np.arange("1995-03-20", "1995-04-15", dtype="datetime64[D]")  # every day offered
+    bars: dict[str, list[Any]] = {n: [np.full(len(dates), 10_000.0)] for n in daily.OHLC}
+    bars["session_date"] = [dates]
+
+    def every_day(first: Any, last: Any, rate: float, rng: Any, take: Any) -> None:
+        for d in range(first[0] + 1, last[0] + 1):
+            take(0, d)
+
+    monkeypatch.setattr(synth, "_sample", every_day)
+    rng = np.random.Generator(np.random.PCG64(0))
+    hits = synth._limits([0], [len(dates) - 1], ["XKRX"], [0], set(), bars, rng)
+    assert hits  # the days from 1995-04-01 take some
+    assert min(dates[d] for _, d in hits) >= np.datetime64("1995-04-01")
+    assert not any(np.isnan(bars[n][0]).any() for n in daily.OHLC)
 
 
 def by_bar(package: Path, kind: str) -> dict[tuple[str, dt.date], dict[str, Any]]:
