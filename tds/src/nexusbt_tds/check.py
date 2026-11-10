@@ -164,7 +164,7 @@ def check(
 
             spilled: list[Path] = []
             try:
-                found += check_keys(manifest, datasets, blind, tmp_dir, spilled)
+                found += check_keys(manifest, datasets, blind, tmp_dir, spilled, notes)
             finally:
                 notes.extend([spilled_note(spilled, "key check")] if spilled else [])
             found += check_refs(manifest, datasets, blind)

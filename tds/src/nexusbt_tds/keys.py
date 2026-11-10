@@ -23,7 +23,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from .check import KEY_CODES, Finding, _unsafe
-from .hash import Record, SortedRuns, spill_folder
+from .hash import HashError, Record, SortedRuns, spill_folder
 from .manifest import Manifest
 from .profiles import meets
 
@@ -47,16 +47,19 @@ Batch = dict[str, list[Any]]
 def check_keys(
     m: Manifest, only: Sequence[str] | None, blind: set[str],
     tmp_dir: Path | None = None, spilled: list[Path] | None = None,
+    notes: list[str] | None = None,
 ) -> list[Finding]:  # fmt: skip
     """K001~K011 reading, of the datasets checked, the key, sort and date columns in batches
     (#309). Memory holds a batch, the last row of each folder (K002) and, of `KEPT`'s tables,
     their columns as rows; K001's keys go in sorted runs to a temporary file (in `tmp_dir`, else
-    beside the package; listed in `spilled`, removed). A file the codes cannot read, or one with
-    a column name twice, leaves them unchecked."""
+    beside the package; listed in `spilled`, removed), and when none can be made K001 alone is
+    unchecked, why in `notes`. A file the codes cannot read, or one with a column name twice,
+    leaves them unchecked."""
     from .schemas.verify import load_schemas
 
     schemas, root, out = load_schemas(), m.root.resolve(), []
     folder, spilled = spill_folder(m.root, tmp_dir), [] if spilled is None else spilled
+    notes = [] if notes is None else notes
     for ds in (d for d in m.datasets if only is None or d.get("name") in only):
         kind, schema = ds.get("kind"), schemas.get(str(ds.get("kind")))
         params = ds["params"] if isinstance(ds.get("params"), dict) else {}
@@ -64,7 +67,7 @@ def check_keys(
         sort = _variant(ds.get("sort", schema.sort if schema else None), params)
         try:
             with SortedRuns(folder, spilled) as runs:
-                found = _scan(root, ds, str(kind), key, sort, blind, runs)
+                found = _scan(root, ds, str(kind), key, sort, blind, runs, notes)
         except (OSError, pa.ArrowException):  # a file Parquet cannot read: S010's, rows unseen
             blind.update(KEY_CODES)
             continue
@@ -89,7 +92,7 @@ def batches(
 
 def _scan(
     root: Path, ds: Mapping[str, Any], kind: str, key: list[str] | None,
-    sort: list[str] | None, blind: set[str], runs: SortedRuns,
+    sort: list[str] | None, blind: set[str], runs: SortedRuns, notes: list[str],
 ) -> list[Finding]:  # fmt: skip
     """One pass over the files in path order, so each folder's files come in name order (3.5)."""
     date, kept = "period" if kind in PANELS else "session_date", KEPT.get(kind, ())
@@ -112,12 +115,12 @@ def _scan(
                 continue
             if key is None or any(c not in b for c in key):
                 unseen.add(K001)
-            else:
+            elif K001 not in unseen:
                 columns = (_literals(b[c]) for c in key)
                 pending += ((repr((*k, own)).encode(), b"", 0, b"")
                             for k in zip(*columns, strict=True))  # fmt: skip
                 if len(pending) >= BATCH_ROWS:
-                    runs.add(sorted(pending, key=itemgetter(0)))
+                    _add(runs, pending, unseen, notes)
                     pending = []
             if sort is None or any(c not in b for c in sort):
                 unseen.add(K002)
@@ -141,8 +144,8 @@ def _scan(
             if bad := [d for d in days if _folder(part, d) != value]:
                 msg = f"{len(bad)} row(s) with {date} outside {part}={value}, e.g. {bad[0]}"
                 off.append(Finding(K003, "error", msg, file=rel, count=len(bad)))
+    _add(runs, pending, unseen, notes)
     blind.update(unseen)
-    runs.add(sorted(pending, key=itemgetter(0)))
     found = [] if K001 in unseen else list(_duplicates(runs.merged(), key or []))
     for count, rel, row in [] if K002 in unseen else unsorted.values():
         msg = f"{count} row(s) sort before the row above them by {', '.join(sort or [])}"
@@ -151,6 +154,15 @@ def _scan(
     found += _reused(rows, blind) if kind == "instrument_symbols" else []
     found += _numbering(rows) if kind == "calendar_sessions" else []
     return found
+
+
+def _add(runs: SortedRuns, pending: list[Record], unseen: set[str], notes: list[str]) -> None:
+    """K001's keys as one more sorted run; with no temporary file for it, K001 is unchecked."""
+    try:
+        runs.add(sorted(pending, key=itemgetter(0)))
+    except HashError as exc:
+        unseen.add(K001)
+        notes.append(f"{K001} not checked: {exc}")
 
 
 def _folder(part: str, day: dt.date) -> str:

@@ -249,6 +249,21 @@ def test_k001_sorted_runs_go_beside_the_package_or_to_tmp_dir_and_are_removed(
     assert list(scratch.iterdir()) == []
 
 
+def test_k001_without_a_temporary_file_is_unchecked_with_a_note(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A folder the sorted runs cannot go to leaves K001 alone unchecked, saying why; the other
+    K codes keep what they found (fresh-context review of #309's K001 part)."""
+    monkeypatch.setattr(keys, "BATCH_ROWS", 1)
+    days = pa.array([dt.date(2024, 1, d) for d in (3, 3, 2)])  # a key twice, then a row unsorted
+    table = build.bars_table(instrument_id=pa.array(["US:AAA"] * 3), session_date=days, close=None)
+    package = write(tmp_path / "pkg", lambda m, f: build.rewrite(m, f, build.BARS, table))
+    result = check(package, level="full", tmp_dir=tmp_path / "missing")
+    assert [f.code for f in result.errors if f.code in K_CODES] == ["TDS-K002"]
+    assert [c for c in K_CODES if c in result.unchecked] == ["TDS-K001"]
+    assert any(n.startswith("TDS-K001 not checked: ") for n in result.notes), result.notes
+
+
 def test_k001_memory_holds_a_batch_not_every_key(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

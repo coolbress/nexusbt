@@ -268,7 +268,10 @@ class SortedRuns:
             self.first = run
             return
         if self.out is None:
-            fd, self.name = tempfile.mkstemp(prefix=".tds-hash-", suffix=".tmp", dir=self.folder)
+            try:
+                fd, self.name = tempfile.mkstemp(".tmp", ".tds-hash-", self.folder)
+            except OSError as exc:  # not "a file Parquet cannot read": say which folder
+                raise HashError(f"no temporary file in {self.folder}: {exc.strerror}") from exc
             self.spilled.append(Path(self.name))
             self.out = open(fd, "w+b")  # noqa: SIM115 - closed by `__exit__`
             self._write(self.first)
