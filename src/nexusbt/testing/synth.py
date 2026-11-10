@@ -886,7 +886,8 @@ def make_snapshot(
     `corporate_actions` and `delistings` rows, in `tiny` too, and KR halts in `small` and
     `full`. `full` is `small`'s rules over full's period, counts and lives, the M1 datasets only;
     its M2 datasets, `full_ci` and `overrides` come with later tickets (spec 10.1: T0.8c).
-    `degrade` takes 4.8's core values (T0.16a; `_synth_degrade`), the others with T0.16b/c.
+    `degrade` takes 4.8's core values (T0.16a; `_synth_degrade`) and `late_bars` (#354), the
+    others with T0.16b/c.
     """
     if preset not in ("tiny", *PRESETS) or overrides:
         raise NotImplementedError("only presets tiny, small and full, without overrides, are"
@@ -913,7 +914,9 @@ def make_snapshot(
             calendars[cal] = _small_calendar(cal, first, final)
             tables[m] = _small(m, counts[m], calendars[cal], rngs[m], events, seeded.life[m])
         if degrade:
-            tables[m] = dg.apply(m, {k: _arrow(v) for k, v in tables[m].items()}, degrade)
+            closes = _arrow(calendars[cal])["ts_close"].combine_chunks()
+            tables[m] = dg.apply(m, {k: _arrow(v) for k, v in tables[m].items()}, degrade,
+                                 closes, seed)  # fmt: skip
 
     def joined(name: str, key: list[str]) -> pa.Table:
         table = pa.concat_tables([_arrow(tables[m][name]) for m in chosen])
@@ -1039,8 +1042,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     print(f"profiles {', '.join(manifest['profiles'])}")
     if not args.validate:
         return 0
-    bad = a001(actions, read(root, "bars_1d"))
+    bars = read(root, "bars_1d")
+    bad = a001(actions, bars)
     print(f"TDS-A001: {'no cum_factor_* columns' if bad is None else bad}")
+    if "ts_available" in bars.column_names:  # degrade late_bars (#354)
+        late = pa.compute.greater(bars["ts_available"], bars["ts_end"])
+        print(f"late bars {pa.compute.sum(late).as_py()}")
     done = _tds("check", str(root), "--level", "full")
     sys.stdout.write(done.stdout)
     sys.stderr.write(done.stderr)
