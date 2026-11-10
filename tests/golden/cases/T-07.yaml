@@ -1,0 +1,55 @@
+# Golden case T-07 (spec 8.2): windows before and after a split and a reverse split (5.3.3,
+# 3.4 adjustment classes, INV-11).
+# Expected values are literals. `check/T-07.py` reaches them by arithmetic only, and
+# `tests/golden/test_handcalc_self.py` compares the two. An implementation pull request does
+# not change this file (`tests/repo/test_golden_guard.py`); a wrong value reopens the golden
+# ticket ("spec deviation").
+id: T-07
+description: >-
+  KR:T00001 on the tiny XKRX calendar, bars from 2020-01-02. A 2:1 split takes effect on
+  2020-01-07 (price factor m = 1/2, share factor q = 2) and a 1:10 reverse split on 2020-01-10
+  (m = 10, q = 1/10); both are announced before the run, so every row sees both. The window of
+  computation day t holds raw[s] times the m_e of the events with s < e <= t (5.3.3), and
+  volume vol[s] times the q_e of the same events. SMA of close is homogeneous of degree 1:
+  computed on the base prices B[s] = raw[s] / C[s] and multiplied by C[t] (the shortcut of
+  3.4), it equals the mean of the adjusted window (the reference meaning). One extra row is a
+  5-row window that spans both events.
+spec: "8.2 T-07; 5.3.3 adjustment, 3.4 adjustment classes, TDS 5.11 factor rules, 1.3 INV-11"
+
+calendar: "XKRX tiny: 2020-01-02, 01-03, 01-06, 01-07, 01-08, 01-09, 01-10, 01-13 (rows 0..7)"
+corporate_actions:                      # TDS 5.11; m_e = 1 / ratio_new_per_old, q_e = share_factor
+  - {event_id: "CA-T07-1", instrument_id: "KR:T00001", kind: split, ex_date: "2020-01-07", ts_effective: "2020-01-07T00:00:00Z", ts_announced: "2019-12-20T07:00:00Z", ts_terms_available: "2019-12-20T07:00:00Z", ratio_num: 2, ratio_den: 1, ratio_new_per_old: 2.0, price_factor: 0.5, share_factor: 2.0, affects: split_and_total, factor_method: ratio, status: effective}
+  - {event_id: "CA-T07-2", instrument_id: "KR:T00001", kind: reverse_split, ex_date: "2020-01-10", ts_effective: "2020-01-10T00:00:00Z", ts_announced: "2019-12-20T07:00:00Z", ts_terms_available: "2019-12-20T07:00:00Z", ratio_num: 1, ratio_den: 10, ratio_new_per_old: 0.1, price_factor: 10.0, share_factor: 0.1, affects: split_and_total, factor_method: ratio, status: effective}
+bars:                                   # KR:T00001 as traded; cum_factor_split = C[s] (TDS 5.11)
+  - {session_date: "2020-01-02", close: 100, volume: 1000, cum_factor_split: 1.0}
+  - {session_date: "2020-01-03", close: 102, volume: 1100, cum_factor_split: 1.0}
+  - {session_date: "2020-01-06", close: 104, volume: 1200, cum_factor_split: 1.0}
+  - {session_date: "2020-01-07", close: 53, volume: 2600, cum_factor_split: 0.5}
+  - {session_date: "2020-01-08", close: 54, volume: 2800, cum_factor_split: 0.5}
+  - {session_date: "2020-01-09", close: 55, volume: 3000, cum_factor_split: 0.5}
+  - {session_date: "2020-01-10", close: 560, volume: 320, cum_factor_split: 5.0}
+  - {session_date: "2020-01-13", close: 570, volume: 340, cum_factor_split: 5.0}
+
+# One row per computation day t with a 3-row window, then one 5-row window. `c_t` = C[t].
+# `raw_window`: the closes as traded. `adjusted_window`: what the window kernel sees, raw[s]
+# times the m_e of the events in (s, t]. `sma`: the mean of the adjusted window (the reference
+# meaning). `sma_shortcut`: the mean of B over the window times C[t] (degree 1), the same number.
+# `volume_window`: vol[s] * Q[t] / Q[s]. The two warm-up rows (2020-01-02, 01-03) are left out.
+#
+# Hand-checked 2026-11-10 (#222), via the coordinating session, recomputed from 5.3.3 / 4.6 / 3.4
+# without this file, all seven rows:
+#   C = 1, 1, 1, 1/2, 1/2, 1/2, 5, 5;  B = raw / C = 100, 102, 104, 106, 108, 110, 112, 114
+#   Q = 1, 1, 1, 2, 2, 2, 1/5, 1/5;  vol / Q = 1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700
+#   t = 2020-01-07: 102 * 1/2 = 51, 104 * 1/2 = 52, 53 as traded -> (51 + 52 + 53) / 3 = 52;
+#     shortcut (102 + 104 + 106) / 3 * 1/2 = 52; volume 1100 * 2 = 2200, 1200 * 2 = 2400, 2600
+#   t = 2020-01-10: 54 * 10 = 540, 55 * 10 = 550, 560 -> 550; volume 2800 / 10 = 280, 300, 320
+#   5 rows at 2020-01-10: 104 * 1/2 * 10 = 520, 53 * 10 = 530, 540, 550, 560 -> 540;
+#     volume 1200 * 2 / 10 = 240, 2600 / 10 = 260, 280, 300, 320
+expected:
+  - {session: "2020-01-06", window: 3, c_t: 1.0, raw_window: [100, 102, 104], adjusted_window: [100, 102, 104], sma: 102.0, sma_shortcut: 102.0, volume_window: [1000, 1100, 1200]}
+  - {session: "2020-01-07", window: 3, c_t: 0.5, raw_window: [102, 104, 53], adjusted_window: [51, 52, 53], sma: 52.0, sma_shortcut: 52.0, volume_window: [2200, 2400, 2600]}
+  - {session: "2020-01-08", window: 3, c_t: 0.5, raw_window: [104, 53, 54], adjusted_window: [52, 53, 54], sma: 53.0, sma_shortcut: 53.0, volume_window: [2400, 2600, 2800]}
+  - {session: "2020-01-09", window: 3, c_t: 0.5, raw_window: [53, 54, 55], adjusted_window: [53, 54, 55], sma: 54.0, sma_shortcut: 54.0, volume_window: [2600, 2800, 3000]}
+  - {session: "2020-01-10", window: 3, c_t: 5.0, raw_window: [54, 55, 560], adjusted_window: [540, 550, 560], sma: 550.0, sma_shortcut: 550.0, volume_window: [280, 300, 320]}
+  - {session: "2020-01-13", window: 3, c_t: 5.0, raw_window: [55, 560, 570], adjusted_window: [550, 560, 570], sma: 560.0, sma_shortcut: 560.0, volume_window: [300, 320, 340]}
+  - {session: "2020-01-10", window: 5, c_t: 5.0, raw_window: [104, 53, 54, 55, 560], adjusted_window: [520, 530, 540, 550, 560], sma: 540.0, sma_shortcut: 540.0, volume_window: [240, 260, 280, 300, 320]}

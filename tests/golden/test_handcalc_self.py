@@ -124,10 +124,11 @@ def test_cases_v31_M1_expected_present(case_id: str) -> None:  # noqa: N802 - sp
     assert nan_as_text(rows) == nan_as_text(case["expected"])
 
 
-#: The M1 time and pipeline cases (T1.G, spec 8.2): T-10 a start date on a holiday, T-20 a late
-#: bar under `ready_delay`, T-23 the `every(n)` calendar anchor. T-07, T-09, T-11, T-12 and T-15
-#: come in the next pull requests of #222.
-TIME_M1 = ("T-10", "T-20", "T-23")
+#: The M1 time and pipeline cases (T1.G, spec 8.2): T-07 windows across a split and a reverse
+#: split, T-10 a start date on a holiday, T-15 a `price_factor` null event, T-20 a late bar under
+#: `ready_delay`, T-23 the `every(n)` calendar anchor. T-09, T-11 and T-12 come in the next pull
+#: request of #222.
+TIME_M1 = ("T-07", "T-10", "T-15", "T-20", "T-23")
 
 
 @pytest.mark.parametrize("case_id", TIME_M1)
