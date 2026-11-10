@@ -10,8 +10,9 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from nexusbt_tds import ProfileStatus, check
+from nexusbt_tds import ProfileStatus, check, refs
 from nexusbt_tds.check import Level
+from nexusbt_tds.manifest import read_manifest
 
 from .conformance_build import build
 
@@ -177,6 +178,14 @@ def test_classification_levels_not_duplicate(tmp_path: Path) -> None:
 R_CODES = [f"TDS-R{n:03}" for n in range(1, 10)]
 
 
+@pytest.fixture(params=["whole", "a row per batch"])
+def refs_batches(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The R codes twice: files read in one batch, and one row per batch (#309): same findings."""
+    if request.param == "a row per batch":
+        monkeypatch.setattr(refs, "BATCH_ROWS", 1)
+
+
+@pytest.mark.usefixtures("refs_batches")
 @pytest.mark.parametrize("code", R_CODES)
 def test_R_codes(code: str, tmp_path: Path) -> None:
     test_K_codes(code, tmp_path)  # the same contract: once in its fail package, judged in both
@@ -229,6 +238,7 @@ _NO_CAL = ["TDS-R002", "TDS-R003"]  # the base package has no calendar_sessions
 _NO_EXITS = ["TDS-R008"]  # nor delistings
 
 
+@pytest.mark.usefixtures("refs_batches")
 @pytest.mark.parametrize(
     ("change", "errors", "unchecked"),
     [
@@ -274,6 +284,31 @@ def test_reference_rules_edges(
     found = [f.code for f in (*result.errors, *result.warnings)]  # R005 and R007 warn
     assert [c for c in found if c in R_CODES] == errors
     assert [c for c in R_CODES if c in result.unchecked] == unchecked
+
+
+def test_refs_with_datasets_reads_the_named_and_the_lookup_columns(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """TDS 8.1 `--datasets` bounds what `refs` reads (#309): the named datasets, and of the
+    tables they point to only the lookup columns."""
+    read: list[tuple[bool, list[str]]] = []  # (a bars file?, the columns asked for)
+    batches = pq.ParquetFile.iter_batches
+
+    def record(self: pq.ParquetFile, *args: Any, columns: Any = None, **kw: Any) -> Any:
+        read.append(("close" in self.schema_arrow.names, sorted(columns or [])))
+        return batches(self, *args, columns=columns, **kw)
+
+    monkeypatch.setattr(pq.ParquetFile, "iter_batches", record)
+    blind: set[str] = set()
+    m = read_manifest(write(tmp_path / "broken", _not_parquet))  # bars unreadable, not named
+    assert refs.check_refs(m, ["instruments"], blind) == []
+    assert "TDS-R001" not in blind  # a broken file of a dataset not read hides nothing
+    assert [bars for bars, _ in read] == [False, False]  # instruments: as lookup, as named
+    read.clear()
+    assert refs.check_refs(read_manifest(write(tmp_path / "ok")), ["bars_1d"], set()) == []
+    ((_, instruments),) = [r for r in read if not r[0]]  # once, as the lookup
+    assert set(instruments) <= set(refs.LOOKUPS["instruments"])
+    assert [bars for bars, _ in read].count(True) == 1
 
 
 @pytest.mark.parametrize(

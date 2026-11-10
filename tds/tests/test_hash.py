@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import json
+import os
 import shutil
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,7 @@ from nexusbt_tds.hash import (
     semantic_json,
     value_hash,
 )
+from nexusbt_tds.manifest import read_manifest
 
 from . import ref_encoder
 
@@ -373,6 +375,30 @@ def test_sorted_runs_are_removed_when_the_hash_fails(tmp_path: Path, sorted_in: 
         package_hashes(pkg, spilled=spilled)
     assert len(spilled) == (sorted_in == "in sorted runs")  # written, then the hash failed
     assert sorted(p.name for p in tmp_path.iterdir()) == ["pkg"]
+
+
+@pytest.mark.parametrize(("files", "message"), [
+    (lambda fs: [*fs, fs[0]], r"bars_1d: a file is listed twice \(TDS-M013\)"),
+    (lambda fs: [], "bars_1d: no files, no rows to hash"),
+])  # fmt: skip
+def test_a_dataset_hash_refuses_files_it_cannot_hash(
+    tmp_path: Path, files: Any, message: str
+) -> None:
+    pkg = package(tmp_path / "pkg", BARS_TWO, PARTS)  # `tds hash` stops a file listed twice
+    (entry,) = read_manifest(pkg).datasets  # earlier, in the inventory: here, a caller of its own
+    with pytest.raises(HashError, match=message):
+        tds_hashes.dataset_hashes(pkg, {**entry, "files": files(entry["files"])}, tmp_path, [])
+
+
+def test_a_sorted_run_that_ends_early_fails_the_hash(tmp_path: Path) -> None:
+    run = tmp_path / "run.tmp"  # a record that says its key is 10 bytes, then 5 bytes
+    run.write_bytes(tds_hashes._RECORD.pack(10, 0, 0, 0) + b"short")
+    fd = os.open(run, os.O_RDONLY)
+    try:
+        with pytest.raises(HashError, match="a temporary sort file ended early"):
+            list(tds_hashes._run(fd, 0, run.stat().st_size))
+    finally:
+        os.close(fd)
 
 
 def test_tds_hash_writes_sorted_runs_to_the_folder_named(

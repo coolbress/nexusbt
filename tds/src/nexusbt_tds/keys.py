@@ -11,7 +11,7 @@ from __future__ import annotations
 import datetime as dt
 import re
 from collections import Counter, defaultdict
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import replace
 from itertools import combinations, pairwise
 from pathlib import Path, PurePosixPath
@@ -57,22 +57,27 @@ def check_keys(m: Manifest, only: Sequence[str] | None, blind: set[str]) -> list
     return out
 
 
-def _read(root: Path, ds: Mapping[str, Any]) -> list[File] | None:
-    """Each listed file once (a second listing is M013's), partition values from the path."""
-    out, seen = [], set()
-    listed = ds.get("files")
-    for entry in listed if isinstance(listed, list) else []:
+def listed(root: Path, ds: Mapping[str, Any]) -> Iterator[tuple[str, dict[str, str]]]:
+    """Each listed file once (a second listing is M013's) that is inside the package and there
+    (M012, M004), with its partition values from the path."""
+    seen = set()
+    files = ds.get("files")
+    for entry in files if isinstance(files, list) else []:
         rel = entry.get("path") if isinstance(entry, dict) else None
         if not isinstance(rel, str) or (rel := str(PurePosixPath(rel))) in seen:
             continue
         seen.add(rel)
-        if _unsafe(root, rel) or not (root / rel).is_file():
-            continue  # M012, M004
+        if not _unsafe(root, rel) and (root / rel).is_file():
+            yield rel, dict(p.split("=", 1) for p in PurePosixPath(rel).parent.parts if "=" in p)
+
+
+def _read(root: Path, ds: Mapping[str, Any]) -> list[File] | None:
+    out = []
+    for rel, parts in listed(root, ds):
         try:
             rows = pq.read_table(root / rel).to_pylist()
         except (OSError, pa.ArrowException):
             return None
-        parts = dict(p.split("=", 1) for p in PurePosixPath(rel).parent.parts if "=" in p)
         out.append((rel, parts, [parts | row for row in rows]))
     return out
 
