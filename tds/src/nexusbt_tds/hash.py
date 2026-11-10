@@ -138,7 +138,8 @@ def inside(root: Path, rel: object) -> Path:
 #: bounded by a batch, the disk takes about the dataset's encoded rows twice.
 BATCH_ROWS = 65_536
 _RECORD = struct.Struct("<IIII")  # a run's record: key, row, file row lengths; file number
-_BLOCK = 1 << 15  # bytes read from each run at a time while merging
+_BLOCK = 1 << 15  # bytes read from each run at a time while merging, when there are few runs
+_MERGE_BYTES = 1 << 23  # the read buffers of all runs together, down to 4 KiB a run (#309)
 
 #: (sort key, cell bytes, file number, the file's own cell bytes or b"" when the same)
 Record = tuple[bytes, bytes, int, bytes]
@@ -228,17 +229,17 @@ def _runs(
         yield sorted(run, key=itemgetter(0))
 
 
-def _run(fd: int, start: int, end: int) -> Iterator[Record]:
-    """One run of the temporary file, read `_BLOCK` bytes at a time."""
+def _run(fd: int, start: int, end: int, block: int = _BLOCK) -> Iterator[Record]:
+    """One run of the temporary file, read `block` bytes at a time; a read that returns fewer
+    bytes (a network file system may) is followed by another, until the run's end."""
     buf, pos, at = b"", 0, start
 
     def fill(n: int) -> None:
         nonlocal buf, pos, at
-        if len(buf) - pos < n:
-            more = os.pread(fd, min(max(n, _BLOCK), end - at), at)
-            buf, pos, at = buf[pos:] + more, 0, at + len(more)
-            if len(buf) < n:
+        while len(buf) - pos < n:
+            if not (more := os.pread(fd, min(max(n, block), end - at), at)):
                 raise HashError("a temporary sort file ended early")
+            buf, pos, at = buf[pos:] + more, 0, at + len(more)
 
     while pos < len(buf) or at < end:
         fill(_RECORD.size)
@@ -288,8 +289,8 @@ class SortedRuns:
         if self.out is None:
             return iter(self.first)
         self.out.flush()
-        fd = self.out.fileno()
-        return heapq.merge(*(_run(fd, a, b) for a, b in self.spans), key=itemgetter(0))
+        fd, block = self.out.fileno(), min(_BLOCK, max(_MERGE_BYTES // len(self.spans), 4096))
+        return heapq.merge(*(_run(fd, a, b, block) for a, b in self.spans), key=itemgetter(0))
 
     def __enter__(self) -> SortedRuns:
         return self
