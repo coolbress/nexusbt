@@ -3299,12 +3299,12 @@ Following the three-reviewer consensus (RV-I05), v3 **cut M0 down to contracts o
 
 **T0.15c `feat(tds): v1.2 checks - exact ratios and delisting distributions`** **[v3.1]** · `M1` `tds` · S · Blocked by: T0.15b, T0.14c · TDS 5.11·5.13·8.3 [V31-01, V31-04] *(v3.2: split — ratios·delisting distributions only; A010 cases with zero·negative·one side only [R3-06, R3-23])*
 - Context: TDS error A010 (v1.4 E: a share-changing event without `ratio_num/ratio_den`·with one side only·≤ 0·disagreeing with the f64 ratio) [R4F-01], warning A011 (unknown whether a distribution is included), pass/fail packages per code.
-- Done means: `uv run tds check tds/conformance/TDS-A010/fail --format json` reports four lines as errors (E) — the missing row·the one-sided row·the zero row·the disagreeing row — and prints a profile failure.
+- Done means: `uv run tds check tds/conformance/TDS-A010/fail --format json --level full` (the default level `schema` reads no rows; decision 2026-11-10, #229) reports four lines as errors (E) — the missing row·the one-sided row·the zero row·the disagreeing row — and prints a profile failure.
 - Acceptance: `tds/tests/test_conformance.py::test_A010`, `::test_A011`.
 
 **T0.15d `feat(tds): v1.2 checks - volume unit, price grid and advisory file value hashes`** **[v3.2]** · `M1` `tds` · S · Blocked by: T0.15b, T0.14c · TDS 4.2·5.5·5.27·8.3 [V31-05, V31-12, V31-16] *(v3.2: split from T0.15c; V012 on a minor-unit integer basis [R3-02, R3-23])*
 - Context: V011 (suspected volume unit), V012 (price deviates from the declared grid·minor-unit integer by more than 1e-9 relative), H004 (`files[].value_sha256` mismatch — an advisory field), `market_rules` schema·key checks (including the `verified` column), pass/fail packages per code.
-- Done means: `uv run tds check tds/conformance/TDS-V011/fail --format json` gives one `TDS-V011` line (instrument·year, R = 100), and the pass package (R = 1) gives 0 warnings.
+- Done means: `uv run tds check tds/conformance/TDS-V011/fail --format json --level full` (the default level `schema` reads no rows; decision 2026-11-10, #229) gives one `TDS-V011` line (instrument·year, R = 100), and the pass package (R = 1) gives 0 warnings.
 - Acceptance: `tds/tests/test_conformance.py::test_V011`, `::test_V012`, `::test_H004`, `tds/tests/test_schemas.py::test_market_rules_schema_stable_optional`.
 
 **T0.16c `feat(testing): v1.2 synthetic fields and degrades`** **[v3.1]** · `M1` `testing` · S · Blocked by: T0.7, T0.15c, T0.15d · §4.8 [V31-01, V31-04, V31-05, V31-16]

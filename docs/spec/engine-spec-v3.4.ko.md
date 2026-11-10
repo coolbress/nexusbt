@@ -3300,12 +3300,12 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 
 **T0.15c `feat(tds): v1.2 checks - exact ratios and delisting distributions`** **[v3.1]** · `M1` `tds` · S · Blocked by: T0.15b, T0.14c · TDS 5.11·5.13·8.3 [V31-01, V31-04] *(v3.2: 나눔 — 비율·폐지 분배만; A010 사례에 0·음수·한쪽만 [R3-06, R3-23])*
 - Context: TDS 오류 A010(v1.4 E: 주식 수를 바꾸는 사건에 `ratio_num/ratio_den` 없음·한쪽만·0 이하·f64 비율과 불일치) [R4F-01], 경고 A011(분배 포함 여부 모름), 코드마다 pass/fail 패키지.
-- Done means: `uv run tds check tds/conformance/TDS-A010/fail --format json`이 빠진 행·한쪽만 있는 행·0 행·불일치 행 네 줄을 오류(E)로 내고 프로필 불합격을 출력한다.
+- Done means: `uv run tds check tds/conformance/TDS-A010/fail --format json --level full`(기본 단계 `schema`는 행을 읽지 않는다; 결정 2026-11-10, #229)이 빠진 행·한쪽만 있는 행·0 행·불일치 행 네 줄을 오류(E)로 내고 프로필 불합격을 출력한다.
 - Acceptance: `tds/tests/test_conformance.py::test_A010`, `::test_A011`.
 
 **T0.15d `feat(tds): v1.2 checks - volume unit, price grid and advisory file value hashes`** **[v3.2]** · `M1` `tds` · S · Blocked by: T0.15b, T0.14c · TDS 4.2·5.5·5.27·8.3 [V31-05, V31-12, V31-16] *(v3.2: T0.15c에서 나눔; V012는 최소 단위 정수 기준 [R3-02, R3-23])*
 - Context: V011(거래량 단위 의심), V012(가격이 선언된 격자·최소 단위 정수에서 1e-9 상대 넘게 벗어남), H004(`files[].value_sha256` 불일치 — 조언용 필드), `market_rules` 스키마·키 검사(`verified` 칼럼 포함), 코드마다 pass/fail 패키지.
-- Done means: `uv run tds check tds/conformance/TDS-V011/fail --format json`이 `TDS-V011` 한 줄(종목·연도, R = 100)을 내고 pass 패키지(R = 1)는 경고 0.
+- Done means: `uv run tds check tds/conformance/TDS-V011/fail --format json --level full`(기본 단계 `schema`는 행을 읽지 않는다; 결정 2026-11-10, #229)이 `TDS-V011` 한 줄(종목·연도, R = 100)을 내고 pass 패키지(R = 1)는 경고 0.
 - Acceptance: `tds/tests/test_conformance.py::test_V011`, `::test_V012`, `::test_H004`, `tds/tests/test_schemas.py::test_market_rules_schema_stable_optional`.
 
 **T0.16c `feat(testing): v1.2 synthetic fields and degrades`** **[v3.1]** · `M1` `testing` · S · Blocked by: T0.7, T0.15c, T0.15d · §4.8 [V31-01, V31-04, V31-05, V31-16]
