@@ -39,10 +39,10 @@ dev = [
     # 2.2's 14-day rule: the newest release at least 14 days old on 2026-11-02, released
     # 2026-10-16. Exact, so `uv lock --upgrade` cannot take a newer one before it is 14 days
     # old; step 9 raises it. MPL-2.0, development only: not in the distribution (2.1).
-    "hypothesis==6.170.1",
-    "mypy>=2.4.0",
+    "hypothesis==6.170.14",
+    "mypy>=2.4.1",
     "nexusbt-tds",  # the checker, from this workspace, so `uv run tds` works beside the engine
-    "pytest>=8.3",
+    "pytest>=9.2.0",
     # Reads the golden case files `tests/golden/cases/*.yaml` (8.2; #59 Decisions). 2.2 pins no
     # YAML library: the newest release, 2025-09-25, exact. MIT, development only.
     "pyyaml==6.0.3",
