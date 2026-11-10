@@ -3269,7 +3269,7 @@ Following the three-reviewer consensus (RV-I05), v3 **cut M0 down to contracts o
 - Acceptance: `tds/tests/test_import_csv.py::test_minimal_two_csv`, `::test_mapping_template_and_format`, `::test_offsetless_time_requires_timezone`, `::test_import_report_written`.
 
 **T1.23 `feat(tds): manifest build for an existing folder`** **[v3]** · `M1` `tds` · S · Blocked by: T1.22 · TDS 8.1 [RV-I03]
-- Context: `tds manifest build PKG` (scans the folder into a `tds.json` draft: datasets·files·statistics·hashes; publication rules·descriptions are left marked `TODO` and `tds check` reports them as M003).
+- Context: `tds manifest build PKG` (scans the folder into a `tds.json` draft: datasets·files·statistics·hashes; the required fields the files do not give are left out, so `tds check` reports them as M003; publication rules are written `"TODO"`, which `tds check` reports as M014; descriptions are named only in the `TODO` list at the top of the file).
 - Done means: in a folder with a few Parquet files, `tds manifest build` writes a draft, and after the `TODO`s are filled in `tds check` passes.
 - Acceptance: `tds/tests/test_manifest_build.py::test_draft_lists_files_and_stats`, `::test_todo_fields_flagged`.
 

@@ -3270,7 +3270,7 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 - Acceptance: `tds/tests/test_import_csv.py::test_minimal_two_csv`, `::test_mapping_template_and_format`, `::test_offsetless_time_requires_timezone`, `::test_import_report_written`.
 
 **T1.23 `feat(tds): manifest build for an existing folder`** **[v3]** · `M1` `tds` · S · Blocked by: T1.22 · TDS 8.1 [RV-I03]
-- Context: `tds manifest build PKG`(폴더를 훑어 `tds.json` 초안: 데이터셋·파일·통계·해시; 공개 규칙·설명은 `TODO` 표시로 남기고 `tds check`가 M003로 알림).
+- Context: `tds manifest build PKG`(폴더를 훑어 `tds.json` 초안: 데이터셋·파일·통계·해시; 파일에서 알 수 없는 필수 항목은 비워 두어 `tds check`가 M003로 알리고, 공개 규칙은 `"TODO"`로 적어 `tds check`가 M014로 알리며, 설명은 파일 맨 위 `TODO` 목록에만 적음).
 - Done means: Parquet 몇 개가 든 폴더에서 `tds manifest build`가 초안을 쓰고, `TODO`를 채운 뒤 `tds check`가 통과.
 - Acceptance: `tds/tests/test_manifest_build.py::test_draft_lists_files_and_stats`, `::test_todo_fields_flagged`.
 
