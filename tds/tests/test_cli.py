@@ -34,6 +34,7 @@ def test_exit_codes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     assert run(["check", warns]) == 0
     assert run(["check", warns, "--strict"]) == 2
     assert run(["check", clean, "--level", "every"]) == 64
+    assert run(["check", clean, "--level", "full", "--sample-rows", "5"]) == 64  # removed, #309
     assert run(["check"]) == 64
     assert run(["check", str(tmp_path / "missing")]) == 66
 
