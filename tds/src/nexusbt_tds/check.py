@@ -3,7 +3,7 @@
 The `manifest` level reads `tds.json` and file sizes (M001~M014); the `schema` level adds the
 Parquet footers and statistics and the `dictionary/` tables, no data rows (S001~S010, T006, part
 of D002); the `full` level adds, so far, the key checks (K001~K004, K010, K011; `keys`), the
-reference checks (R001~R009; `refs`) and the hashes (H001~H003, TDS 4.5); no profile is
+reference checks (R001~R009; `refs`) and the hashes (H001~H004, TDS 4.5); no profile is
 verified beyond `schema`. None reports a profile as `pass`: the rules a level cannot see are
 listed in `unchecked`, and the profile is `not_checked`.
 """
@@ -171,7 +171,7 @@ def check(
                 notes.extend([spilled_note(spilled, "key check")] if spilled else [])
             found += check_refs(manifest, datasets, blind)
             found += check_actions(manifest, datasets, blind, notes)
-            found += check_values(manifest, datasets, blind)
+            found += check_values(manifest, datasets, blind, notes)
             found += _check_hashes(manifest, datasets, blind, notes, tmp_dir)
     except ManifestError as exc:
         found = [Finding("TDS-M001", "error", str(exc))]
@@ -211,21 +211,22 @@ def check(
 
 
 #: The declared hashes against the computed ones (TDS 4.5); `full` checks these and the keys.
-HASH_CODES = ("TDS-H001", "TDS-H002", "TDS-H003")
+HASH_CODES = ("TDS-H001", "TDS-H002", "TDS-H003", "TDS-H004")
 KEY_CODES = ("TDS-K001", "TDS-K002", "TDS-K003", "TDS-K004", "TDS-K010", "TDS-K011")  # `keys`
 REF_CODES = tuple(f"TDS-R{n:03}" for n in range(1, 10))  # `refs` checks them
 ACTION_CODES = tuple(f"TDS-A{n:03}" for n in range(1, 12))  # `adjustments` checks them
-#: `values` checks them; V011, V012 (T0.15d), V031 and V032 (#227) are not judged yet.
-VALUE_CODES = tuple(f"TDS-V{n:03}" for n in (1, 2, 4, 5, 10, 20, 30, 40, 41, 50))
+#: `values` checks them; V012 (T0.15d), V031 and V032 (#227) are not judged yet.
+VALUE_CODES = tuple(f"TDS-V{n:03}" for n in (1, 2, 4, 5, 10, 11, 20, 30, 40, 41, 50))
 FULL_CODES = (*KEY_CODES, *REF_CODES, *ACTION_CODES, *VALUE_CODES, *HASH_CODES)
 
 
 def _check_hashes(
     m: Manifest, only: Sequence[str] | None, blind: set[str], notes: list[str], tmp: Path | None
 ) -> list[Finding]:
-    """H001 each declared file sha256, H002 each dataset value hash, H003 the package hashes;
-    `notes` gets the dataset that stopped the value hash, when one did, and where sorted runs
-    went. With `only`, the named datasets' rows alone are read and H003 is not checked (#309)."""
+    """H001 each declared file sha256, H002 each dataset value hash, H003 the package hashes,
+    H004 (a warning: the field is advisory, TDS 4.2) each declared file value hash; `notes` gets
+    the dataset that stopped the value hash, when one did, and where sorted runs went.
+    With `only`, the named datasets' rows alone are read and H003 is not checked (#309)."""
     from .hash import (
         HashError,
         dataset_hashes,
@@ -256,9 +257,10 @@ def _check_hashes(
             hashes = package_hashes(m.root, tmp_dir=tmp, spilled=spilled)
         else:
             folder = spill_folder(m.root, tmp)
-            hashes["datasets"] = {
-                d.get("name"): dataset_hashes(m.root, d, folder, spilled)[0] for d in datasets
-            }
+            each = {d.get("name"): dataset_hashes(m.root, d, folder, spilled) for d in datasets}
+            hashes["datasets"] = {name: whole for name, (whole, _) in each.items()}
+            hashes["files"] = {path: {"value_sha256": value} for _, files in each.values()
+                               for path, value in files.items()}  # fmt: skip
     except Exception as exc:  # no value hash for this package, whatever the cause: not judged
         blind.update(HASH_CODES[1:])
         notes.append(f"{', '.join(HASH_CODES[1:])} not checked: {str(exc) or repr(exc)}")
@@ -273,6 +275,11 @@ def _check_hashes(
         if declared is not None and declared != actual:
             out.append(Finding("TDS-H002", "error", f"value hash {actual}, declared {declared}",
                                dataset=ds.get("name")))  # fmt: skip
+        for f in (f for f in ds.get("files") or [] if isinstance(f, dict)):
+            actual = hashes["files"].get(f.get("path"), {}).get("value_sha256")
+            if None not in (actual, f.get("value_sha256")) and actual != f["value_sha256"]:
+                message = f"file value hash {actual}, declared {f['value_sha256']}"
+                out.append(Finding("TDS-H004", "warning", message, ds.get("name"), f["path"]))
     declared_hashes = m.data.get("hashes")
     for key in ("physical_sha256", "value_sha256", "semantic_sha256") if only is None else ():
         declared = declared_hashes.get(key) if isinstance(declared_hashes, dict) else None

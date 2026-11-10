@@ -299,9 +299,10 @@ def _hashes(code: str, wrong: bool) -> Change:
             hashes = package_hashes(write(Path(tmp), m, files))
         for ds in m["datasets"]:
             last = ds is bars(m) and wrong
-            if code == "TDS-H001":
+            if code in ("TDS-H001", "TDS-H004"):  # the file's bytes, the file's rows (advisory)
+                key = "sha256" if code == "TDS-H001" else "value_sha256"
                 for f in ds["files"]:
-                    f["sha256"] = WRONG if last else hashes["files"][f["path"]]["sha256"]
+                    f[key] = WRONG if last else hashes["files"][f["path"]][key]
             if code == "TDS-H002":
                 ds["value_sha256"] = WRONG if last else hashes["datasets"][ds["name"]]
         if code == "TDS-H003":
@@ -428,6 +429,12 @@ def _fx(rate: float) -> Change:
         "ts_event": pa.array([NEW_YEAR], TS_UTC), "ts_available": pa.array([NEW_YEAR], TS_UTC),
         "rate": [rate], "source": ["synthetic"],
     })  # fmt: skip
+
+
+def _traded(volume: float) -> Change:
+    """The bar at 10.0 with `value_traded` 1000: `volume` 100 is in shares, 1 in lots of 100."""
+    ten = pa.array([10.0])
+    return _bars(high=ten, low=ten, volume=pa.array([volume]), value_traded=pa.array([1000.0]))
 
 
 def _quote(bid: int, ask: int) -> Change:
@@ -619,6 +626,7 @@ CASES: dict[str, tuple[Change, Change]] = {
     ),
     "TDS-V005": (_fx(1400.0), _fx(0.0)),
     "TDS-V010": (_bars(volume=pa.array([2.0])), _bars(volume=pa.array([2.5]))),
+    "TDS-V011": (_traded(100.0), _traded(1.0)),  # R = 1000 / (volume * 10): 1, then 100
     "TDS-V020": (_future(**_FUTURE), _future(**_FUTURE | {"root": None})),
     "TDS-V030": (_quote(99, 100), _quote(100, 100)),  # locked
     "TDS-V040": (_exits(delisted=True, ret_lo=-0.5), _exits(delisted=True, ret_lo=0.5)),
@@ -626,7 +634,7 @@ CASES: dict[str, tuple[Change, Change]] = {
     "TDS-V050": (_labels("fwd_ret"), _labels("mom")),
     **{
         code: (_hashes(code, False), _hashes(code, True))
-        for code in ("TDS-H001", "TDS-H002", "TDS-H003")
+        for code in ("TDS-H001", "TDS-H002", "TDS-H003", "TDS-H004")
     },
 }
 
@@ -643,7 +651,7 @@ FAILS: dict[str, tuple[str | None, ...]] = {
         "TDS-M004", "TDS-M006", "TDS-M009", "TDS-M010", "TDS-M011", "TDS-M012", "TDS-M013",
         "TDS-S001", "TDS-S002", "TDS-S004", "TDS-S005", "TDS-S008", "TDS-S009", "TDS-S010",
         "TDS-T006", "TDS-D002", "TDS-K002", "TDS-K003", "TDS-K004", "TDS-R001", "TDS-R003",
-        "TDS-H001", "TDS-H002",
+        "TDS-H001", "TDS-H002", "TDS-H004",
     ], ("bars_1d",)),
     **dict.fromkeys([
         "TDS-S003", "TDS-S006", "TDS-S007", "TDS-R002", "TDS-R004", "TDS-R005", "TDS-R006",
@@ -661,7 +669,9 @@ FAILS: dict[str, tuple[str | None, ...]] = {
     ),
     "TDS-A010": ("corporate_actions",) * 4,  # one finding per way a ratio is wrong
     "TDS-A011": ("delistings",),
-    **dict.fromkeys(["TDS-V001", "TDS-V002", "TDS-V004", "TDS-V010"], ("bars_1d",)),
+    **dict.fromkeys(
+        ["TDS-V001", "TDS-V002", "TDS-V004", "TDS-V010", "TDS-V011"], ("bars_1d",)
+    ),
     "TDS-V005": ("fx_rates",),
     "TDS-V020": ("instruments",),
     "TDS-V030": ("quotes",),
