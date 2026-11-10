@@ -178,9 +178,25 @@ def test_command_prints_counts_and_hashes_then_checks(
         f"semantic_sha256 {hashes['semantic_sha256']}",
     ]
     assert re.fullmatch(r"time \d+\.\d s, size \d+ bytes", lines[10])
-    assert lines[11] == "TDS-A001: 0"
+    assert lines[11:13] == ["profiles tds:minimal-daily@1.0, tds:equity-daily-core@1.0",
+                            "TDS-A001: 0"]  # fmt: skip
     assert "0 errors, 0 warnings at level full" in printed.out
     assert "tds:equity-daily-core@1.0: declared" in printed.out  # with empty events (TDS 7)
+
+
+def test_command_degrade_prints_declared_profiles_and_results(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # T0.16a's done line, on tiny: the declared profiles without core, and the three results
+    out = tmp_path / "cli"
+    args = ["--out", str(out), "--degrade", "no_ohlc,kr_ex_is_record", "--validate"]
+    assert main(["--preset", "tiny", *args]) == 0
+    printed = capsys.readouterr().out
+    assert "profiles tds:minimal-daily@1.0\n" in printed
+    assert re.search(r"^tds:minimal-daily@1\.0: declared, verified to \w+, \w+$", printed, re.M)
+    assert "tds:equity-daily-core@1.0" not in printed.replace("profiles tds:minimal", "")
+    assert main(["--preset", "tiny", *args[:2], "--degrade", "no_cum_factors", "--validate"]) == 0
+    assert "TDS-A001: no cum_factor_* columns\n" in capsys.readouterr().out
 
 
 def test_command_without_validate_prints_and_does_not_check(
@@ -859,3 +875,115 @@ def test_injected_exits_and_halts_are_refused_with_the_reason(tmp_path: Path) ->
         with pytest.raises(ValueError, match=words):
             make_snapshot(tmp_path / "b", **short,
                           events=[halt | {ID: iid, "session_date": day}])  # fmt: skip
+
+
+SHORT: dict[str, Any] = {"start": dt.date(2019, 1, 2), "n_kr": 20, "n_us": 20}
+CORE, MINIMAL = "tds:equity-daily-core@1.0", "tds:minimal-daily@1.0"
+#: Spec 4.8's core `degrade` values; TDS 7: core needs calendar_sessions, delistings and dense
+#: bars with OHLCV and obs_status, so these four cannot keep it, and the other three can.
+DROPS_CORE = {"no_ohlc": True, "no_sessions": True, "sparse_bars": True, "no_cum_factors": False,
+              "kr_ex_is_record": False, "us_div_split_adjusted_no_dates": False,
+              "no_delistings": True}  # fmt: skip
+
+
+@pytest.fixture(scope="module")
+def us_dividend_before_split(tmp_path_factory: pytest.TempPathFactory) -> list[dict[str, Any]]:
+    """A US cash dividend injected 5 sessions before the first drawn US split, of the same
+    instrument, so a split-adjusted amount differs from the raw one."""
+    plain = make_snapshot(tmp_path_factory.mktemp("plain") / "p", **SHORT)
+    split = next(r for r in rows(plain, "corporate_actions")
+                 if r[ID].startswith("US:") and r["kind"] == "split")  # fmt: skip
+    days = sorted(b["session_date"] for b in rows(plain, "bars") if b[ID] == split[ID])
+    day = days[days.index(split["ex_date"]) - 5]
+    return [{"dataset": "corporate_actions", "kind": "cash_dividend", ID: split[ID],
+             "ex_date": day.isoformat(), "cash_per_share": 0.5}]  # fmt: skip
+
+
+def check_full(package: Path) -> str:
+    done = synth._tds("check", str(package), "--level", "full")
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert re.search(r"\b0 errors\b", done.stdout), done.stdout
+    return done.stdout
+
+
+@pytest.mark.parametrize("value", list(DROPS_CORE))
+def test_synth_conforms_degraded_core(
+    value: str, tmp_path: Path, us_dividend_before_split: list[dict[str, Any]]
+) -> None:
+    # spec 4.8, INV-17: each degraded package passes the full check with what it declares,
+    # and holds the one gap of the 4.5 table its value names
+    package = make_snapshot(tmp_path / value, **SHORT, events=us_dividend_before_split,
+                            degrade=[value])  # fmt: skip
+    printed = check_full(package)
+    manifest = json.loads((package / "tds.json").read_text(encoding="utf-8"))
+    kinds = {d["kind"]: d for d in manifest["datasets"]}
+    bars = read(package, "bars_1d")
+    actions = rows(package, "corporate_actions")
+    dividends = [r for r in actions if r["kind"] == "cash_dividend"]
+    if value == "no_ohlc":  # F-01
+        assert all(bars[c].null_count == len(bars) for c in ("open", "high", "low"))
+        assert bars["close"].null_count < len(bars)
+    elif value == "no_sessions":  # F-02
+        assert "calendar_sessions" not in kinds
+    elif value == "sparse_bars":  # F-03: rows only where it traded, no obs_status
+        assert kinds["bars"]["params"]["density"] == "sparse"
+        assert "obs_status" not in bars.column_names
+        assert bars["close"].null_count == 0
+    elif value == "no_cum_factors":  # F-04
+        assert not {"cum_factor_split", "cum_factor_total"} & set(bars.column_names)
+    elif value == "kr_ex_is_record":  # F-05: every KR cash dividend, none elsewhere
+        kr = [r for r in dividends if r[ID].startswith("KR:")]
+        assert kr
+        assert all(r["record_date"] == r["ex_date"] for r in kr)
+        assert all(r["record_date"] != r["ex_date"] for r in dividends if r not in kr)
+    elif value == "us_div_split_adjusted_no_dates":  # F-09
+        us = [r for r in dividends if r[ID].startswith("US:")]
+        assert us
+        assert all(r["pay_date_status"] == "missing" for r in us)
+        for c in ("record_date", "declared_date", "pay_date", "resolution_date"):
+            assert all(r[c] is None for r in us), c
+        injected = us_dividend_before_split[0]
+        (given,) = (r for r in us if r[ID] == injected[ID]
+                    and r["ex_date"].isoformat() == injected["ex_date"])  # fmt: skip
+        assert given["cash_per_share"] < 0.5  # divided by the later split's ratio
+        assert re.search(r"TDS-A004\b", printed), printed  # the warning F-09 counts
+    else:  # F-13: instruments still say they left, with no delistings to say how
+        assert "delistings" not in kinds
+        assert any(r["delisted_on"] for r in rows(package, "instruments"))
+    assert (CORE in manifest["profiles"]) is not DROPS_CORE[value]
+    assert MINIMAL in manifest["profiles"]
+    # the generator's own A001 agrees, also across the halted days sparse bars leave out
+    assert a001(read(package, "corporate_actions"), bars) == (
+        None if value == "no_cum_factors" else 0)  # fmt: skip
+
+
+def test_degrade_drops_declared_profiles(tmp_path: Path) -> None:
+    # spec 4.8: a value drops the profiles it cannot keep, and only those
+    tiny: dict[str, Any] = {"preset": "tiny", "markets": ("KR",)}
+    both = make_snapshot(tmp_path / "two", **tiny, degrade=["no_cum_factors", "no_delistings"])
+    assert json.loads((both / "tds.json").read_text(encoding="utf-8"))["profiles"] == [MINIMAL]
+    # counter-example: declared again, core fails the check where the checker sees the gap.
+    # no_ohlc is dropped by 4.8's own words; TDS 7's OHLCV condition is not checked yet.
+    missing = {"no_sessions": "dataset calendar_sessions", "no_delistings": "dataset delistings",
+               "sparse_bars": "density=dense"}  # fmt: skip
+    for value in (v for v, drops in DROPS_CORE.items() if drops):
+        package = make_snapshot(tmp_path / value, **tiny, degrade=[value])
+        check_full(package)
+        path = package / "tds.json"
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+        assert manifest["profiles"] == [MINIMAL]
+        if value not in missing:
+            continue
+        path.write_text(json.dumps(manifest | {"profiles": [MINIMAL, CORE]}), encoding="utf-8")
+        assert synth._tds("hash", str(package), "--write").returncode == 0
+        done = synth._tds("check", str(package), "--level", "full")
+        assert done.returncode != 0
+        assert f"error TDS-M008: {CORE} requires" in done.stdout
+        assert missing[value] in done.stdout
+    for wrong, error, words in (
+        (["no_eligibility"], NotImplementedError, r"come with T0.16b and T0.16c"),
+        (["no_ohlcv"], ValueError, "spec 4.8 has"),
+        ("no_ohlc", ValueError, "a sequence of values"),
+    ):  # fmt: skip
+        with pytest.raises(error, match=words):
+            make_snapshot(tmp_path / "x", **tiny, degrade=wrong)
