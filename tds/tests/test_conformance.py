@@ -493,6 +493,112 @@ def test_A_codes(code: str, tmp_path: Path) -> None:
     test_K_codes(code, tmp_path)  # the same contract: once in its fail package, judged in both
 
 
+@pytest.mark.usefixtures("refs_batches")
+def test_A010(tmp_path: Path) -> None:
+    """Four errors, one per way a ratio is wrong, each naming its row; the profile fails."""
+    test_K_codes("TDS-A010", tmp_path)
+    result = check(tmp_path / "fail", level="full")
+    assert [(f.severity, f.key, f.count) for f in result.errors] == [
+        ("error", {"event_id": f"US:E{n}"}, 1) for n in (1, 2, 3, 4)
+    ]
+    assert [p.result for p in result.profiles.values()] == ["fail"]
+
+
+@pytest.mark.usefixtures("refs_batches")
+def test_A011(tmp_path: Path) -> None:
+    test_K_codes("TDS-A011", tmp_path)
+    [found] = check(tmp_path / "fail", level="full").warnings
+    assert (found.code, found.key) == ("TDS-A011", {"delisting_id": "US:L1"})
+
+
+def _ratios(*events: dict[str, Any]) -> Any:
+    """`events` (each a change of the 2:1 split) in `corporate_actions` alone."""
+    return build._add("corporate_actions", build.action_table([build.SPLIT | e for e in events]))
+
+
+_NO_RATIO = {"ratio_num": None, "ratio_den": None}
+_CASH = {"cash_per_share": 1.0, "ratio_new_per_old": None, "affects": "total_only"}
+_SPUN = {"kind": "spinoff", "new_instrument_id": "US:AAA"}  # A006 wants one
+
+
+@pytest.mark.parametrize(
+    ("change", "found"),
+    [  # TDS 5.11 with the choices on #228: share_factor first, else ratio_new_per_old's rule
+        (_ratios({"share_factor": 2.0}), []),
+        (_ratios({"share_factor": 0.5}), ["TDS-A010"]),
+        (_ratios({"kind": "stock_dividend", "ratio_num": 21, "ratio_den": 20,
+                  "ratio_new_per_old": 0.05}), []),  # 1 + b
+        (_ratios(_SPUN | {"ratio_num": 1, "ratio_den": 2, "ratio_new_per_old": 0.5,
+                          "share_factor": 1.0}), []),  # not split-like: ratio_new_per_old
+        (_ratios(_SPUN | {"ratio_num": 1, "ratio_den": 3, "ratio_new_per_old": 0.5}),
+         ["TDS-A010"]),
+        (_ratios({"ratio_new_per_old": None}), []),  # no f64 to disagree with
+        (_ratios(_NO_RATIO | {"status": "cancelled"}), ["TDS-A010"]),  # every row
+        (_ratios(_NO_RATIO | {"kind": "bonus_issue", "ratio_new_per_old": None}), ["TDS-A010"]),
+        # the three kinds that change share counts only with a ratio_new_per_old
+        (_ratios(_NO_RATIO | _CASH | {"kind": "capital_reduction"}), []),
+        (_ratios(_NO_RATIO | {"kind": "capital_reduction", "ratio_new_per_old": 0.5}),
+         ["TDS-A010"]),
+        (_ratios(_NO_RATIO | _SPUN | {"kind": "exchange_offer", "ratio_new_per_old": 0.5}),
+         ["TDS-A010"]),
+        (_ratios(_NO_RATIO | _CASH | {"kind": "rights_issue"}), []),
+        (_ratios(_NO_RATIO | {"kind": "rights_issue", "ratio_new_per_old": 0.2}), ["TDS-A010"]),
+        (_ratios(_NO_RATIO | _CASH | {"kind": "cash_dividend"}), []),
+        (_ratios(_CASH | {"kind": "cash_dividend", "ratio_den": None}), ["TDS-A010"]),
+        (_ratios(_CASH | {"kind": "cash_dividend", "ratio_num": -1}), ["TDS-A010"]),
+    ],
+)  # fmt: skip
+def test_A010_rows(change: Any, found: list[str], tmp_path: Path) -> None:
+    assert codes(write(tmp_path, change), "full") == found
+
+
+def _exit_after(*events: dict[str, Any], includes: bool | None = None) -> Any:
+    """US:AAA's delisting after its last trading day, the 2nd; `events` change a dividend."""
+    rows = [build.SPLIT | build._DIVIDEND | {"price_factor": 0.9} | e for e in events]
+    return build._both(build._exits(delisted=True, includes=includes),
+                       build._add("corporate_actions", build.action_table(rows)))  # fmt: skip
+
+
+_AMENDED = {"event_id": "US:E2", "revision_of": "US:E1"}
+
+
+@pytest.mark.parametrize(
+    ("change", "found", "unchecked"),
+    [  # TDS 5.13 with the choices on #228: the latest version, not cancelled, ex after the day
+        (_exit_after({}), ["TDS-A011"], False),
+        (_exit_after({}, includes=False), [], False),
+        (_exit_after({"status": "cancelled"}), [], False),
+        (_exit_after({"ex_date": dt.date(2024, 1, 2), "ts_effective": build._at(2)}), [], False),
+        (_exit_after({"kind": "special_dividend"}), ["TDS-A011"], False),
+        (_exit_after({"kind": "return_of_capital"}), ["TDS-A011"], False),
+        # a cancelled revision ends the chain; an old version revised by a live one is not counted
+        (_exit_after({}, _AMENDED | {"status": "cancelled"}), [], False),
+        (_exit_after(_AMENDED | {"ex_date": dt.date(2024, 1, 2)}, {}), [], False),  # K002 order
+        (_exit_after({"ex_date": dt.date(2024, 1, 2)}, _AMENDED), ["TDS-A011"], False),
+        (build._exits(delisted=True), [], True),  # no corporate_actions: unknown
+    ],
+)  # fmt: skip
+def test_A011_rows(change: Any, found: list[str], unchecked: bool, tmp_path: Path) -> None:
+    result = check(write(tmp_path, change), level="full")
+    assert [f.code for f in (*result.errors, *result.warnings)] == found
+    assert ("TDS-A011" in result.unchecked) == unchecked
+
+
+def test_A011_on_a_timestamp_last_trading_date_is_S002_and_unchecked(tmp_path: Path) -> None:
+    """A date against a timestamp cannot be compared: A011 unchecked, not a crash (review)."""
+
+    def change(m: dict[str, Any], f: Any) -> None:
+        _exit_after({})(m, f)
+        rel = "delistings/part-00000.parquet"
+        table = pq.read_table(pa.BufferReader(f[rel]))
+        stamp = pa.array([dt.datetime(2024, 1, 2)], pa.timestamp("us"))
+        build.rewrite(m, f, rel, table.set_column(2, "last_trading_date", stamp))
+
+    result = check(write(tmp_path, change), level="full")
+    assert "TDS-S002" in [f.code for f in result.errors]
+    assert "TDS-A011" in result.unchecked
+
+
 #: V011 and V012 are T0.15d's; V031 and V032 are not judged yet (#227, 2026-11-10).
 V_CODES = [f"TDS-V{n:03}" for n in (1, 2, 4, 5, 10, 20, 30, 40, 41, 50)]
 
