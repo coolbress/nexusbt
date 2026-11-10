@@ -11,6 +11,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+import numpy as np
 import pyarrow as pa
 import pyarrow.compute as pc
 
@@ -26,7 +27,11 @@ CORE = {
     "kr_ex_is_record": False,  # F-05
     "us_div_split_adjusted_no_dates": False,  # F-09
     "no_delistings": True,  # F-13: delistings
+    "late_bars": False,  # #354: no gap of the 4.5 table; a late `ts_available` is valid data
 }
+#: `late_bars` (#354): the share of the KR bars that are late, by 1 to LATE_BY sessions, drawn
+#: from a stream of their own, PCG64 seeded [seed, LATE_STREAM], so no other row changes.
+LATE_SHARE, LATE_BY, LATE_STREAM = 0.005, 3, 354
 #: Spec 4.8's other values, built by later tickets (spec 10.1: T0.16b, T0.16c).
 LATER = ("no_fundamentals_state", "no_eligibility", "no_share_counts", "no_fundamentals_events",
          "no_benchmarks", "no_panels", "no_tick_info", "volume_in_lots")  # fmt: skip
@@ -59,14 +64,40 @@ def absent(degrade: Sequence[str]) -> set[str]:
 
 
 def fields(name: str, given: Mapping[str, Any], degrade: Sequence[str]) -> dict[str, Any]:
-    """A dataset's tds.json fields; sparse bars say so in `params.density` (TDS 5.5)."""
+    """A dataset's tds.json fields; sparse bars say so in `params.density` (TDS 5.5), late bars
+    in the column rule, with no `params.ready_delay`, so 5.1.2's delta is 0."""
+    out = dict(given)
     if name == "bars_1d" and "sparse_bars" in degrade:
-        return {**given, "params": {**given["params"], "density": "sparse"}}
-    return dict(given)
+        out["params"] = {**out["params"], "density": "sparse"}
+    if name == "bars_1d" and "late_bars" in degrade:
+        out["availability"] = {"column": "ts_available"}
+        out["columns"] = [*out["columns"], {"name": "ts_available", "type": "ts_us"}]
+    return out
 
 
-def apply(market: str, tables: dict[str, pa.Table], degrade: Sequence[str]) -> dict[str, pa.Table]:
-    """One market's tables with the gaps `degrade` names.
+def _late(market: str, bars: pa.Table, closes: pa.Array, seed: int) -> pa.Table:
+    """`bars` with `ts_available`: the close of the bar's session, `ready(s)` at delta 0, or
+    for a late KR bar the close 1 to LATE_BY sessions later. Late are LATE_SHARE of the bars
+    with LATE_BY sessions after them, and the last row of every year but the last (in the
+    generator's order the last row of that year's partition, 5.3.1's overlap tail)."""
+    at = pc.index_in(bars["ts_end"], value_set=closes).to_numpy()  # each bar's session
+    times = closes.to_numpy()
+    available = times[at]
+    if market == "KR":
+        rng = np.random.Generator(np.random.PCG64([seed, LATE_STREAM]))
+        can = np.flatnonzero(at < len(times) - LATE_BY)
+        years = pc.year(bars["session_date"]).to_numpy()
+        tails = [np.flatnonzero(years == y)[-1] for y in np.unique(years)[:-1]]
+        picks = rng.choice(can, round(LATE_SHARE * len(can)), replace=False)
+        picks = np.union1d(picks, np.intersect1d(tails, can)).astype(np.int64)
+        available[picks] = times[at[picks] + rng.integers(1, LATE_BY, len(picks), endpoint=True)]
+    return bars.append_column("ts_available", pa.array(available).cast(bars["ts_end"].type))
+
+
+def apply(market: str, tables: dict[str, pa.Table], degrade: Sequence[str],
+          closes: pa.Array, seed: int) -> dict[str, pa.Table]:  # fmt: skip
+    """One market's tables with the gaps `degrade` names; `closes` are the market's session
+    closes in order, which `late_bars` counts its sessions on.
 
     `us_div_split_adjusted_no_dates` divides only the dividends with a share event after them;
     seed 0's `small` has none, so a test of F-09's A004 count injects one (`EventSpec`).
@@ -89,6 +120,8 @@ def apply(market: str, tables: dict[str, pa.Table], degrade: Sequence[str]) -> d
         actions = _rows(actions, lambda r: r | dict.fromkeys(DATES) | {
             "pay_date_status": "missing",
             "cash_per_share": r["cash_per_share"] / later(r[ID], r["ex_date"])})  # fmt: skip
+    if "late_bars" in degrade:
+        bars = _late(market, bars, closes, seed)
     out["bars_1d"], out["corporate_actions"] = bars, actions
     for name in absent(degrade):
         out.pop(name, None)

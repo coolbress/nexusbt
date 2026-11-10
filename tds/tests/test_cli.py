@@ -107,8 +107,8 @@ def test_schema_level_done_means(code: str, capsys: pytest.CaptureFixture[str]) 
 
 
 def test_V011_done_means(capsys: pytest.CaptureFixture[str]) -> None:
-    # spec 10.1 T0.15d "done means", with `--level full`: V011 reads rows, and the command as
-    # written runs the default level, `schema`, which reads none (TDS 8.1)
+    # spec 10.1 T0.15d "done means": V011 reads rows, so the command names `--level full`; the
+    # default level, `schema`, reads none (TDS 8.1; #229, 2026-11-10)
     argv = ["check", "--format", "json", "--level", "full"]
     assert run([*argv, str(CONFORMANCE / "TDS-V011" / "fail")]) == 0  # a warning, exit 0
     found, last = (json.loads(line) for line in capsys.readouterr().out.splitlines())

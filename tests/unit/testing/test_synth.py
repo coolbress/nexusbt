@@ -949,7 +949,8 @@ CORE, MINIMAL = "tds:equity-daily-core@1.0", "tds:minimal-daily@1.0"
 #: bars with OHLCV and obs_status, so these four cannot keep it, and the other three can.
 DROPS_CORE = {"no_ohlc": True, "no_sessions": True, "sparse_bars": True, "no_cum_factors": False,
               "kr_ex_is_record": False, "us_div_split_adjusted_no_dates": False,
-              "no_delistings": True}  # fmt: skip
+              "no_delistings": True,
+              "late_bars": False}  # #354: no gap of the 4.5 table, valid data  # fmt: skip
 
 
 @pytest.fixture(scope="module")
@@ -1013,6 +1014,10 @@ def test_synth_conforms_degraded_core(
                     and r["ex_date"].isoformat() == injected["ex_date"])  # fmt: skip
         assert given["cash_per_share"] < 0.5  # divided by the later split's ratio
         assert re.search(r"TDS-A004\b", printed), printed  # the warning F-09 counts
+    elif value == "late_bars":  # 5.1.2's column rule with no ready_delay, so delta = 0
+        assert kinds["bars"]["availability"] == {"column": "ts_available"}
+        assert "ready_delay" not in kinds["bars"]["params"]
+        assert pc.sum(pc.greater(bars["ts_available"], bars["ts_end"])).as_py() > 0
     else:  # F-13: instruments still say they left, with no delistings to say how
         assert "delistings" not in kinds
         assert any(r["delisted_on"] for r in rows(package, "instruments"))
@@ -1021,6 +1026,49 @@ def test_synth_conforms_degraded_core(
     # the generator's own A001 agrees, also across the halted days sparse bars leave out
     assert a001(read(package, "corporate_actions"), bars) == (
         None if value == "no_cum_factors" else 0)  # fmt: skip
+
+
+def test_late_bars_variant_has_late_bars_in_an_overlap_tail(tmp_path: Path) -> None:
+    # #354, spec 4.8 (3a): the rows a property test needs to reach 5.1.2's visibility rule
+    two_years: dict[str, Any] = SHORT | {"start": dt.date(2018, 1, 2)}
+    package = make_snapshot(tmp_path / "late", **two_years, degrade=["late_bars"])
+    closes = [r["ts_close"] for r in rows(package, "calendar_sessions")
+              if r["calendar_id"] == "XKRX"]  # fmt: skip
+    ready = {c.date(): k for k, c in enumerate(closes)}  # KR closes on its session's UTC day
+    bars = read(package, "bars_1d").to_pylist()
+    kr = [b for b in bars if b[ID].startswith("KR:")]
+    # sessions from ready(s) to ts_available: 0 on time, never negative, 1 to 3 when late
+    lag = [closes.index(b["ts_available"]) - ready[b["session_date"]] for b in kr]
+    assert set(lag) == {0, 1, 2, 3}
+    late = sum(k > 0 for k in lag)
+    assert 0.004 < late / len(kr) < 0.007, late  # about 0.5%
+    assert all(b["ts_available"] == b["ts_end"] for b in bars if not b[ID].startswith("KR:"))
+    # the last 20 rows of the 2018 partition hold a late bar, which 2019's rows wait for
+    tail = pq.read_table(package / "bars/freq=1d/market=KR/year=2018/part-00000.parquet")
+    tail = tail.slice(tail.num_rows - 20).to_pylist()
+    assert any(b["ts_available"].year == 2019 for b in tail)
+    # no other value differs from the package without the value, and it is byte-identical
+    plain = make_snapshot(tmp_path / "plain", **two_years)
+    assert read(package, "bars_1d").drop_columns(["ts_available"]).equals(read(plain, "bars_1d"))
+    again = make_snapshot(tmp_path / "again", **two_years, degrade=["late_bars"])
+    assert files_of(again) == files_of(package)
+    other = make_snapshot(tmp_path / "seed", **two_years, seed=1, degrade=["late_bars"])
+    assert read(other, "bars_1d")["ts_available"] != read(package, "bars_1d")["ts_available"]
+
+
+def test_command_names_the_late_bar_count(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # #354's "what should happen", on tiny: 341 KR bars, 323 of them with 3 sessions after
+    out = tmp_path / "cli"
+    assert main(["--preset", "tiny", "--out", str(out), "--degrade", "late_bars",
+                 "--validate"]) == 0  # fmt: skip
+    printed = capsys.readouterr().out
+    assert "late bars 2\n" in printed  # round(0.005 x 323)
+    assert re.search(r"\b0 errors\b", printed)
+    (entry,) = (d for d in json.loads((out / "tds.json").read_text(encoding="utf-8"))["datasets"]
+                if d["kind"] == "bars")  # fmt: skip
+    assert entry["availability"] == {"column": "ts_available"}
 
 
 def test_degrade_drops_declared_profiles(tmp_path: Path) -> None:

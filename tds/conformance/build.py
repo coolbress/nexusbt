@@ -627,6 +627,12 @@ CASES: dict[str, tuple[Change, Change]] = {
     "TDS-V005": (_fx(1400.0), _fx(0.0)),
     "TDS-V010": (_bars(volume=pa.array([2.0])), _bars(volume=pa.array([2.5]))),
     "TDS-V011": (_traded(100.0), _traded(1.0)),  # R = 1000 / (volume * 10): 1, then 100
+    "TDS-V012": (  # a tick of 0.0001: f64 jitter within 1e-9 relative, then half a tick off
+        _both(
+            _instruments(tick_size=pa.array([0.0001])), _bars(close=pa.array([0.6768000000000001]))
+        ),
+        _both(_instruments(tick_size=pa.array([0.0001])), _bars(close=pa.array([0.67685]))),
+    ),
     "TDS-V020": (_future(**_FUTURE), _future(**_FUTURE | {"root": None})),
     "TDS-V030": (_quote(99, 100), _quote(100, 100)),  # locked
     "TDS-V040": (_exits(delisted=True, ret_lo=-0.5), _exits(delisted=True, ret_lo=0.5)),
@@ -670,7 +676,7 @@ FAILS: dict[str, tuple[str | None, ...]] = {
     "TDS-A010": ("corporate_actions",) * 4,  # one finding per way a ratio is wrong
     "TDS-A011": ("delistings",),
     **dict.fromkeys(
-        ["TDS-V001", "TDS-V002", "TDS-V004", "TDS-V010", "TDS-V011"], ("bars_1d",)
+        ["TDS-V001", "TDS-V002", "TDS-V004", "TDS-V010", "TDS-V011", "TDS-V012"], ("bars_1d",)
     ),
     "TDS-V005": ("fx_rates",),
     "TDS-V020": ("instruments",),
