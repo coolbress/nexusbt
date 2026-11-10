@@ -1001,7 +1001,7 @@ bars.csv:         instrument_id,session_date,close,volume
 
 ```
 tds check PATH [--profile P ...] [--level manifest|schema|full] [--datasets a,b]
-               [--max-errors N] [--format text|json] [--strict] [--sample-rows N] [--tmp-dir DIR]
+               [--max-errors N] [--format text|json] [--strict] [--tmp-dir DIR]
 tds hash PATH [--write] [--tmp-dir DIR]  # compute file, dataset and package hashes (physical, value, semantic) (--write updates tds.json)
 tds manifest build PATH            # scan a folder and draft tds.json (rules and descriptions filled in by a person)
 tds describe PATH [DATASET]        # summary of coverage, columns, profiles
@@ -1519,3 +1519,4 @@ Reference numbers are `R4F-NN` of specification v3.4 (appendix I). **`tds_versio
 - 2026-11-04: **v1.4**, in place. 4.4 states a 3.2 type per `dictionary/` column (`scale` i8, `is_label` bool, the others `string`), and 4.5 says the `dictionary/` datasets are in the value and semantic hashes; the checker judged neither hash on a package holding one (maintainer decision 2026-11-04, #275). `tds_version` stays `"1.0"` (a missing rule stated, no format change).
 - 2026-11-05: **v1.4**, in place. 4.2, 6.2: the manifest `availability` forms `{"column": "<name>"}` (`ts_known_from` for 5.2, 5.18, 5.19, 5.20) and `{"exit": "ts_exit_known", "value": "ts_value_available"}` (5.13); any other `availability` object is TDS-M014; 8.2: T006 reads the named availability columns (for `corporate_actions` `ts_terms_available`, not `ts_effective`), and the `schema` level reports a named column a file lacks as TDS-T002 (maintainer decision 2026-11-04, #276). `tds_version` stays `"1.0"` (a missing form stated, no format change).
 - 2026-11-10: **v1.4**, in place. 5.11 `ratio_num, ratio_den` and 8.3 TDS-A010: a complete, positive exact ratio that differs from the f64 column by more than 1e-12 relative stays an error for the producer, and a consumer treats the event the way its setting for a missing ratio says, never using the disagreeing ratio (engine specification 5.6.1, 4.4 step 4; maintainer decision 2026-11-04, #188). `tds_version` stays `"1.0"` (wording clarification; draft).
+- 2026-11-10: **v1.4**, in place. 8.1: `tds check` no longer has `--sample-rows`, which the checker accepted and never used; a check of part of a package is `--datasets` (maintainer decision 2026-11-05, #309). `tds_version` stays `"1.0"` (checker behaviour, no format change).

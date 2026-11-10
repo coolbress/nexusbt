@@ -168,15 +168,18 @@ def _plain(value: Any) -> Any:
 def chain_digest(events: pa.Table, year_end: dt.date) -> str:
     """sha256 of every version of each chain with a version effective on or before `year_end`.
 
-    `events` are one market's rows. Each version gives `event_id`, `ts_known`, `ts_terms`,
-    `status`, `ts_effective` and its four effects, so a middle version's amendment or a changed
-    publication time changes the digest (spec 5.3.9, INV-05)."""
+    `events` are one market's rows. Each version gives `event_id`, `instrument_id`, `kind`,
+    `affects`, `ts_known`, `ts_terms`, `status`, `ts_effective` and its four effects, so a middle
+    version's amendment, a changed publication time or a version moved to another instrument,
+    kind or adjusted series changes the digest (spec 5.3.9, INV-05). A table without the
+    optional `affects` column hashes it as null."""
     chains = []
     for chain_id, versions in _chains(events.to_pylist()).items():
         if all(r["ex_date"] > year_end for r in versions):
             continue
         entries = [
-            {"event_id": r["event_id"], "status": r["status"], "ts_known": _plain(_ts_known(r)),
+            {"event_id": r["event_id"], "instrument_id": r["instrument_id"], "kind": r["kind"],
+             "affects": r.get("affects"), "status": r["status"], "ts_known": _plain(_ts_known(r)),
              "ts_terms": _plain(_ts_terms(r)), "ts_effective": _plain(r["ts_effective"]),
              "effects": {k: _plain(v) for k, v in dataclasses.asdict(_effects(r)).items()}}
             for r in versions
