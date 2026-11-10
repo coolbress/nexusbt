@@ -66,7 +66,12 @@ def fields(name: str, given: Mapping[str, Any], degrade: Sequence[str]) -> dict[
 
 
 def apply(market: str, tables: dict[str, pa.Table], degrade: Sequence[str]) -> dict[str, pa.Table]:
-    """One market's tables with the gaps `degrade` names."""
+    """One market's tables with the gaps `degrade` names.
+
+    `us_div_split_adjusted_no_dates` divides only the dividends with a share event after them;
+    seed 0's `small` has none, so a test of F-09's A004 count injects one (`EventSpec`).
+    `kr_ex_is_record` writes `record_date = ex_date` and keeps the bars' ex-dates, which the
+    cumulative factors follow (A001)."""
     out = dict(tables)
     bars, actions = out["bars_1d"], out["corporate_actions"]
     if "no_ohlc" in degrade:  # F-01: open, high and low null, the close kept
