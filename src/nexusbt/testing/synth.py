@@ -512,7 +512,10 @@ def _move(
     bars: dict[str, list[Any]], k: int, s: int, version: Mapping[str, Any], share: bool,
     venue: str | None,
 ) -> None:  # fmt: skip
-    """Instrument `k`'s bars from its `s`-th on, moved by one event's factors."""
+    """Instrument `k`'s bars from its `s`-th on, moved by one event's factors; an event
+    without a factor (`unavailable`) leaves them, and A001 does not compare its session."""
+    if version["price_factor"] is None:
+        return
     for name in ("open", "high", "low", "close", "cum_factor_total") + (
         ("cum_factor_split",) if share else ()
     ):  # fmt: skip
@@ -981,9 +984,11 @@ def a001(actions: pa.Table, bars: pa.Table) -> int | None:
     for before, now in itertools.pairwise(rows):
         for basis in ("total", "split") if before[ID] == now[ID] else ():
             step = now[f"cum_factor_{basis}"] / before[f"cum_factor_{basis}"]
-            m = math.prod(f for ex, f in want.get((now[ID], basis), ())
-                          if before["session_date"] < ex <= now["session_date"])  # fmt: skip
-            bad += abs(step - m) > 1e-12 * abs(m)
+            due = [f for ex, f in want.get((now[ID], basis), ())
+                   if before["session_date"] < ex <= now["session_date"]]  # fmt: skip
+            if None not in due:  # a session with a "none" factor is not reconciled (5.11)
+                m = math.prod(due)
+                bad += abs(step - m) > 1e-12 * abs(m)
     return bad
 
 

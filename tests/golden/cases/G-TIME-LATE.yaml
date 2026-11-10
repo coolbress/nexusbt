@@ -1,0 +1,56 @@
+# Golden case G-TIME-LATE (spec 8.4): a bar two sessions late, no `ready_delay` (5.1.2, 5.3.1).
+# Expected values are literals. `check/G-TIME-LATE.py` reaches them by arithmetic only, and
+# `tests/golden/test_handcalc_self.py` compares the two. An implementation pull request does
+# not change this file (`tests/repo/test_golden_guard.py`); a wrong value reopens the golden
+# ticket ("spec deviation").
+id: G-TIME-LATE
+description: >-
+  Market KR (tiny XKRX, close 06:30Z) whose bars have the column availability rule and no
+  `ready_delay`, so Δ = 0 and every row freezes at ready(t) = ts_close(t); a decision at each
+  session close, orders at the next session open. Instruments A (KR:T00001) and B (KR:T00002).
+  The sessions s−2 … s+2 are 2020-01-02, 03, 06, 07 and 08, so s = 2020-01-06. A's bar of s
+  (close 18) has ts_available = ready(s+2) = 2020-01-08T06:30Z: it is NaN in its own row
+  (LateBar), stays NaN for the window of s+1 and is read at its own position s by the window of
+  s+2. Every other bar has ts_available = ready of its session; B closes 12.2 on every session.
+  Signal SMA(3) of close, top(1), the run starting at s.
+spec: "8.4 G-TIME-LATE; 5.1.2 freeze time and visibility, 5.3.1 blocks, 3.4 SMA, 1.3 INV-01"
+
+bars:
+  availability: {column: ts_available}  # no params.ready_delay: Δ = 0
+  rows:                                 # A; the 2020-01-06 bar is the late one
+    - {instrument_id: "KR:T00001", session_date: "2020-01-02", close: 10, ts_available: "2020-01-02T06:30:00Z"}
+    - {instrument_id: "KR:T00001", session_date: "2020-01-03", close: 11, ts_available: "2020-01-03T06:30:00Z"}
+    - {instrument_id: "KR:T00001", session_date: "2020-01-06", close: 18, ts_available: "2020-01-08T06:30:00Z"}
+    - {instrument_id: "KR:T00001", session_date: "2020-01-07", close: 13, ts_available: "2020-01-07T06:30:00Z"}
+    - {instrument_id: "KR:T00001", session_date: "2020-01-08", close: 14, ts_available: "2020-01-08T06:30:00Z"}
+                                        # B; every bar on time, close 12.2
+    - {instrument_id: "KR:T00002", session_date: "2020-01-02", close: 12.2, ts_available: "2020-01-02T06:30:00Z"}
+    - {instrument_id: "KR:T00002", session_date: "2020-01-03", close: 12.2, ts_available: "2020-01-03T06:30:00Z"}
+    - {instrument_id: "KR:T00002", session_date: "2020-01-06", close: 12.2, ts_available: "2020-01-06T06:30:00Z"}
+    - {instrument_id: "KR:T00002", session_date: "2020-01-07", close: 12.2, ts_available: "2020-01-07T06:30:00Z"}
+    - {instrument_id: "KR:T00002", session_date: "2020-01-08", close: 12.2, ts_available: "2020-01-08T06:30:00Z"}
+
+# One row per row of the 8.4 table. `a_close`: A's term value of `close` at that row (the cell
+# as the row's reference time ready(t) sees it). `late_bar`: the row's `LateBar` count (5.1.2:
+# instruments whose bar of that row has ts_available > ready). `a_sma3`, `b_sma3`, `target`:
+# SMA(3) and top(1), null where the table has "–" (the run starts at s).
+# `order_intents_m3a`: the table's "order intents" column, word for word, with A and B as the
+# table names them. It is M3a's: no executor exists yet, and no M1 test reads it (#353).
+# `lookahead_a_sma3`, `lookahead_target`: what a rule that reads the bar as soon as some
+# snapshot holds it would give. These values MUST NOT appear in a run.
+#
+# Hand-checked 2026-11-10 (#353), via the coordinating session, recomputed from 8.4 / 5.1.2 /
+# 3.4 without this file, all five rows:
+#   ready(s) = 2020-01-06T06:30Z and ready(s+1) = 2020-01-07T06:30Z are both before
+#   2020-01-08T06:30Z, so the cell (s, A) is NaN for rows s and s+1; ready(s+2) =
+#   2020-01-08T06:30Z is that same time and reaches it.
+#   s:   nanmean(10, 11) = 10.5 < 12.2 -> B; first target: buy B at the open of s+1
+#   s+1: nanmean(11, 13) = 12 < 12.2 -> B; target unchanged: none
+#   s+2: (18 + 13 + 14)/3 = 15 > 12.2 -> A; sell B, buy A at the open of s+3
+#   look-ahead: (10 + 11 + 18)/3 = 13, (11 + 18 + 13)/3 = 14, (18 + 13 + 14)/3 = 15, all A
+expected:
+  - {row: "s-2", session: "2020-01-02", ready: "2020-01-02T06:30:00Z", a_available: "2020-01-02T06:30:00Z", a_close: 10, late_bar: 0, a_sma3: null, b_sma3: null, target: null, order_intents_m3a: null, lookahead_a_sma3: null, lookahead_target: null}
+  - {row: "s-1", session: "2020-01-03", ready: "2020-01-03T06:30:00Z", a_available: "2020-01-03T06:30:00Z", a_close: 11, late_bar: 0, a_sma3: null, b_sma3: null, target: null, order_intents_m3a: null, lookahead_a_sma3: null, lookahead_target: null}
+  - {row: "s", session: "2020-01-06", ready: "2020-01-06T06:30:00Z", a_available: "2020-01-08T06:30:00Z", a_close: .nan, late_bar: 1, a_sma3: 10.5, b_sma3: 12.2, target: "KR:T00002", order_intents_m3a: "buy B at the open of s+1", lookahead_a_sma3: 13.0, lookahead_target: "KR:T00001"}
+  - {row: "s+1", session: "2020-01-07", ready: "2020-01-07T06:30:00Z", a_available: "2020-01-07T06:30:00Z", a_close: 13, late_bar: 0, a_sma3: 12.0, b_sma3: 12.2, target: "KR:T00002", order_intents_m3a: "none", lookahead_a_sma3: 14.0, lookahead_target: "KR:T00001"}
+  - {row: "s+2", session: "2020-01-08", ready: "2020-01-08T06:30:00Z", a_available: "2020-01-08T06:30:00Z", a_close: 14, late_bar: 0, a_sma3: 15.0, b_sma3: 12.2, target: "KR:T00001", order_intents_m3a: "sell B, buy A at the open of s+3", lookahead_a_sma3: 15.0, lookahead_target: "KR:T00001"}
