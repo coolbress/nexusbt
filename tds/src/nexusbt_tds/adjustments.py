@@ -1,9 +1,13 @@
-"""The `full` level's corporate-action checks from the rows: A001~A009 (TDS 5.11, 8.3).
+"""The `full` level's corporate-action checks from the rows: A001~A011 (TDS 5.11, 5.13, 8.3).
 
 A001 multiplies each chain's latest version from `actions.resolve` at `c = +inf`, never a second
 resolver. Where TDS leaves a rule open, the choices on #227 (2026-11-10) apply: daily bars only,
 the events between an instrument's adjacent rows (no compare across a null), A004 on
-`cash_prev_close` rows, A006 on four kinds, A008 and A009 on the resolver's terms time.
+`cash_prev_close` rows, A006 on four kinds, A008 and A009 on the resolver's terms time. And the
+choices on #228 (2026-11-10): A010 on every row of a share-changing kind (three kinds only with
+a `ratio_new_per_old`) and on any malformed ratio, compared with `share_factor` (else its
+`ratio_new_per_old` rule) for split-like kinds and `ratio_new_per_old` for the rest; A011 counts
+the distributions that are no older version's and not cancelled, with no upper bound on ex_date.
 """
 
 from __future__ import annotations
@@ -16,13 +20,21 @@ from typing import Any
 
 import pyarrow as pa
 
-from .actions import ActionsError, _ts_terms, resolve
+from .actions import SPLIT_LIKE, ActionsError, _ts_terms, resolve
 from .check import ACTION_CODES, Finding, Severity
 from .manifest import Manifest
 from .refs import _rows
 
-A001, A002, A003, A004, A005, A006, A007, A008, A009 = ACTION_CODES
+A001, A002, A003, A004, A005, A006, A007, A008, A009, A010, A011 = ACTION_CODES
 NEEDS_NEW = frozenset({"stock_merger", "mixed_merger", "spinoff", "exchange_offer"})  # A006
+#: TDS 5.11: the kinds that change the shares held (A010); `WITH_RATIO` only with a
+#: `ratio_new_per_old` (a consolidation, a share exchange, an allotment ratio).
+SHARE_KINDS = frozenset({"split", "reverse_split", "stock_dividend", "bonus_issue", "spinoff",
+                         "stock_merger", "mixed_merger"})  # fmt: skip
+WITH_RATIO = frozenset({"capital_reduction", "exchange_offer", "rights_issue"})
+DISTRIBUTIONS = frozenset({"cash_dividend", "special_dividend", "return_of_capital"})  # A011
+EXITS = ("delisting_id", "instrument_id", "last_trading_date",
+         "ret_observed_includes_distributions")  # fmt: skip
 FACTORS = ("cum_factor_split", "cum_factor_total")
 #: The columns read: the resolver's and the A codes' (TDS 5.11).
 COLUMNS = ("event_id", "instrument_id", "kind", "ex_date", "ts_effective", "ts_announced",
@@ -70,6 +82,12 @@ def _check(
         events += own
         if ds in checked:
             out += _rules(str(ds.get("name")), own, calendar, sessions, blind)
+            out += _ratios(str(ds.get("name")), own)
+    for ds in (d for d in checked if d.get("kind") == "delistings"):
+        if "corporate_actions" not in present:
+            blind.add(A011)  # the distributions after the last trading day are unknown
+        else:
+            out += _distributions(str(ds.get("name")), rows([ds], EXITS), events)
     daily = [d for d in checked if d.get("kind") == "bars" and _daily(d)]
     if not daily:
         return out
@@ -183,6 +201,62 @@ def _rules(
             msg = f"{len(found)} {said[code]}"
             out.append(Finding(code, severity, msg, dataset=name, key=key, count=len(found)))
     return out
+
+
+def _ratios(name: str, rows: list[dict[str, Any]]) -> list[Finding]:
+    """A010 over one `corporate_actions` dataset: a finding per way a ratio is wrong."""
+    said = {"missing": "share event(s) without ratio_num/ratio_den",
+            "one-sided": "event(s) with only one of ratio_num/ratio_den",
+            "not positive": "event(s) with ratio_num or ratio_den <= 0",
+            "disagrees": "event(s) whose ratio_num/ratio_den differs from the f64 ratio by more"
+                         " than 1e-12 relative"}  # fmt: skip
+    bad: dict[str, list[Any]] = {reason: [] for reason in said}
+    for e in rows:
+        num, den, kind, r = e["ratio_num"], e["ratio_den"], e["kind"], e["ratio_new_per_old"]
+        if num is None and den is None:
+            if kind in SHARE_KINDS or (kind in WITH_RATIO and r is not None):
+                bad["missing"].append(e)
+        elif num is None or den is None:
+            bad["one-sided"].append(e)
+        elif num <= 0 or den <= 0:
+            bad["not positive"].append(e)
+        elif (f := _f64_ratio(e)) is not None and not math.isclose(num / den, f, rel_tol=1e-12):
+            bad["disagrees"].append(e)
+    return [Finding(A010, "error", f"{len(found)} {said[reason]}", dataset=name,
+                    key={"event_id": str(found[0]["event_id"])}, count=len(found))
+            for reason, found in bad.items() if found]  # fmt: skip
+
+
+def _f64_ratio(e: Mapping[str, Any]) -> float | None:
+    """The f64 column `ratio_num/ratio_den` is the quotient of (TDS 5.11), None if null."""
+    r, kind = e["ratio_new_per_old"], e["kind"]
+    if kind in SPLIT_LIKE and e["share_factor"] is not None:
+        return float(e["share_factor"])
+    if r is None:
+        return None
+    return float(1 + r if kind in ("stock_dividend", "bonus_issue") else r)
+
+
+def _distributions(
+    name: str, exits: list[dict[str, Any]], events: list[dict[str, Any]]
+) -> list[Finding]:
+    """A011 over one `delistings` dataset: a null flag with a distribution after the last day."""
+    revised = {e["revision_of"] for e in events}
+    paid: defaultdict[Any, list[Any]] = defaultdict(list)  # instrument → its ex_dates
+    for e in events:
+        live = e["event_id"] not in revised and e["status"] != "cancelled"
+        if live and e["kind"] in DISTRIBUTIONS and e["ex_date"] is not None:
+            paid[e["instrument_id"]].append(e["ex_date"])
+    bad = [x for x in exits if x["ret_observed_includes_distributions"] is None
+           and x["last_trading_date"] is not None
+           and any(day > x["last_trading_date"] for day in paid.get(x["instrument_id"], []))
+    ]  # fmt: skip
+    if not bad:
+        return []
+    msg = (f"{len(bad)} delisting(s) with a cash distribution after the last trading day and a"
+           " null ret_observed_includes_distributions")  # fmt: skip
+    key = {"delisting_id": str(bad[0]["delisting_id"])}
+    return [Finding(A011, "warning", msg, dataset=name, key=key, count=len(bad))]
 
 
 def _cycles(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:

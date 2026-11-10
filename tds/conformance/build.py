@@ -254,14 +254,15 @@ def _crypto(declared: bool) -> Change:
     return _both(_instruments(currency=pa.array(["USDT"])), _set("currencies", usdt))
 
 
-def _exits(*, delisted: bool, ret_lo: float = 0.0) -> Change:
+def _exits(*, delisted: bool, ret_lo: float = 0.0, includes: bool | None = None) -> Change:
     """US:AAA's delisting on 2024-01-02 (5.13), `ret_hi` 0; `delisted` sets
-    `instruments.delisted_on` too."""
+    `instruments.delisted_on` too; `includes`: `ret_observed_includes_distributions`, if any."""
+    flag = {"ret_observed_includes_distributions": [includes]} if includes is not None else {}
     exit_ = _add("delistings", {
         "delisting_id": ["US:L1"], "instrument_id": ["US:AAA"], "last_trading_date": DAY,
         "exit_date": DAY, "delist_type": ["merger"], "ref_date": DAY, "ref_price": [10.0],
         "exit_value_status": ["observed"], "ret_lo": [ret_lo], "ret_hi": [0.0],
-        "policy_id": ["exit-value-v1"],
+        "policy_id": ["exit-value-v1"], **flag,
     })  # fmt: skip
     return _both(exit_, _instruments(delisted_on=DAY)) if delisted else exit_
 
@@ -378,6 +379,12 @@ SPLIT = {"event_id": "US:E1", "instrument_id": "US:AAA", "kind": "split",
     "status": "effective"}  # fmt: skip
 
 
+def action_table(rows: list[dict[str, Any]]) -> pa.Table:
+    """`rows` as a `corporate_actions` table; `share_factor` only when a row sets it."""
+    extra = {"share_factor": pa.float64()} if any("share_factor" in r for r in rows) else {}
+    return pa.Table.from_pylist(rows, pa.schema(ACTION_TYPES | extra))
+
+
 def _actions(
     *events: dict[str, Any], split: tuple[float, ...] = (1.0, 0.5), total: Any = None,
     on: tuple[int, ...] = (2, 3), bars_on: tuple[int, ...] = (), with_bbb: bool = False,
@@ -389,7 +396,7 @@ def _actions(
     def change(m: dict[str, Any], files: Files) -> None:
         n = len(bars_on or on)
         rows = [SPLIT | e for e in events]
-        _add("corporate_actions", pa.Table.from_pylist(rows, pa.schema(ACTION_TYPES)))(m, files)
+        _add("corporate_actions", action_table(rows))(m, files)
         _sessions(0, on)(m, files)
         days = pa.array([dt.date(2024, 1, d) for d in bars_on or on])
         _bars(instrument_id=pa.array(["US:AAA"] * n), session_date=days,
@@ -411,6 +418,7 @@ _MERGER = {"kind": "stock_merger", "new_instrument_id": "US:BBB", "price_factor"
 _SPINOFF = {"kind": "spinoff", "new_instrument_id": "US:BBB", "price_factor": 0.8,
             "affects": "total_only", "factor_method": "spinoff_first_close"}  # fmt: skip
 _SPUN: dict[str, Any] = {"split": (1.0, 1.0), "total": (1.0, 0.8), "with_bbb": True}
+_EXIT_DIVIDEND = _actions(_DIVIDEND | {"price_factor": 0.9}, split=(1.0,), bars_on=(2,))
 
 
 def _fx(rate: float) -> Change:
@@ -584,6 +592,19 @@ CASES: dict[str, tuple[Change, Change]] = {
         _actions(_SPINOFF | {"ts_terms_available": _at(3, 21, 0)}, **_SPUN),
         _actions(_SPINOFF | {"ts_terms_available": _at(3, 20, 0)}, **_SPUN),
     ),
+    "TDS-A010": (  # missing, one-sided, zero, 1/8 against ratio_new_per_old 2.0
+        _actions({"share_factor": 2.0}),
+        _actions(
+            {"ratio_num": None, "ratio_den": None},
+            {"event_id": "US:E2", "ratio_den": None},
+            {"event_id": "US:E3", "ratio_num": 0},
+            {"event_id": "US:E4", "ratio_num": 1, "ratio_den": 8},
+        ),
+    ),
+    "TDS-A011": (  # a dividend on the 3rd, after the last trading day, the 2nd
+        _both(_exits(delisted=True, includes=True), _EXIT_DIVIDEND),
+        _both(_exits(delisted=True), _EXIT_DIVIDEND),
+    ),
     "TDS-V001": (
         _bars(open=pa.array([10.0]), high=pa.array([11.0]), low=pa.array([9.0])),
         _bars(open=pa.array([10.0]), high=pa.array([11.0]), low=pa.array([10.5])),
@@ -638,6 +659,8 @@ FAILS: dict[str, tuple[str | None, ...]] = {
     **dict.fromkeys(
         [f"TDS-A00{n}" for n in range(3, 10)], ("corporate_actions",)
     ),
+    "TDS-A010": ("corporate_actions",) * 4,  # one finding per way a ratio is wrong
+    "TDS-A011": ("delistings",),
     **dict.fromkeys(["TDS-V001", "TDS-V002", "TDS-V004", "TDS-V010"], ("bars_1d",)),
     "TDS-V005": ("fx_rates",),
     "TDS-V020": ("instruments",),
