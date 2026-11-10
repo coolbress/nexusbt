@@ -67,7 +67,8 @@ class Preset(NamedTuple):
 
 
 #: `full` is `small`'s rules at full scale, the M1 datasets only (T0.8d), hence its id. Its
-#: lives give the table's instruments alive on a day, about KR 2,300 and US 5,700 (#334).
+#: lives give the table's instruments alive on a day, about KR 2,300 and US 5,700, as the
+#: mean over the period: fewer on an early day, more on a late one (#334).
 PRESETS = {
     "small": Preset(dt.date(2015, 1, 2), dt.date(2019, 12, 31),
                     {"KR": 120, "US": 180, "ZZ": 120}, "synth-0001",

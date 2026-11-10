@@ -371,13 +371,16 @@ def open_sessions(spans: tuple[list[int], list[int]]) -> int:
 
 def test_full_holds_the_tables_instruments_alive_on_a_day() -> None:
     """#334: 4.8's table gives `full` about KR 2,300 and US 5,700 instruments alive on a day.
-    At a tenth of its instruments the mean count of listings open on a session is within 10 %
-    of a tenth of those, in each market, and `small` keeps 4.8 (2)'s mean life of 8 years."""
+    At a tenth of its instruments the mean count of listings open on a session, drawn from
+    `make_snapshot`'s streams of seed 0, is within 10 % of a tenth of those in each market,
+    and `small` keeps 4.8 (2)'s mean life of 8 years."""
     full = synth.PRESETS["full"]
+    spawned = np.random.Generator(np.random.PCG64(0)).spawn(3)
+    streams = dict(zip(synth.MARKETS, spawned, strict=True))
     for market, table in (("KR", 2_300), ("US", 5_700)):
         calendar = synth._small_calendar(synth.MARKETS[market]["calendar_id"], full.start, full.end)
         n, sessions = full.counts[market] // 10, len(calendar["session_date"])
-        spans = synth._listings(n, sessions, full.life[market], np.random.default_rng(0))
+        spans = synth._listings(n, sessions, full.life[market], streams[market])
         assert open_sessions(spans) / sessions == pytest.approx(table / 10, rel=0.1), market
     assert set(synth.PRESETS["small"].life.values()) == {8}
 
