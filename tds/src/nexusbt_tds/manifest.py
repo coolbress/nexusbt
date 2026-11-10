@@ -1,4 +1,4 @@
-"""`read_manifest`, `build_manifest`: tds.json read and drafted (TDS 4, 8.1)."""
+"""`read_manifest`: tds.json read (TDS 4); `draft.build_manifest` drafts one (TDS 8.1)."""
 
 from __future__ import annotations
 
@@ -54,7 +54,3 @@ def read_manifest(path: Path) -> Manifest:
     if not isinstance(data, dict):
         raise ManifestError(f"{MANIFEST} is not a JSON object")
     return Manifest(root, data)
-
-
-def build_manifest(path: Path) -> Manifest:
-    raise NotImplementedError

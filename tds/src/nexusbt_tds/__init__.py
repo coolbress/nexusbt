@@ -6,9 +6,10 @@ from collections.abc import Mapping
 from types import MappingProxyType
 
 from .check import CheckResult, ProfileStatus, check
+from .draft import build_manifest
 from .hash import semantic_hash, value_hash
 from .import_csv import import_csv
-from .manifest import Manifest, build_manifest, read_manifest
+from .manifest import Manifest, read_manifest
 from .profiles import PROFILES
 
 #: TDS 10.3 schemas by name. The files are `tds/schemas` (T0.13b, `nexusbt_tds.schemas.verify`);
