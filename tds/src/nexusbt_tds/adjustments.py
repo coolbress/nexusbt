@@ -1,15 +1,9 @@
 """The `full` level's corporate-action checks from the rows: A001~A009 (TDS 5.11, 8.3).
 
-A001 reads each chain's one latest version from `actions.resolve` at `c = +inf`, never a second
-resolver. Rules chosen with the maintainer (#227, 2026-11-10): A001 and A002 read daily bars
-(`freq` `1d`); A001 compares a row with the instrument's previous row by date, multiplying the
-events with an `ex_date` after the previous row and on or before this one, so a sparse gap
-spans its events, and does not compare across a null factor or a null cumulative factor; A002's
-first session is the instrument's first bar. A004 compares the `cash_prev_close` rows; A006
-asks `stock_merger`, `mixed_merger`, `spinoff` and `exchange_offer` for a `new_instrument_id`
-and a ratio (`ratio_new_per_old` or `ratio_num/ratio_den`); A008 and A009 take the resolver's
-terms time (`ts_terms_available`, else `ts_announced`, else `ts_effective`). A003~A009 look at
-every row, each version of a chain included.
+A001 multiplies each chain's latest version from `actions.resolve` at `c = +inf`, never a second
+resolver. Where TDS leaves a rule open, the choices on #227 (2026-11-10) apply: daily bars only,
+the events between an instrument's adjacent rows (no compare across a null), A004 on
+`cash_prev_close` rows, A006 on four kinds, A008 and A009 on the resolver's terms time.
 """
 
 from __future__ import annotations
@@ -105,11 +99,15 @@ def _factors(
     """A001 and A002 over one daily bars dataset; `known`: the events could be resolved."""
     last: dict[Any, tuple[Any, ...]] = {}  # instrument → its previous row
     bad: dict[str, list[dict[str, str]]] = {A001: [], A002: []}
-    for i, day, *values in _rows(root, ds, ("instrument_id", "session_date", *FACTORS)):
+    files = [f for f in ds.get("files") or [] if isinstance(f, dict)]  # in path order, as K002
+    ordered = {**ds, "files": sorted(files, key=lambda f: str(f.get("path")))}
+    for i, day, *values in _rows(root, ordered, ("instrument_id", "session_date", *FACTORS)):
+        if i in last and (day is None or last[i][0] is None or day <= last[i][0]):
+            continue  # out of order: K002's, never a step back
         if i not in last:
             if any(v is not None and v != 1.0 for v in values):
                 bad[A002].append({"instrument_id": str(i), "session_date": str(day)})
-        elif day is not None and last[i][0] is not None and day > last[i][0]:
+        else:
             events = steps.get(i, [])
             span = events[bisect.bisect_right(events, last[i][0], key=lambda s: s[0]) :
                           bisect.bisect_right(events, day, key=lambda s: s[0])]  # fmt: skip

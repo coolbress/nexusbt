@@ -493,15 +493,19 @@ def test_A_codes(code: str, tmp_path: Path) -> None:
     test_K_codes(code, tmp_path)  # the same contract: once in its fail package, judged in both
 
 
-def _changed(*events: dict[str, Any], **opts: Any) -> Any:
-    return build._actions(*events, **opts)
+def _files_reversed(change: Any) -> Any:
+    """`change`, then its two bars rows in two files of one folder, listed last file first."""
 
+    def out(m: dict[str, Any], f: Any) -> None:
+        change(m, f)
+        table, folder = pq.read_table(pa.BufferReader(f.pop(build.BARS))), build.BARS[:-18]
+        build.bars(m)["files"] = []
+        for n in (1, 0):
+            rel = f"{folder}/part-{n:05}.parquet"
+            f[rel] = build.parquet(table.slice(n, 1), "bars_1d")
+            build.bars(m)["files"].append({"path": rel, "rows": 1, "bytes": len(f[rel])})
 
-def _daily_factors(*split: float) -> Any:  # US:AAA from 2024-01-02, no corporate_actions
-    days = pa.array([dt.date(2024, 1, 2 + n) for n in range(len(split))])
-    ids, close = pa.array(["US:AAA"] * len(split)), pa.array([10.0] * len(split))
-    factors = pa.array(split)
-    return build._bars(instrument_id=ids, session_date=days, close=close, cum_factor_split=factors)
+    return out
 
 
 def test_reverse_split_not_flagged(tmp_path: Path) -> None:
@@ -509,7 +513,7 @@ def test_reverse_split_not_flagged(tmp_path: Path) -> None:
     reverse = {"kind": "reverse_split", "ratio_num": 1, "ratio_den": 10, "price_factor": 10.0,
                "ratio_new_per_old": 0.1}  # fmt: skip
     split = {"event_id": "US:E2", "ex_date": dt.date(2024, 1, 4), "ts_effective": build._at(4)}
-    change = _changed(reverse, split, split=(1.0, 10.0, 5.0), on=(2, 3, 4))
+    change = build._actions(reverse, split, split=(1.0, 10.0, 5.0), on=(2, 3, 4))
     assert codes(write(tmp_path, change), "full") == []
 
 
@@ -530,17 +534,21 @@ def test_A001_multiplies_latest_revision_once(
     revision: dict[str, Any], after: float, found: list[str], tmp_path: Path
 ) -> None:
     amended = {"event_id": "US:E2", "revision_of": "US:E1", "ts_announced": _LATER} | revision
-    assert codes(write(tmp_path, _changed({}, amended, split=(1.0, after))), "full") == found
+    change = build._actions({}, amended, split=(1.0, after))
+    assert codes(write(tmp_path, change), "full") == found
 
 
 @pytest.mark.parametrize(
     ("change", "found", "unchecked"),
     [  # sparse bars on the 2nd and 4th: the 3rd's split lies between them
-        (_changed({}, on=(2, 3, 4), bars_on=(2, 4), split=(1.0, 0.5)), [], []),
-        (_changed({}, on=(2, 3, 4), bars_on=(2, 4), split=(1.0, 1.0)), ["TDS-A001"], []),
+        (build._actions({}, on=(2, 3, 4), bars_on=(2, 4), split=(1.0, 0.5)), [], []),
+        (build._actions({}, on=(2, 3, 4), bars_on=(2, 4), split=(1.0, 1.0)), ["TDS-A001"], []),
+        # two bars files listed in reverse: read in path order, the 2nd is the first bar
+        (_files_reversed(build.CASES["TDS-A001"][0]), [], []),
+        (_files_reversed(build.CASES["TDS-A001"][1]), ["TDS-A001"], []),
         # no corporate_actions: a factor that moves is not judged; one that does not, is
         (build._bars(cum_factor_split=pa.array([1.0])), [], []),
-        (_daily_factors(1.0, 0.5), [], ["TDS-A001"]),
+        (_without("corporate_actions", build.CASES["TDS-A001"][0]), [], ["TDS-A001"]),
         # chains the resolver cannot tie (A007) leave A001 unchecked
         (build.CASES["TDS-A007"][1], ["TDS-A007"], ["TDS-A001"]),
         # no calendar: the sessions A005 and A009 look up are unknown
