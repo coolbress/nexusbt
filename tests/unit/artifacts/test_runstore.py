@@ -254,6 +254,28 @@ def test_sources_captured_with_helpers(tmp_path: Path) -> None:
     assert (source / "engine-uv.lock").read_bytes() == checkout_lock.read_bytes()
 
 
+def test_engine_written_paths_hold_no_local_path(tmp_path: Path) -> None:
+    """5.9.3 (#355): the manifest names files inside the run, never where the person keeps them."""
+    home = tmp_path / "home" / "kim-private"
+    project, entry = home / "project", home / "scratch" / "entry.py"  # an entry outside it
+    for path in (project / "lib" / "helpers.py", entry):
+        path.parent.mkdir(parents=True)
+        path.write_text("a = 1\n", encoding="utf-8")
+
+    txn = begin(home / "runs")
+    txn.write_table("daily", TABLE)
+    txn.capture_sources([project / "lib" / "helpers.py"], project=project, entry=entry)
+    folder = txn.seal().path
+
+    manifest = (folder / "manifest.json").read_text(encoding="utf-8")
+    assert json.loads(manifest)["source"] == {"entry": "_entry/entry.py"}
+    assert {"daily.parquet", "source/lib/helpers.py"} <= set(json.loads(manifest)["outputs"])
+    source = folder / "source"
+    for text in (manifest, (source / "git.json").read_text(), (source / "params.json").read_text()):
+        assert "kim-private" not in text
+        assert str(tmp_path) not in text
+
+
 def test_sources_record_git_state(tmp_path: Path) -> None:
     project = tmp_path / "project"
     project.mkdir()
