@@ -211,14 +211,16 @@ def open_snapshot(cfg: DataConfig, *, required: CapabilityRequest | None = None)
     result = tds.check(folder, level=cfg.verify.value)
     errors = [f for f in result.errors if f.code not in _NOT_E14]
     if errors:
-        manifest = _manifest(folder)
-        first = errors[0]
-        producer = manifest.data.get("producer") if manifest else None
+        try:
+            data = tds.read_manifest(folder).data
+        except ManifestError:  # no readable tds.json: no snapshot id or producer to name
+            data = {}
+        first, producer = errors[0], data.get("producer")
         raise SnapshotError.from_check(
             path=str(folder), counts=Counter(f.code for f in errors), dataset=first.dataset or "-",
             file=first.file or "-", key=str(first.key or "-"), hint=first.message,
-            snapshot_id=str((manifest.data if manifest else {}).get("snapshot_id", folder.name)),
-            producer_hints=manifest.hints if manifest else None,
+            snapshot_id=str(data.get("snapshot_id", folder.name)),
+            producer_hints={first.code: first.hint} if first.hint else None,  # producer.hints
             producer=str(producer.get("name", "-")) if isinstance(producer, dict) else "-",
         )  # fmt: skip
     manifest = tds.read_manifest(folder)
@@ -233,13 +235,6 @@ def open_snapshot(cfg: DataConfig, *, required: CapabilityRequest | None = None)
     untested = tuple(f"untested market rules: {m}" for m in generic)
     warnings = Counter(f.code for f in result.warnings)
     return Snapshot(manifest, hashes, markets, warnings, untested)
-
-
-def _manifest(folder: Path) -> Manifest | None:
-    try:
-        return tds.read_manifest(folder)
-    except ManifestError:
-        return None
 
 
 def _market(name: str, entry: Mapping[str, Any], allow_untested: bool) -> MarketInfo:

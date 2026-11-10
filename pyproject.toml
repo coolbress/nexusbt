@@ -13,12 +13,8 @@ classifiers = ["Typing :: Typed"]
 # pyarrow, for the `pa.Table` of 2.4: 2.2's lock version; the range leaves patch releases
 # to uv.lock. numpy: 2.2's 2.5.3, below 2.6 for numba 0.68. exchange-calendars: 2.2's 4.13.2,
 # exact; it brings pandas with it (#58 Decisions).
-dependencies = [
-    "nexusbt-tds>=1.0,<2",
-    "pyarrow>=26.0.0,<27",
-    "numpy>=2.5.3,<2.6",
-    "exchange-calendars==4.13.2",
-]
+dependencies = ["nexusbt-tds>=1.0,<2", "pyarrow>=26.0.0,<27", "numpy>=2.5.3,<2.6",
+                "exchange-calendars==4.13.2"]
 
 [project.scripts]
 nexusbt = "nexusbt.cli.main:main"

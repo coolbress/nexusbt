@@ -13,7 +13,7 @@ import pytest
 
 import nexusbt as nx
 from nexusbt.config import load_config
-from nexusbt.contracts import CapabilityError, SnapshotError, VerifyPolicy
+from nexusbt.contracts import CapabilityError, ConfigError, SnapshotError, VerifyPolicy
 from nexusbt.data import DataConfig, open_snapshot
 from nexusbt.testing.synth import make_snapshot
 from nexusbt_tds.hash import package_hashes
@@ -74,18 +74,14 @@ def test_E14_carries_tds_code_and_hint_not_ticket(tiny: Path, tmp_path: Path) ->
 
 
 def test_unknown_required_rule_E14(tiny: Path, tmp_path: Path) -> None:  # noqa: N802 - the ticket's test name
-    newer = shutil.copytree(tiny, tmp_path / "newer")
+    newer = shutil.copytree(tiny, tmp_path / "newer")  # 4.1: a newer MINOR is a warning, M011
+    edit_manifest(newer, lambda d: dataset(d, "instrument_xref").update(schema_version="1.9"))
+    assert open_snapshot(DataConfig(path=newer)).warnings == {"TDS-M011": 1}
     rule = "next_auction_open"  # a 1.x availability rule this engine does not know (4.1)
     edit_manifest(newer, lambda d: dataset(d, "bars_1d").update(availability=rule))
     with pytest.raises(SnapshotError, match="TDS-M014") as raised:
         open_snapshot(DataConfig(path=newer))
     assert rule in str(raised.value)
-
-
-def test_newer_minor_version_warns_m011(tiny: Path, tmp_path: Path) -> None:
-    newer = shutil.copytree(tiny, tmp_path / "newer")
-    edit_manifest(newer, lambda d: dataset(d, "instrument_xref").update(schema_version="1.9"))
-    assert open_snapshot(DataConfig(path=newer)).warnings == {"TDS-M011": 1}
 
 
 @pytest.fixture(scope="module")
@@ -135,6 +131,18 @@ def test_open_path_and_latest_parent(root: Path, monkeypatch: pytest.MonkeyPatch
         Path("nexusbt.toml").write_text(f"[data]\n{toml}\n", encoding="utf-8")
         cfg = DataConfig.from_config(load_config(Path("nexusbt.toml")))
         assert open_snapshot(cfg).id == expected
+
+
+def test_nothing_to_open_is_refused(root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    (root / "LATEST").write_text("../elsewhere\n", encoding="utf-8")
+    with pytest.raises(SnapshotError, match="outside the data root"):
+        open_snapshot(DataConfig(path=root))
+    with pytest.raises(SnapshotError, match="TDS-M001"):  # no tds.json: no hints, no producer
+        open_snapshot(DataConfig(path=root / "s1" / "instruments"))
+    monkeypatch.delenv("NEXUSBT_DATA_ROOT", raising=False)
+    monkeypatch.chdir(root / "s1" / "instruments")
+    with pytest.raises(ConfigError, match="no snapshot to open"):  # no [data] path nor root
+        DataConfig.from_config(load_config(None))
 
 
 def test_cloned_and_hardlinked_partitions_ok(tiny: Path, tmp_path: Path) -> None:
