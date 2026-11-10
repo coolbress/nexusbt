@@ -20,7 +20,8 @@ calendar:
 # One row per run. `n_sessions`: the sessions of the aligned run period. `decisions`: the
 # `monthly(-1)` decision sessions inside it.
 #
-# Worked by hand, not yet checked by the person:
+# Hand-checked 2026-11-10 (#222), via the coordinating session, recomputed from the tiny
+# holiday table (2020-01-24, 2020-01-27) and 5.1.6 / 3.7 without this file, all four rows:
 #   start 2020-01-24 (Fri, holiday) -> 25 Sat, 26 Sun, 27 Mon holiday -> 2020-01-28
 #   end 2020-02-29 (Sat) -> 2020-02-28; end 2020-01-27 (holiday) -> 26 Sun, 25 Sat -> 2020-01-23
 #   January: 22 weekdays from the 2nd, minus 2 holidays = 20 sessions; February: 20 sessions

@@ -34,7 +34,8 @@ bars:
 # (the cell as the row's reference time ready(s) sees it). `a_sma3`, `b_sma3`: SMA(3) at the
 # row, null while the window is not yet full (warm-up 2 rows). `target`: top(1).
 #
-# Worked by hand, not yet checked by the person:
+# Hand-checked 2026-11-10 (#222), via the coordinating session, recomputed from the tiny
+# calendar (close 06:30Z) and 5.1.2 without this file, all five rows:
 #   ready(2020-01-06) = 06:35Z < 06:33Z of the next day: the late bar is NaN in its row
 #   2020-01-06 A: nanmean(10, 11) = 10.5 < 12.2 -> B
 #   ready(2020-01-07) = 2020-01-07T06:35Z >= 06:33Z: the window (11, 18, 13)/3 = 14 -> A

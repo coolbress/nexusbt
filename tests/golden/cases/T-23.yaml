@@ -20,7 +20,8 @@ calendar:
 # inside the run. `from_run_start`: every n-th session counted from the aligned start, the
 # wrong anchor, shown so the difference is visible; equal to `decisions` only in the first row.
 #
-# Worked by hand, not yet checked by the person:
+# Hand-checked 2026-11-10 (#222), via the coordinating session, recomputed from the tiny
+# holiday table (2020-01-24, 2020-01-27) and 3.7 without this file, all four rows:
 #   every(5): ord 0, 5, 10, 15, 20, 25, 30, 35 = 01-02, 01-09, 01-16, 01-23, 02-03, 02-10, 02-17, 02-24
 #   start 2020-01-08 (ord 4): the same set from ord 5 on; counted from the start, ord 4, 9, 14, 19,
 #     24, 29, 34, 39 = 01-08, 01-15, 01-22, 01-31, 02-07, 02-14, 02-21, 02-28 would appear instead
