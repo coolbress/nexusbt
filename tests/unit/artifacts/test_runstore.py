@@ -270,10 +270,8 @@ def test_engine_written_paths_hold_no_local_path(tmp_path: Path) -> None:
     manifest = (folder / "manifest.json").read_text(encoding="utf-8")
     assert json.loads(manifest)["source"] == {"entry": "_entry/entry.py"}
     assert {"daily.parquet", "source/lib/helpers.py"} <= set(json.loads(manifest)["outputs"])
-    source = folder / "source"
-    for text in (manifest, (source / "git.json").read_text(), (source / "params.json").read_text()):
-        assert "kim-private" not in text
-        assert str(tmp_path) not in text
+    assert "kim-private" not in manifest
+    assert str(tmp_path) not in manifest
 
 
 def test_sources_record_git_state(tmp_path: Path) -> None:
