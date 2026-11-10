@@ -1,0 +1,45 @@
+# Golden case T-12 (spec 8.2): the three forms of 12-1 momentum are one value (3.4 Returns,
+# 3.3 shift, 5.3.7 user window functions, appendix A-32 [C7], INV-12).
+# Expected values are literals. `check/T-12.py` reaches them by arithmetic only, and
+# `tests/golden/test_handcalc_self.py` compares the two. An implementation pull request does
+# not change this file (`tests/repo/test_golden_guard.py`); a wrong value reopens the golden
+# ticket ("spec deviation").
+id: T-12
+description: >-
+  One instrument, KR:T00001, on the tiny XKRX calendar, no dividends and no events, so
+  `Price.close_tr` (the default input of `Returns`, 3.4) is the close P. Rows are indexed by
+  session row i from 0 (2020-01-02): the three forms are row arithmetic on the market axis, the
+  dates do not enter. P[i] = 100 + i for i = 0..262, except P[240] = NaN (a halted session). At
+  computation row t: (a) `Returns(232).shift(21)` is the value of `Returns(232)` at row t - 21
+  (3.3: shift(k) is the value k sessions earlier), whose 232-row window is rows t - 252 .. t - 21
+  and whose value is x[-1]/x[0] - 1 (3.4); (b) the user window function `@nx.factor(window=253)`
+  returns close[-22]/close[0] - 1 over rows t - 252 .. t (5.3.7), so close[0] = P[t - 252] and
+  close[-22] = P[t - 21]; (c) the direct P[t - 21]/P[t - 252] - 1. All three are NaN when either
+  end is NaN or not yet in the data (3.4 "either end NaN -> NaN"; warm-up 231 + 21 rows for (a),
+  252 for (b)); a NaN strictly inside the window changes nothing, since Returns reads both ends
+  only. Missing values propagate; nothing is replaced (A-32, INV-12).
+spec: "8.2 T-12; 3.4 Returns, 3.3 shift, 5.3.7 user window functions, appendix A-32, 1.3 INV-12"
+
+bars: "KR:T00001, rows i = 0..262 of the tiny XKRX calendar: close P[i] = 100 + i, except P[240] = NaN; close_tr = close (no dividends, no events)"
+
+# One row per computation row t. `p_end` = P[t - 21], `p_start` = P[t - 252]: the two cells every
+# form reads (NaN at the halted row, null when the row is not in the data). `returns_232_shift_21`,
+# `window_253`, `direct`: forms (a), (b), (c), rounded to 6 places, the same number in every row.
+#
+# Worked by hand, not yet checked by the person:
+#   t = 251: (a) reads Returns(232) at row 230, whose window would start at row -1; (b) needs
+#     rows -1 .. 251; (c) has no P[-1] -> NaN in all three (warm-up); t = 252 is the first full row
+#   t = 252: P[231]/P[0] - 1 = 331/100 - 1 = 2.31
+#   t = 253: 332/101 - 1 = 2.287129
+#   t = 255: 334/103 - 1 = 2.242718; the window rows 3 .. 255 hold the NaN at 240, not at an end
+#   t = 260: 339/108 - 1 = 2.138889
+#   t = 261: P[240] is NaN, the end cell of every form -> NaN
+#   t = 262: 341/110 - 1 = 2.1
+expected:
+  - {row: 251, p_end: 330, p_start: null, returns_232_shift_21: .nan, window_253: .nan, direct: .nan}
+  - {row: 252, p_end: 331, p_start: 100, returns_232_shift_21: 2.31, window_253: 2.31, direct: 2.31}
+  - {row: 253, p_end: 332, p_start: 101, returns_232_shift_21: 2.287129, window_253: 2.287129, direct: 2.287129}
+  - {row: 255, p_end: 334, p_start: 103, returns_232_shift_21: 2.242718, window_253: 2.242718, direct: 2.242718}
+  - {row: 260, p_end: 339, p_start: 108, returns_232_shift_21: 2.138889, window_253: 2.138889, direct: 2.138889}
+  - {row: 261, p_end: .nan, p_start: 109, returns_232_shift_21: .nan, window_253: .nan, direct: .nan}
+  - {row: 262, p_end: 341, p_start: 110, returns_232_shift_21: 2.1, window_253: 2.1, direct: 2.1}
