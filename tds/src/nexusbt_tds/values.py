@@ -136,14 +136,14 @@ def _off_grid(m: Manifest, only: Sequence[str] | None) -> list[Finding]:
                 for start, end, lo, hi, t in bands.get(r, ()) if on(day, start, end)]  # fmt: skip
 
     def off(p: float, ticks: list[tuple[Any, Any, Any]]) -> bool:
-        """5.27: `p` and the band bounds as integers of the grid's smallest tick that day; off
-        when `p` is over 1e-9 relative from its integer, or that is no multiple of its band's."""
+        """5.27: `p` and the band bounds as integers of the grid's smallest tick that day find
+        its bands; off when over 1e-9 relative from the nearest multiple of each band's tick."""
         unit = min(t for _, _, t in ticks)
         n = round(p / unit)
-        steps = [round(t / unit) for lo, hi, t in ticks
-                 if (lo is None or round(lo / unit) <= n)
-                 and (hi is None or n < round(hi / unit))]  # fmt: skip
-        return bool(steps) and (abs(p - n * unit) > 1e-9 * abs(p) or all(n % k for k in steps))
+        inside = [t for lo, hi, t in ticks
+                  if (lo is None or round(lo / unit) <= n)
+                  and (hi is None or n < round(hi / unit))]  # fmt: skip
+        return bool(inside) and all(abs(p - round(p / t) * t) > 1e-9 * abs(p) for t in inside)
 
     out = []
     for ds in m.datasets if any(dated.values()) or any(map(any, fixed.values())) else ():

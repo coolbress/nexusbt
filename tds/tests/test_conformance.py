@@ -692,6 +692,13 @@ _ADJUSTED = build._set("params", {"freq": "1d", "price_basis": "total_adjusted"}
     [
         ((_closes(10.005),), 0, "bars_1d"),  # no grid information: nothing to compare
         ((_CENT, _closes(10.0, 10.005, float("nan"))), 1, "bars_1d"),
+        ((_CENT, _closes(10.000000005, 10.00000002)), 1, "bars_1d"),  # 5e-10 and 2e-9 relative
+        # the fixed tick comes before the instrument's own rule set; a band's tick need not be
+        # a multiple of the smallest
+        ((build._instruments(tick_size=pa.array([0.01]), tick_rule_id=pa.array(["us-tick"])),
+          _rules((0.0, None, 0.005)), _closes(10.005)), 1, "bars_1d"),
+        ((_RULED, _rules((0.0, 20.0, 0.02), (20.0, None, 0.05)), _closes(19.98, 20.05, 20.1)),
+         0, ""),
         ((_CENT, build._bars(open=pa.array([9.995]), high=pa.array([10.005]))), 2, "bars_1d"),
         ((_CENT, _ADJUSTED, _closes(10.005)), 0, "bars_1d"),  # not declared raw
         ((_CENT, _LIMITS), 1, "tradability_daily"),
