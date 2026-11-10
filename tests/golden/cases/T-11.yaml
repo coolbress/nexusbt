@@ -31,8 +31,8 @@ input:
 # One row per instrument in instrument_id order. `rank_ordinal`: ascending, 1 = the smallest
 # score; `rank_ordinal_desc`: `ascending=False`, 1 = the largest; `rank_average`, `rank_min`,
 # `rank_max`, `rank_dense`: the other methods, ascending; `in_top2`: picked by `top(2)`.
-# `n_tied_at_cutoff` of coverage.parquet (3.7) is not in the rows: 3.7 does not say whether the
-# tie group at the cutoff (3 here, 1 of them taken) or the ones left out (2) are counted.
+# `n_tied_at_cutoff`: the decision's coverage.parquet count (3.7), the same in every row: the
+# tie group that straddles top(2)'s cutoff, 3 (1 of them taken), not the 2 left out (#341).
 #
 # Hand-checked 2026-11-10 (#222), via the coordinating session, recomputed from 5.4.2 / 3.7
 # without this file, all six rows:
@@ -41,10 +41,12 @@ input:
 #   descending: T00002 1; T00001 2, T00003 3, T00004 4; T00006 5
 #   average of the 2.0 group = (2 + 3 + 4) / 3 = 3; min 2; max 4; dense 1 -> 1, 2 -> 2, 5 -> 3
 #   top(2): T00002 (5.0), then the smallest id of the 2.0 group, T00001
+#   n_tied_at_cutoff: the last one taken, T00001, scores 2.0; T00003 and T00004 also score 2.0
+#     and are left out, so the group straddles the cutoff: 3
 expected:
-  - {instrument_id: "KR:T00001", score: 2.0, rank_ordinal: 2, rank_ordinal_desc: 2, rank_average: 3.0, rank_min: 2, rank_max: 4, rank_dense: 2, in_top2: true}
-  - {instrument_id: "KR:T00002", score: 5.0, rank_ordinal: 5, rank_ordinal_desc: 1, rank_average: 5.0, rank_min: 5, rank_max: 5, rank_dense: 3, in_top2: true}
-  - {instrument_id: "KR:T00003", score: 2.0, rank_ordinal: 3, rank_ordinal_desc: 3, rank_average: 3.0, rank_min: 2, rank_max: 4, rank_dense: 2, in_top2: false}
-  - {instrument_id: "KR:T00004", score: 2.0, rank_ordinal: 4, rank_ordinal_desc: 4, rank_average: 3.0, rank_min: 2, rank_max: 4, rank_dense: 2, in_top2: false}
-  - {instrument_id: "KR:T00005", score: .nan, rank_ordinal: .nan, rank_ordinal_desc: .nan, rank_average: .nan, rank_min: .nan, rank_max: .nan, rank_dense: .nan, in_top2: false}
-  - {instrument_id: "KR:T00006", score: 1.0, rank_ordinal: 1, rank_ordinal_desc: 5, rank_average: 1.0, rank_min: 1, rank_max: 1, rank_dense: 1, in_top2: false}
+  - {instrument_id: "KR:T00001", score: 2.0, rank_ordinal: 2, rank_ordinal_desc: 2, rank_average: 3.0, rank_min: 2, rank_max: 4, rank_dense: 2, in_top2: true, n_tied_at_cutoff: 3}
+  - {instrument_id: "KR:T00002", score: 5.0, rank_ordinal: 5, rank_ordinal_desc: 1, rank_average: 5.0, rank_min: 5, rank_max: 5, rank_dense: 3, in_top2: true, n_tied_at_cutoff: 3}
+  - {instrument_id: "KR:T00003", score: 2.0, rank_ordinal: 3, rank_ordinal_desc: 3, rank_average: 3.0, rank_min: 2, rank_max: 4, rank_dense: 2, in_top2: false, n_tied_at_cutoff: 3}
+  - {instrument_id: "KR:T00004", score: 2.0, rank_ordinal: 4, rank_ordinal_desc: 4, rank_average: 3.0, rank_min: 2, rank_max: 4, rank_dense: 2, in_top2: false, n_tied_at_cutoff: 3}
+  - {instrument_id: "KR:T00005", score: .nan, rank_ordinal: .nan, rank_ordinal_desc: .nan, rank_average: .nan, rank_min: .nan, rank_max: .nan, rank_dense: .nan, in_top2: false, n_tied_at_cutoff: 3}
+  - {instrument_id: "KR:T00006", score: 1.0, rank_ordinal: 1, rank_ordinal_desc: 5, rank_average: 1.0, rank_min: 1, rank_max: 1, rank_dense: 1, in_top2: false, n_tied_at_cutoff: 3}
