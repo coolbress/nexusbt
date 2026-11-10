@@ -518,6 +518,14 @@ def test_value_rules_edges(change: Any, found: list[str], tmp_path: Path) -> Non
     assert codes(write(tmp_path, change), "full") == found
 
 
+def test_a_column_of_the_wrong_type_is_S002_and_leaves_the_V_codes_unchecked(
+    tmp_path: Path,
+) -> None:
+    result = check(write(tmp_path, build._bars(close=pa.array(["abc"]))), level="full")
+    assert [f.code for f in result.errors] == ["TDS-S002"]
+    assert set(V_CODES) <= set(result.unchecked)
+
+
 def test_book_and_T015d_codes_stay_unchecked(tmp_path: Path) -> None:
     result = check(write(tmp_path, build.CASES["TDS-V030"][0]), level="full")
     assert {"TDS-V031", "TDS-V032", "TDS-V011", "TDS-V012"} <= set(result.unchecked)

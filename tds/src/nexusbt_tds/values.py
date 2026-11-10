@@ -10,7 +10,6 @@ and V012 are T0.15d's: they stay `unchecked`.
 
 from __future__ import annotations
 
-from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -60,7 +59,8 @@ def check_values(m: Manifest, only: Sequence[str] | None, blind: set[str]) -> li
     """V001~V050 on the checked datasets; a file the codes cannot read leaves them unchecked."""
     try:
         return _check(m, only)
-    except (OSError, pa.ArrowException):  # a file Parquet cannot read: S010's, its rows unseen
+    except (OSError, pa.ArrowException, TypeError, ValueError):  # unreadable, or a column of
+        # the wrong type (S010's, S002's): its rows are not compared
         blind.update(VALUE_CODES)
         return []
 
@@ -76,17 +76,17 @@ def _check(m: Manifest, only: Sequence[str] | None) -> list[Finding]:
                 for c in _values(root, d, schemas)}  # fmt: skip
     out = []
     for ds in (d for d in m.datasets if only is None or d.get("name") in only):
-        kind, bad = str(ds.get("kind")), defaultdict[str, list[Any]](list)
+        kind, bad = str(ds.get("kind")), dict[str, list[Any]]()  # code → [count, first key]
         for row in _rows(root, ds, COLUMNS[kind]) if kind in COLUMNS else ():
             for code in _broken(kind, dict(zip(COLUMNS[kind], row, strict=True)), kinds):
-                bad[code].append(row[0])
-        if kind == "label_panels":
-            bad[V050] = sorted(_values(root, ds, schemas) & features)
+                bad.setdefault(code, [0, row[0]])[0] += 1
+        if kind == "label_panels" and (both := sorted(_values(root, ds, schemas) & features)):
+            bad[V050] = [len(both), both[0]]
         named = COLUMNS.get(kind, ("column",))[0]  # the row's id, or the label column
-        for code, keys in sorted((c, k) for c, k in bad.items() if k):
+        for code, (n, first) in sorted(bad.items()):
             severity: Severity = "warning" if code in WARNINGS else "error"
-            msg, key = f"{len(keys)} {SAID[code]}", {named: str(keys[0])}
-            out.append(Finding(code, severity, msg, str(ds.get("name")), key=key, count=len(keys)))
+            msg, key = f"{n} {SAID[code]}", {named: str(first)}
+            out.append(Finding(code, severity, msg, str(ds.get("name")), key=key, count=n))
     return out
 
 
