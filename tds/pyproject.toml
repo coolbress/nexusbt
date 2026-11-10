@@ -9,7 +9,7 @@ license = "Apache-2.0"
 authors = [{ name = "coolbress" }]
 classifiers = ["Typing :: Typed"]
 # pyarrow only (2.3), from the value hash (TDS 4.5) on; the engine's range (2.2).
-dependencies = ["pyarrow>=26.0.1,<27"]
+dependencies = ["pyarrow>=26.0.0,<27"]
 
 [project.scripts]
 tds = "nexusbt_tds.cli:main"
