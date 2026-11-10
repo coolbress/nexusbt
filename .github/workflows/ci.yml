@@ -45,7 +45,7 @@ permissions:
 
 jobs:
   ci:
-    uses: coolbress/plinth/.github/workflows/python-ci.yml@27facda177bc3d1c34f6936937465717160a4b72
+    uses: coolbress/plinth/.github/workflows/python-ci.yml@cecffe1f52c2911558ece2b978c759c9203e1f63
     with:
       # pyproject declares `requires-python = ">=3.12"`; testing one version
       # claims support that was never exercised. Not a matrix: a matrix would
@@ -94,8 +94,8 @@ jobs:
       # does not raise these two, so raise them with that pin.
       - name: Install uv (official release, SHA256 verified)
         env:
-          UV_VERSION: "0.12.9"
-          UV_SHA256: "ec7a99cd05e0cd7f80243f135ce1361c76835cb0ee60055d14d20eba8eba1460"
+          UV_VERSION: "0.13.7"
+          UV_SHA256: "c5221ff41b7892bfc223543883600125f6a47fe845093e0f5bdff4f359196d83"
         run: |
           set -euo pipefail
           d="$RUNNER_TEMP/uv"; mkdir -p "$d"
