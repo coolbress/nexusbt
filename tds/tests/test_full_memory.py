@@ -38,7 +38,11 @@ def test_full_level_peak_memory_is_a_few_row_groups(
 ) -> None:
     """The yardstick is one row group read as Python rows, the way `keys`, `refs` and the hashes
     read whole datasets before #309. The full level over 32 such row groups peaks under 4 of
-    them (measured 2026-11-10: about 2, the same at 4, 16 and 64 row groups)."""
+    them (measured 2026-11-10: about 2, the same at 4, 16 and 64 row groups).
+
+    `tracemalloc` sees the Python heap only: a part that held a whole dataset in Arrow buffers,
+    never as Python values, would pass. Arrow's pool keeps one peak for the whole process, so
+    this test cannot measure it; #309's pull request measured it by hand, flat with the rows."""
     for part in (keys, refs, tds_hashes):
         monkeypatch.setattr(part, "BATCH_ROWS", GROUP)  # 65,536 rows outside the test
     monkeypatch.setattr(tds_hashes, "_MERGE_BYTES", 1 << 18)  # 8 MiB outside it
