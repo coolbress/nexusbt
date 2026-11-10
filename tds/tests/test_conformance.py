@@ -114,6 +114,13 @@ def _no_venue(m: dict[str, Any], f: Any) -> None:  # a symbol column missing: K0
     build.rewrite(m, f, rel, table)
 
 
+def _only_source(m: dict[str, Any], f: Any) -> None:  # rows, but none of K010's columns
+    build.CASES["TDS-K010"][1](m, f)
+    rel = "instrument_symbols/part-00000.parquet"
+    rows = pq.read_table(pa.BufferReader(f[rel])).num_rows
+    build.rewrite(m, f, rel, pa.table({"x_note": ["n"] * rows}))
+
+
 def _ranges(*names: str) -> Any:
     """K004's pass package with its bars files named `names`; a third holds US:BBB on 01-03."""
 
@@ -162,6 +169,7 @@ def _not_parquet(m: dict[str, Any], f: Any) -> None:  # S010: no rows read, no K
         (_symbols(_unknown), [], ["TDS-K010"]),
         (_symbols(_unknown_then_found), ["TDS-K010"], []),
         (_no_venue, [], ["TDS-K001", "TDS-K002", "TDS-K010"]),  # venue_mic is in key and sort
+        (_only_source, [], ["TDS-K001", "TDS-K002", "TDS-K010"]),
         (_weekly, ["TDS-K002"], []),
         (_not_parquet, [], K_CODES),
         (lambda m, f: f.pop(build.BARS), [], []),  # M004: a missing file has no rows

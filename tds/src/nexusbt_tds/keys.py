@@ -118,9 +118,8 @@ def _scan(
             if times and not dateless:
                 days += [d for d in b[date] if isinstance(d, dt.date)
                          and any(_folder(p, d) != value for p, value in times)]  # fmt: skip
-            have = [c for c in kept if c in b]
-            values = zip(*(b[c] for c in have), strict=True)
-            rows += [dict(zip(have, r, strict=True)) for r in values]
+            have = [c for c in kept if c in b]  # none: n rows without them, for K010 to see
+            rows += [{c: b[c][i] for c in have} for i in range(n)] if kept else []
         if dateless:
             unseen.add(K003)
             continue
