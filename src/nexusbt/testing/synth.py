@@ -1,4 +1,7 @@
-"""The synthetic TDS package generator (spec 4.8): the `tiny` and `small` presets.
+"""The synthetic TDS package generator (spec 4.8): the `tiny`, `small` and `full` presets.
+
+`full` is `small` over the 4.8 table's full period and instruments (the M1 datasets only,
+T0.8d); a person makes it on the compute machine, CI only a few of its instruments.
 
 `tiny` is a table set by hand: the holidays, listings, tickers and prices below are literals or
 fixed cycles, with no random numbers. `small` follows 4.8's generation rules (1) to (3) with
@@ -23,9 +26,10 @@ import json
 import subprocess
 import sys
 import sysconfig
+import time
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, NamedTuple
 
 import exchange_calendars as xc
 import numpy as np
@@ -46,8 +50,25 @@ from nexusbt.testing._synth_daily import (
 from nexusbt.testing._synth_events import _cash, _ratio, check, given, targets
 
 START, END = dt.date(2020, 1, 2), dt.date(2020, 3, 31)  # the tiny period (4.8 table)
-SMALL = (dt.date(2015, 1, 2), dt.date(2019, 12, 31))  # the small period
-SMALL_COUNTS = {"KR": 120, "US": 180, "ZZ": 120}  # 4.8 table; ZZ takes 6 to 120
+
+
+class Preset(NamedTuple):
+    """A seeded preset of the 4.8 table: its period, instruments ever listed per market (ZZ
+    takes 6 to 120) and the snapshot id the command gives it."""
+
+    start: dt.date
+    end: dt.date
+    counts: dict[str, int]
+    snapshot_id: str
+
+
+#: `full` is `small`'s rules at full scale, the M1 datasets only (T0.8d), hence its id.
+PRESETS = {
+    "small": Preset(dt.date(2015, 1, 2), dt.date(2019, 12, 31),
+                    {"KR": 120, "US": 180, "ZZ": 120}, "synth-0001"),
+    "full": Preset(dt.date(1995, 1, 2), dt.date(2024, 12, 31),
+                   {"KR": 5_500, "US": 22_100, "ZZ": 120}, "synth-full-m1-0001"),
+}  # fmt: skip
 #: The tds.json `markets` entries. ZZ: a test market without a rules pack (4.8).
 MARKETS = {
     "KR": {"calendar_id": "XKRX", "currency": "KRW", "timezone": "Asia/Seoul"},
@@ -590,11 +611,15 @@ def _limits(
     """~0.2 % of KR sessions close at the upper or the lower limit (by half), a quarter of them
     locked there all day: the last close x (1 +- that day's ratio), snapped inward. The bars
     after it move by the same ratio, so the next day trades within its own limits; so a limit
-    falls only after an instrument's last ex-date (`settled`), whose factors it would move."""
+    falls only after an instrument's last ex-date (`settled`), whose factors it would move, and
+    only on a day with a limit (`kr_price_limits_v1` starts on 1995-04-01)."""
     hits: Hits = {}
 
     def pick(k: int, d: int) -> int:  # not next to another limit, which would move its close
         if d <= settled[k] or (k, d) in busy or {(k, d - 1), (k, d), (k, d + 1)} & hits.keys():
+            return 0
+        day = bars["session_date"][k][d - first[k] : d - first[k] + 1]
+        if np.isnan(_ratios(day, mics[k])[0]):  # no limit that day to close at
             return 0
         hits[k, d] = (bool(rng.integers(2)), bool(rng.integers(4) == 0))
         return 1
@@ -838,21 +863,24 @@ def make_snapshot(
     Byte-identical for the same arguments. Files are written in place and nothing in `root` is
     deleted, so a `root` used with other markets keeps their files. `tiny` is hand-set and
     takes none of `seed`, `start`, `end`, `n_kr`, `n_us`. `events` (4.8 `EventSpec`) injects
-    `corporate_actions` and `delistings` rows, in `tiny` too, and KR halts in `small`; `full`,
-    `full_ci`, `overrides` and `degrade` come
-    with later tickets (spec 10.1: T0.8c, T0.16a).
+    `corporate_actions` and `delistings` rows, in `tiny` too, and KR halts in `small` and
+    `full`. `full` is `small`'s rules over full's period and counts, the M1 datasets only;
+    its M2 datasets, `full_ci`, `overrides` and `degrade` come with later tickets (spec 10.1:
+    T0.8c, T0.16a).
     """
-    if preset not in ("tiny", "small") or overrides or degrade:
-        raise NotImplementedError("only presets tiny and small, without overrides or degrade,"
-                                  " are built so far (spec 4.8)")  # fmt: skip
+    if preset not in ("tiny", *PRESETS) or overrides or degrade:
+        raise NotImplementedError("only presets tiny, small and full, without overrides or"
+                                  " degrade, are built so far (spec 4.8)")  # fmt: skip
     root, chosen = Path(root), [m for m in MARKETS if m in markets]
     if not chosen or set(markets) - set(MARKETS):
         raise ValueError(f"markets {list(markets)}: choose one or more of {sorted(MARKETS)}")
     check(events, chosen, CA, preset == "tiny")
     if preset == "tiny" and any(v is not None for v in (start, end, n_kr, n_us)):
-        raise ValueError("tiny is set by hand: start, end, n_kr and n_us apply to small only")
-    first, final = (start or SMALL[0], end or SMALL[1]) if preset == "small" else (START, END)
-    counts = SMALL_COUNTS | {k: v for k, v in (("KR", n_kr), ("US", n_us)) if v is not None}
+        raise ValueError("tiny is set by hand: start, end, n_kr and n_us apply to small and"
+                         " full only")  # fmt: skip
+    seeded = PRESETS.get(preset, PRESETS["small"])
+    first, final = (start or seeded.start, end or seeded.end) if preset != "tiny" else (START, END)
+    counts = seeded.counts | {k: v for k, v in (("KR", n_kr), ("US", n_us)) if v is not None}
     # one stream per market from PCG64(seed), so a market's rows do not depend on the others
     rngs = dict(zip(MARKETS, np.random.Generator(np.random.PCG64(seed)).spawn(3), strict=True))
     calendars, tables = {}, {}
@@ -958,9 +986,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--validate", action="store_true", help="then run tds check --level full")
     args = parser.parse_args(argv)
+    began = time.perf_counter()
     root = make_snapshot(
-        args.out, preset=args.preset, seed=args.seed, markets=args.markets.split(",")
-    )
+        args.out, preset=args.preset, seed=args.seed, markets=args.markets.split(","),
+        snapshot_id=PRESETS.get(args.preset, PRESETS["small"]).snapshot_id,
+    )  # fmt: skip
+    took = time.perf_counter() - began
     manifest = json.loads((root / "tds.json").read_text(encoding="utf-8"))
     for ds in manifest["datasets"]:
         print(f"{ds['name']} {sum(f['rows'] for f in ds['files'])} rows")
@@ -970,6 +1001,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     print(f"corporate_actions revisions {revised}, cancellations {status.count('cancelled')}")
     for name in ("value_sha256", "semantic_sha256"):
         print(f"{name} {manifest['hashes'][name]}")
+    size = sum(f["bytes"] for ds in manifest["datasets"] for f in ds["files"])
+    print(f"time {took:.1f} s, size {size} bytes")
     if not args.validate:
         return 0
     bad = a001(actions, read(root, "bars_1d"))
