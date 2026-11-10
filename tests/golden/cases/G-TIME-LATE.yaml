@@ -39,9 +39,11 @@ bars:
 # `lookahead_a_sma3`, `lookahead_target`: what a rule that reads the bar as soon as some
 # snapshot holds it would give. These values MUST NOT appear in a run.
 #
-# Worked by hand, not yet checked by the person: ready(s) = 2020-01-06T06:30Z and
-# ready(s+1) = 2020-01-07T06:30Z are both before 2020-01-08T06:30Z, so the cell (s, A) is NaN
-# for rows s and s+1; ready(s+2) = 2020-01-08T06:30Z reaches it.
+# Hand-checked 2026-11-10 (#353), via the coordinating session, recomputed from 8.4 / 5.1.2 /
+# 3.4 without this file, all five rows:
+#   ready(s) = 2020-01-06T06:30Z and ready(s+1) = 2020-01-07T06:30Z are both before
+#   2020-01-08T06:30Z, so the cell (s, A) is NaN for rows s and s+1; ready(s+2) =
+#   2020-01-08T06:30Z is that same time and reaches it.
 #   s:   nanmean(10, 11) = 10.5 < 12.2 -> B; first target: buy B at the open of s+1
 #   s+1: nanmean(11, 13) = 12 < 12.2 -> B; target unchanged: none
 #   s+2: (18 + 13 + 14)/3 = 15 > 12.2 -> A; sell B, buy A at the open of s+3
