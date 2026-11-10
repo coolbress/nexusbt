@@ -2,7 +2,8 @@
 
 Run it: `uv run python tests/golden/check/T-15.py` prints one row per computation day t: the
 closes as traded, the adjusted window with NaN in the rows before the event while the window
-crosses it, SMA(3) as nanmean, and the value a silent 1.0 would give, which must not appear.
+crosses it, SMA(3) as nanmean, the value a silent 1.0 would give, which must not appear, and the
+run's `AdjustmentUnavailable` count through t (one per instrument and event).
 No loops, classes or engine imports (`tests/golden/test_handcalc_self.py`); the sessions, bars
 and the event are written out.
 """
@@ -48,32 +49,51 @@ def cells(t: int) -> int:
     return int(t - 2 < E <= t) + int(t - 1 < E <= t) + int(t < E <= t)
 
 
+def crosses(t: int) -> bool:
+    """Whether the window of row t crosses e: it has a row s with s < e <= t (4.6)."""
+    return t - 2 < E <= t
+
+
+def unavailable(t: int) -> int:
+    """4.6: the run's `AdjustmentUnavailable` count through row t, one per (instrument, event)
+    pair some window of rows 2..t crossed. The one event counts once, from the first window that
+    crosses it, whatever the number of cells or rows it leaves NaN."""
+    return int(crosses(2) or (t >= 3 and crosses(3)) or (t >= 4 and crosses(4))
+               or (t >= 5 and crosses(5)) or (t >= 6 and crosses(6)))  # fmt: skip
+
+
 def row(t: int) -> dict[str, Any]:
     adj = (adjusted(t - 2, t), adjusted(t - 1, t), adjusted(t, t))
     one = (hidden_one(t - 2, t), hidden_one(t - 1, t), hidden_one(t, t))
     return {"session": SESSIONS[t], "raw_window": list(RAW[t - 2:t + 1]),
             "adjusted_window": list(adj), "sma3": nanmean3(*adj),
-            "hidden_one_sma3": nanmean3(*one)}  # fmt: skip
+            "hidden_one_sma3": nanmean3(*one),
+            "adjustment_unavailable": unavailable(t)}  # fmt: skip
 
 
 ROWS = (row(2), row(3), row(4), row(5), row(6))
-# The NaN cells: 2 in the row of e, 1 in the next, none elsewhere; 4.6 does not fix the unit of
-# the `AdjustmentUnavailable` count (cell, row or event), so the rows carry no count.
+# The NaN cells: 2 in the row of e, 1 in the next, none elsewhere: 3 cells in 2 rows from 1
+# event. The count is the event's: 1 at the end of the run, not 2 (rows) or 3 (cells) (#341).
 assert (cells(2), cells(3), cells(4), cells(5), cells(6)) == (0, 2, 1, 0, 0)
+assert (crosses(2), crosses(3), crosses(4), crosses(5), crosses(6)) == (False, True, True,
+                                                                        False, False)  # fmt: skip
+assert ROWS[-1]["adjustment_unavailable"] == 1
 assert ROWS[1]["sma3"] != ROWS[1]["hidden_one_sma3"]  # the silent 1.0 would show here (INV-12)
 assert ROWS[2]["sma3"] != ROWS[2]["hidden_one_sma3"]
 assert ROWS[3]["sma3"] == ROWS[3]["hidden_one_sma3"]  # and nowhere else
 
 
 def line(r: dict[str, Any]) -> str:
-    return "{:<11} {!s:<22} {!s:<22} {!s:>7}  {!s}".format(
+    return "{:<11} {!s:<22} {!s:<22} {!s:>7}  {!s:<28}  {!s}".format(
         r["session"], r["raw_window"], r["adjusted_window"], r["sma3"], r["hidden_one_sma3"],
+        r["adjustment_unavailable"],
     )  # fmt: skip
 
 
 if __name__ == "__main__":
     print(line({"session": "session", "raw_window": "raw", "adjusted_window": "adjusted",
-                "sma3": "SMA3", "hidden_one_sma3": "silent 1.0 (must not appear)"}))  # fmt: skip
+                "sma3": "SMA3", "hidden_one_sma3": "silent 1.0 (must not appear)",
+                "adjustment_unavailable": "AdjustmentUnavailable"}))  # fmt: skip
     print(line(ROWS[0]))
     print(line(ROWS[1]))
     print(line(ROWS[2]))
