@@ -9,7 +9,7 @@ Generated from `docs/spec/engine-spec-v3.4.md` (chapter 10) by the spec checker 
 
 ## Counts
 
-222 engine tickets: M0 16, M1 41, M2 31, M3a 37, M3b 12, M4 28, M5 24, M6 31, v1.x 2 (T7.G, T7.1 and T7.V are part of M6; T7.2 and T7.5 are v1.x). 107 golden cases (G-01..G-107), 34 property tests, 49 error codes (E1..E49), 40 ADRs.
+222 engine tickets: M0 16, M1 41, M2 31, M3a 37, M3b 12, M4 28, M5 24, M6 31, v1.x 2 (T7.G, T7.1 and T7.V are part of M6; T7.2 and T7.5 are v1.x). 107 golden cases (G-01..G-107), 36 property tests, 49 error codes (E1..E49), 41 ADRs. Counting rule (as of 2026-11-10): a property test is one `P-*` row of the spec's table 8.3; an ADR is one file in `docs/adr/` (0001..0041), each a row of the spec's table 9.3.
 
 ## Dependency graph (summary)
 
