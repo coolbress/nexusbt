@@ -51,7 +51,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             sub.add_argument("--max-errors", type=int, default=1000)
             sub.add_argument("--format", choices=["text", "json"], default="text")
             sub.add_argument("--strict", action="store_true", help="exit 2 on warnings")
-            sub.add_argument("--sample-rows", type=int, help="full level only")
             sub.add_argument("--tmp-dir", type=Path, help=_TMP)
         elif name == "describe":
             sub.add_argument("path", type=Path)

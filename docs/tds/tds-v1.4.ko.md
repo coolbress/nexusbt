@@ -1001,7 +1001,7 @@ bars.csv:         instrument_id,session_date,close,volume
 
 ```
 tds check PATH [--profile P ...] [--level manifest|schema|full] [--datasets a,b]
-               [--max-errors N] [--format text|json] [--strict] [--sample-rows N] [--tmp-dir DIR]
+               [--max-errors N] [--format text|json] [--strict] [--tmp-dir DIR]
 tds hash PATH [--write] [--tmp-dir DIR]  # 파일·데이터셋·패키지 해시(물리·값·의미) 계산(--write면 tds.json 갱신)
 tds manifest build PATH            # 폴더를 훑어 tds.json 초안 생성(규칙·설명은 사람이 채움)
 tds describe PATH [DATASET]        # 적용 범위·칼럼·프로필 요약
@@ -1519,3 +1519,4 @@ datasets:
 - 2026-11-04: **v1.4** 안에서. 4.4는 `dictionary/` 칼럼마다 3.2 타입을 적고(`scale` i8, `is_label` bool, 나머지 `string`), 4.5는 `dictionary/` 데이터셋이 값 해시와 의미 해시에 들어간다고 밝힌다. 검사기는 이를 가진 패키지에서 두 해시를 판정하지 않았다(사용자 결정 2026-11-04, #275). `tds_version` `"1.0"` 그대로(빠진 규칙을 적음, 형식 변경 없음).
 - 2026-11-05: **v1.4** 안에서. 4.2, 6.2: 매니페스트 `availability` 형식 `{"column": "<이름>"}`(5.2, 5.18, 5.19, 5.20은 `ts_known_from`)과 `{"exit": "ts_exit_known", "value": "ts_value_available"}`(5.13). 그 밖의 `availability` 객체는 TDS-M014. 8.2: T006은 지목한 가용 시각 칼럼을 읽고(`corporate_actions`는 `ts_effective`가 아닌 `ts_terms_available`), `schema` 단계는 파일에 없는 지목 칼럼을 TDS-T002로 보고한다(사용자 결정 2026-11-04, #276). `tds_version` `"1.0"` 그대로(빠진 형식을 적음, 형식 변경 없음).
 - 2026-11-10: **v1.4** 안에서. 5.11 `ratio_num, ratio_den`과 8.3 TDS-A010: 둘 다 있고 양수이지만 f64 칼럼과 상대 1e-12 넘게 다른 정확 비율은 생산자에게 오류 그대로이고, 소비자는 그 사건을 없는 비율에 대한 설정대로 다루며 어긋나는 비율은 쓰지 않는다(엔진 명세 5.6.1, 4.4 4단계; 사용자 결정 2026-11-04, #188). `tds_version` `"1.0"` 그대로(문구 명확화, 초안).
+- 2026-11-10: **v1.4** 안에서. 8.1: `tds check`에서 `--sample-rows`를 뺀다. 검사기가 받기만 하고 쓰지 않던 옵션이다. 패키지 일부만 검사하려면 `--datasets`를 쓴다(사용자 결정 2026-11-05, #309). `tds_version` `"1.0"` 그대로(검사기 동작, 형식 변경 없음).
