@@ -2,8 +2,8 @@
   "kind": "tradability_daily", "schema_version": "1.0", "status": "stable", "section": "5.10",
   "key": ["instrument_id", "session_date"], "sort": ["session_date", "instrument_id"], "partitions": ["freq=1d/market=/year="],
   "columns": [
-    {"name": "instrument_id", "type": null, "null": false},
-    {"name": "session_date", "type": null, "null": false},
+    {"name": "instrument_id", "type": "id", "null": false},
+    {"name": "session_date", "type": "date", "null": false},
     {"name": "status_known", "type": "bool", "null": false},
     {"name": "halted_full_day", "type": "bool", "null": true},
     {"name": "halt_count", "type": "i32", "null": true},

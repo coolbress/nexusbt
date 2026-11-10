@@ -516,7 +516,7 @@ Key (`instrument_id`, `symbol_type`, `venue_mic`, `valid_from`, `ts_known_from`)
 
 ### 5.3 `instrument_xref` (external identifier links)
 
-Key (`instrument_id`, `id_type`, `id_value`, `valid_from`). Columns: `instrument_id`, `id_type` (open: `figi`, `figi_composite`, `figi_share_class`, `isin`, `cusip`, `sedol`, `permno`, `permco`, `gvkey_iid`, `cik`, `lei`, `sharadar_permaticker`, `lean_sid`, `nautilus_instrument_id`, `databento_instrument_id`, `occ_osi`, `dart_corp_code` …), `id_value` string, `valid_from` date null (unknown), `valid_to` date null, `link_quality` code (`primary`/`secondary`/`inferred`), `source`.
+Key (`instrument_id`, `id_type`, `id_value`, `valid_from`). Columns: `instrument_id` id, `id_type` code (open: `figi`, `figi_composite`, `figi_share_class`, `isin`, `cusip`, `sedol`, `permno`, `permco`, `gvkey_iid`, `cik`, `lei`, `sharadar_permaticker`, `lean_sid`, `nautilus_instrument_id`, `databento_instrument_id`, `occ_osi`, `dart_corp_code` …), `id_value` string, `valid_from` date null (unknown), `valid_to` date null, `link_quality` code (`primary`/`secondary`/`inferred`), `source` string.
 - Publisher ids that change daily, as in Databento, are written as one-day intervals `valid_from = valid_to − 1 day`. 64-bit unsigned publisher ids go into `id_value` as decimal strings (no precision loss) [v1.1].
 - Known axis: `instrument_xref` has no known time in v1. The two-time-axis promise of K6 therefore **does not apply** to this table (for explanation and mapping, not a decision input). Links that need a known time get optional `ts_known_from/to` columns in the next MINOR [v1.1].
 - Company-level links like CRSP CCM (GVKEY ↔ PERMNO) use `id_type = gvkey_iid`, with the meaning of LINKPRIM carried into `link_quality`.
@@ -542,7 +542,7 @@ Key (`calendar_id`, `session_date`). Sort same.
 - 24/7: `session_date` = UTC date, `ts_open` = 00:00Z, `ts_close` = 00:00Z of the next day.
 - Futures overnight trading: the session of trading day D may start on the evening of D−1 (`ts_open < session_date 00:00 local`). This is normal.
 
-`calendar_segments` (optional, intraday segments): key (`calendar_id`, `session_date`, `segment`, `ts_start`). `segment` code: `pre`, `opening_auction`, `continuous`, `break`, `closing_auction`, `post`, `single_price_period` etc. Used by the intraday fill model (E4) and for Korean single-price periods.
+`calendar_segments` (optional, intraday segments): key (`calendar_id`, `session_date`, `segment`, `ts_start`). Columns `calendar_id` id, `session_date` date, `segment` code (`pre`, `opening_auction`, `continuous`, `break`, `closing_auction`, `post`, `single_price_period` etc.), `ts_start` ts_us. Used by the intraday fill model (E4) and for Korean single-price periods.
 
 ### 5.5 `bars` (bars, all periods)
 
@@ -604,13 +604,13 @@ Default availability rule: if `ts_recv` is present, `ts_recv`; otherwise `ts_eve
 
 Partitions and sort are the same as `trades`. Key (`instrument_id`, `ts_event`, `sequence`).
 
-Columns: `instrument_id`, `session_date`, `ts_event`, `ts_recv`, `sequence`, `bid_px` fixed null, `bid_sz` fixed null, `ask_px` fixed null, `ask_sz` fixed null, `bid_ct` i32 null, `ask_ct` i32 null, `venue_mic`, `conditions`, `flags`.
+Columns: `instrument_id`, `session_date`, `ts_event`, `ts_recv`, `sequence`, `bid_px` fixed null, `bid_sz` fixed null, `ask_px` fixed null, `ask_sz` fixed null, `bid_ct` i32 null, `ask_ct` i32 null, `venue_mic`, `conditions`, `flags`. The columns named here without a type are typed when the schema leaves `experimental`.
 - A row is "the best bid and offer state on both sides from that instant on". If one side is empty, that side is null. Ticks where only one side changed, as in LEAN, have the other side filled from the previous value at import (chapter 9).
 - V030: `bid_px >= ask_px` (locked or crossed) is a warning (may be normal in some markets).
 
 ### 5.8 `book_deltas`, `book_snapshots` (L2/L3 books) — `experimental`
 
-`book_deltas` — partition `venue=/date=`, sort (`instrument_id`, `ts_event`, `sequence`), time ns. Parameters `depth_kind` (`mbp` L2 by price level / `mbo` L3 by order), `max_depth` (for mbp).
+`book_deltas` — partition `venue=/date=`, sort (`instrument_id`, `ts_event`, `sequence`), time ns. Parameters `depth_kind` (`mbp` L2 by price level / `mbo` L3 by order), `max_depth` (for mbp). The columns the table leaves without a type are typed when the schema leaves `experimental`.
 
 | Column | Type | Null | Meaning |
 |---|---|---|---|
@@ -630,11 +630,11 @@ Columns: `instrument_id`, `session_date`, `ts_event`, `ts_recv`, `sequence`, `bi
 - Reconstruction rule: the start of a file (or date) is either a batch of `is_snapshot = true` rows after a `clear`, or declares with `params.continuity = "carry"` that it carries over the last state of the previous date.
 - The engine reads the book only after rows with `is_last = true`. V031: warning if a crossed book appears after reconstruction; V032: warning on `sequence` gaps (when the vendor promised consecutive sequence numbers).
 
-`book_snapshots` — depth-N state at fixed intervals or per event. Long shape: key (`instrument_id`, `ts_event`, `side`, `level`). Columns `ts_event`, `ts_recv`, `side`, `level` (0 = best), `price`, `size`, `order_count`. Databento MBP-10 and Nautilus OrderBookDepth unrolled into rows.
+`book_snapshots` — depth-N state at fixed intervals or per event. Long shape: key (`instrument_id`, `ts_event`, `side`, `level`). Columns `ts_event`, `ts_recv`, `side`, `level` (0 = best), `price`, `size`, `order_count`. Databento MBP-10 and Nautilus OrderBookDepth unrolled into rows. The columns named here without a type are typed when the schema leaves `experimental`.
 
 ### 5.9 `market_statistics` (official statistics) — `experimental`
 
-Key (`instrument_id`, `stat_type`, `ts_event`). Columns: `instrument_id`, `session_date`, `stat_type` (open: `settlement_price`, `open_interest`, `official_open`, `official_close`, `auction_price`, `auction_volume`, `high_limit`, `low_limit`, `vwap`, `reference_price` …), `value` f64, `unit`, `ts_event`, `ts_available`, `is_final` bool (preliminary/final), `source`. Corresponds to Databento Statistics and Nautilus InstrumentClose. The availability time of futures settlement prices and open interest (usually the next morning) is recorded exactly here.
+Key (`instrument_id`, `stat_type`, `ts_event`). Columns: `instrument_id`, `session_date`, `stat_type` (open: `settlement_price`, `open_interest`, `official_open`, `official_close`, `auction_price`, `auction_volume`, `high_limit`, `low_limit`, `vwap`, `reference_price` …), `value` f64, `unit`, `ts_event`, `ts_available`, `is_final` bool (preliminary/final), `source`. Corresponds to Databento Statistics and Nautilus InstrumentClose. The availability time of futures settlement prices and open interest (usually the next morning) is recorded exactly here. The columns named here without a type are typed when the schema leaves `experimental`.
 
 ### 5.10 Tradability: `tradability_daily`, `trading_status_events`
 
@@ -642,7 +642,7 @@ Key (`instrument_id`, `stat_type`, `ts_event`). Columns: `instrument_id`, `sessi
 
 | Column | Type | Null | Meaning |
 |---|---|---|---|
-| instrument_id, session_date | | no | |
+| instrument_id, session_date | id / date | no | |
 | status_known | bool | no | false = that day's status is unknown (US before 2019-08-23) |
 | halted_full_day | bool | yes | Halted all day |
 | halt_count | i32 | yes | Number of intraday halts |
@@ -655,7 +655,7 @@ Key (`instrument_id`, `stat_type`, `ts_event`). Columns: `instrument_id`, `sessi
 | ts_available | ts_us | yes | Rules per column group, **`params.availability_by_column` required** (v1.1): prior information (`price_limit_ratio`, `up/down_limit_price`, `reference_price`, `admin_status`) is `session_open`, day results (`halted_full_day`, `halt_count`, `limit_up_close`, `limit_down_close`, `locked_up`, `locked_down`) are `session_close` [RV-Q10] |
 | source | code | yes | |
 
-`trading_status_events` — intraday status changes. Key (`instrument_id`, `ts_event`, `sequence`). Columns `ts_event` (ns), `ts_recv`, `status` (`halted`, `resumed`, `auction`, `pre_open`, `closed`, `luld_pause` …), `reason` (original code), `reason_group`, `source`, `source_record_id`. Corresponds to Databento Status and Nautilus InstrumentStatus.
+`trading_status_events` — intraday status changes. Key (`instrument_id`, `ts_event`, `sequence`). Columns `instrument_id` id, `ts_event` ts_ns, `sequence` i64, `ts_recv` ts_ns, `status` code (`halted`, `resumed`, `auction`, `pre_open`, `closed`, `luld_pause` …), `reason` string (original code), `reason_group` code, `source` string, `source_record_id` string. Corresponds to Databento Status and Nautilus InstrumentStatus.
 
 ### 5.11 `corporate_actions` (corporate action events, including dividends)
 
@@ -742,7 +742,7 @@ Checks: A011 (W, v1.2: there is an ex-date distribution after `last_trading_date
 
 ### 5.14 `share_counts` (share counts, PIT)
 
-Key (`instrument_id`, `count_kind`, `as_of_date`, `ts_available`). Columns `instrument_id`, `count_kind` (`listed` (listed shares), `outstanding` (issued and outstanding), `float`, `treasury`), `as_of_date` date (the date the count is correct for), `shares` f64, `ts_available`, `source`, `evidence_id`. Korean listed shares (daily from the exchange) use `as_of_date = session, ts_available = session close`; US SEC dei share counts use `as_of_date = cover page date, ts_available = filing instant`.
+Key (`instrument_id`, `count_kind`, `as_of_date`, `ts_available`). Columns `instrument_id` id, `count_kind` code (`listed` (listed shares), `outstanding` (issued and outstanding), `float`, `treasury`), `as_of_date` date (the date the count is correct for), `shares` f64, `ts_available` ts_us, `source` string, `evidence_id` string. Korean listed shares (daily from the exchange) use `as_of_date = session, ts_available = session close`; US SEC dei share counts use `as_of_date = cover page date, ts_available = filing instant`.
 
 ### 5.15 `fx_rates` (exchange rates)
 
@@ -762,7 +762,7 @@ The engine takes the opposite direction as `1/rate`. When FX is used as a tradab
 
 ### 5.16 `rates` (rate curves, option Greek inputs)
 
-Key (`curve_id`, `tenor_days`, `ts_event`). Columns `curve_id` (e.g. `USD-SOFR`, `USD-TBILL`, `KRW-CD91`), `currency`, `tenor_days` i32, `rate` f64 (annualised, ratio), `compounding` code (`simple`/`annual`/`continuous`), `day_count` code (`ACT/360` etc.), `ts_event`, `ts_available`, `source`.
+Key (`curve_id`, `tenor_days`, `ts_event`). Columns `curve_id` id (e.g. `USD-SOFR`, `USD-TBILL`, `KRW-CD91`), `currency` code, `tenor_days` i32, `rate` f64 (annualised, ratio), `compounding` code (`simple`/`annual`/`continuous`), `day_count` code (`ACT/360` etc.), `ts_event` ts_us, `ts_available` ts_us, `source` string.
 
 ### 5.17 `fundamentals_events` (fundamental facts, raw PIT events)
 
@@ -832,7 +832,7 @@ Partition `edition=/market=`. Key (`instrument_id`, `item`, `ts_known_from`). So
 
 Key (`instrument_id`, `scheme`, `level`, `edition`, `effective_from`, `ts_known_from`) (v1.1: `level` and `edition` added — with the v1 key, GICS sector and industry rows, or strict and compare rows, arriving on the same day were K001 duplicates) [RV-C08]. Sort same.
 
-Columns: `instrument_id`, `scheme` (e.g. `gics`, `krx_sector`, `sic`, `industry_pit`, `market_segment`, `is_financial`, `category`, `venue_mic`), `level` i8 **null forbidden** (0 for single-level schemes; for multi-level schemes 1 = the coarsest level), `code` string, `label` string null, `effective_from` date, `effective_to` date null, `ts_known_from` ts_us, `ts_known_to` ts_us null, `edition` code (`strict`/`compare`/`both`, default both), `pit_quality` code (row level), `source`.
+Columns: `instrument_id` id, `scheme` code (e.g. `gics`, `krx_sector`, `sic`, `industry_pit`, `market_segment`, `is_financial`, `category`, `venue_mic`), `level` i8 **null forbidden** (0 for single-level schemes; for multi-level schemes 1 = the coarsest level), `code` string, `label` string null, `effective_from` date, `effective_to` date null, `ts_known_from` ts_us, `ts_known_to` ts_us null, `edition` code (`strict`/`compare`/`both`, default both), `pit_quality` code (row level), `source` string.
 - Lookup: rectangle (6.3) — `ts_known_from <= t < ts_known_to` and `effective_from <= date(t) < effective_to`, edition filter (strict = `strict`+`both`, compare = `compare`+`both`), strict excludes row-level `backfilled`. For the same (instrument, scheme, level, edition filter) exactly one row satisfies these conditions (T012).
 - Scheme `tick_rule_id` [2026-11-01]: the instrument's tick rule over time. `level` 0, `code` = a `market_rules.rule_id` with `rule_kind = tick_band` (5.27), `effective_from` = the first session it applies to, `ts_known_from` = when the assignment was published. The band values of each rule set stay in `market_rules`; this scheme holds only which set an instrument uses, over its effective interval and known time. It carries assignments that differ per instrument and period, such as the US Reg NMS Rule 612 amendment: at $1 and above, $0.005 or $0.01 by the time-weighted average quoted spread, reassigned every half year, compliance from the first business day of November 2027 ([SEC Release 34-105656](https://www.sec.gov/files/rules/exorders/2026/34-105656.pdf)). A row valid at the decision time comes before `instruments.tick_size` and `instruments.tick_rule_id` in the grid source order (5.27).
 - `dictionary/columns.alias_of` can map a consumer name (e.g. `sector`) to `"<scheme>@<level>"`.
@@ -840,20 +840,20 @@ Columns: `instrument_id`, `scheme` (e.g. `gics`, `krx_sector`, `sic`, `industry_
 
 ### 5.20 Universe: `universe_membership`, `eligibility_daily`
 
-`universe_membership` (periods such as index membership): key (`universe_id`, `instrument_id`, `effective_from`, `ts_known_from`), lookup is the rectangle (6.3). Columns `universe_id` (e.g. `index:KOSPI200`, `index:SP500`), `instrument_id`, `effective_from` date, `effective_to` date null, `ts_known_from`, `ts_known_to`, `weight` f64 null, `source`. Index changes are announced before they take effect, so both axes are needed.
+`universe_membership` (periods such as index membership): key (`universe_id`, `instrument_id`, `effective_from`, `ts_known_from`), lookup is the rectangle (6.3). Columns `universe_id` id (e.g. `index:KOSPI200`, `index:SP500`), `instrument_id` id, `effective_from` date, `effective_to` date null, `ts_known_from` ts_us, `ts_known_to` ts_us null, `weight` f64 null, `source` string. Index changes are announced before they take effect, so both axes are needed.
 
-`eligibility_daily` (the producer's investable-universe judgement): partition `market=/year=`, key (`rule_id`, `instrument_id`, `session_date`). Columns `rule_id` (e.g. `investable-v1`), `is_eligible` bool, `reason` code null (open: `not_common`, `administrative`, `unit`, `preferred`, `fund`, `no_price`, `no_mcap` …), `ts_available` (v1.1 **default `session_close`** — the judgement usually uses that day's information, so a conservative default; `session_open` only when the producer declares that the judgement uses only pre-open information) [RV-C09]. Need not be dense. **Read rule** (v1.1): at decision session s only that session's one row is looked at; if there is no row or `ts_available > decision time`, it is **not eligible (false)** — a true from a previous session is not carried forward (`params.missing_means = false` declares this meaning, and v1.1 has no other value). Producers that need carried-forward state resolve the carry in advance and export dense rows.
+`eligibility_daily` (the producer's investable-universe judgement): partition `market=/year=`, key (`rule_id`, `instrument_id`, `session_date`). Columns `rule_id` id (e.g. `investable-v1`), `instrument_id` id, `session_date` date, `is_eligible` bool, `reason` code null (open: `not_common`, `administrative`, `unit`, `preferred`, `fund`, `no_price`, `no_mcap` …), `ts_available` ts_us (v1.1 **default `session_close`** — the judgement usually uses that day's information, so a conservative default; `session_open` only when the producer declares that the judgement uses only pre-open information) [RV-C09]. Need not be dense. **Read rule** (v1.1): at decision session s only that session's one row is looked at; if there is no row or `ts_available > decision time`, it is **not eligible (false)** — a true from a previous session is not carried forward (`params.missing_means = false` declares this meaning, and v1.1 has no other value). Producers that need carried-forward state resolve the carry in advance and export dense rows.
 
 ### 5.21 Events and alternative data: `events`, `series_observations`
 
-`events` (general events: earnings announcements, filings, insider trades, news scores, estimate snapshots …): key `event_id`. Partition `event_type=` (namespaced string, e.g. `filing.kr_dart`, `earnings.announcement`, `estimate.snapshot`). Columns `event_id`, `event_type`, `instrument_id` null, `issuer_id` null, `series_id` null [v1.4: market-level events such as macro releases — at least one of the three must be present, otherwise check V041 (W)], `ts_event` (instant the event happened), `ts_available` (required, instant the content was published — consumers MUST NOT show the event before this time), `ts_recorded` null, `value` f64 null, `consensus` f64 null [v1.4: the market expectation before the release; if present, surprise = value − consensus], `unit` null, `payload` json null, `source`, `doc_id`. A revision of the same event is a new `event_id` + `payload.revision_of` [v1.4, R4F-EV-02]. Frequently used events MAY add typed columns defined by `params.columns` (in that case give a separate dataset `name` per event kind, with `kind = events`).
+`events` (general events: earnings announcements, filings, insider trades, news scores, estimate snapshots …): key `event_id`. Partition `event_type=` (namespaced string, e.g. `filing.kr_dart`, `earnings.announcement`, `estimate.snapshot`). Columns `event_id` id, `event_type` code, `instrument_id` id null, `issuer_id` id null, `series_id` id null [v1.4: market-level events such as macro releases — at least one of the three must be present, otherwise check V041 (W)], `ts_event` ts_us (instant the event happened), `ts_available` ts_us (required, instant the content was published — consumers MUST NOT show the event before this time), `ts_recorded` ts_us null, `value` f64 null, `consensus` f64 null [v1.4: the market expectation before the release; if present, surprise = value − consensus], `unit` code null, `payload` json null, `source` string, `doc_id` string. A revision of the same event is a new `event_id` + `payload.revision_of` [v1.4, R4F-EV-02]. Frequently used events MAY add typed columns defined by `params.columns` (in that case give a separate dataset `name` per event kind, with `kind = events`).
 
-`series_observations` (macro and alternative time series, with vintages): key (`series_id`, `obs_period_end`, `ts_available`). Columns `series_id`, `obs_period_start` date null, `obs_period_end` date, `value` f64, `unit`, `ts_available` (release instant of that vintage — not the end of the observation period: September CPI is the October release instant), `is_revision` bool, `consensus` f64 null [v1.4], `frequency` code null (`D`/`W`/`M`/`Q`/`A`) [v1.4], `source`. ALFRED-style vintage storage: a revision of the value for the same period is a new row; first-release vintage = the row with the earliest `ts_available` for that period [v1.4, R4F-EV-01].
+`series_observations` (macro and alternative time series, with vintages): key (`series_id`, `obs_period_end`, `ts_available`). Columns `series_id` id, `obs_period_start` date null, `obs_period_end` date, `value` f64, `unit` code, `ts_available` ts_us (release instant of that vintage — not the end of the observation period: September CPI is the October release instant), `is_revision` bool, `consensus` f64 null [v1.4], `frequency` code null (`D`/`W`/`M`/`Q`/`A`) [v1.4], `source` string. ALFRED-style vintage storage: a revision of the value for the same period is a new row; first-release vintage = the row with the earliest `ts_available` for that period [v1.4, R4F-EV-01].
 
 ### 5.22 Futures: contracts, roll schedules, continuous contracts — `experimental`
 
 - Contract = a row in `instruments` (asset_class `future`). Recommended contract id `CME:ESZ2024` (4-digit year; `ESZ4` is reused every 10 years so it is not used as an id, but it stays in the symbol history).
-- `roll_calendar`: key (`roll_rule_id`, `root`, `session_date`, `rank`). Columns `roll_rule_id`, `root`, `session_date`, `rank` i16 (0 = front), `instrument_id`, `ts_available` (rolls based on OI or volume are determined by **the previous day's** data, so the publication instant of the previous day's statistics; Databento `.n.` and `.v.` are also based on the previous day [verified]).
+- `roll_calendar`: key (`roll_rule_id`, `root`, `session_date`, `rank`). Columns `roll_rule_id`, `root`, `session_date`, `rank` i16 (0 = front), `instrument_id`, `ts_available` (rolls based on OI or volume are determined by **the previous day's** data, so the publication instant of the previous day's statistics; Databento `.n.` and `.v.` are also based on the previous day [verified]). The columns named here without a type are typed when the schema leaves `experimental`.
 - Manifest `roll_rules`: `{"ES-c": {"mapping": "calendar", "offset_sessions": -5, "anchor": "last_trade"}, "CL-n": {"mapping": "open_interest"}}`. `mapping` ∈ {`calendar`, `last_trade`, `first_notice`, `open_interest`, `volume`}; `normalization` ∈ {`none`, `ratio`, `difference`} (only when producing continuous bars).
 - Continuous contract bars are an optional derivative: `instruments(is_synthetic = true, asset_class = future, root, x_roll_rule)` + `bars`. **For signals**; fills and P&L use actual contracts (specification 11.3).
 - Settlement prices and open interest are in `market_statistics`.
@@ -861,22 +861,22 @@ Columns: `instrument_id`, `scheme` (e.g. `gics`, `krx_sector`, `sic`, `industry_
 ### 5.23 Options: contracts, chain snapshots, Greek inputs — `experimental`
 
 - Contract = `instruments` (asset_class `option`; underlying, strike, right, exercise_style, ts_expiry, multiplier, settlement_type required). For US listed options the OCC symbol (OSI) goes in `instrument_xref.occ_osi`. Recommended id `OPRA:AAPL240621C00190000`.
-- `option_chain_snapshots`: partition `underlying=/date=`. Key (`instrument_id`, `ts_snapshot`). Columns `instrument_id`, `underlying_instrument_id`, `session_date`, `ts_snapshot` (ts_us), `ts_available`, `bid`, `ask`, `bid_size`, `ask_size`, `last`, `volume`, `open_interest`, `underlying_price`, `underlying_price_kind` (`mid`/`last`/`close`), `iv_vendor`, `delta_vendor`, `gamma_vendor`, `vega_vendor`, `theta_vendor`, `rho_vendor`, `greeks_model` (vendor model name) — **only vendor values are stored**. Values recomputed by the engine are not inputs (specification 11.3 "distinguish vendor values from recomputed values").
+- `option_chain_snapshots`: partition `underlying=/date=`. Key (`instrument_id`, `ts_snapshot`). Columns `instrument_id`, `underlying_instrument_id`, `session_date`, `ts_snapshot` (ts_us), `ts_available`, `bid`, `ask`, `bid_size`, `ask_size`, `last`, `volume`, `open_interest`, `underlying_price`, `underlying_price_kind` (`mid`/`last`/`close`), `iv_vendor`, `delta_vendor`, `gamma_vendor`, `vega_vendor`, `theta_vendor`, `rho_vendor`, `greeks_model` (vendor model name) — **only vendor values are stored**. Values recomputed by the engine are not inputs (specification 11.3 "distinguish vendor values from recomputed values"). The columns named here without a type are typed when the schema leaves `experimental`.
 - Inputs for Greek recomputation: underlying price (column above or underlying `bars`/`quotes`), rates `rates`, dividends `corporate_actions` (announced future dividends) + optional `dividend_forecasts` (an `events` kind), borrow cost (optional `series_observations`).
 - Tick-level option quotes use `quotes` as is.
 
 ### 5.24 Crypto: 24/7, perpetual contracts — `experimental`
 
 - Calendar `CRYPTO-UTC` (5.4). Recommended instrument id `<exchange>:<symbol>` (`BINANCE:BTCUSDT`, `BINANCE:BTCUSDT-PERP`).
-- `funding_rates`: key (`instrument_id`, `ts_event`). Columns `ts_event` (payment instant), `rate` f64 (rate for that interval), `interval_hours` f64, `is_predicted` bool (predicted value), `ts_available`, `source`. Nautilus FundingRateUpdate.
-- `reference_prices`: key (`instrument_id`, `price_kind`, `ts_event`). `price_kind` ∈ {`mark`, `index`, `settlement`}. Nautilus MarkPriceUpdate.
+- `funding_rates`: key (`instrument_id`, `ts_event`). Columns `ts_event` (payment instant), `rate` f64 (rate for that interval), `interval_hours` f64, `is_predicted` bool (predicted value), `ts_available`, `source`. Nautilus FundingRateUpdate. The columns named here without a type are typed when the schema leaves `experimental`.
+- `reference_prices`: key (`instrument_id`, `price_kind`, `ts_event`). `price_kind` ∈ {`mark`, `index`, `settlement`}. Nautilus MarkPriceUpdate. The columns named here without a type are typed when the schema leaves `experimental`.
 - Quantities are fractional: `size_exponent` (ticks), bar `volume` f64.
 
 ### 5.25 `feature_panels`, `label_panels` (wide tables computed by the producer)
 
-`feature_panels` — partition `name=/edition=/year=`. Key (`instrument_id`, `period`). Columns `instrument_id`, `period` date (first day of the period, e.g. day 1 for a month), `as_of_date` date (economic reference date), `ts_available` (required per row; e.g. a monthly panel uses the open of the session after `as_of_date`), and the feature columns (each with unit, meaning and `is_label = false` in `dictionary/columns`). Lineage marker columns (`x_ex_fin_strict_row` etc.) are extension columns.
+`feature_panels` — partition `name=/edition=/year=`. Key (`instrument_id`, `period`). Columns `instrument_id` id, `period` date (first day of the period, e.g. day 1 for a month), `as_of_date` date (economic reference date), `ts_available` ts_us (required per row; e.g. a monthly panel uses the open of the session after `as_of_date`), and the feature columns (each with unit, meaning and `is_label = false` in `dictionary/columns`). Lineage marker columns (`x_ex_fin_strict_row` etc.) are extension columns.
 
-`label_panels` — the same shape + `entry_date`, `entry_price_basis`, `exit_date`, `horizon`, `return_definition` (e.g. `econ_reinvest_ex_close`, `adj_ratio`), `terminal_policy_id`, and optional time columns `ts_label_start`, `ts_label_end` (end of the outcome), `ts_label_available` (the first instant that label value could be computed — including late-published delisting recoveries and dividend amounts) [v1.1, RV-C04]. Without the time columns, the consumer builds the first two from `entry/exit_date` and `entry_price_basis` and assumes `ts_label_available = ts_label_end` (assumption recorded). Every value column has `is_label = true`. **The engine does not read them as decision inputs** (specification R-16). Check V050: error if a `label_panels` column name exists in `feature_panels` (prevents leaks through name collisions).
+`label_panels` — the same shape + `entry_date` date, `entry_price_basis` code, `exit_date` date, `horizon` string, `return_definition` code (e.g. `econ_reinvest_ex_close`, `adj_ratio`), `terminal_policy_id` id, and optional time columns `ts_label_start` ts_us, `ts_label_end` ts_us (end of the outcome), `ts_label_available` ts_us (the first instant that label value could be computed — including late-published delisting recoveries and dividend amounts) [v1.1, RV-C04]. Without the time columns, the consumer builds the first two from `entry/exit_date` and `entry_price_basis` and assumes `ts_label_available = ts_label_end` (assumption recorded). Every value column has `is_label = true`. **The engine does not read them as decision inputs** (specification R-16). Check V050: error if a `label_panels` column name exists in `feature_panels` (prevents leaks through name collisions).
 
 ### 5.26 Benchmarks
 
@@ -1292,6 +1292,7 @@ Standard `1.x` bundles all dataset schemas `1.x`. If a dataset schema MAJOR rise
 | Changing key, sort or partitions | MAJOR |
 | Adding a new error (E) check | MAJOR. Except "the standard text already forbade it but there was no check": MINOR + W first for one version |
 | Wording fix (same meaning) | No version change (document fix record only) |
+| Stating the type or nullability of a column chapter 5 named without one, while the standard is a draft (10.5) | No version change (a wording fix; document fix record only) |
 
 ### 10.3 Reader and writer obligations
 
@@ -1523,3 +1524,4 @@ Reference numbers are `R4F-NN` of specification v3.4 (appendix I). **`tds_versio
 - 2026-11-10: **v1.4**, in place. 8.1: `tds check` no longer has `--sample-rows`, which the checker accepted and never used; a check of part of a package is `--datasets` (maintainer decision 2026-11-05, #309). `tds_version` stays `"1.0"` (checker behaviour, no format change).
 - 2026-11-10: **v1.4**, in place. 8.2: `instrument_xref` is timeless for T006's purpose; the newest-data check does not read it, its validity intervals (5.3) stay as they are, and it is not a decision input (decision 2026-11-10, #332). `tds_version` stays `"1.0"` (wording, no format change).
 - 2026-11-10: **v1.4**, in place. 3.4 and 8.3 TDS-V011: the denominator takes `instruments.multiplier`, the check reads bars whose `price_basis` is `raw` and leaves out `index` instruments; 5.27: V012 compares in integers of the grid's own smallest tick, the checker having no market minimum unit (maintainer decision 2026-11-10, #229). `tds_version` stays `"1.0"` (checker behaviour, no format change).
+- 2026-11-11: **v1.4**, in place. Chapter 5 states a 3.2 type for the 67 columns the stable datasets named without one (5.3, 5.4 `calendar_segments`, 5.10, 5.14, 5.16, 5.19, 5.20, 5.21, 5.25) and says `universe_membership.ts_known_to` is nullable, which its open known interval already needed (6.3); each experimental dataset with untyped columns (5.7, 5.8, 5.9, 5.22, 5.23, 5.24) says they are typed when its schema leaves `experimental`; 10.2 says stating a type that was unstated is a wording fix while the standard is a draft (decision 2026-11-03, #105). `tds_version` stays `"1.0"` (wording fix; draft).
