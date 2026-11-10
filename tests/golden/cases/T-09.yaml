@@ -1,0 +1,51 @@
+# Golden case T-09 (spec 8.2): symbol reuse in `instrument_symbols` (5.3.6 rectangular lookup,
+# 4.6, 5.1.2; TDS 5.2, 6.3 (3), K1, K6; INV-01).
+# Expected values are literals. `check/T-09.py` reaches them by interval comparisons only, and
+# `tests/golden/test_handcalc_self.py` compares the two. An implementation pull request does
+# not change this file (`tests/repo/test_golden_guard.py`); a wrong value reopens the golden
+# ticket ("spec deviation").
+id: T-09
+description: >-
+  Ticker ABC on XKRX (`symbol_type = ticker`) names KR:T00001 from its listing on 2020-01-02.
+  On 2020-01-07 at 07:00Z, after that session's close (06:30Z), the producer publishes two
+  things: KR:T00001 is renamed ABCD effective 2020-01-08, and a new instrument KR:T00002, listed
+  2020-01-09, takes the ticker ABC. As TDS 5.2 says, the correction closes the trust in the old
+  row R1 (`ts_known_to` = the announcement) and adds the corrected row R2 (ABC, valid to
+  2020-01-08 exclusive), the new ticker R3 and the reuse R4, all known from the announcement (the
+  shape of 5.3.6's example 1). A query (cutoff c, date q) is answered by the rectangle of 5.3.6:
+  the one row of the key with `ts_known_from <= c < ts_known_to` and `valid_from <= q < valid_to`,
+  both together; none is missing. The cutoff of a close decision at session s is ready(s) = its
+  close, 06:30Z (5.1.2; the bars' rule is `ts_end`). Two lookups per query: the ticker of
+  KR:T00001 (key (KR:T00001, ticker), the display name of `Screen` and `Orders`) over R1, R2, R3,
+  and the instrument ABC names (fixed-list universes, 4.6) over R1, R2, R4. Before the
+  announcement a query about a later date still answers from R1, what was known then (INV-01);
+  after it the past is read from R2; on 2020-01-08 ABC names nobody. Ids are never reused (K1).
+spec: "8.2 T-09; 5.3.6 rectangular lookup, 4.6 instrument_symbols, 5.1.2 cutoff; TDS 5.2, 6.3 (3), K1, K6; 1.3 INV-01"
+
+instrument_symbols:                     # TDS 5.2; venue_mic XKRX, symbol_type ticker; null = open
+  - {row: R1, instrument_id: "KR:T00001", symbol: ABC, valid_from: "2020-01-02", valid_to: null, ts_known_from: "2019-12-31T00:00:00Z", ts_known_to: "2020-01-07T07:00:00Z"}
+  - {row: R2, instrument_id: "KR:T00001", symbol: ABC, valid_from: "2020-01-02", valid_to: "2020-01-08", ts_known_from: "2020-01-07T07:00:00Z", ts_known_to: null}
+  - {row: R3, instrument_id: "KR:T00001", symbol: ABCD, valid_from: "2020-01-08", valid_to: null, ts_known_from: "2020-01-07T07:00:00Z", ts_known_to: null}
+  - {row: R4, instrument_id: "KR:T00002", symbol: ABC, valid_from: "2020-01-09", valid_to: null, ts_known_from: "2020-01-07T07:00:00Z", ts_known_to: null}
+
+# One row per query: `session` s gives the cutoff ready(s) = 06:30Z of s; `date` is q.
+# `t00001_row`, `t00001_ticker`: the row and symbol of key (KR:T00001, ticker). `abc_row`,
+# `abc_instrument`: the row and id among the ABC rows. null = no row matches (missing).
+#
+# Hand-checked 2026-11-10 (#222), via the coordinating session, recomputed from 5.3.6 / 5.1.2
+# without this file, all seven rows:
+#   the announcement 2020-01-07T07:00Z is after the 01-07 cutoff (06:30Z) and before the 01-08 one,
+#   so at the 01-06 and 01-07 cutoffs only R1 is known; from 01-08 on, R2, R3 and R4 and not R1;
+#   (01-07, q 01-09): R1 known and open-ended -> ABC, KR:T00001, as known then, the reuse unseen
+#   (01-08, q 01-07): R2 covers 01-02 .. 01-07 -> ABC, KR:T00001; R3 starts 01-08, R4 01-09
+#   (01-08, q 01-08): R2 ended (01-08 exclusive), R3 -> ABCD; ABC: R2 ended, R4 not yet -> none
+#   (01-09, q 01-09): R3 -> ABCD; R4 -> KR:T00002
+#   (01-09, q 01-06): R2 -> ABC, KR:T00001 (R1 is no longer trusted)
+expected:
+  - {session: "2020-01-06", cutoff: "2020-01-06T06:30:00Z", date: "2020-01-06", t00001_row: R1, t00001_ticker: ABC, abc_row: R1, abc_instrument: "KR:T00001"}
+  - {session: "2020-01-07", cutoff: "2020-01-07T06:30:00Z", date: "2020-01-07", t00001_row: R1, t00001_ticker: ABC, abc_row: R1, abc_instrument: "KR:T00001"}
+  - {session: "2020-01-07", cutoff: "2020-01-07T06:30:00Z", date: "2020-01-09", t00001_row: R1, t00001_ticker: ABC, abc_row: R1, abc_instrument: "KR:T00001"}
+  - {session: "2020-01-08", cutoff: "2020-01-08T06:30:00Z", date: "2020-01-07", t00001_row: R2, t00001_ticker: ABC, abc_row: R2, abc_instrument: "KR:T00001"}
+  - {session: "2020-01-08", cutoff: "2020-01-08T06:30:00Z", date: "2020-01-08", t00001_row: R3, t00001_ticker: ABCD, abc_row: null, abc_instrument: null}
+  - {session: "2020-01-09", cutoff: "2020-01-09T06:30:00Z", date: "2020-01-09", t00001_row: R3, t00001_ticker: ABCD, abc_row: R4, abc_instrument: "KR:T00002"}
+  - {session: "2020-01-09", cutoff: "2020-01-09T06:30:00Z", date: "2020-01-06", t00001_row: R2, t00001_ticker: ABC, abc_row: R2, abc_instrument: "KR:T00001"}
