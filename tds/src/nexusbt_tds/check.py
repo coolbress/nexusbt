@@ -214,7 +214,7 @@ def check(
 HASH_CODES = ("TDS-H001", "TDS-H002", "TDS-H003")
 KEY_CODES = ("TDS-K001", "TDS-K002", "TDS-K003", "TDS-K004", "TDS-K010", "TDS-K011")  # `keys`
 REF_CODES = tuple(f"TDS-R{n:03}" for n in range(1, 10))  # `refs` checks them
-ACTION_CODES = tuple(f"TDS-A{n:03}" for n in range(1, 10))  # `adjustments` checks them
+ACTION_CODES = tuple(f"TDS-A{n:03}" for n in range(1, 12))  # `adjustments` checks them
 #: `values` checks them; V011, V012 (T0.15d), V031 and V032 (#227) are not judged yet.
 VALUE_CODES = tuple(f"TDS-V{n:03}" for n in (1, 2, 4, 5, 10, 20, 30, 40, 41, 50))
 FULL_CODES = (*KEY_CODES, *REF_CODES, *ACTION_CODES, *VALUE_CODES, *HASH_CODES)
