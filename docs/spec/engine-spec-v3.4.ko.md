@@ -2930,8 +2930,8 @@ pytest 표시: `unit`, `golden`, `property`, `docs`, `examples`, `parity`, `perf
 
 1. M0 첫 티켓(T0.1)이 이 명세를 `docs/spec/engine-spec-v3.4.md`로, TDS v1.4을 `tds/spec/tds-v1.md`로 넣는다(내용 그대로; 이름 문자열만 저장소 이름에 맞추고, 비공개 주석·TDS 11장·사용자 개인 정보·호스트·자료 경로를 뺀 공개판, 2.7).
 2. 사용자: `claude plugin install mattpocock-skills-extra@plinth`(한 번) → 새 세션 → `/to-spec docs/spec/engine-spec-v3.4.md`. 계획 이슈 하나("spec: NexusBT v1 (spec v3.4)") [R6-02]가 생긴다. 본문 = 1장 범위, 10장 마일스톤 표, 12장 열린 것, 그리고 명세 파일 링크.
-3. `/to-tickets` on 그 계획 이슈. 10장의 티켓은 이미 잘려 있으므로 그대로 이슈로 만든다: 제목 = 티켓 제목, 본문 = Context / Done means / Acceptance tests / Spec 절, 라벨 = 마일스톤(`M0`~`M6`, `M3a`/`M3b`) + 모듈, "Blocked by #N" = 의존 티켓의 이슈 번호. 티켓을 다시 쪼개야 하면 같은 형식을 지킨다(400줄 규칙). 이슈로 만들기 전에 `tests/repo/test_ticket_graph.py`(이 명세 10장 표를 읽어 의존 그래프가 비순환이고 각 티켓의 "Blocked by"가 같거나 앞 마일스톤인지 확인)를 한 번 돌린다(T0.12가 만든다).
-4. 마일스톤마다 GitHub milestone `M0 contract` … `M6 performance`, `v1.x`를 만들고, 마일스톤 추적 이슈에 "끝 조건"(10장)과 "보여 줄 명령"을 체크리스트로 둔다.
+3. `/to-tickets` on 그 계획 이슈. 10장의 티켓은 이미 잘려 있으므로 그대로 이슈로 만든다: 제목 = 티켓 제목, 본문 = Context / Done means / Acceptance tests / Spec 절, 라벨 = `task`와 분류 라벨(마일스톤·모듈 라벨은 없다: 본문 `## Parent`의 마일스톤 표시(`M1` 등)가 마일스톤을 말하며, 티켓 id 앞자리와 늘 같지는 않다), "Blocked by #N" = 의존 티켓의 이슈 번호. 티켓을 다시 쪼개야 하면 같은 형식을 지킨다(400줄 규칙). 이슈로 만들기 전에 `tests/repo/test_ticket_graph.py`(이 명세 10장 표를 읽어 의존 그래프가 비순환이고 각 티켓의 "Blocked by"가 같거나 앞 마일스톤인지 확인)를 한 번 돌린다(T0.12가 만든다).
+4. GitHub milestone은 만들지 않는다. 마일스톤 추적 이슈는 계획 이슈 자체다: 그 `## Milestone status` 표가 마일스톤마다 끝난 티켓과 PR, 그리고 "끝 조건"(10장)과 "보여 줄 명령"을 언제 채웠는지 적는다. 이 명세가 수치나 체크리스트를 "마일스톤 추적 이슈에" 두라고 하는 곳은 모두 그 표의 해당 마일스톤 줄이다.
 5. 생산자 쪽 일은 생산자 저장소에서 따로 다룬다(이 엔진 저장소가 아님).
 
 ### 9.5 단계 4: `/implement #N` 규칙 (에이전트가 지킬 것)
@@ -2940,7 +2940,7 @@ pytest 표시: `unit`, `golden`, `property`, `docs`, `examples`, `parity`, `perf
 - 시험 먼저(tdd): 티켓 "Acceptance tests"의 시험 이름을 그대로 만들고 실패를 본 뒤 구현. golden 사례(`tests/golden/cases/**`)는 앞선 golden 티켓이 이미 병합한 것을 쓰고 **고치지 않는다**(8.2); 사례가 명세와 다르면 멈추고 "spec deviation".
 - 깊은 모듈: 2.4의 공개 인터페이스만 바꾸거나 쓴다. 공개 API(3장)에 없는 이름을 공개하지 않는다. 다른 모듈의 `_` 내부를 import하지 않는다(import 규칙 시험).
 - 명세와 다르게 해야 하면 구현을 멈추고 PR 설명에 "spec deviation"으로 적고 ADR 초안을 같이 낸다. 허용 오차를 늘리거나 시험을 건너뛰어 초록을 만들지 않는다.
-- PR 설명: "Done means"에 대한 증거(명령과 출력 일부), `/code-review`가 찾은 것, 확인 못 한 것, `Assisted-by` 줄. `docs/requirements.md`의 해당 R 상태를 고친다.
+- PR 설명: "Done means"에 대한 증거(명령과 출력 일부), 어떤 리뷰를 돌렸는지와 새 맥락 리뷰가 찾은 것을 보고한 그대로(diff, 이슈의 인정 기준, `AGENTS.md`의 Code Review Rules만 받은 새 하위 에이전트나 새 세션. `/implement`의 `/code-review`는 변경을 쓴 세션이 지시하므로 이 리뷰가 아니다), 확인 못 한 것, `Assisted-by` 줄. `docs/requirements.md`의 해당 R 상태를 고친다.
 - 400줄을 넘을 것 같으면 PR을 쌓는다(아래 PR이 위 PR의 바탕) — 티켓을 둘로 나누는 이슈 코멘트를 남긴다.
 
 ### 9.6 단계 5~6: "초록 + 눈으로 봄"
@@ -2955,7 +2955,7 @@ pytest 표시: `unit`, `golden`, `property`, `docs`, `examples`, `parity`, `perf
 4. zipline 대조 차이는 먼저 "알려진 차이 표"에 있는지 보고, 없으면 시점 맞춤(8.1)·반올림 입력·sid 순서를 확인한다. 우리 OHLC 규칙과 zipline의 차이는 버그가 아니다(8.1 범위).
 
 ### 9.8 단계 8~9: 멈추기, 돌아오기, 건강
-- 멈추기 전: 진행 중 PR 설명에 남은 일, 마일스톤 추적 이슈 체크리스트 갱신, 결정은 ADR, `/handoff`.
+- 멈추기 전: 진행 중 PR 설명에 남은 일, 마일스톤 추적 이슈의 해당 마일스톤 줄 갱신(9.4), 결정은 ADR, `/handoff`.
 - 돌아올 때 "Where is this project, and what's next?"의 답 원천: 마일스톤 추적 이슈, 열린 티켓의 "Blocked by", `docs/requirements.md`(R마다 implemented/deferred/replaced + PR 번호), `bench/results/`, `tests/parity/evidence/`.
 - 건강: numpy·numba·pyarrow·polars는 서로 묶여 있으니 한 PR에 하나씩(numba가 지원하는 numpy 범위 확인). zipline 고정판은 대조 기준이라 올리지 않는다(올리면 ADR + 대조 증거 다시). plinth 템플릿 갱신 뒤 `/plinth:floor-check`.
 
