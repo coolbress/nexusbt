@@ -8,12 +8,14 @@ leaves K003 unchecked; a file's time range is its `<ts_min>_<ts_max>` name (3.6)
 
 from __future__ import annotations
 
+import ast
 import datetime as dt
 import re
-from collections import Counter, defaultdict
+from collections import defaultdict
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import replace
-from itertools import combinations
+from itertools import combinations, groupby
+from operator import itemgetter
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -21,6 +23,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from .check import KEY_CODES, Finding, _unsafe
+from .hash import HashError, Record, SortedRuns, spill_folder
 from .manifest import Manifest
 from .profiles import meets
 
@@ -41,21 +44,30 @@ Row = dict[str, Any]
 Batch = dict[str, list[Any]]
 
 
-def check_keys(m: Manifest, only: Sequence[str] | None, blind: set[str]) -> list[Finding]:
+def check_keys(
+    m: Manifest, only: Sequence[str] | None, blind: set[str],
+    tmp_dir: Path | None = None, spilled: list[Path] | None = None,
+    notes: list[str] | None = None,
+) -> list[Finding]:  # fmt: skip
     """K001~K011 reading, of the datasets checked, the key, sort and date columns in batches
-    (#309). Memory holds a batch, the distinct keys (K001), the last row of each folder (K002)
-    and, of `KEPT`'s tables, their columns as rows. A file the codes cannot read, or one with a
-    column name twice, leaves them unchecked."""
+    (#309). Memory holds a batch, the last row of each folder (K002) and, of `KEPT`'s tables,
+    their columns as rows; K001's keys go in sorted runs to a temporary file (in `tmp_dir`, else
+    beside the package; listed in `spilled`, removed), and when none can be made K001 alone is
+    unchecked, why in `notes`. A file the codes cannot read, or one with a column name twice,
+    leaves them unchecked."""
     from .schemas.verify import load_schemas
 
     schemas, root, out = load_schemas(), m.root.resolve(), []
+    folder, spilled = spill_folder(m.root, tmp_dir), [] if spilled is None else spilled
+    notes = [] if notes is None else notes
     for ds in (d for d in m.datasets if only is None or d.get("name") in only):
         kind, schema = ds.get("kind"), schemas.get(str(ds.get("kind")))
         params = ds["params"] if isinstance(ds.get("params"), dict) else {}
         key = _variant(ds.get("key", schema.key if schema else None), params)
         sort = _variant(ds.get("sort", schema.sort if schema else None), params)
         try:
-            found = _scan(root, ds, str(kind), key, sort, blind)
+            with SortedRuns(folder, spilled) as runs:
+                found = _scan(root, ds, str(kind), key, sort, blind, runs, notes)
         except (OSError, pa.ArrowException):  # a file Parquet cannot read: S010's, rows unseen
             blind.update(KEY_CODES)
             continue
@@ -80,13 +92,13 @@ def batches(
 
 def _scan(
     root: Path, ds: Mapping[str, Any], kind: str, key: list[str] | None,
-    sort: list[str] | None, blind: set[str],
+    sort: list[str] | None, blind: set[str], runs: SortedRuns, notes: list[str],
 ) -> list[Finding]:  # fmt: skip
     """One pass over the files in path order, so each folder's files come in name order (3.5)."""
     date, kept = "period" if kind in PANELS else "session_date", KEPT.get(kind, ())
     files = sorted(listed(root, ds))
     unseen = {c for c, cols in ((K001, key), (K002, sort)) if cols is None}  # not judged
-    counts: Counter[tuple[Any, Any]] = Counter()
+    pending: list[Record] = []  # K001: keys not yet in a sorted run
     last: dict[str, list[Any]] = {}  # K002, per folder: the last row's sort values
     unsorted: dict[str, tuple[int, str, Row]] = {}  # per folder: count, first file and row
     off: list[Finding] = []
@@ -103,8 +115,13 @@ def _scan(
                 continue
             if key is None or any(c not in b for c in key):
                 unseen.add(K001)
-            else:
-                counts.update((k, own) for k in zip(*(b[c] for c in key), strict=True))
+            elif K001 not in unseen:
+                columns = (_literals(b[c]) for c in key)
+                pending += ((repr((*k, own)).encode(), b"", 0, b"")
+                            for k in zip(*columns, strict=True))  # fmt: skip
+                if len(pending) >= BATCH_ROWS:
+                    _add(runs, pending, unseen, notes)
+                    pending = []
             if sort is None or any(c not in b for c in sort):
                 unseen.add(K002)
             else:
@@ -127,8 +144,9 @@ def _scan(
             if bad := [d for d in days if _folder(part, d) != value]:
                 msg = f"{len(bad)} row(s) with {date} outside {part}={value}, e.g. {bad[0]}"
                 off.append(Finding(K003, "error", msg, file=rel, count=len(bad)))
+    _add(runs, pending, unseen, notes)
     blind.update(unseen)
-    found = [] if K001 in unseen else list(_duplicates(counts, key or []))
+    found = [] if K001 in unseen else list(_duplicates(runs.merged(), key or []))
     for count, rel, row in [] if K002 in unseen else unsorted.values():
         msg = f"{count} row(s) sort before the row above them by {', '.join(sort or [])}"
         found.append(Finding(K002, "error", msg, file=rel, key=_shown(list(row), row), count=count))
@@ -136,6 +154,15 @@ def _scan(
     found += _reused(rows, blind) if kind == "instrument_symbols" else []
     found += _numbering(rows) if kind == "calendar_sessions" else []
     return found
+
+
+def _add(runs: SortedRuns, pending: list[Record], unseen: set[str], notes: list[str]) -> None:
+    """K001's keys as one more sorted run; with no temporary file for it, K001 is unchecked."""
+    try:
+        runs.add(sorted(pending, key=itemgetter(0)))
+    except HashError as exc:
+        unseen.add(K001)
+        notes.append(f"{K001} not checked: {exc}")
 
 
 def _folder(part: str, day: dt.date) -> str:
@@ -170,13 +197,34 @@ def _shown(columns: Sequence[str], row: Row) -> dict[str, object]:
     return {c: row[c] if isinstance(row[c], plain) else str(row[c]) for c in columns}
 
 
-def _duplicates(counts: Counter[tuple[Any, Any]], key: list[str]) -> Iterable[Finding]:
+_LITERAL = frozenset({str, int, float, bool, type(None)})
+
+
+def _literals(values: list[Any]) -> list[Any]:
+    """A column's values as Python literals, so a key's `repr` is equal for equal keys and reads
+    back with `ast.literal_eval`: a date or an instant (made UTC) as (type name, text)."""
+
+    def typed(v: Any) -> tuple[str, str]:
+        v = v.astimezone(dt.UTC) if isinstance(v, dt.datetime) and v.tzinfo else v
+        return type(v).__name__, str(v)
+
+    return [v if v.__class__ in _LITERAL else typed(v) for v in values]
+
+
+def _duplicates(records: Iterable[Record], key: list[str]) -> Iterable[Finding]:
     """K001: a key on two rows anywhere in the dataset, with the row's partition values other
-    than `year=` and `date=` (TDS 3.5; #224, 2026-11-05). `counts` is (key, partition values)."""
-    if twice := [k for k, n in counts.items() if n > 1]:
-        first = dict(zip(key, twice[0][0], strict=True)) | dict(twice[0][1])
-        msg, n = f"{len(twice)} key value(s) on more than one row", sum(counts[k] for k in twice)
-        yield Finding(K001, "error", msg, key=_shown(list(first), first), count=n)
+    than `year=` and `date=` (TDS 3.5; #224, 2026-11-05). `records` come in the order of their
+    `repr` bytes, so a key's rows are next to each other; the example is the first of them."""
+    twice, rows, first = 0, 0, b""
+    for encoded, same in groupby(records, key=itemgetter(0)):
+        if (n := sum(1 for _ in same)) > 1:
+            twice, rows, first = twice + 1, rows + n, first or encoded
+    if twice:
+        *values, own = ast.literal_eval(first.decode())
+        shown = dict(zip(key, values, strict=True)) | dict(own)
+        shown = {c: v[1] if isinstance(v, tuple) else v for c, v in shown.items()}
+        yield Finding(K001, "error", f"{twice} key value(s) on more than one row", key=shown,
+                      count=rows)  # fmt: skip
 
 
 def _group(items: Iterable[Any], by: Any) -> dict[Any, list[Any]]:

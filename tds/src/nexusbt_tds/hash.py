@@ -14,7 +14,6 @@ import struct
 import tempfile
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
-from itertools import chain
 from operator import itemgetter
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -250,29 +249,64 @@ def _run(fd: int, start: int, end: int) -> Iterator[Record]:
         pos = s + k + r + m
 
 
+class SortedRuns:
+    """Runs of records, each sorted by its key, added one at a time; `merged` gives them all in
+    key order. One run stays in memory; from a second on, every run goes to one temporary file
+    in `folder`, listed in `spilled` and removed on leaving its `with`."""
+
+    def __init__(self, folder: Path, spilled: list[Path]) -> None:
+        self.folder, self.spilled = folder, spilled
+        self.first: list[Record] = []
+        self.out: Any = None  # the temporary file and its name, once a second run comes
+        self.name = ""
+        self.spans: list[tuple[int, int]] = []
+
+    def add(self, run: list[Record]) -> None:
+        if not run:
+            return
+        if self.out is None and not self.first:
+            self.first = run
+            return
+        if self.out is None:
+            try:
+                fd, self.name = tempfile.mkstemp(".tmp", ".tds-hash-", self.folder)
+            except OSError as exc:  # not "a file Parquet cannot read": say which folder
+                raise HashError(f"no temporary file in {self.folder}: {exc.strerror}") from exc
+            self.spilled.append(Path(self.name))
+            self.out = open(fd, "w+b")  # noqa: SIM115 - closed by `__exit__`
+            self._write(self.first)
+            self.first = []
+        self._write(run)
+
+    def _write(self, run: list[Record]) -> None:
+        start = self.out.tell()
+        self.out.writelines(_RECORD.pack(len(k), len(r), i, len(m)) + k + r + m
+                            for k, r, i, m in run)  # fmt: skip
+        self.spans.append((start, self.out.tell()))
+
+    def merged(self) -> Iterator[Record]:
+        if self.out is None:
+            return iter(self.first)
+        self.out.flush()
+        fd = self.out.fileno()
+        return heapq.merge(*(_run(fd, a, b) for a, b in self.spans), key=itemgetter(0))
+
+    def __enter__(self) -> SortedRuns:
+        return self
+
+    def __exit__(self, *exc: object) -> None:  # the temporary file goes, an exception included
+        if self.out is not None:
+            self.out.close()
+            os.unlink(self.name)
+
+
 @contextmanager
 def _merged(runs: Iterator[list[Record]], folder: Path, spilled: list[Path]) -> Iterator[Any]:
-    """The runs' records in key order: one run stays in memory; more go to a temporary file in
-    `folder`, listed in `spilled` and removed on leaving, an exception included."""
-    first, second = next(runs, []), next(runs, None)
-    if second is None:
-        yield first
-        return
-    fd, name = tempfile.mkstemp(prefix=".tds-hash-", suffix=".tmp", dir=folder)
-    spilled.append(Path(name))
-    try:
-        spans = []
-        with open(fd, "wb", closefd=False) as out:
-            for run in chain([first, second], runs):
-                start = out.tell()
-                out.writelines(_RECORD.pack(len(k), len(r), i, len(m)) + k + r + m
-                               for k, r, i, m in run)  # fmt: skip
-                spans.append((start, out.tell()))
-        del first, second
-        yield heapq.merge(*(_run(fd, a, b) for a, b in spans), key=itemgetter(0))
-    finally:
-        os.close(fd)
-        os.unlink(name)
+    """The runs' records in key order (`SortedRuns`)."""
+    with SortedRuns(folder, spilled) as sink:
+        for run in runs:
+            sink.add(run)
+        yield sink.merged()
 
 
 def dataset_hashes(
@@ -324,10 +358,10 @@ def spill_folder(root: Path, tmp_dir: Path | None) -> Path:
     return Path(tmp_dir) if tmp_dir is not None else Path(root).resolve().parent
 
 
-def spilled_note(spilled: list[Path]) -> str:
+def spilled_note(spilled: list[Path], what: str = "value hash") -> str:
     """The one line saying where the sorted runs were written."""
     where = ", ".join(sorted({str(p.parent) for p in spilled}))
-    return f"value hash: {len(spilled)} temporary file(s) of sorted rows in {where}, removed"
+    return f"{what}: {len(spilled)} temporary file(s) of sorted rows in {where}, removed"
 
 
 HASH_SPEC = "tds-hash-1"

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import tracemalloc
 from pathlib import Path
 from typing import Any
 
@@ -220,6 +221,77 @@ def test_keys_read_the_named_datasets_and_only_their_key_columns(
     read.clear()
     assert keys.check_keys(read_manifest(write(tmp_path / "ok")), ["bars_1d"], blind) == []
     assert read == [["instrument_id", "session_date"]]  # daily bars: no close, no volume
+
+
+def _daily_bars(rows: int) -> Any:
+    """`rows` daily bars of 2024, distinct keys, in the schema's sort (session_date first)."""
+    days = [dt.date(2024, 1, 1) + dt.timedelta(days=d) for d in range(250)]
+    ids = [f"US:I{i:05}" for i in range(-(-rows // len(days)))]
+    pairs = [(day, i) for day in days for i in ids][:rows]
+    table = build.bars_table(instrument_id=pa.array([i for _, i in pairs]),
+                             session_date=pa.array([d for d, _ in pairs]), close=None)  # fmt: skip
+    return lambda m, f: build.rewrite(m, f, build.BARS, table)
+
+
+@pytest.mark.usefixtures("keys_batches")
+def test_k001_names_the_smallest_key_on_more_than_one_row(tmp_path: Path) -> None:
+    """K001 finds duplicates in sorted runs (#309): its example is the smallest such key, not
+    the first one read."""
+    ids, days = ["US:BBB", "US:BBB", "US:AAA", "US:AAA"], [2, 2, 3, 3]
+    dates = pa.array([dt.date(2024, 1, d) for d in days])
+    table = build.bars_table(instrument_id=pa.array(ids), session_date=dates, close=None)
+    changed = write(tmp_path, lambda m, f: build.rewrite(m, f, build.BARS, table))
+    result = check(changed, level="full")
+    (k001,) = (f for f in result.errors if f.code == "TDS-K001")
+    assert (k001.message, k001.count) == ("2 key value(s) on more than one row", 4)
+    shown = {"instrument_id": "US:AAA", "session_date": "2024-01-03", "freq": "1d", "market": "US"}
+    assert k001.key == shown
+
+
+@pytest.mark.parametrize("named", [False, True])
+def test_k001_sorted_runs_go_beside_the_package_or_to_tmp_dir_and_are_removed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, named: bool
+) -> None:
+    monkeypatch.setattr(keys, "BATCH_ROWS", 1)  # a run per row: a dataset of two rows spills
+    package, scratch = write(tmp_path / "pkg", _daily_bars(2)), tmp_path / "scratch"
+    scratch.mkdir()
+    result = check(package, level="full", tmp_dir=scratch if named else None)
+    assert [f.code for f in result.errors if f.code in K_CODES] == []
+    where = scratch if named else tmp_path
+    assert f"key check: 1 temporary file(s) of sorted rows in {where}, removed" in result.notes
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["pkg", "scratch"]
+    assert list(scratch.iterdir()) == []
+
+
+def test_k001_without_a_temporary_file_is_unchecked_with_a_note(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A folder the sorted runs cannot go to leaves K001 alone unchecked, saying why; the other
+    K codes keep what they found (fresh-context review of #309's K001 part)."""
+    monkeypatch.setattr(keys, "BATCH_ROWS", 1)
+    days = pa.array([dt.date(2024, 1, d) for d in (3, 3, 2)])  # a key twice, then a row unsorted
+    table = build.bars_table(instrument_id=pa.array(["US:AAA"] * 3), session_date=days, close=None)
+    package = write(tmp_path / "pkg", lambda m, f: build.rewrite(m, f, build.BARS, table))
+    result = check(package, level="full", tmp_dir=tmp_path / "missing")
+    assert [f.code for f in result.errors if f.code in K_CODES] == ["TDS-K002"]
+    assert [c for c in K_CODES if c in result.unchecked] == ["TDS-K001"]
+    assert any(n.startswith("TDS-K001 not checked: ") for n in result.notes), result.notes
+
+
+def test_k001_memory_holds_a_batch_not_every_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#309: 4 times the rows, about the same peak. The set of every key took about 245 bytes
+    a row (2026-11-10), so `bars_1d`'s 60 million rows would have needed about 14 GB."""
+    monkeypatch.setattr(keys, "BATCH_ROWS", 2_000)
+    peaks = []
+    for rows in (10_000, 40_000):
+        m = read_manifest(write(tmp_path / str(rows), _daily_bars(rows)))
+        tracemalloc.start()
+        assert keys.check_keys(m, ["bars_1d"], set()) == []
+        peaks.append(tracemalloc.get_traced_memory()[1])
+        tracemalloc.stop()
+    assert (peaks[1] - peaks[0]) / 30_000 < 20, peaks  # bytes per row added
 
 
 def test_classification_levels_not_duplicate(tmp_path: Path) -> None:
