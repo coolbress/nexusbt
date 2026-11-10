@@ -56,20 +56,25 @@ START, END = dt.date(2020, 1, 2), dt.date(2020, 3, 31)  # the tiny period (4.8 t
 
 class Preset(NamedTuple):
     """A seeded preset of the 4.8 table: its period, instruments ever listed per market (ZZ
-    takes 6 to 120) and the snapshot id the command gives it."""
+    takes 6 to 120), the snapshot id the command gives it and each market's mean listing
+    life in years (4.8 (2))."""
 
     start: dt.date
     end: dt.date
     counts: dict[str, int]
     snapshot_id: str
+    life: dict[str, int]
 
 
-#: `full` is `small`'s rules at full scale, the M1 datasets only (T0.8d), hence its id.
+#: `full` is `small`'s rules at full scale, the M1 datasets only (T0.8d), hence its id. Its
+#: lives give the table's instruments alive on a day, about KR 2,300 and US 5,700 (#334).
 PRESETS = {
     "small": Preset(dt.date(2015, 1, 2), dt.date(2019, 12, 31),
-                    {"KR": 120, "US": 180, "ZZ": 120}, "synth-0001"),
+                    {"KR": 120, "US": 180, "ZZ": 120}, "synth-0001",
+                    {"KR": 8, "US": 8, "ZZ": 8}),
     "full": Preset(dt.date(1995, 1, 2), dt.date(2024, 12, 31),
-                   {"KR": 5_500, "US": 22_100, "ZZ": 120}, "synth-full-m1-0001"),
+                   {"KR": 5_500, "US": 22_100, "ZZ": 120}, "synth-full-m1-0001",
+                   {"KR": 30, "US": 11, "ZZ": 8}),
 }  # fmt: skip
 #: The tds.json `markets` entries. ZZ: a test market without a rules pack (4.8).
 MARKETS = {
@@ -291,20 +296,29 @@ def _small_calendar(calendar: str, start: dt.date, end: dt.date) -> Table:
             "session_kind": ["regular"] * len(days), "source": [PRODUCER] * len(days)}  # fmt: skip
 
 
+def _listings(
+    n: int, sessions: int, life: int, rng: np.random.Generator
+) -> tuple[list[int], list[int]]:
+    """4.8 (2): the first and last session index, in a period of `sessions`, of `n` listings
+    that reach it: uniform listing from 8 years before it, exponential life of mean `life`."""
+    first: list[int] = []
+    last: list[int] = []
+    while len(first) < n:
+        listing = int(rng.integers(-8 * YEAR, sessions))
+        exit_ = listing + int(np.ceil(rng.exponential(life * YEAR)))
+        if exit_ >= 0:
+            first.append(max(listing, 0))
+            last.append(min(exit_, sessions - 1))
+    return first, last
+
+
 def _small(
     market: str, n: int, sessions: Table, rng: np.random.Generator,
-    events: Sequence[Mapping[str, Any]] = (),
+    events: Sequence[Mapping[str, Any]] = (), life: int = 8,
 ) -> dict[str, Table]:  # fmt: skip
     """4.8 (2) and (3): listings, ticker histories and dense raw bars of `n` instruments."""
     days, opens, closes = sessions["session_date"], sessions["ts_open"], sessions["ts_close"]
-    first: list[int] = []  # each instrument's first and last session index in the period
-    last: list[int] = []
-    while len(first) < n:  # uniform listing, exponential life of mean 8 years
-        listing = int(rng.integers(-8 * YEAR, len(days)))
-        exit_ = listing + int(np.ceil(rng.exponential(8 * YEAR)))
-        if exit_ >= 0:
-            first.append(max(listing, 0))
-            last.append(min(exit_, len(days) - 1))
+    first, last = _listings(n, len(days), life, rng)
     ids = [f"{market}:T{k:05d}" for k in range(1, n + 1)]
     ended = ev.exits(events, ids, days, first, last)  # an injected exit sets its `last`
     gone = [j < len(days) - 1 for j in last]
@@ -869,7 +883,7 @@ def make_snapshot(
     deleted, so a `root` used with other markets keeps their files. `tiny` is hand-set and
     takes none of `seed`, `start`, `end`, `n_kr`, `n_us`. `events` (4.8 `EventSpec`) injects
     `corporate_actions` and `delistings` rows, in `tiny` too, and KR halts in `small` and
-    `full`. `full` is `small`'s rules over full's period and counts, the M1 datasets only;
+    `full`. `full` is `small`'s rules over full's period, counts and lives, the M1 datasets only;
     its M2 datasets, `full_ci` and `overrides` come with later tickets (spec 10.1: T0.8c).
     `degrade` takes 4.8's core values (T0.16a; `_synth_degrade`), the others with T0.16b/c.
     """
@@ -896,7 +910,7 @@ def make_snapshot(
             calendars[cal], tables[m] = _tiny_calendar(cal), _tiny(m, events)
         else:
             calendars[cal] = _small_calendar(cal, first, final)
-            tables[m] = _small(m, counts[m], calendars[cal], rngs[m], events)
+            tables[m] = _small(m, counts[m], calendars[cal], rngs[m], events, seeded.life[m])
         if degrade:
             tables[m] = dg.apply(m, {k: _arrow(v) for k, v in tables[m].items()}, degrade)
 

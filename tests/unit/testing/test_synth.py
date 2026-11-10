@@ -324,11 +324,11 @@ def called_names(source: str) -> set[str]:
 
 
 def test_small_value_path_uses_no_platform_math() -> None:
-    for step in (synth._small, synth._actions, synth._terms, synth._dividend, synth._revise,
-                 synth._move, synth._delistings, events.exit_value, daily._snap, daily._ratios,
-                 daily._kr_rows, synth._tradability, synth._sample, synth._halts, synth._limits,
-                 synth._wobble, synth._status, synth._last_traded, daily._share_counts,
-                 daily._eligibility, daily._venues):  # fmt: skip
+    for step in (synth._listings, synth._small, synth._actions, synth._terms, synth._dividend,
+                 synth._revise, synth._move, synth._delistings, events.exit_value, daily._snap,
+                 daily._ratios, daily._kr_rows, synth._tradability, synth._sample, synth._halts,
+                 synth._limits, synth._wobble, synth._status, synth._last_traded,
+                 daily._share_counts, daily._eligibility, daily._venues):  # fmt: skip
         assert not called_names(inspect.getsource(step)) & PLATFORM_MATH, step.__name__
     # the check refuses what it is for, so the pass above is not vacuous
     bad = "def f(rng, p):\n    return np.exp(rng.normal(0, 1)) * p.sqrt() + math.log(2) ** 2\n"
@@ -364,11 +364,36 @@ def test_full_preset_parameters_match_table(
     assert re.search(r"^time \d+\.\d s, size \d+ bytes$", capsys.readouterr().out, re.M)
 
 
-def test_full_is_small_rules_at_full_scale(tmp_path: Path) -> None:
-    """`full` with fewer instruments writes the same data as `small` over full's period, and
-    that period (from 1995, before KR price limits) passes `tds check --level full` (INV-17)."""
+def open_sessions(spans: tuple[list[int], list[int]]) -> int:
+    """The sessions the listings of `_listings` are open on, summed: their daily bar rows."""
+    return sum(j - i + 1 for i, j in zip(*spans, strict=True))
+
+
+def test_full_holds_the_tables_instruments_alive_on_a_day() -> None:
+    """#334: 4.8's table gives `full` about KR 2,300 and US 5,700 instruments alive on a day.
+    At a tenth of its instruments the mean count of listings open on a session is within 10 %
+    of a tenth of those, in each market, and `small` keeps 4.8 (2)'s mean life of 8 years."""
+    full = synth.PRESETS["full"]
+    for market, table in (("KR", 2_300), ("US", 5_700)):
+        calendar = synth._small_calendar(synth.MARKETS[market]["calendar_id"], full.start, full.end)
+        n, sessions = full.counts[market] // 10, len(calendar["session_date"])
+        spans = synth._listings(n, sessions, full.life[market], np.random.default_rng(0))
+        assert open_sessions(spans) / sessions == pytest.approx(table / 10, rel=0.1), market
+    assert set(synth.PRESETS["small"].life.values()) == {8}
+
+
+def test_full_is_small_rules_at_full_scale(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """`full` with fewer instruments writes the same data as `small` over full's period with
+    full's listing lives (#334), its bars are those listings' sessions, and that period (from
+    1995, before KR price limits) passes `tds check --level full` (INV-17)."""
     few: dict[str, Any] = {"n_kr": 6, "n_us": 6}
     full = make_snapshot(tmp_path / "full", preset="full", **few)
+    kr = np.random.Generator(np.random.PCG64(0)).spawn(3)[0]  # make_snapshot's KR stream, seed 0
+    days = sum(r["calendar_id"] == "XKRX" for r in rows(full, "calendar_sessions"))
+    drawn = open_sessions(synth._listings(6, days, synth.PRESETS["full"].life["KR"], kr))
+    assert sum(r["instrument_id"].startswith("KR:") for r in rows(full, "bars")) == drawn
+    lives = synth.PRESETS["small"]._replace(life=synth.PRESETS["full"].life)
+    monkeypatch.setitem(synth.PRESETS, "small", lives)
     small = make_snapshot(tmp_path / "small", preset="small", start=dt.date(1995, 1, 2),
                           end=dt.date(2024, 12, 31), **few)  # fmt: skip
     data, same = files_of(full), files_of(small)
@@ -402,14 +427,15 @@ def test_cash_reaching_the_previous_close_has_no_factor(
 
 
 def test_full_slice_with_a_dividend_above_the_close_conforms(tmp_path: Path) -> None:
-    """#357: a slice of `full` (seed 49, 60 US instruments) where US:T00031 closes under a
-    cent from its 2022-05-18 dividend on. No factor is null or <= 0 under a method other than
-    `unavailable`, those dividends move no bar, and the package passes the full level (INV-17)."""
-    full = make_snapshot(tmp_path / "f", preset="full", seed=49, markets=("US",), n_us=60)
+    """#357: a slice of `full` (seed 29, 60 US instruments; seed 49 before #334's lives) where
+    US:T00041 closes under a cent from its 2015-12-14 dividend on. No factor is null or <= 0
+    under a method other than `unavailable`, those dividends move no bar, and the package passes
+    the full level (INV-17)."""
+    full = make_snapshot(tmp_path / "f", preset="full", seed=29, markets=("US",), n_us=60)
     actions = rows(full, "corporate_actions")
     none = [r for r in actions if r["factor_method"] == "unavailable"]
-    assert {(r["instrument_id"], r["kind"]) for r in none} == {("US:T00031", "cash_dividend")}
-    assert min(r["ex_date"] for r in none) == dt.date(2022, 5, 18)
+    assert {(r["instrument_id"], r["kind"]) for r in none} == {("US:T00041", "cash_dividend")}
+    assert min(r["ex_date"] for r in none) == dt.date(2015, 12, 14)
     total = steps(full, "total")
     for r in none:  # the one-cent floor reaches the close: no factor, and the bars stay
         assert r["price_factor"] is None
