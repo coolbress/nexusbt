@@ -59,6 +59,11 @@ BUILT = {
     "nexusbt.api.config",
     "nexusbt.pipeline.graph_hash",  # T1.5 (#237)
     "nexusbt.pipeline.factor",  # T1.5 (#237): the node and its hash; running it is T1.12's
+    "nexusbt.data.open_snapshot",  # T1.1a (#232), with `nx.open` and these Snapshot members
+    "nexusbt.api.open",
+    *(f"nexusbt.data.Snapshot.{m}" for m in ("id", "semantic_hash", "value_hash")),
+    "nexusbt.data.Snapshot.physical_hash",
+    "nexusbt.data.Snapshot.markets",
 }
 
 #: 6.6, the classes whose kind is block or fail: the sub-errors of `NexusBTError`. The warnings
@@ -88,7 +93,7 @@ def stub_functions() -> list[tuple[str, Callable[..., object]]]:
     for path in STUB_CLASSES:
         module, _, cls = path.rpartition(".")
         for name, member in vars(getattr(importlib.import_module(module), cls)).items():
-            if not name.startswith("_"):  # a property is called through its getter
+            if not name.startswith("_") and f"{path}.{name}" not in BUILT:  # through a getter
                 found.append((f"{path}.{name}", getattr(member, "fget", member)))
     return found
 

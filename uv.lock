@@ -345,6 +345,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "exchange-calendars" },
+    { name = "nexusbt-tds" },
     { name = "numpy" },
     { name = "pyarrow" },
 ]
@@ -362,6 +363,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "exchange-calendars", specifier = "==4.13.2" },
+    { name = "nexusbt-tds", editable = "tds" },
     { name = "numpy", specifier = ">=2.5.3,<2.6" },
     { name = "pyarrow", specifier = ">=26.0.0,<27" },
 ]
