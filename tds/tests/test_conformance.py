@@ -689,6 +689,17 @@ def test_V011_rows(
     assert len(said) == unchecked
 
 
+def test_V011_on_a_session_date_that_is_no_date_leaves_the_other_V_codes_judged(
+    tmp_path: Path,
+) -> None:
+    ten, text = pa.array([10.0]), pa.array(["2024-01-02"])
+    bars = build._bars(session_date=text, open=ten, high=pa.array([5.0]), low=pa.array([9.0]),
+                       volume=pa.array([1.0]), value_traded=pa.array([1000.0]))  # fmt: skip
+    result = check(write(tmp_path, bars), level="full")
+    assert {"TDS-S002", "TDS-V001"} <= {f.code for f in result.errors}
+    assert (result.warnings, "TDS-V011" in result.unchecked) == ((), True)
+
+
 def _files_reversed(change: Any) -> Any:
     """`change`, then its two bars rows in two files of one folder, listed last file first."""
 
@@ -779,6 +790,10 @@ def test_H004(named: list[str] | None, tmp_path: Path) -> None:
     assert (result.errors, "TDS-H004" in result.unchecked) == ((), False)
     passed = check(tmp_path / "pass", level="full", datasets=named)
     assert (passed.warnings, "TDS-H004" in passed.unchecked) == ((), False)
+    null = write(
+        tmp_path / "null", lambda m, f: build.bars(m)["files"][0].update(value_sha256=None)
+    )
+    assert codes(null, "full", datasets=named) == []  # a null is no declaration, as for H002
 
 
 @pytest.mark.parametrize("code", ["TDS-H002", "TDS-H003"])

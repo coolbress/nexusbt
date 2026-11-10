@@ -35,7 +35,6 @@ V001, V002, V004, V005, V010, V011, V020, V030, V040, V041, V050 = VALUE_CODES
 WARNINGS = frozenset({V010, V030, V041})
 PRICES = ("open", "high", "low", "close", "vwap")
 RATIO = ("instrument_id", "session_date", "high", "low", "close", "volume", "value_traded")
-_UNREAD = (OSError, pa.ArrowException, TypeError, ValueError)
 #: TDS 5.1's V020: the columns each `asset_class` needs.
 NEEDS = {
     "option": ("underlying_instrument_id", "strike", "option_right", "exercise_style",
@@ -75,8 +74,8 @@ def check_values(
     unverified: list[str] = []
     try:
         found = _check(m, only, unverified)
-    except (*_UNREAD, AttributeError):  # unreadable, or a column of the wrong type (S010's,
-        # S002's; a `session_date` that is no date has no year): its rows are not compared
+    except (OSError, pa.ArrowException, TypeError, ValueError):  # unreadable, or a column of
+        # the wrong type (S010's, S002's): its rows are not compared
         blind.update(VALUE_CODES)
         return []
     if unverified:
@@ -98,10 +97,13 @@ def _volume_units(root: Path, ds: Mapping[str, Any], unverified: list[str]) -> l
         for i, day, high, low, close, volume, value in _rows(
             root, {"files": [{"path": rel} for rel, _ in files]}, RATIO
         ):
-            if None in (day, high, low, close, volume, value) or volume * (high + low + close) <= 0:
+            year_of = getattr(day, "year", None)  # a `session_date` that is no date: S002's
+            if None in (year_of, high, low, close, volume, value):
                 continue
-            if math.isfinite(r := 3 * value / (volume * (high + low + close))):
-                ratios[i, day.year].append(r)
+            if volume * (high + low + close) > 0 and math.isfinite(
+                r := 3 * value / (volume * (high + low + close))
+            ):
+                ratios[i, year_of].append(r)
         for i, y in sorted(ratios, key=str):
             if not 0.5 <= (r := statistics.median(rs := ratios[i, y])) <= 2:
                 out.append(Finding(V011, "warning", f"median R = {r:.6g} over {len(rs)} bar(s)",

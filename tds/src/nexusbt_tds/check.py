@@ -275,9 +275,9 @@ def _check_hashes(
         if declared is not None and declared != actual:
             out.append(Finding("TDS-H002", "error", f"value hash {actual}, declared {declared}",
                                dataset=ds.get("name")))  # fmt: skip
-        for f in (f for f in ds.get("files") or [] if isinstance(f, dict) and "value_sha256" in f):
+        for f in (f for f in ds.get("files") or [] if isinstance(f, dict)):
             actual = hashes["files"].get(f.get("path"), {}).get("value_sha256")
-            if actual is not None and actual != f["value_sha256"]:
+            if None not in (actual, f.get("value_sha256")) and actual != f["value_sha256"]:
                 message = f"file value hash {actual}, declared {f['value_sha256']}"
                 out.append(Finding("TDS-H004", "warning", message, ds.get("name"), f["path"]))
     declared_hashes = m.data.get("hashes")
