@@ -69,7 +69,7 @@ def test_E14_carries_tds_code_and_hint_not_ticket(tiny: Path, tmp_path: Path) ->
     with pytest.raises(SnapshotError) as raised:
         open_snapshot(DataConfig(path=broken))
     text = str(raised.value)
-    assert all(part in text for part in ("TDS-M004", hint, "delistings"))
+    assert all(part in text for part in ("TDS-M004", hint, "delistings", "snapshot synth-0001"))
     assert not re.search(r" [A-Z][0-9]+ ", text)  # no producer ticket shape (2.7)
 
 
@@ -109,6 +109,7 @@ def test_allow_untested_recorded(kr_zz: Path) -> None:
     s = open_snapshot(cfg)
     assert (s.markets["KR"].rules, s.markets["ZZ"].rules) == ("KR@1", "_generic@1")
     assert s.assumptions == ("untested market rules: ZZ",)
+    assert open_snapshot(DataConfig(path=kr_zz, allow_untested=True)).assumptions == s.assumptions
 
 
 def test_semantic_hash_exposed(tmp_path: Path) -> None:
@@ -118,6 +119,8 @@ def test_semantic_hash_exposed(tmp_path: Path) -> None:
     assert (s.semantic_hash, s.value_hash, s.physical_hash) == (
         hashes["semantic_sha256"], hashes["value_sha256"], hashes["physical_sha256"])  # fmt: skip
     assert (s.id, set(s.markets)) == ("synth-0001", {"KR", "US"})
+    edit_manifest(small, lambda d: d["hashes"].pop("value_sha256"))  # partly declared: computed
+    assert open_snapshot(DataConfig(path=small)).value_hash == hashes["value_sha256"]
     us = s.markets["US"]
     assert (us.calendar_id, us.currency, us.timezone, us.rules) == (
         "XNYS", "USD", "America/New_York", "US@1")  # fmt: skip

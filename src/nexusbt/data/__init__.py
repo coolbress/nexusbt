@@ -217,17 +217,19 @@ def open_snapshot(cfg: DataConfig, *, required: CapabilityRequest | None = None)
         raise SnapshotError.from_check(
             path=str(folder), counts=Counter(f.code for f in errors), dataset=first.dataset or "-",
             file=first.file or "-", key=str(first.key or "-"), hint=first.message,
-            snapshot_id=folder.name, producer_hints=manifest.hints if manifest else None,
+            snapshot_id=str((manifest.data if manifest else {}).get("snapshot_id", folder.name)),
+            producer_hints=manifest.hints if manifest else None,
             producer=str(producer.get("name", "-")) if isinstance(producer, dict) else "-",
         )  # fmt: skip
     manifest = tds.read_manifest(folder)
-    declared = manifest.data["hashes"]
-    hashes = declared if "semantic_sha256" in declared else package_hashes(folder)
+    declared = manifest.data["hashes"]  # trusted as declared below `full`, which checks them
+    whole = {"semantic_sha256", "value_sha256", "physical_sha256"} <= declared.keys()
+    hashes = declared if whole else package_hashes(folder)
     markets = {m: _market(m, e, cfg.allow_untested) for m, e in manifest.data["markets"].items()}
     for m in cfg.markets:
         if markets.get(m) is None or markets[m].rules is None:
             raise _no_pack(m, manifest, m in markets)
-    generic = [m for m in cfg.markets if str(markets[m].rules).startswith(GENERIC)]
+    generic = [m for m, info in markets.items() if str(info.rules).startswith(GENERIC)]
     untested = tuple(f"untested market rules: {m}" for m in generic)
     warnings = Counter(f.code for f in result.warnings)
     return Snapshot(manifest, hashes, markets, warnings, untested)
