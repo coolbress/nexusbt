@@ -158,6 +158,7 @@ def check(
             found += _check_schema(manifest, datasets, blind)
             found += _check_ranges(manifest, datasets, blind)
         if level == "full":
+            from .adjustments import check_actions
             from .hash import spilled_note
             from .keys import check_keys
             from .refs import check_refs
@@ -168,6 +169,7 @@ def check(
             finally:
                 notes.extend([spilled_note(spilled, "key check")] if spilled else [])
             found += check_refs(manifest, datasets, blind)
+            found += check_actions(manifest, datasets, blind, notes)
             found += _check_hashes(manifest, datasets, blind, notes, tmp_dir)
     except ManifestError as exc:
         found = [Finding("TDS-M001", "error", str(exc))]
@@ -210,7 +212,8 @@ def check(
 HASH_CODES = ("TDS-H001", "TDS-H002", "TDS-H003")
 KEY_CODES = ("TDS-K001", "TDS-K002", "TDS-K003", "TDS-K004", "TDS-K010", "TDS-K011")  # `keys`
 REF_CODES = tuple(f"TDS-R{n:03}" for n in range(1, 10))  # `refs` checks them
-FULL_CODES = (*KEY_CODES, *REF_CODES, *HASH_CODES)
+ACTION_CODES = tuple(f"TDS-A{n:03}" for n in range(1, 10))  # `adjustments` checks them
+FULL_CODES = (*KEY_CODES, *REF_CODES, *ACTION_CODES, *HASH_CODES)
 
 
 def _check_hashes(
