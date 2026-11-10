@@ -42,7 +42,8 @@ bars:                                   # KR:T00001 as traded; the package's 1.0
 # The `AdjustmentUnavailable` diagnostic is counted (4.6) but its unit is not fixed there: here
 # the NaN cells are 3, in 2 rows, from 1 event. The rows do not fix the count; T1.8 settles it.
 #
-# Worked by hand, not yet checked by the person:
+# Hand-checked 2026-11-10 (#222), via the coordinating session, recomputed from 5.3.3 / 4.6 / 3.4
+# without this file, all five rows:
 #   e = 2020-01-07 (row 3). Row t crosses e when t - 2 < 3 <= t: t = 3 and t = 4 only.
 #   t = 2020-01-07: rows 1, 2 NaN, row 3 as traded -> nanmean(NaN, NaN, 90) = 90;
 #     a silent 1.0 would give (102 + 104 + 90) / 3 = 98.666667

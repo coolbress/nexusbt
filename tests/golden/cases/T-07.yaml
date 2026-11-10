@@ -36,7 +36,8 @@ bars:                                   # KR:T00001 as traded; cum_factor_split 
 # meaning). `sma_shortcut`: the mean of B over the window times C[t] (degree 1), the same number.
 # `volume_window`: vol[s] * Q[t] / Q[s]. The two warm-up rows (2020-01-02, 01-03) are left out.
 #
-# Worked by hand, not yet checked by the person:
+# Hand-checked 2026-11-10 (#222), via the coordinating session, recomputed from 5.3.3 / 4.6 / 3.4
+# without this file, all seven rows:
 #   C = 1, 1, 1, 1/2, 1/2, 1/2, 5, 5;  B = raw / C = 100, 102, 104, 106, 108, 110, 112, 114
 #   Q = 1, 1, 1, 2, 2, 2, 1/5, 1/5;  vol / Q = 1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700
 #   t = 2020-01-07: 102 * 1/2 = 51, 104 * 1/2 = 52, 53 as traded -> (51 + 52 + 53) / 3 = 52;
