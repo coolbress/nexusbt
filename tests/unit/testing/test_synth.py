@@ -360,8 +360,9 @@ def test_full_is_small_rules_at_full_scale(tmp_path: Path) -> None:
     assert data == same
     manifest = json.loads((full / "tds.json").read_text(encoding="utf-8"))
     assert manifest["name"] == "synth-full"
-    assert {f["path"][:30] for d in manifest["datasets"] for f in d["files"]} >= {
-        "bars/freq=1d/market=KR/year=19", "bars/freq=1d/market=US/year=20"}  # fmt: skip
+    paths = {f["path"] for d in manifest["datasets"] for f in d["files"]}
+    assert {f"bars/freq=1d/market={m}/year={y}/part-00000.parquet"
+            for m in ("KR", "US") for y in (1995, 2024)} <= paths  # fmt: skip
     done = synth._tds("check", str(full), "--level", "full")
     assert done.returncode == 0, done.stdout + done.stderr
     assert "0 errors, 0 warnings at level full" in done.stdout
