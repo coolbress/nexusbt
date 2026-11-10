@@ -39,10 +39,15 @@ Days = set[tuple[int, int]]  # (instrument, session index) pairs
 
 
 def _cash(cash: float, ref: float, currency: str) -> dict[str, Any]:
-    """A cash dividend's terms, `cash` per share on the previous close `ref`: m = 1 - D / ref."""
+    """A cash dividend's terms, `cash` per share on the previous close `ref`: m = 1 - D / ref.
+
+    An amount that reaches the close (the one-unit floor on a close under a cent, #357) has
+    no positive factor: null with the method `unavailable` (TDS 5.11), which moves no bar."""
+    known = cash < ref
     return {"cash_per_share": cash, "currency": currency, "gross_or_net": "gross",
-            "price_factor": 1 - cash / ref, "share_factor": 1.0, "affects": "total_only",
-            "factor_method": "cash_prev_close", "factor_ref_price": ref}  # fmt: skip
+            "price_factor": 1 - cash / ref if known else None, "share_factor": 1.0,
+            "affects": "total_only", "factor_ref_price": ref,
+            "factor_method": "cash_prev_close" if known else "unavailable"}  # fmt: skip
 
 
 def _ratio(kind: str, num: int, den: int, ref: float) -> dict[str, Any]:
