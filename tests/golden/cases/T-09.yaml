@@ -32,7 +32,8 @@ instrument_symbols:                     # TDS 5.2; venue_mic XKRX, symbol_type t
 # `t00001_row`, `t00001_ticker`: the row and symbol of key (KR:T00001, ticker). `abc_row`,
 # `abc_instrument`: the row and id among the ABC rows. null = no row matches (missing).
 #
-# Worked by hand, not yet checked by the person:
+# Hand-checked 2026-11-10 (#222), via the coordinating session, recomputed from 5.3.6 / 5.1.2
+# without this file, all seven rows:
 #   the announcement 2020-01-07T07:00Z is after the 01-07 cutoff (06:30Z) and before the 01-08 one,
 #   so at the 01-06 and 01-07 cutoffs only R1 is known; from 01-08 on, R2, R3 and R4 and not R1;
 #   (01-07, q 01-09): R1 known and open-ended -> ABC, KR:T00001, as known then, the reuse unseen

@@ -34,7 +34,8 @@ input:
 # `n_tied_at_cutoff` of coverage.parquet (3.7) is not in the rows: 3.7 does not say whether the
 # tie group at the cutoff (3 here, 1 of them taken) or the ones left out (2) are counted.
 #
-# Worked by hand, not yet checked by the person:
+# Hand-checked 2026-11-10 (#222), via the coordinating session, recomputed from 5.4.2 / 3.7
+# without this file, all six rows:
 #   finite cells in id order: T00001 2, T00002 5, T00003 2, T00004 2, T00006 1 (n = 5)
 #   ascending: T00006 1; then the three 2.0 by id, T00001 2, T00003 3, T00004 4; T00002 5
 #   descending: T00002 1; T00001 2, T00003 3, T00004 4; T00006 5

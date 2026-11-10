@@ -27,7 +27,8 @@ bars: "KR:T00001, market-axis rows i = 0..262 (263 XKRX sessions, set by hand): 
 # form reads (NaN at the halted row, null when the row is not in the data). `returns_232_shift_21`,
 # `window_253`, `direct`: forms (a), (b), (c), rounded to 6 places, the same number in every row.
 #
-# Worked by hand, not yet checked by the person:
+# Hand-checked 2026-11-10 (#222), via the coordinating session, recomputed from 3.4 / 3.3
+# without this file, all seven rows:
 #   t = 251: (a) reads Returns(232) at row 230, whose window would start at row -1; (b) needs
 #     rows -1 .. 251; (c) has no P[-1] -> NaN in all three (warm-up); t = 252 is the first full row
 #   t = 252: P[231]/P[0] - 1 = 331/100 - 1 = 2.31
