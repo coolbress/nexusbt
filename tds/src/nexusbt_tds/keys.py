@@ -99,7 +99,7 @@ def _scan(
         days: list[Any] = []  # K003: this file's dates outside one of its folders
         dateless = False  # a row without the date column: K003 unchecked for this file
         for n, b in batches(root, rel, parts, list(wanted), BATCH_ROWS):
-            if not n:
+            if not n:  # pragma: no cover - a row group of no rows, which pyarrow does not write
                 continue
             if key is None or any(c not in b for c in key):
                 unseen.add(K001)
