@@ -158,10 +158,15 @@ def check(
             found += _check_schema(manifest, datasets, blind)
             found += _check_ranges(manifest, datasets, blind)
         if level == "full":
+            from .hash import spilled_note
             from .keys import check_keys
             from .refs import check_refs
 
-            found += check_keys(manifest, datasets, blind)
+            spilled: list[Path] = []
+            try:
+                found += check_keys(manifest, datasets, blind, tmp_dir, spilled)
+            finally:
+                notes.extend([spilled_note(spilled, "key check")] if spilled else [])
             found += check_refs(manifest, datasets, blind)
             found += _check_hashes(manifest, datasets, blind, notes, tmp_dir)
     except ManifestError as exc:

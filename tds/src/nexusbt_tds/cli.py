@@ -27,7 +27,7 @@ COMMANDS: tuple[tuple[str, str], ...] = (
     ("import", "build a package from another format (csv)"),
 )
 OK, ERRORS, WARNINGS, USAGE, NO_INPUT, INTERNAL = 0, 1, 2, 64, 66, 70
-_TMP = "folder for the value hash's temporary sorted runs (default: beside the package)"
+_TMP = "folder for the value hash's and K001's temporary sorted runs (default: beside the package)"
 
 
 class _Parser(argparse.ArgumentParser):
