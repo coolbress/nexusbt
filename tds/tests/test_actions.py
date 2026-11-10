@@ -165,6 +165,19 @@ def test_chain_digest_includes_all_revisions_and_times() -> None:
     assert chain_digest(table(*rows, later), dt.date(2025, 12, 31)) != base
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("instrument_id", "B"), ("kind", "reverse_split"), ("affects", "total_only")],
+)
+def test_chain_digest_changes_with_instrument_kind_affects(field: str, value: str) -> None:
+    schema = pa.schema([*TYPES.items(), ("affects", pa.string())])
+    rows = [split("a1", 2, 1, affects="split_and_total"), split("a2", 3, 5, revision_of="a1")]
+    end = dt.date(2024, 12, 31)
+    base = chain_digest(pa.Table.from_pylist(rows, schema=schema), end)
+    moved = [rows[0], rows[1] | {field: value}]
+    assert chain_digest(pa.Table.from_pylist(moved, schema=schema), end) != base
+
+
 def test_example_prints_table(capsys: pytest.CaptureFixture[str]) -> None:
     runpy.run_path(
         str(Path(__file__).parents[1] / "examples" / "action_chain.py"), run_name="__main__"
