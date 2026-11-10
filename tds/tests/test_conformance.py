@@ -599,7 +599,7 @@ def test_A011_on_a_timestamp_last_trading_date_is_S002_and_unchecked(tmp_path: P
     assert "TDS-A011" in result.unchecked
 
 
-#: V011 and V012 are T0.15d's; V031 and V032 are not judged yet (#227, 2026-11-10).
+#: V011 and V012 have tests of their own; V031 and V032 are not judged yet (#227, 2026-11-10).
 V_CODES = [f"TDS-V{n:03}" for n in (1, 2, 4, 5, 10, 20, 30, 40, 41, 50)]
 
 
@@ -632,10 +632,91 @@ def test_a_column_of_the_wrong_type_is_S002_and_leaves_the_V_codes_unchecked(
     assert set(V_CODES) <= set(result.unchecked)
 
 
-def test_book_and_T015d_codes_stay_unchecked(tmp_path: Path) -> None:
+def test_book_codes_stay_unchecked(tmp_path: Path) -> None:
     result = check(write(tmp_path, build.CASES["TDS-V030"][0]), level="full")
-    assert {"TDS-V031", "TDS-V032", "TDS-V012"} <= set(result.unchecked)
-    assert not set(V_CODES) & set(result.unchecked)
+    assert {"TDS-V031", "TDS-V032"} <= set(result.unchecked)
+    assert not {*V_CODES, "TDS-V012"} & set(result.unchecked)
+
+
+@pytest.mark.usefixtures("refs_batches")
+def test_V012(tmp_path: Path) -> None:
+    """TDS 5.27: a raw price more than 1e-9 relative off its grid; f64 jitter inside it passes."""
+    test_K_codes("TDS-V012", tmp_path)  # tick 0.0001: 0.67685 fails, 0.6768000000000001 passes
+    [found] = check(tmp_path / "fail", level="full").warnings
+    key = {"instrument_id": "US:AAA", "session_date": "2024-01-02", "column": "close"}
+    assert (found.key, found.count) == (key, 1)
+
+
+def _closes(*prices: float) -> Any:
+    """US:AAA's closes, a day apart from 2024-01-02."""
+    n = len(prices)
+    days = pa.array([dt.date(2024, 1, 2 + d) for d in range(n)])
+    return build._bars(instrument_id=pa.array(["US:AAA"] * n), session_date=days,
+                       close=pa.array(prices, pa.float64()))  # fmt: skip
+
+
+def _rules(*bands: tuple[Any, Any, Any], until: dt.date | None = None) -> Any:
+    """Rule set `us-tick` from 2024-01-02: a `tick_band` row per (price_from, price_to, tick)."""
+    n, (lo, hi, tick) = len(bands), zip(*bands, strict=True)
+    return build._add("market_rules", {
+        "rule_id": ["us-tick"] * n, "market": ["US"] * n, "rule_kind": ["tick_band"] * n,
+        "venue_group": ["*"] * n, "valid_from": pa.array([dt.date(2024, 1, 2)] * n),
+        "valid_to": pa.array([until] * n, pa.date32()), "price_from": pa.array(lo, pa.float64()),
+        "price_to": pa.array(hi, pa.float64()), "tick_size": pa.array(tick),
+        "source": ["https://example.test/r"] * n, "verified": [False] * n,
+    })  # fmt: skip
+
+
+def _assigned(day: int) -> Any:
+    """`classifications` scheme `tick_rule_id` (5.19): US:AAA on `us-tick` from January `day`."""
+    return build._add("classifications", {
+        "instrument_id": ["US:AAA"], "scheme": ["tick_rule_id"], "level": pa.array([0], pa.int8()),
+        "code": ["us-tick"], "effective_from": pa.array([dt.date(2024, 1, day)]),
+        "ts_known_from": pa.array([build.NEW_YEAR], build.TS_UTC), "edition": ["both"],
+        "pit_quality": ["native"], "source": ["synthetic"],
+    })  # fmt: skip
+
+
+_CENT = build._instruments(tick_size=pa.array([0.01]))
+_RULED = build._instruments(tick_rule_id=pa.array(["us-tick"]))
+_US = _rules((None, 1.0, 0.0001), (1.0, None, 0.01))  # a null `price_from` is 0
+_LIMITS = build._add("tradability_daily", {
+    "instrument_id": ["US:AAA"], "session_date": build.DAY, "status_known": [True],
+    "up_limit_price": [13.0], "down_limit_price": [7.005],
+})  # fmt: skip
+_ADJUSTED = build._set("params", {"freq": "1d", "price_basis": "total_adjusted"}, in_bars=True)
+
+
+@pytest.mark.parametrize(
+    ("changes", "count", "dataset"),
+    [
+        ((_closes(10.005),), 0, "bars_1d"),  # no grid information: nothing to compare
+        ((_CENT, _closes(10.0, 10.005, float("nan"))), 1, "bars_1d"),
+        ((_CENT, build._bars(open=pa.array([9.995]), high=pa.array([10.005]))), 2, "bars_1d"),
+        ((_CENT, _ADJUSTED, _closes(10.005)), 0, "bars_1d"),  # not declared raw
+        ((_CENT, _LIMITS), 1, "tradability_daily"),
+        # bands: each price in its band's tick; 0.9999999999999999 is 1.0, in the band from 1.0
+        ((_RULED, _US, _closes(0.6768000000000001, 0.9999, 0.9999999999999999, 1.01)), 0, ""),
+        ((_RULED, _US, _closes(1.005, 0.99995, 1.0001)), 3, "bars_1d"),
+        ((_RULED, _rules((0.0, None, 0.01), until=dt.date(2024, 1, 3)), _closes(1.005, 1.005)),
+         1, "bars_1d"),  # `valid_to` is exclusive: no rule on the 3rd
+        ((_RULED, _closes(1.005)), 0, ""),  # the rule set is not in the package
+        # the dated assignment comes before the fixed tick, from its `effective_from`
+        ((_CENT, _assigned(2), _rules((0.0, None, 0.005)), _closes(10.005)), 0, ""),
+        ((_CENT, _assigned(3), _rules((0.0, None, 0.005)), _closes(10.005, 10.005)), 1, "bars_1d"),
+    ],
+)  # fmt: skip
+def test_V012_rows(changes: tuple[Any, ...], count: int, dataset: str, tmp_path: Path) -> None:
+    result = check(write(tmp_path, build._both(*changes)), level="full")
+    found = [(f.dataset, f.count) for f in result.warnings if f.code == "TDS-V012"]
+    assert found == ([(dataset, count)] if count else [])
+    assert "TDS-V012" not in result.unchecked
+
+
+def test_V012_on_a_tick_that_is_no_number_is_unchecked_alone(tmp_path: Path) -> None:
+    bands = _rules((0.0, None, "a cent"))
+    result = check(write(tmp_path, build._both(_RULED, bands, _closes(10.005))), level="full")
+    assert [c for c in (*V_CODES, "TDS-V012") if c in result.unchecked] == ["TDS-V012"]
 
 
 @pytest.mark.usefixtures("refs_batches")
@@ -662,6 +743,9 @@ def _years(*rows: tuple[str, int, float | None]) -> Any:
     )  # fmt: skip
 
 
+_FIFTY = build._future(**build._FUTURE, multiplier=pa.array([50.0]))
+
+
 @pytest.mark.parametrize(
     ("change", "keys", "unchecked"),
     [  # the median of 1, 1, 100 is 1; of 1, 100, 100 it is 100; R = 2 and 0.5 are inside
@@ -676,6 +760,13 @@ def _years(*rows: tuple[str, int, float | None]) -> Any:
          [("US:AAA", 2024, 1)], False),
         (_years(("US:AAA", 2024, None)), [], True),  # no bar with an R: unverified
         (build._bars(volume=pa.array([1.0])), [], True),  # no value_traded column
+        # a future's contracts: R = 1000 / (volume * 10 * multiplier 50), 1 then 0.02
+        (build._both(_FIFTY, build._traded(2.0)), [], False),
+        (build._both(_FIFTY, build._traded(100.0)), [("US:AAA", 2024, 1)], False),
+        # an index trades no quantity, adjusted prices are not what was paid: neither is read
+        (build._both(build._instruments(asset_class=pa.array(["index"])), build._traded(1.0)),
+         [], True),
+        (build._both(_ADJUSTED, build._traded(1.0)), [], True),
     ],
 )  # fmt: skip
 def test_V011_rows(
@@ -857,9 +948,9 @@ def test_full_level_checks_only_the_keys_references_and_hashes_so_far(tmp_path: 
     assert result.profiles == {
         "tds:minimal-daily@1.0": ProfileStatus(True, "schema", "not_checked")
     }
-    assert {"TDS-T001", "TDS-V012"} <= set(result.unchecked)
+    assert {"TDS-T001", "TDS-V031"} <= set(result.unchecked)
     hashes = {"TDS-H001", "TDS-H002", "TDS-H003", "TDS-H004"}
-    judged = {*K_CODES, *R_CODES, *hashes} - {*_NO_CAL, *_NO_EXITS}
+    judged = {*K_CODES, *R_CODES, *hashes, "TDS-V012"} - {*_NO_CAL, *_NO_EXITS}
     assert not judged & set(result.unchecked)
     assert {*_NO_CAL, *_NO_EXITS} <= set(result.unchecked)  # no calendar_sessions, delistings
     # a column whose type is declared nowhere: no value hash, so H002 and H003 are not checked
