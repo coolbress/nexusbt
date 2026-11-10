@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import shutil
+import tracemalloc
 from pathlib import Path
 from typing import Any
 
@@ -399,6 +400,35 @@ def test_a_sorted_run_that_ends_early_fails_the_hash(tmp_path: Path) -> None:
             list(tds_hashes._run(fd, 0, run.stat().st_size))
     finally:
         os.close(fd)
+
+
+def test_short_reads_of_a_sorted_run_still_give_the_hash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A network file system may return fewer bytes than asked before the end (#309's review of
+    #325): the merge reads again rather than failing the hash."""
+    pread = os.pread
+    monkeypatch.setattr(os, "pread", lambda fd, n, at: pread(fd, min(n, 7), at))
+    assert value_hash(package(tmp_path / "pkg", BARS_TWO, PARTS), "bars_1d") == PUBLISHED
+
+
+def test_the_merge_buffers_share_one_budget_however_many_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#309: each run's read buffer was 32 KiB, so 927 runs (`bars_1d`) held 30 MB. The runs now
+    share `_MERGE_BYTES`; here 200 runs of 40 KB merge in a 1 MiB budget."""
+    monkeypatch.setattr(tds_hashes, "_MERGE_BYTES", 1 << 20)
+    records = [(f"{n:08}".encode(), b"x" * 92, 0, b"") for n in range(80_000)]
+    with tds_hashes.SortedRuns(tmp_path, []) as runs:
+        for start in range(0, len(records), 400):
+            runs.add(records[start : start + 400])
+        del records
+        tracemalloc.start()
+        merged = sum(1 for _ in runs.merged())
+        peak = tracemalloc.get_traced_memory()[1]
+        tracemalloc.stop()
+    assert merged == 80_000
+    assert peak < 2 << 20, peak  # the 1 MiB of buffers, a record per run and the heap
 
 
 def test_tds_hash_writes_sorted_runs_to_the_folder_named(
