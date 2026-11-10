@@ -87,7 +87,10 @@ def _check(
         if "corporate_actions" not in present:
             blind.add(A011)  # the distributions after the last trading day are unknown
         else:
-            out += _distributions(str(ds.get("name")), rows([ds], EXITS), events)
+            try:
+                out += _distributions(str(ds.get("name")), rows([ds], EXITS), events)
+            except TypeError:  # a date column of another type: S002's, the days not comparable
+                blind.add(A011)
     daily = [d for d in checked if d.get("kind") == "bars" and _daily(d)]
     if not daily:
         return out

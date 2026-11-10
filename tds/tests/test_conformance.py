@@ -584,6 +584,21 @@ def test_A011_rows(change: Any, found: list[str], unchecked: bool, tmp_path: Pat
     assert ("TDS-A011" in result.unchecked) == unchecked
 
 
+def test_A011_on_a_timestamp_last_trading_date_is_S002_and_unchecked(tmp_path: Path) -> None:
+    """A date against a timestamp cannot be compared: A011 unchecked, not a crash (review)."""
+
+    def change(m: dict[str, Any], f: Any) -> None:
+        _exit_after({})(m, f)
+        rel = "delistings/part-00000.parquet"
+        table = pq.read_table(pa.BufferReader(f[rel]))
+        stamp = pa.array([dt.datetime(2024, 1, 2)], pa.timestamp("us"))
+        build.rewrite(m, f, rel, table.set_column(2, "last_trading_date", stamp))
+
+    result = check(write(tmp_path, change), level="full")
+    assert "TDS-S002" in [f.code for f in result.errors]
+    assert "TDS-A011" in result.unchecked
+
+
 #: V011 and V012 are T0.15d's; V031 and V032 are not judged yet (#227, 2026-11-10).
 V_CODES = [f"TDS-V{n:03}" for n in (1, 2, 4, 5, 10, 20, 30, 40, 41, 50)]
 
