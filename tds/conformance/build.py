@@ -306,7 +306,7 @@ def _states(*known: tuple[int, int | None]) -> Change:
     )  # fmt: skip
 
 
-def _members(effective_to: dt.date) -> Change:
+def _members(effective_to: dt.date | str) -> Change:
     """US:AAA in `index:X` effective from 2024-01-03 to `effective_to` (5.20)."""
     return _add("universe_membership", {
         "universe_id": ["index:X"], "instrument_id": ["US:AAA"],

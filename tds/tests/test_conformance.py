@@ -1678,9 +1678,11 @@ def test_rect_lookup_reads_a_null_edition_and_pit_quality() -> None:
     """5.19: a null `edition` is `both`; a null `pit_quality` is not `backfilled`."""
     table = build.classified_table([(*_G[:6], None, None)])
     noon = dt.datetime(2024, 1, 5, 12, tzinfo=dt.UTC)
+    without = table.drop_columns(["edition", "pit_quality"])  # no column: the same defaults
     for edition in ("strict", "compare"):
-        found = pit.rect_lookup(table, noon, dt.date(2024, 1, 5), edition=edition)
-        assert found["code"].to_pylist() == ["G"]
+        for rows in (table, without):
+            found = pit.rect_lookup(rows, noon, dt.date(2024, 1, 5), edition=edition)
+            assert found["code"].to_pylist() == ["G"]
 
 
 def _tickers(second_known: dt.datetime | None) -> Any:
@@ -1712,6 +1714,11 @@ def _at(day: int, hour: int) -> dt.datetime:
         (_rules((0.0, 1.0, 0.0001), (0.5, None, 0.01)), ["TDS-T003"], []),  # bands overlap
         (_rules((0.0, 1.0, 0.0001), (1.0, None, 0.01), until=dt.date(2024, 1, 2)),
          ["TDS-T004"], []),  # valid_to == valid_from: one finding for the dataset
+        (build._add("instrument_xref", {"instrument_id": ["US:AAA"], "id_type": ["figi"],
+            "id_value": ["F1"], "valid_from": [dt.date(2024, 1, 3)], "valid_to": [build.DAY[0]],
+            "link_quality": ["primary"], "source": ["s"]}), ["TDS-T004"], []),  # T004 only
+        (build._both(build.CASES["TDS-T003"][1], build._members("2024-01-04")), ["TDS-S002"],
+         T_CODES),  # a text effective_to is S002's: no T code judged, the T003 there neither
         (_rules((0.0, 1.0, 0.0001), (1.0, None, 0.01)), [], []),  # null ends are open
     ],
 )  # fmt: skip
