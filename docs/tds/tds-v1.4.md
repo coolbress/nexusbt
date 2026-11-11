@@ -1097,9 +1097,9 @@ Severity: E = error (profile fails), W = warning.
 | TDS-T010 | E | `last_session < listed_on` |
 | TDS-T011 | W | Publication of the exit consideration earlier than publication of the exit |
 | TDS-T012 | E | The two-time-axis **rectangle** lookup returns more than one row for one time and one discriminating key (for classifications including scheme, level and edition filter), in the three rectangle-lookup tables (6.3 ③): `classifications`, `universe_membership`, `instrument_symbols` [2026-11-11] |
-| TDS-D001 | E | Missing session row in dense daily bars |
-| TDS-D002 | E | Row on a non-session day, or outside the listing period |
-| TDS-D004 | E | Manifest `rows` or `coverage` differs from the actual data |
+| TDS-D001 | E | Missing session row in dense daily bars, for each instrument with a row in the dataset: from `listed_on` to `last_session`, or without it to the date of its market's `complete_through`; with neither, that instrument is not judged (unchecked) [2026-11-11] |
+| TDS-D002 | E | Row on a non-session day, or outside the listing period. At the `full` level, a daily bar outside its instrument's `listed_on`..`delisted_on`; a non-session day is R003 [2026-11-11] |
+| TDS-D004 | E | Manifest `rows` or `coverage` differs from the actual data: a dataset's and each file's `rows`, and the `coverage` keys of 4.2's example that are present (`instruments`, `ts_min`, `ts_max` of `session_date` or a panel's `period`, `by_market` `instruments`, `first`, `last`, `rows` per `market=` partition) [2026-11-11] |
 | TDS-A001 | E | Cumulative factor ratio ≠ product of the session's event factors (relative 1e-12; by the 5.11 resolution procedure one latest version per revision chain, cancelled chains as 1.0, "none" factor boundaries not reconciled) |
 | TDS-A002 | E | Cumulative factor of the first session ≠ 1.0 |
 | TDS-A003 | E | `price_factor ≤ 0` or null while `factor_method ≠ unavailable` |
@@ -1527,3 +1527,4 @@ Reference numbers are `R4F-NN` of specification v3.4 (appendix I). **`tds_versio
 - 2026-11-11: **v1.4**, in place. Chapter 5 states a 3.2 type for the 67 columns the stable datasets named without one (5.3, 5.4 `calendar_segments`, 5.10, 5.14, 5.16, 5.19, 5.20, 5.21, 5.25) and says `universe_membership.ts_known_to` is nullable, which its open known interval already needed (6.3); each experimental dataset with untyped columns (5.7, 5.8, 5.9, 5.22, 5.23, 5.24) says they are typed when its schema leaves `experimental`; 10.2 says stating a type that was unstated is a wording fix while the standard is a draft (decision 2026-11-03, #105). `tds_version` stays `"1.0"` (wording fix; draft).
 - 2026-11-11: **v1.4**, in place. 8.3: the T003, T004 and T012 rows name the tables each checks; an overlap in `instrument_symbols` (5.2's T003 line) is the same condition as T012 and is reported once, as T012; a null interval end is open and not T004 (maintainer decision 2026-11-11, #225). `tds_version` stays `"1.0"` (checker behaviour, no format change).
 - 2026-11-11: **v1.4**, in place. 8.3: T008's tolerance is 0 until a parameter defines it (maintainer decision 2026-11-11, #225). `tds_version` stays `"1.0"` (checker behaviour, no format change).
+- 2026-11-11: **v1.4**, in place. 8.3: the D001, D002 and D004 rows say what the `full` level reads: D001's instruments and end, D002's rows outside the listing period (a non-session day is R003), D004's `rows` and the `coverage` keys of 4.2's example (maintainer decisions 2026-11-11, #225). `tds_version` stays `"1.0"` (checker behaviour, no format change).
