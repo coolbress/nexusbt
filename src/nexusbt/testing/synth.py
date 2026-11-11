@@ -767,23 +767,24 @@ def _delistings(
 
 
 def _arguments(
-    preset: str, markets: Sequence[str], events: Sequence[Mapping[str, Any]],
+    root: Path, preset: str, markets: Sequence[str], events: Sequence[Mapping[str, Any]],
     overrides: Mapping[str, Any] | None, degrade: Sequence[str], drawn: Sequence[object],
-) -> list[str]:  # fmt: skip
-    """`make_snapshot`'s refusals, in its order, and the chosen markets in MARKETS' order;
-    `drawn` is the arguments only a seeded preset takes (start, end, n_kr, n_us)."""
+) -> tuple[Path, list[str]]:  # fmt: skip
+    """`make_snapshot`'s refusals, in its order, then `root` as a Path and the chosen markets
+    in MARKETS' order; `drawn` is the arguments only a seeded preset takes (start, end, n_kr,
+    n_us)."""
     if preset not in ("tiny", *PRESETS) or overrides:
         raise NotImplementedError("only presets tiny, small and full, without overrides, are"
                                   " built so far (spec 4.8)")  # fmt: skip
     dg.check(degrade)
-    chosen = [m for m in MARKETS if m in markets]
+    root, chosen = Path(root), [m for m in MARKETS if m in markets]
     if not chosen or set(markets) - set(MARKETS):
         raise ValueError(f"markets {list(markets)}: choose one or more of {sorted(MARKETS)}")
     check(events, chosen, CA, preset == "tiny")
     if preset == "tiny" and any(v is not None for v in drawn):
         raise ValueError("tiny is set by hand: start, end, n_kr and n_us apply to small and"
                          " full only")  # fmt: skip
-    return chosen
+    return root, chosen
 
 
 def make_snapshot(
@@ -814,7 +815,8 @@ def make_snapshot(
     `degrade` takes 4.8's core values (T0.16a, T0.16c; `_synth_degrade`) and `late_bars`
     (#354), the others with T0.16b.
     """
-    chosen = _arguments(preset, markets, events, overrides, degrade, (start, end, n_kr, n_us))
+    root, chosen = _arguments(root, preset, markets, events, overrides, degrade,
+                              (start, end, n_kr, n_us))  # fmt: skip
     seeded = PRESETS.get(preset, PRESETS["small"])
     first, final = (start or seeded.start, end or seeded.end) if preset != "tiny" else (START, END)
     counts = seeded.counts | {k: v for k, v in (("KR", n_kr), ("US", n_us)) if v is not None}
@@ -837,7 +839,7 @@ def make_snapshot(
     made = pk.datasets(tables, calendars, preset != "tiny" and "KR" in chosen)
     about = {"name": f"synth-{preset}", "created": f"{final}T00:00:00Z",
              "snapshot_id": snapshot_id, "markets": entries}  # fmt: skip
-    return pk.write(Path(root), made, tables, about, degrade)
+    return pk.write(root, made, tables, about, degrade)
 
 
 def read(root: Path, name: str) -> pa.Table:
