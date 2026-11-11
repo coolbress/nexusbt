@@ -1781,6 +1781,8 @@ _CALENDAR_RULE = build._both(build._sessions(0), build._bars(ts_available=pa.arr
         (build._instruments(last_session=pa.array(["2024-01-01"])), ["TDS-S002"],
          [f"TDS-T{n:03}" for n in (1, 2, 5, 7, 8, 10, 11)]),  # a text date: none judged
         (build._bars(ts_end=pa.array([_at(2, 20)])), [], ["TDS-T005"]),  # no calendar_sessions
+        (build._both(build._sessions(0, (3,)), build._bars(ts_end=pa.array([_at(2, 20)]))),
+         ["TDS-D002", "TDS-R003"], ["TDS-T005"]),  # a calendar, no session that day: not judged
         (build._facts("F1", period_end=[dt.date(2024, 1, 2)], value_how=["preliminary"]),
          ["TDS-T007"], []),  # a warning
         (build._event(_at(1, 0), series_id=["US:CPI"]), [], []),  # at the event: not before it

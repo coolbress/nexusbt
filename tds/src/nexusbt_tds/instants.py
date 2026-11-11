@@ -63,14 +63,15 @@ def _check(m: Manifest, only: Sequence[str] | None, blind: set[str]) -> list[Fin
     ):
         days[calendar][day] = (opens, closes)
     ordered = {c: sorted(s.items()) for c, s in days.items()}
-    has_calendar = any(d.get("kind") == "calendar_sessions" for d in m.datasets)
+    dates = {c: [d for d, _ in s] for c, s in ordered.items()}  # once, not per row
 
     def session(r: Row) -> tuple[Any, Any] | None:
         return days.get(calendar_of.get(r.get("instrument_id")), {}).get(r.get("session_date"))
 
     def next_open(r: Row, day: Any) -> Any:
-        sessions = ordered.get(calendar_of.get(r.get("instrument_id")), [])
-        at = bisect.bisect_right([d for d, _ in sessions], day)
+        calendar = calendar_of.get(r.get("instrument_id"))
+        sessions = ordered.get(calendar, [])
+        at = bisect.bisect_right(dates.get(calendar, []), day)
         return sessions[at][1][0] if at < len(sessions) else None
 
     out, undecided = [], set[str]()
@@ -87,8 +88,6 @@ def _check(m: Manifest, only: Sequence[str] | None, blind: set[str]) -> list[Fin
                     undecided.add(code)
                 else:
                     bad.setdefault((code, severity), [0, r])[0] += 1
-            if bounded and not has_calendar and (r.get("ts_start") or r.get("ts_end")):
-                undecided.add(T005)
         for (code, severity), (n, first) in sorted(bad.items()):
             key = {c: str(first[c]) for c in first if c.endswith("_id") and first[c] is not None}
             out.append(Finding(code, severity, f"{n} {SAID[code]}", name, key=key, count=n))
@@ -139,6 +138,8 @@ def _broken(
         if expected is None or expected != available:
             yield T002, None if expected is None else "error"
     day = session(r) if bounded else None
+    if bounded and day is None and (r["ts_start"] is not None or r["ts_end"] is not None):
+        yield T005, None  # no calendar, or no session that day: not judged
     if day and any(v is not None and v != s for v, s in zip(
         (r["ts_start"], r["ts_end"]), day, strict=True)):  # fmt: skip
         yield T005, "error"
