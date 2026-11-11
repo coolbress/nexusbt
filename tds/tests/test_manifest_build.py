@@ -192,14 +192,16 @@ def test_folder_with_two_datasets_of_one_kind(
     # name the files state that a `freq=` value gives too is refused
     for rel, said in (("odd/freq=1d/a.parquet", "p"), ("odd/freq=1d/b.parquet", "q"),
                       ("gap/freq=/a.parquet", None), ("gap/freq=1d/a.parquet", None),
-                      ("flat/freq=1d.parquet", None),
-                      ("solo/freq=1d/a.parquet", None)):  # fmt: skip
+                      ("flat/freq=1d.parquet", None), ("solo/freq=1d/a.parquet", None),
+                      ("wide/freq=1d/a.parquet", "w"), ("wide/freq=1m/a.parquet", "w"),
+                      ("wide/freq=1m/b.parquet", "v")):  # fmt: skip
         (package / rel).parent.mkdir(parents=True, exist_ok=True)
         rows = pa.table({"x": [1]}).replace_schema_metadata({"tds.dataset": said} if said else None)
         pq.write_table(rows, package / rel)
     paths = {d["name"]: d["path"] for d in build_manifest(package).data["datasets"]}
     assert (paths["p"], paths["q"], paths["gap"]) == ("odd", "odd", "gap")
     assert (paths["flat"], paths["solo_1d"]) == ("flat", "solo/freq=1d")
+    assert (paths["w"], paths["v"]) == ("wide", "wide")  # a name over two folders, one shared
     (package / "tds.json").unlink()
     two_freqs(package, {"1d": None, "1m": "bars_1d"})
     with pytest.raises(ManifestError, match="the dataset name bars_1d"):
