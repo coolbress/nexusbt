@@ -9,13 +9,13 @@ Generated from `docs/spec/engine-spec-v3.4.md` (chapter 10) by the spec checker 
 
 ## Counts
 
-222 engine tickets: M0 16, M1 41, M2 31, M3a 37, M3b 12, M4 28, M5 24, M6 31, v1.x 2 (T7.G, T7.1 and T7.V are part of M6; T7.2 and T7.5 are v1.x). 107 golden cases (G-01..G-107), 36 property tests, 49 error codes (E1..E49), 41 ADRs. Counting rule (as of 2026-11-10): a property test is one `P-*` row of the spec's table 8.3; an ADR is one file in `docs/adr/` (0001..0041), each a row of the spec's table 9.3.
+224 engine tickets: M0 16, M1 41, M2 31, M3a 37, M3b 12, M4 28, M5 24, M6 33, v1.x 2 (T7.G, T7.1 and T7.V are part of M6, and so are T6.28 and T6.29, the real-data evidence after T7.V; T7.2 and T7.5 are v1.x). 107 golden cases (G-01..G-107), 36 property tests, 49 error codes (E1..E49), 41 ADRs. Counting rule (as of 2026-11-10): a property test is one `P-*` row of the spec's table 8.3; an ADR is one file in `docs/adr/` (0001..0041), each a row of the spec's table 9.3.
 
 ## Dependency graph (summary)
 
 - Acyclic; every "Blocked by" points to the same or an earlier milestone (checked by `tools/spec_lint.py`, and in the repo by `test_ticket_graph`, T0.12).
-- Single root: T0.1. Longest chain: 33 tickets:
-  T0.1 → T0.2a → T0.13a → T0.13b → T0.13c → T0.14a → T0.15a → T0.15b → T0.16a → T1.1b → T1.3 → T1.4 → T1.7a → T1.7b → T1.8 → T1.12 → T1.13 → T2.7 → T3.22 → T3.12 → T4.1 → T4.2 → T4.10 → T4.7 → T6.2 → T6.4 → T6.7 → T6.20 → T6.21 → T6.24 → T6.27 → T7.1 → T7.V.
+- Single root: T0.1. Longest chain: 35 tickets:
+  T0.1 → T0.2a → T0.13a → T0.13b → T0.13c → T0.14a → T0.15a → T0.15b → T0.16a → T1.1b → T1.3 → T1.4 → T1.7a → T1.7b → T1.8 → T1.12 → T1.13 → T2.7 → T3.22 → T3.12 → T4.1 → T4.2 → T4.10 → T4.7 → T6.2 → T6.4 → T6.7 → T6.20 → T6.21 → T6.24 → T6.24b → T6.27 → T7.1 → T7.V → T6.28.
 - Most depended-on tickets (number of direct dependents): T0.9 (19), T3.13a (10), T3.14 (9), T0.15a (7), T1.24 (7), T2.9 (7), T2.10a (7), T3.Gd (7), T0.2a (6), T4.7 (6), T0.7 (5), T0.14c (5), T1.11 (5), T1.13 (5), T1.Gb (5), T3.12 (5), T5.1 (5), T6.4 (5). Land these early and keep them small.
 
 
@@ -278,6 +278,8 @@ Generated from `docs/spec/engine-spec-v3.4.md` (chapter 10) by the spec checker 
 | T7.G | `test(golden): hold-band edge cases (G-63)` | 5.5.3, 8.2 | G-63 | T0.9 |
 | T7.1 | `feat(portfolio): target-state recursion and hold band` | 5.5.3 | — | T6.11, T6.18, T7.G, T4.14, T5.16, T6.22, T6.24, T6.25, T6.27 |
 | T7.V | `verify: post-T7.1 release re-verification (no features)` | 7, 8, 9.1 | P-SHORT-OFF | T7.1 |
+| T6.28 | `perf: re-measure chapter 7 on a real snapshot (summary evidence)` | 7, 2.7, 12 | — | T7.V, T6.15 |
+| T6.29 | `test(release): verify a real ledger event by event against the situation table` | 8.4, 5.9.7, 2.7, 12 | LV-01..LV-08 | T7.V, T6.15, T5.11b |
 
 ## v1.x — Right after v1
 
