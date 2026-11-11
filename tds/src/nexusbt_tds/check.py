@@ -1,8 +1,10 @@
 """`check(path, *, level, ...) -> CheckResult`: the levels manifest, schema and full (TDS 8.2).
 
-The `manifest` level reads `tds.json` and file sizes (M001~M014); the `schema` level adds the
+The `manifest` level reads `tds.json`, file sizes and the schema files' `status` (M001~M015);
+the `schema` level adds the
 Parquet footers and statistics and the `dictionary/` tables, no data rows (S001~S010, T006, part
-of D002, and of M008 the columns a profile names); the `full` level adds, so far, the key
+of D002, and of M008 the columns a profile names); the `full` level adds, so far, S006, S007
+and S009 from the rows (`cells`), the key
 checks (K001~K004, K010, K011; `keys`), the
 reference checks (R001~R009; `refs`), the adjustment and value checks (`adjustments`,
 `values`), the interval checks (T003, T004, T012; `times`), the instant checks (T001, T002,
@@ -33,9 +35,10 @@ from .profiles import PROFILES, Need, describe, meets, profile_id
 Level = Literal["manifest", "schema", "full"]
 Severity = Literal["error", "warning"]
 
-#: TDS 8.3, the codes the `manifest` level cannot see (M015 comes with the schema files, T0.13b).
+#: TDS 8.3, the codes the `manifest` level cannot see. M015 it judges from tds.json's kinds and
+#: the schema files' `status` (#391).
 _ROW_CODES = (
-    "M015 S001 S002 S003 S004 S005 S006 S007 S008 S009 S010 K001 K002 K003 K004 K010 K011"
+    "S001 S002 S003 S004 S005 S006 S007 S008 S009 S010 K001 K002 K003 K004 K010 K011"
     " R001 R002 R003 R004 R005 R006 R007 R008 R009 T001 T002 T003 T004 T005 T006 T007 T008"
     " T010 T011 T012 D001 D002 D004 A001 A002 A003 A004 A005 A006 A007 A008 A009 A010 A011"
     " V001 V002 V004 V005 V010 V011 V012 V020 V030 V031 V032 V040 V041 V050 H001 H002 H003 H004"
@@ -43,7 +46,7 @@ _ROW_CODES = (
 UNCHECKED_AT_MANIFEST = tuple(f"TDS-{c}" for c in _ROW_CODES.split())
 #: What the `schema` level judges from footers. S006 and S007 see only a column's minimum and
 #: maximum; S009 sees ±Inf in the statistics but never NaN, which writers leave out of them, so
-#: it stays unchecked.
+#: it stays unchecked. The `full` level judges the three from the rows instead (`cells`).
 #: TDS 4.4: the tables that describe the package; their schema files (`dictionary_schemas`) give
 #: the value hash its types, and the schema level checks no S code on them, nor hides one.
 DICTIONARIES = frozenset({"dictionary/columns", "dictionary/items", "dictionary/codes"})
@@ -159,10 +162,11 @@ def check(
         manifest = read_manifest(path)
         found = list(_check_manifest(manifest, datasets))
         if level != "manifest":
-            found += _check_schema(manifest, datasets, blind)
+            found += _check_schema(manifest, datasets, blind, rows=level == "full")
             found += _check_ranges(manifest, datasets, blind)
         if level == "full":
             from .adjustments import check_actions
+            from .cells import check_cells
             from .densities import check_densities
             from .hash import spilled_note
             from .instants import check_instants
@@ -171,6 +175,7 @@ def check(
             from .times import check_times
             from .values import check_values
 
+            found += check_cells(manifest, datasets, blind)
             spilled: list[Path] = []
             try:
                 found += check_keys(manifest, datasets, blind, tmp_dir, spilled, notes)
@@ -231,8 +236,9 @@ VALUE_CODES = tuple(f"TDS-V{n:03}" for n in (1, 2, 4, 5, 10, 11, 12, 20, 30, 40,
 TIME_CODES = ("TDS-T003", "TDS-T004", "TDS-T012")  # `times` checks them (#225)
 INSTANT_CODES = tuple(f"TDS-T{n:03}" for n in (1, 2, 5, 7, 8, 10, 11))  # `instants` (#225)
 DENSITY_CODES = ("TDS-D001", D002, "TDS-D004")  # `densities` (#225)
+CELL_CODES = ("TDS-S006", "TDS-S007", "TDS-S009")  # `cells`, from the rows (#391)
 FULL_CODES = (*KEY_CODES, *REF_CODES, *ACTION_CODES, *VALUE_CODES, *TIME_CODES, *INSTANT_CODES,
-              *DENSITY_CODES, *HASH_CODES)  # fmt: skip
+              *DENSITY_CODES, *HASH_CODES, *CELL_CODES)  # fmt: skip
 
 
 def _check_hashes(
@@ -330,12 +336,18 @@ def _check_manifest(m: Manifest, only: Sequence[str] | None) -> Iterable[Finding
         "edition": set(values) if isinstance(values, dict) else set(),
     }
 
-    root = m.root.resolve()
+    from .schemas.verify import load_schemas
+
+    root, schemas = m.root.resolve(), load_schemas()
     listed: set[str] = set()
     for ds in m.datasets:
         name = ds["name"] if isinstance(ds.get("name"), str) else None
         if only is not None and name not in only:
             continue
+        schema = schemas.get(str(ds.get("kind")))
+        if schema is not None and schema.status == "experimental":  # TDS 5.6's note, 8.3
+            msg = f"kind {ds['kind']} has an experimental schema (outside the 1.x promise)"
+            yield Finding("TDS-M015", "warning", msg, dataset=name)
         coverage = ds.get("coverage")
         by_market = coverage.get("by_market") if isinstance(coverage, dict) else None
         for market in sorted(by_market) if isinstance(by_market, dict) else []:
@@ -455,8 +467,11 @@ def _fits(tag: str, value: str) -> bool:
     return value != ""
 
 
-def _check_schema(m: Manifest, only: Sequence[str] | None, blind: set[str]) -> list[Finding]:
-    """S001~S010 from each listed, readable Parquet file's footer (TDS 8.2)."""
+def _check_schema(
+    m: Manifest, only: Sequence[str] | None, blind: set[str], *, rows: bool = False
+) -> list[Finding]:
+    """S001~S010 from each listed, readable Parquet file's footer (TDS 8.2); with `rows` (the
+    `full` level) S006, S007 and S009 are left to the rows (`cells`)."""
     from .schemas.verify import load_schemas
 
     schemas, root, out = load_schemas(), m.root.resolve(), []
@@ -480,7 +495,8 @@ def _check_schema(m: Manifest, only: Sequence[str] | None, blind: set[str]) -> l
             read.add(norm)
             if not _unsafe(root, rel) and (root / rel).is_file():
                 found = _check_file(root, rel, ds, schema, blind, codes, entry.get("bytes"))
-                out += [replace(f, dataset=ds.get("name"), file=rel) for f in found]
+                out += [replace(f, dataset=ds.get("name"), file=rel) for f in found
+                        if not rows or f.code not in CELL_CODES]  # fmt: skip
     return out
 
 
