@@ -1063,9 +1063,9 @@ Severity: E = error (profile fails), W = warning.
 | TDS-M014 | E | Unknown **mandatory interpretation rule** (availability rule name, a new value of a closed enum that affects execution, unknown `hash_spec`) — rejected because ignoring it changes the meaning [v1.1] |
 | TDS-M015 | W | A dataset with an `experimental` schema is present (outside the 1.x compatibility promise) [v1.1] |
 | TDS-S001 | E | Required column missing |
-| TDS-S002 | E | Column type differs |
+| TDS-S002 | E | Column type differs: a file's column from its type, or a manifest `columns[].type` from the type the schema file states for that column (naming `ts_us` or `ts_ns` for a `ts_us/ns` column is not a difference) [2026-11-11] |
 | TDS-S003 | E | Null in a non-nullable column |
-| TDS-S004 | E | An instant column without UTC tz or with a unit different from the dataset rule, INT96 |
+| TDS-S004 | E | An instant column without UTC tz or with a unit different from the dataset rule, INT96. The unit is the schema file's; a manifest `columns[].type` names it only for a `ts_us/ns` column [2026-11-11] |
 | TDS-S005 | W | Unknown column (without `x_` prefix) |
 | TDS-S006 | E | Value not in a closed enum |
 | TDS-S007 | W | Value not in an open enum (and not in `dictionary/codes`) |
@@ -1529,3 +1529,4 @@ Reference numbers are `R4F-NN` of specification v3.4 (appendix I). **`tds_versio
 - 2026-11-11: **v1.4**, in place. 8.3: the T003, T004 and T012 rows name the tables each checks; an overlap in `instrument_symbols` (5.2's T003 line) is the same condition as T012 and is reported once, as T012; a null interval end is open and not T004 (maintainer decision 2026-11-11, #225). `tds_version` stays `"1.0"` (checker behaviour, no format change).
 - 2026-11-11: **v1.4**, in place. 8.3: T008's tolerance is 0 until a parameter defines it (maintainer decision 2026-11-11, #225). `tds_version` stays `"1.0"` (checker behaviour, no format change).
 - 2026-11-11: **v1.4**, in place. 8.3: the D001, D002 and D004 rows say what the `full` level reads: D001's instruments and end, D002's rows outside the listing period (a non-session day is R003), D004's `rows` and the `coverage` keys of 4.2's example (maintainer decisions 2026-11-11, #225). `tds_version` stays `"1.0"` (checker behaviour, no format change).
+- 2026-11-11: **v1.4**, in place. 8.3: for a column the schema file types, the schema file decides the type and the timestamp unit. A manifest `columns[].type` that differs from it is S002, reported once for the dataset, and S004 compares the file with the schema file's unit; until now a declared `ts_us` or `ts_ns` replaced that unit, so a file in the wrong unit passed. A declaration still names the unit of a `ts_us/ns` column and the type of a column the schema file leaves untyped (maintainer decision 2026-11-11, #373). `tds_version` stays `"1.0"` (checker behaviour, no format change).

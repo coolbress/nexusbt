@@ -471,6 +471,7 @@ def _check_schema(m: Manifest, only: Sequence[str] | None, blind: set[str]) -> l
             blind.update(SCHEMA_CODES)  # a kind with no schema file (`x_custom`): not checked
         if schema is None or not version or int(version[1]) != SUPPORTED_MAJOR:  # M009
             continue
+        out += _check_declared(ds, schema)
         files = ds.get("files")
         for entry in files if isinstance(files, list) else []:
             rel = entry.get("path") if isinstance(entry, dict) else None
@@ -504,6 +505,21 @@ def _dictionary_codes(m: Manifest, root: Path) -> set[tuple[str, str]]:
 def _by_name(entries: object) -> dict[str, Any]:  # tds.json `columns`, `partitioning`: name → type
     items = entries if isinstance(entries, list) else []
     return {str(e["name"]): e.get("type") for e in items if isinstance(e, dict) and "name" in e}
+
+
+def _check_declared(ds: Mapping[str, Any], schema: Any) -> list[Finding]:
+    """S002 of each tds.json `columns[].type` that differs from the type the schema file states.
+
+    The schema file decides a typed column's type and timestamp unit (#373); a declaration only
+    names the one unit of a `ts_us/ns` column, and types a column the schema leaves untyped."""
+    declared, out = _by_name(ds.get("columns")), []
+    for column in schema.columns:
+        said, tag = declared.get(column.name), column.type
+        narrows = tag == "ts_us/ns" and said in ("ts_us", "ts_ns")
+        if said is not None and tag is not None and said != tag and not narrows:
+            message = f"tds.json declares {column.name} as {said}, schema type {tag}"
+            out.append(Finding("TDS-S002", "error", message, dataset=ds.get("name")))
+    return out
 
 
 def _check_file(
@@ -569,8 +585,8 @@ def _check_column(
     if tag in _IS and not _IS[tag](kind):
         yield Finding("TDS-S002", "error", f"{name} is {kind}, TDS type {tag}")
         return
-    if tag in _UNITS:  # tds.json `columns[].type` names the unit of a `ts_us/ns` column (#57)
-        units = _UNITS.get(str(unit), _UNITS[tag])
+    if tag in _UNITS:  # the schema's unit; tds.json names one of a `ts_us/ns` column's (#57, #373)
+        units = _UNITS.get(str(unit), _UNITS[tag]) if tag == "ts_us/ns" else _UNITS[tag]
         if kind.tz != "UTC" or kind.unit not in units:
             yield Finding("TDS-S004", "error", f"{name} is {kind}, wants UTC {'/'.join(units)}")
     if index is None:  # its statistics are its leaves': a list's own null count is in none
