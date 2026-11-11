@@ -40,12 +40,12 @@ import pyarrow.parquet as pq
 from nexusbt.contracts import ID_COLUMN as ID
 from nexusbt.testing import _synth_degrade as dg
 from nexusbt.testing import _synth_events as ev
+from nexusbt.testing import _synth_package as pk
 from nexusbt.testing._synth_daily import (
     OHLC,
     PRODUCER,
     TICK_RULE,
     _eligibility,
-    _market_rules,
     _ratios,
     _share_counts,
     _snap,
@@ -53,19 +53,7 @@ from nexusbt.testing._synth_daily import (
     _venues,
 )
 from nexusbt.testing._synth_events import _cash, _ratio, check, given, targets
-from nexusbt.testing._synth_package import (
-    _TS,
-    FIELDS,
-    ROW_GROUP,
-    XREF,
-    Table,
-    _arrow,
-    _coverage,
-    _daily,
-    _tds,
-    _watermark,
-    _write,
-)
+from nexusbt.testing._synth_package import _TS, Table
 
 START, END = dt.date(2020, 1, 2), dt.date(2020, 3, 31)  # the tiny period (4.8 table)
 
@@ -102,7 +90,6 @@ MARKETS = {
 #: The `instruments.venue_mic` values per market, rows of `costs/venue_groups_v1.csv` (no
 #: KONEX). ZZ has no row there, so its `venue_mic` is null.
 VENUES = {"KR": ("XKRX", "XKOS"), "US": ("XNYS", "XNAS")}
-NAMESPACES = {"KR": "synthetic KR", "US": "synthetic US", "ZZ": "synthetic test market"}
 #: The period's weekday holidays, set by hand; XZZZ copies the XNYS sessions (4.8).
 HOLIDAYS = {
     "XKRX": {dt.date(2020, 1, 24), dt.date(2020, 1, 27)},  # Seollal and its substitute day
@@ -116,9 +103,6 @@ COUNT, RENAMED, TICKER_CHANGE, LATE_LISTING = 6, 2, dt.date(2020, 2, 14), dt.dat
 CYCLE = (100, 101, 102, 101)  # close = base x CYCLE[k % 4] / 100 on the k-th listed session
 YEAR = 252  # sessions: small draws listings over 8 such years before its start, to its end
 BP, DRIFT = 10_000, 3  # small's price steps: basis points, log drift 3 bp (4.8 (3)'s 0.0003)
-HINTS = {
-    "TDS-K011": "nexusbt-synth numbers each calendar's sessions from 0 within the preset period",
-}
 _D, _S, _F, _I = pa.date32(), pa.string(), pa.float64(), pa.int64()
 #: The TDS 5.11 `corporate_actions` columns the generator writes; the others are all null.
 CA = pa.schema({
@@ -782,6 +766,26 @@ def _delistings(
             delisted)  # fmt: skip
 
 
+def _arguments(
+    preset: str, markets: Sequence[str], events: Sequence[Mapping[str, Any]],
+    overrides: Mapping[str, Any] | None, degrade: Sequence[str], drawn: Sequence[object],
+) -> list[str]:  # fmt: skip
+    """`make_snapshot`'s refusals, in its order, and the chosen markets in MARKETS' order;
+    `drawn` is the arguments only a seeded preset takes (start, end, n_kr, n_us)."""
+    if preset not in ("tiny", *PRESETS) or overrides:
+        raise NotImplementedError("only presets tiny, small and full, without overrides, are"
+                                  " built so far (spec 4.8)")  # fmt: skip
+    dg.check(degrade)
+    chosen = [m for m in MARKETS if m in markets]
+    if not chosen or set(markets) - set(MARKETS):
+        raise ValueError(f"markets {list(markets)}: choose one or more of {sorted(MARKETS)}")
+    check(events, chosen, CA, preset == "tiny")
+    if preset == "tiny" and any(v is not None for v in drawn):
+        raise ValueError("tiny is set by hand: start, end, n_kr and n_us apply to small and"
+                         " full only")  # fmt: skip
+    return chosen
+
+
 def make_snapshot(
     root: Path,
     *,
@@ -810,23 +814,13 @@ def make_snapshot(
     `degrade` takes 4.8's core values (T0.16a, T0.16c; `_synth_degrade`) and `late_bars`
     (#354), the others with T0.16b.
     """
-    if preset not in ("tiny", *PRESETS) or overrides:
-        raise NotImplementedError("only presets tiny, small and full, without overrides, are"
-                                  " built so far (spec 4.8)")  # fmt: skip
-    dg.check(degrade)
-    root, chosen = Path(root), [m for m in MARKETS if m in markets]
-    if not chosen or set(markets) - set(MARKETS):
-        raise ValueError(f"markets {list(markets)}: choose one or more of {sorted(MARKETS)}")
-    check(events, chosen, CA, preset == "tiny")
-    if preset == "tiny" and any(v is not None for v in (start, end, n_kr, n_us)):
-        raise ValueError("tiny is set by hand: start, end, n_kr and n_us apply to small and"
-                         " full only")  # fmt: skip
+    chosen = _arguments(preset, markets, events, overrides, degrade, (start, end, n_kr, n_us))
     seeded = PRESETS.get(preset, PRESETS["small"])
     first, final = (start or seeded.start, end or seeded.end) if preset != "tiny" else (START, END)
     counts = seeded.counts | {k: v for k, v in (("KR", n_kr), ("US", n_us)) if v is not None}
     # one stream per market from PCG64(seed), so a market's rows do not depend on the others
     rngs = dict(zip(MARKETS, np.random.Generator(np.random.PCG64(seed)).spawn(3), strict=True))
-    calendars, tables, through = {}, {}, {}
+    calendars, tables, entries = {}, {}, {}
     for m in chosen:
         cal = MARKETS[m]["calendar_id"]
         if preset == "tiny":
@@ -834,56 +828,16 @@ def make_snapshot(
         else:
             calendars[cal] = _small_calendar(cal, first, final)
             tables[m] = _small(m, counts[m], calendars[cal], rngs[m], events, seeded.life[m])
-        through[m] = _watermark(calendars[cal])
+        entries[m] = MARKETS[m] | pk._watermark(calendars[cal])
         if degrade:
-            closes = _arrow(calendars[cal])["ts_close"].combine_chunks()
-            tables[m] = dg.apply(m, {k: _arrow(v) for k, v in tables[m].items()}, degrade,
+            closes = pk._arrow(calendars[cal])["ts_close"].combine_chunks()
+            tables[m] = dg.apply(m, {k: pk._arrow(v) for k, v in tables[m].items()}, degrade,
                                  closes, seed)  # fmt: skip
-
-    def joined(name: str, key: list[str]) -> pa.Table:
-        table = pa.concat_tables([_arrow(tables[m][name]) for m in chosen])
-        return table.sort_by([(k, "ascending") for k in key])
-
-    made: dict[str, Callable[[], pa.Table]] = {
-        "instruments": lambda: joined("instruments", [ID]),
-        "instrument_symbols": lambda: joined("instrument_symbols", [ID, "valid_from"]),
-        "instrument_xref": lambda: pa.schema(XREF).empty_table(),
-        "calendar_sessions": lambda: pa.concat_tables(
-            [_arrow(calendars[c]) for c in sorted(calendars)]),
-        "corporate_actions": lambda: joined("corporate_actions", [ID, "ex_date", "event_id"]),
-        "delistings": lambda: joined("delistings", [ID, "exit_date"]),
-    }  # fmt: skip
-    if preset != "tiny" and "KR" in chosen:  # 4.8 (11a); tiny's prices are on no grid
-        made["market_rules"] = _market_rules
-    if all("share_counts" in tables[m] for m in chosen):  # tiny has none yet
-        made["share_counts"] = lambda: joined("share_counts", [ID, "count_kind", "as_of_date"])
-    files: dict[str, list[Any]] = {}
-    cover: dict[str, Any] = {}  # dataset → its `coverage` field, or nothing (TDS 4.3)
-    for name, make in made.items():
-        if name not in dg.absent(degrade):
-            table = make()
-            files[name] = [_write(root, f"{name}/part-00000.parquet", name, table)]
-            cover[name] = _coverage({None: table})
-    _daily(root, {m: tables[m] for m in chosen}, files, cover)
-    manifest = {
-        "tds_version": "1.0", "name": f"synth-{preset}", "created": f"{final}T00:00:00Z",
-        "snapshot_id": snapshot_id, "producer": {"name": PRODUCER, "hints": HINTS},
-        "profiles": dg.profiles(["tds:minimal-daily@1.0", "tds:equity-daily-core@1.0"], degrade),
-        "id_namespaces": {m: NAMESPACES[m] for m in chosen},
-        "markets": {m: MARKETS[m] | through[m] for m in chosen},
-        "datasets": [
-            {"name": name, "kind": name, "path": name, "schema_version": "1.0",
-             **dg.fields(name, FIELDS.get(name, {}), degrade), **cover[name], "files": entries}
-            for name, entries in files.items()
-        ],
-        "hashes": {"hash_spec": "tds-hash-1"},
-        "writer": {"name": PRODUCER, "row_group_rows": ROW_GROUP},
-    }  # fmt: skip
-    (root / "tds.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
-    done = _tds("hash", str(root), "--write")
-    if done.returncode != 0:
-        raise RuntimeError(f"tds hash --write {root} exited {done.returncode}: {done.stderr}")
-    return root
+    # 4.8 (11a) with KR; tiny's prices are on no grid
+    made = pk.datasets(tables, calendars, preset != "tiny" and "KR" in chosen)
+    about = {"name": f"synth-{preset}", "created": f"{final}T00:00:00Z",
+             "snapshot_id": snapshot_id, "markets": entries}  # fmt: skip
+    return pk.write(Path(root), made, tables, about, degrade)
 
 
 def read(root: Path, name: str) -> pa.Table:
@@ -972,7 +926,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if "ts_available" in bars.column_names:  # degrade late_bars (#354)
         late = pa.compute.greater(bars["ts_available"], bars["ts_end"])
         print(f"late bars {pa.compute.sum(late).as_py()}")
-    done = _tds("check", str(root), "--level", "full")
+    done = pk._tds("check", str(root), "--level", "full")
     names = {ds["name"] for ds in manifest["datasets"]}
     # from `instruments`, which a package without `delistings` (F-13) still has
     last = {r[ID]: r["last_session"] for r in read(root, "instruments").to_pylist()}

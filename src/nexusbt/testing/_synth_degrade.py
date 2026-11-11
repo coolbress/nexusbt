@@ -8,7 +8,7 @@ profile a gap breaks is TDS 7's table: `tds:equity-daily-core@1.0` needs `calend
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 import numpy as np
@@ -98,8 +98,63 @@ def _late(market: str, bars: pa.Table, closes: pa.Array, seed: int) -> pa.Table:
     return bars.append_column("ts_available", pa.array(available).cast(bars["ts_end"].type))
 
 
-def apply(market: str, tables: dict[str, pa.Table], degrade: Sequence[str],
-          closes: pa.Array, seed: int) -> dict[str, pa.Table]:  # fmt: skip
+Tables = dict[str, pa.Table]
+#: A gap's change to one market's tables (market, tables, its session closes, seed): the
+#: tables it replaces.
+Gap = Callable[[str, Tables, pa.Array, int], Tables]
+
+
+def _no_ohlc(market: str, t: Tables, closes: pa.Array, seed: int) -> Tables:
+    """F-01: open, high and low null, the close kept."""
+    bars = t["bars_1d"]
+    null = pa.nulls(len(bars), pa.float64())
+    for c in ("open", "high", "low"):
+        bars = bars.set_column(bars.schema.get_field_index(c), c, null)
+    return {"bars_1d": bars}
+
+
+def _us_div(market: str, t: Tables, closes: pa.Array, seed: int) -> Tables:
+    """F-09: no dates, and the amount divided by the share events after it."""
+    later = _later_shares(t["corporate_actions"])
+    return {"corporate_actions": _rows(t["corporate_actions"], lambda r: r | dict.fromkeys(
+        DATES) | {"pay_date_status": "missing",
+                  "cash_per_share": r["cash_per_share"] / later(r[ID], r["ex_date"])})}  # fmt: skip
+
+
+def _in_lots(market: str, t: Tables, closes: pa.Array, seed: int) -> Tables:
+    """F-16: whole lots, odd shares dropped."""
+    bars = t["bars_1d"]
+    lots = pc.floor(pc.divide(bars["volume"], float(LOT)))
+    return {"bars_1d": bars.set_column(bars.schema.get_field_index("volume"), "volume", lots)}
+
+
+def _no_tick_rule(market: str, t: Tables, closes: pa.Array, seed: int) -> Tables:
+    """F-15: `instruments` without `tick_rule_id`, when it has the column."""
+    held = "tick_rule_id" in t["instruments"].column_names
+    return {"instruments": t["instruments"].drop_columns(["tick_rule_id"])} if held else {}
+
+
+#: The core values that change rows, in the order `apply` makes the changes, each with the
+#: market it applies to (None: every market). The others only leave a dataset out (ABSENT).
+GAPS: dict[str, tuple[str | None, Gap]] = {
+    "no_ohlc": (None, _no_ohlc),
+    "sparse_bars": (None, lambda m, t, c, s: {  # F-03: the sessions it traded, no obs_status
+        "bars_1d": t["bars_1d"].filter(pc.equal(t["bars_1d"]["obs_status"], "traded"))
+        .drop_columns(["obs_status"])}),
+    "no_cum_factors": (None, lambda m, t, c, s: {  # F-04
+        "bars_1d": t["bars_1d"].drop_columns(["cum_factor_split", "cum_factor_total"])}),
+    "kr_ex_is_record": ("KR", lambda m, t, c, s: {  # F-05
+        "corporate_actions": _rows(t["corporate_actions"],
+                                   lambda r: r | {"record_date": r["ex_date"]})}),
+    "us_div_split_adjusted_no_dates": ("US", _us_div),
+    "late_bars": (None, lambda m, t, c, s: {"bars_1d": _late(m, t["bars_1d"], c, s)}),
+    "volume_in_lots": ("KR", _in_lots),
+    "no_tick_info": (None, _no_tick_rule),
+}  # fmt: skip
+
+
+def apply(market: str, tables: Tables, degrade: Sequence[str],
+          closes: pa.Array, seed: int) -> Tables:  # fmt: skip
     """One market's tables with the gaps `degrade` names; `closes` are the market's session
     closes in order, which `late_bars` counts its sessions on.
 
@@ -108,30 +163,9 @@ def apply(market: str, tables: dict[str, pa.Table], degrade: Sequence[str],
     `kr_ex_is_record` writes `record_date = ex_date` and keeps the bars' ex-dates, which the
     cumulative factors follow (A001)."""
     out = dict(tables)
-    bars, actions = out["bars_1d"], out["corporate_actions"]
-    if "no_ohlc" in degrade:  # F-01: open, high and low null, the close kept
-        null = pa.nulls(len(bars), pa.float64())
-        for c in ("open", "high", "low"):
-            bars = bars.set_column(bars.schema.get_field_index(c), c, null)
-    if "sparse_bars" in degrade:  # F-03: only the sessions it traded, and no obs_status
-        bars = bars.filter(pc.equal(bars["obs_status"], "traded")).drop_columns(["obs_status"])
-    if "no_cum_factors" in degrade:  # F-04
-        bars = bars.drop_columns(["cum_factor_split", "cum_factor_total"])
-    if "kr_ex_is_record" in degrade and market == "KR":  # F-05
-        actions = _rows(actions, lambda r: r | {"record_date": r["ex_date"]})
-    if "us_div_split_adjusted_no_dates" in degrade and market == "US":  # F-09
-        later = _later_shares(actions)
-        actions = _rows(actions, lambda r: r | dict.fromkeys(DATES) | {
-            "pay_date_status": "missing",
-            "cash_per_share": r["cash_per_share"] / later(r[ID], r["ex_date"])})  # fmt: skip
-    if "late_bars" in degrade:
-        bars = _late(market, bars, closes, seed)
-    if "volume_in_lots" in degrade and market == "KR":  # F-16: whole lots, odd shares dropped
-        lots = pc.floor(pc.divide(bars["volume"], float(LOT)))
-        bars = bars.set_column(bars.schema.get_field_index("volume"), "volume", lots)
-    if "no_tick_info" in degrade and "tick_rule_id" in out["instruments"].column_names:  # F-15
-        out["instruments"] = out["instruments"].drop_columns(["tick_rule_id"])
-    out["bars_1d"], out["corporate_actions"] = bars, actions
+    for value, (only, gap) in GAPS.items():
+        if value in degrade and only in (None, market):
+            out |= gap(market, out, closes, seed)
     for name in absent(degrade):
         out.pop(name, None)
     return out

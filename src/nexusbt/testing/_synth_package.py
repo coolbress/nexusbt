@@ -1,6 +1,5 @@
-"""The synthetic generator's package writer (spec 4.8): the generated tables written as TDS
-files with their tds.json fields, coverage and watermarks, and the `tds` command that hashes
-and checks the package.
+"""The synthetic generator's package writer (spec 4.8): the generated tables written as a TDS
+package, its `tds.json` and the `tds` command that hashes and checks it.
 
 `synth` hands it each market's tables once every stage has run; nothing here draws a random
 number, so moving it out of `synth` changed no byte of any preset.
@@ -8,9 +7,10 @@ number, so moving it out of `synth` changed no byte of any preset.
 
 from __future__ import annotations
 
+import json
 import subprocess
 import sysconfig
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -18,7 +18,13 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from nexusbt.contracts import ID_COLUMN as ID
+from nexusbt.testing import _synth_degrade as dg
+from nexusbt.testing._synth_daily import PRODUCER, _market_rules
 
+NAMESPACES = {"KR": "synthetic KR", "US": "synthetic US", "ZZ": "synthetic test market"}
+HINTS = {
+    "TDS-K011": "nexusbt-synth numbers each calendar's sessions from 0 within the preset period",
+}
 ROW_GROUP = 100_000
 _TS = pa.timestamp("us", tz="UTC")
 Table = dict[str, Any]  # column name → values, in schema order
@@ -153,3 +159,64 @@ def _tds(*args: str) -> subprocess.CompletedProcess[str]:
     until T1.1a: without nexusbt-tds installed, FileNotFoundError)."""
     command = [str(Path(sysconfig.get_path("scripts")) / "tds"), *args]
     return subprocess.run(command, capture_output=True, text=True, check=False)  # noqa: S603
+
+
+def datasets(
+    tables: Mapping[str, Mapping[str, Any]], calendars: Mapping[str, Table], rules: bool
+) -> dict[str, Callable[[], pa.Table]]:
+    """The datasets written whole, each joined over the markets in `tables` when it is written;
+    `market_rules` (4.8 (11a)) when `rules`, `share_counts` when every market has it."""
+
+    def joined(name: str, key: list[str]) -> pa.Table:
+        table = pa.concat_tables([_arrow(tables[m][name]) for m in tables])
+        return table.sort_by([(k, "ascending") for k in key])
+
+    made: dict[str, Callable[[], pa.Table]] = {
+        "instruments": lambda: joined("instruments", [ID]),
+        "instrument_symbols": lambda: joined("instrument_symbols", [ID, "valid_from"]),
+        "instrument_xref": lambda: pa.schema(XREF).empty_table(),
+        "calendar_sessions": lambda: pa.concat_tables(
+            [_arrow(calendars[c]) for c in sorted(calendars)]),
+        "corporate_actions": lambda: joined("corporate_actions", [ID, "ex_date", "event_id"]),
+        "delistings": lambda: joined("delistings", [ID, "exit_date"]),
+    }  # fmt: skip
+    if rules:
+        made["market_rules"] = _market_rules
+    if all("share_counts" in t for t in tables.values()):  # tiny has none yet
+        made["share_counts"] = lambda: joined("share_counts", [ID, "count_kind", "as_of_date"])
+    return made
+
+
+def write(
+    root: Path, made: Mapping[str, Callable[[], pa.Table]],
+    tables: Mapping[str, Mapping[str, Any]], about: Mapping[str, Any], degrade: Sequence[str],
+) -> Path:  # fmt: skip
+    """Writes the package to `root`: `made`'s datasets but those `degrade` leaves out, the
+    daily ones of `tables`, and a tds.json from `about` (its name, created, snapshot id and
+    each market's entry), whose hashes the `tds` command then writes."""
+    files: dict[str, list[Any]] = {}
+    cover: dict[str, Any] = {}  # dataset → its `coverage` field, or nothing (TDS 4.3)
+    for name, make in made.items():
+        if name not in dg.absent(degrade):
+            table = make()
+            files[name] = [_write(root, f"{name}/part-00000.parquet", name, table)]
+            cover[name] = _coverage({None: table})
+    _daily(root, tables, files, cover)
+    manifest = {
+        "tds_version": "1.0", "name": about["name"], "created": about["created"],
+        "snapshot_id": about["snapshot_id"], "producer": {"name": PRODUCER, "hints": HINTS},
+        "profiles": dg.profiles(["tds:minimal-daily@1.0", "tds:equity-daily-core@1.0"], degrade),
+        "id_namespaces": {m: NAMESPACES[m] for m in tables}, "markets": about["markets"],
+        "datasets": [
+            {"name": name, "kind": name, "path": name, "schema_version": "1.0",
+             **dg.fields(name, FIELDS.get(name, {}), degrade), **cover[name], "files": entries}
+            for name, entries in files.items()
+        ],
+        "hashes": {"hash_spec": "tds-hash-1"},
+        "writer": {"name": PRODUCER, "row_group_rows": ROW_GROUP},
+    }  # fmt: skip
+    (root / "tds.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    done = _tds("hash", str(root), "--write")
+    if done.returncode != 0:
+        raise RuntimeError(f"tds hash --write {root} exited {done.returncode}: {done.stderr}")
+    return root
