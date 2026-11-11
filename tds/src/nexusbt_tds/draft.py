@@ -1,7 +1,8 @@
 """`build_manifest(path) -> Manifest`: a tds.json draft for a folder of Parquet files (TDS 8.1).
 
 The draft holds what the files say: the datasets (the folder above the first `key=value` part;
-in it one dataset per `tds.dataset` the files state, and among the files that state none one per
+in it one dataset per `tds.dataset` the files state, and among the files that state none, or
+state the kind and are under several `freq=` values, one per
 `freq=` value, named `<folder>_<value>` with `params.freq`, as TDS 4.2 lists `bars_1d` (#371);
 `schema_version` theirs or else `1.0`, the only one there is), each file's rows, bytes and
 sha256, the physical hash, and a dataset's value hash where its kind and key are known. What the
@@ -90,11 +91,19 @@ def build_manifest(path: Path) -> Manifest:
             named.setdefault(name, []).append({"path": rel, "rows": meta.num_rows,
                 "bytes": (root / rel).stat().st_size, "sha256": sha256[rel]})  # fmt: skip
         # #371 Decisions: (1) each name the files state is a dataset; among the files with none,
-        # (2) `freq=` first is one dataset per value, (3) any other mix of first keys stays one
-        rest, depth = named.pop(None, []), folder.count("/") + 1
+        # (2) `freq=` first is one dataset per value, (3) any other mix of first keys, or (4) of
+        # files in the folder itself with partition folders, stays one and is said in `TODO`;
+        # (5) the kind as the name says no more than the folder, so over several `freq=` it is (2)
+        depth = folder.count("/") + 1
+        kind_named = {f["path"].split("/")[depth] for f in named.get(folder, [])}
+        if len(kind_named) > 1 and all(p.startswith("freq=") for p in kind_named):
+            named[None] = sorted(named.pop(None, []) + named.pop(folder), key=lambda f: f["path"])
+        rest = named.pop(None, [])
         first = [f["path"].split("/")[depth:-1][:1] for f in rest]  # [] in the folder itself
         first = [p[0] if p else "" for p in first]
         keys = sorted({p.split("=")[0] for p in first if "=" in p})
+        mix = ["files directly in it"] * ("" in first and bool(keys))
+        mix += [f"the partition key{'s' * (len(keys) > 1)} {', '.join(keys)}"] * bool(keys)
         if rest and all(p.startswith("freq=") and p != "freq=" for p in first):
             for part in sorted(set(first)):
                 files = [f for f, p in zip(rest, first, strict=True) if p == part]
@@ -103,7 +112,7 @@ def build_manifest(path: Path) -> Manifest:
                               {"freq": value}, files))  # fmt: skip
         elif rest:
             split.append((folder, None, folder, {}, rest))
-            mixed += [f"{folder} mixes the partition keys {', '.join(keys)}"] * (len(keys) > 1)
+            mixed += [f"{folder} mixes {' and '.join(mix)}"] * (len(keys) > 1 or len(mix) > 1)
         for name, files in named.items():
             others = [rel for rel in paths if rel not in {f["path"] for f in files}]
             split.append((folder, name, _own(folder, files, others), {}, files))

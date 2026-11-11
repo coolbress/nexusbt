@@ -174,6 +174,12 @@ def test_folder_with_two_datasets_of_one_kind(
         ("instruments", "instruments"),
     ]
     (package / "tds.json").unlink()
+    two_freqs(package, {"1d": "bars", "1m": "bars"})  # (5) the kind as the name: split as (2)
+    assert [d["name"] for d in build_manifest(package).data["datasets"]][:2] == [
+        "bars_1d",
+        "bars_1m",
+    ]
+    (package / "tds.json").unlink()
     # (3) any other mix of first keys: one dataset, and `TODO` names the folder and the keys
     for rel in ("notes/b=2/a.parquet", "notes/a=1/a.parquet", "notes/a=1/c=3/b.parquet"):
         (package / rel).parent.mkdir(parents=True)
@@ -194,11 +200,18 @@ def test_folder_with_two_datasets_of_one_kind(
                       ("gap/freq=/a.parquet", None), ("gap/freq=1d/a.parquet", None),
                       ("flat/freq=1d.parquet", None), ("solo/freq=1d/a.parquet", None),
                       ("wide/freq=1d/a.parquet", "w"), ("wide/freq=1m/a.parquet", "w"),
-                      ("wide/freq=1m/b.parquet", "v")):  # fmt: skip
+                      ("wide/freq=1m/b.parquet", "v"),
+                      ("low/b.parquet", None), ("low/freq=1d/a.parquet", None)):  # fmt: skip
         (package / rel).parent.mkdir(parents=True, exist_ok=True)
         rows = pa.table({"x": [1]}).replace_schema_metadata({"tds.dataset": said} if said else None)
         pq.write_table(rows, package / rel)
-    paths = {d["name"]: d["path"] for d in build_manifest(package).data["datasets"]}
+    draft = dict(build_manifest(package).data)
+    paths = {d["name"]: d["path"] for d in draft["datasets"]}
+    # (4) files in the folder itself beside a partition folder: one dataset, said in `TODO`
+    assert (paths["low"], draft["TODO"][0].split(";")[0]) == (
+        "low",
+        "datasets[] to split: low mixes files directly in it and the partition key freq",
+    )
     assert (paths["p"], paths["q"], paths["gap"]) == ("odd", "odd", "gap")
     assert (paths["flat"], paths["solo_1d"]) == ("flat", "solo/freq=1d")
     assert (paths["w"], paths["v"]) == ("wide", "wide")  # a name over two folders, one shared
