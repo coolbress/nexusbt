@@ -2,7 +2,8 @@
 
 The `manifest` level reads `tds.json` and file sizes (M001~M014); the `schema` level adds the
 Parquet footers and statistics and the `dictionary/` tables, no data rows (S001~S010, T006, part
-of D002); the `full` level adds, so far, the key checks (K001~K004, K010, K011; `keys`), the
+of D002, and of M008 the columns a profile names); the `full` level adds, so far, the key
+checks (K001~K004, K010, K011; `keys`), the
 reference checks (R001~R009; `refs`), the adjustment and value checks (`adjustments`,
 `values`), the interval checks (T003, T004, T012; `times`), the instant checks (T001, T002,
 T005, T007, T008, T010, T011; `instants`), the density checks (D001, D002, D004;
@@ -190,7 +191,7 @@ def check(
     statuses: dict[str, ProfileStatus] = {}
     package_failed = any(f.severity == "error" for f in found)
     for name in dict.fromkeys(wanted):
-        own = list(_check_profile(manifest, name)) if manifest else []
+        own = list(_check_profile(manifest, name, level, datasets, notes)) if manifest else []
         found += own
         # `full` checks only `FULL_CODES` so far: no profile is verified to it
         verified: Level = "schema" if level == "full" else level
@@ -817,7 +818,11 @@ def _instant(value: object) -> dt.datetime | None:
     return when if when and when.tzinfo else None
 
 
-def _check_profile(m: Manifest, name: str) -> Iterable[Finding]:
+def _check_profile(
+    m: Manifest, name: str, level: Level, only: Sequence[str] | None, notes: list[str]
+) -> Iterable[Finding]:
+    """M007, and M008: the profile's datasets and, above `manifest`, the columns chapter 7
+    names in each dataset that meets it (of `only`, when datasets are named)."""
     profile = PROFILES.get(name)
     if profile is None:
         why = "unknown profile" if _PROFILE.fullmatch(name) else "not a profile name"
@@ -831,6 +836,50 @@ def _check_profile(m: Manifest, name: str) -> Iterable[Finding]:
         if not any(all(_has(m.datasets, need) for need in alt) for alt in group):
             wanted = " or ".join(describe(alt) for alt in group)
             yield Finding("TDS-M008", "error", f"{name} requires dataset {wanted}")
+    for need, columns in profile.columns if level != "manifest" else ():
+        for ds in m.datasets:
+            if (only is not None and ds.get("name") not in only) or not _has([ds], need):
+                continue
+            for column in columns:
+                lack = _lacks(m.root.resolve(), ds, column)
+                if lack is None:
+                    said = f"column {column} of {ds.get('name')} ({name}): no statistics"
+                    notes.append(f"TDS-M008 not checked for {said}")
+                elif lack:
+                    message = f"{name} requires column {column} in {need[0]}: {lack}"
+                    yield Finding("TDS-M008", "error", message, dataset=ds.get("name"))
+
+
+def _lacks(root: Path, ds: Mapping[str, Any], column: str) -> str | None:
+    """Why no listed file of `ds` holds a value of `column`: "missing" from every footer, or
+    "null in every row"; "" when one holds a value, when the dataset has no row (an empty table
+    lacks nothing) or no readable footer, or when the column is a partition's; None when a
+    footer has the column without its null count."""
+    rows = 0  # of every listed file, with the column or without
+    held = unknown = False
+    for rel, meta in _footers(root, ds):
+        if meta is None or any(p.startswith(f"{column}=") for p in PurePosixPath(rel).parts):
+            return ""
+        rows += meta.num_rows
+        paths = [meta.schema.column(i).path for i in range(meta.num_columns)]
+        if column not in {p.split(".")[0] for p in paths}:
+            continue
+        held = True
+        for g in range(meta.num_row_groups if column in paths else 0):
+            s = meta.row_group(g).column(paths.index(column)).statistics
+            if not meta.row_group(g).num_rows:
+                continue  # a row group without rows has no null count and no value
+            if s is None or not s.has_null_count:
+                unknown = True
+            elif s.null_count < meta.row_group(g).num_rows:
+                return ""
+        # a nested column: its leaves' counts only
+        unknown = unknown or (column not in paths and meta.num_rows > 0)
+    if unknown:
+        return None
+    if not rows:
+        return ""
+    return "null in every row" if held else "missing"
 
 
 def _has(datasets: Iterable[Mapping[str, Any]], need: Need) -> bool:
