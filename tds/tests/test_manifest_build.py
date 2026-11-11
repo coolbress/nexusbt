@@ -163,7 +163,8 @@ def test_folder_with_two_datasets_of_one_kind(
     assert main(["check", str(package), "--format", "json"]) == 1  # level schema
     errors = [json.loads(line) for line in capsys.readouterr().out.splitlines()[:-1]]
     # the one thing left is the files': they still state no name (3.7), which no draft can add
-    assert {f["code"] for f in errors if f["severity"] == "error"} == {"TDS-S010"}
+    assert {(f["code"], f["file"]) for f in errors if f["severity"] == "error"} == {
+        ("TDS-S010", BARS_FILE), ("TDS-S010", MINUTE_FILE)}  # fmt: skip
     (package / "tds.json").unlink()
     # one name and one file with none: the name's dataset, and the `freq=` one for the other
     two_freqs(package, {"1d": "daily", "1m": None})
@@ -187,14 +188,18 @@ def test_folder_with_two_datasets_of_one_kind(
     )
     (package / "tds.json").unlink()
     # the edges: two names in one partition folder both keep the folder as path; a `freq=` with
-    # no value is no split; a name the files state that a `freq=` value gives too is refused
+    # no value, or a file of that name, is no split; one `freq=` value alone is rule (2) too; a
+    # name the files state that a `freq=` value gives too is refused
     for rel, said in (("odd/freq=1d/a.parquet", "p"), ("odd/freq=1d/b.parquet", "q"),
-                      ("gap/freq=/a.parquet", None), ("gap/freq=1d/a.parquet", None)):  # fmt: skip
+                      ("gap/freq=/a.parquet", None), ("gap/freq=1d/a.parquet", None),
+                      ("flat/freq=1d.parquet", None),
+                      ("solo/freq=1d/a.parquet", None)):  # fmt: skip
         (package / rel).parent.mkdir(parents=True, exist_ok=True)
         rows = pa.table({"x": [1]}).replace_schema_metadata({"tds.dataset": said} if said else None)
         pq.write_table(rows, package / rel)
     paths = {d["name"]: d["path"] for d in build_manifest(package).data["datasets"]}
     assert (paths["p"], paths["q"], paths["gap"]) == ("odd", "odd", "gap")
+    assert (paths["flat"], paths["solo_1d"]) == ("flat", "solo/freq=1d")
     (package / "tds.json").unlink()
     two_freqs(package, {"1d": None, "1m": "bars_1d"})
     with pytest.raises(ManifestError, match="the dataset name bars_1d"):

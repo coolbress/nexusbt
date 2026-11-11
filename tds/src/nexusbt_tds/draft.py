@@ -92,7 +92,8 @@ def build_manifest(path: Path) -> Manifest:
         # #371 Decisions: (1) each name the files state is a dataset; among the files with none,
         # (2) `freq=` first is one dataset per value, (3) any other mix of first keys stays one
         rest, depth = named.pop(None, []), folder.count("/") + 1
-        first = [f["path"].split("/")[depth] for f in rest]  # the file's own name when not split
+        first = [f["path"].split("/")[depth:-1][:1] for f in rest]  # [] in the folder itself
+        first = [p[0] if p else "" for p in first]
         keys = sorted({p.split("=")[0] for p in first if "=" in p})
         if rest and all(p.startswith("freq=") and p != "freq=" for p in first):
             for part in sorted(set(first)):
