@@ -101,9 +101,15 @@ def _try_lock(path: Path) -> IO[str] | None:
 class RunStore:
     """`root` is the `runs/` folder; every open recovers the runs whose process is gone."""
 
-    def __init__(self, root: Path) -> None:
-        self.root = Index(root).root  # creates the folder and the tables of 5.9.5
+    def __init__(self, root: Path, *, family_id: str | None = None) -> None:
+        self._index = Index(root, family_id=family_id)  # the folder and the tables of 5.9.5
+        self.root = self._index.root
         self._recover()
+
+    @property
+    def warnings(self) -> tuple[str, ...]:
+        """Lines every run of this store carries in its manifest `warnings` (5.9.5)."""
+        return self._index.warnings
 
     def _db(self) -> AbstractContextManager[sqlite3.Connection]:
         return connect(self.root)
@@ -334,6 +340,9 @@ class RunTxn:
             outputs = {k: {"physical_sha256": _sha256(p)} for k, p in _files(self._tmp).items()}
             manifest = {"environment": environment(_engine_lock()), **self._manifest}
             manifest |= {"schema_version": "nexusbt-run/2", "outputs": outputs}
+            if carried := self._store.warnings:
+                own = manifest.get("warnings")
+                manifest["warnings"] = [*carried, *(own if isinstance(own, list) else [])]
             value = value_hash(manifest)  # a NaN in the manifest fails here, before the rename
             manifest["created_at"] = self._created.isoformat()
             text = json.dumps(manifest, sort_keys=True, indent=2, ensure_ascii=False)

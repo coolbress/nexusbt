@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import re
 import sqlite3
+import uuid
 from contextlib import closing
 from pathlib import Path
 
@@ -125,3 +127,106 @@ def test_preregistration_claim_and_look_columns(tmp_path: Path) -> None:
         db.execute(insert, ("p1", "higher"))
         with pytest.raises(sqlite3.IntegrityError):
             db.execute(insert, ("p2", "sideways"))  # direction is higher or lower
+
+
+FAMILY = "3f2b8c1e-9d4a-4e6f-8a1b-5c7d9e0f1a2b"
+#: `runs` as T1.14a (#281, #284) created it; the other three never existed without `family_id`
+#: and stand for "every existing study, exposure and preregistration" of 5.9.5.
+BEFORE_FAMILIES = """
+CREATE TABLE runs (
+    run_id TEXT PRIMARY KEY, kind TEXT NOT NULL, name TEXT NOT NULL, ts_created TEXT NOT NULL,
+    status TEXT NOT NULL, path TEXT NOT NULL);
+INSERT INTO runs VALUES ('r1', 'backtest', 'mom', '2026-11-01T09:00:00+09:00', 'sealed', '/r/r1');
+INSERT INTO runs VALUES ('r2', 'factor', 'val', '2026-11-02T09:00:00+09:00', 'aborted', '/r/r2');
+CREATE TABLE studies (study_id TEXT PRIMARY KEY, name TEXT, ts_created TEXT);
+INSERT INTO studies VALUES ('s1', 'momentum', '2026-11-01');
+CREATE TABLE exposures (run_id TEXT, segment TEXT);
+INSERT INTO exposures VALUES ('r1', 'train');
+CREATE TABLE preregistrations (id TEXT PRIMARY KEY, metric TEXT, direction TEXT, ts_created TEXT);
+INSERT INTO preregistrations VALUES ('p1', 'sharpe', 'higher', '2026-11-01');
+"""
+OLD_RUNS = [
+    ("r1", "backtest", "mom", "2026-11-01T09:00:00+09:00", "sealed", "/r/r1"),
+    ("r2", "factor", "val", "2026-11-02T09:00:00+09:00", "aborted", "/r/r2"),
+]
+
+
+def index_before_families(runs: Path) -> None:
+    runs.mkdir()
+    with connect(runs) as db, db:
+        db.executescript(BEFORE_FAMILIES)
+
+
+def test_index_before_families_is_migrated_once(tmp_path: Path) -> None:
+    runs = tmp_path / "runs"
+    index_before_families(runs)
+    assert RunStore(runs, family_id=FAMILY).warnings == ()  # the toml carries the family
+    six = "SELECT run_id, kind, name, ts_created, status, path FROM runs ORDER BY run_id"
+    with connect(runs) as db:
+        for table, columns in spec_tables().items():
+            found = [r[1] for r in db.execute(f"PRAGMA table_info({table})")]
+            assert found == columns, table
+        assert db.execute(six).fetchall() == OLD_RUNS  # the rows keep their values
+        families = db.execute("SELECT family_id, parent_family_id, reason FROM families")
+        assert families.fetchall() == [(FAMILY, None, "linked at migration")]
+        linked = (
+            "SELECT family_id FROM runs UNION ALL SELECT family_id FROM studies UNION ALL"
+            " SELECT family_id FROM exposures UNION ALL SELECT family_id FROM preregistrations"
+        )
+        assert db.execute(linked).fetchall() == [(FAMILY,)] * 5
+        refused(db, "DELETE FROM runs")  # the triggers are in place afterwards
+        refused(db, "UPDATE runs SET family_id = 'other'")
+        refused(db, "UPDATE studies SET family_id = 'other'")
+        before = list(db.iterdump())
+    copy = runs / "index.sqlite.before-families"
+    with closing(sqlite3.connect(copy)) as db:  # the file as it was, to go back to
+        assert db.execute("SELECT * FROM runs ORDER BY run_id").fetchall() == OLD_RUNS
+        assert db.execute("SELECT name FROM sqlite_master WHERE name = 'families'").fetchall() == []
+    copied = copy.read_bytes()
+
+    Index(runs, family_id="0b9e7a55-1c7e-4b0a-9a3f-2f4d6c8e0a1b")  # another id, a second open
+    RunStore(runs)
+    with connect(runs) as db:
+        assert list(db.iterdump()) == before  # the migration runs once
+    assert copy.read_bytes() == copied
+
+
+def test_migration_without_family_id_warns_until_the_toml_has_it(tmp_path: Path) -> None:
+    runs, toml = tmp_path / "runs", tmp_path / "nexusbt.toml"
+    toml.write_text("[research]\n", encoding="utf-8")
+    index_before_families(runs)
+    store = RunStore(runs)
+    with connect(runs) as db:
+        ((family, reason),) = db.execute("SELECT family_id, reason FROM families").fetchall()
+        assert db.execute("SELECT DISTINCT family_id FROM runs").fetchall() == [(family,)]
+    assert (uuid.UUID(family).version, reason) == (4, "linked at migration")
+    line = f'add `[research] family_id = "{family}"` to nexusbt.toml'
+    assert store.warnings == (line,)
+    sealed = store.begin("backtest", "mom", None)
+    sealed.set_manifest({"warnings": ["E11 daily-bar fills"]})
+    manifest = json.loads((sealed.seal().path / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["warnings"] == [line, "E11 daily-bar fills"]  # every run carries the line
+    assert RunStore(runs).warnings == (line,)  # the same family at every later open
+    assert Index(runs).warnings == (line,)
+
+    written = RunStore(runs, family_id=family)  # until it is written
+    assert written.warnings == ()
+    record = written.begin("backtest", "mom", None).seal()
+    assert "warnings" not in json.loads((record.path / "manifest.json").read_text("utf-8"))
+    assert toml.read_text(encoding="utf-8") == "[research]\n"  # the engine never edits it
+
+
+def test_migration_refuses_what_it_cannot_carry(tmp_path: Path) -> None:
+    runs = tmp_path / "runs"
+    index_before_families(runs)
+    with pytest.raises(ValueError, match="family_id"):
+        RunStore(runs, family_id="my-study")  # not a UUID: nothing is written under it
+    with connect(runs) as db, db:
+        db.execute("ALTER TABLE runs ADD COLUMN owner TEXT")
+    with pytest.raises(RuntimeError, match="owner"):
+        RunStore(runs, family_id=FAMILY)  # a column 5.9.5 does not have would be lost
+    with connect(runs) as db:  # refused whole: the index is as it was
+        assert db.execute("SELECT name FROM sqlite_master WHERE name = 'families'").fetchall() == []
+        assert db.execute("SELECT * FROM runs ORDER BY run_id").fetchall() == [
+            (*row, None) for row in OLD_RUNS
+        ]

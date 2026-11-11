@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+import uuid
 from collections.abc import Iterator
 from contextlib import closing, contextmanager
 from datetime import datetime
@@ -77,8 +78,53 @@ _ALLOWED = {
 }
 
 
+_MIGRATED = "linked at migration"
+
+
+def _is_uuid(text: str) -> bool:
+    try:
+        return str(uuid.UUID(text)) == text
+    except ValueError:
+        return False
+
+
+def _tables(db: sqlite3.Connection) -> set[str]:
+    return {n for (n,) in db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+
+
+def _before_families(db: sqlite3.Connection) -> bool:
+    """An index an earlier engine wrote: it has `runs` and no `families` (5.9.5)."""
+    return {"runs", "families"} & _tables(db) == {"runs"}
+
+
+def _migrate(db: sqlite3.Connection, family_id: str) -> None:
+    """5.9.5 "Migration to families": every existing row is carried into the 5.9.5 tables.
+
+    Each table is rebuilt with its rows and the family (decision 2026-11-11, #305); the
+    append-only triggers are created after it, in the same transaction, so they see no update.
+    """
+    for table in _tables(db) & set(_TABLES):
+        old = [r[1] for r in db.execute(f"PRAGMA table_info({table})")]
+        if unknown := sorted(set(old) - set(_names(table))):
+            raise RuntimeError(f"index table {table!r} has columns {unknown} that 5.9.5 has not")
+        kept = ", ".join(f'"{c}"' for c in old if c != "family_id")
+        link = (", family_id", ", ?", (family_id,)) if "family_id" in _names(table) else ("",) * 2
+        db.execute(f"ALTER TABLE {table} RENAME TO {table}_before_families")
+        db.execute(f"CREATE TABLE {table} ({', '.join(_TABLES[table])})")
+        db.execute(
+            f"INSERT INTO {table} ({kept}{link[0]})"  # noqa: S608 - names from `_TABLES`
+            f" SELECT {kept}{link[1]} FROM {table}_before_families",
+            *link[2:],
+        )
+        db.execute(f"DROP TABLE {table}_before_families")
+    db.execute(f"CREATE TABLE families ({', '.join(_TABLES['families'])})")
+    db.execute(
+        "INSERT INTO families (family_id, reason, ts_created) VALUES (?, ?, ?)",
+        (family_id, _MIGRATED, datetime.now().astimezone().isoformat()),
+    )
+
+
 def _ensure(db: sqlite3.Connection) -> None:
-    db.execute("PRAGMA journal_mode=WAL")
     for table, columns in _TABLES.items():
         db.execute(f"CREATE TABLE IF NOT EXISTS {table} ({', '.join(columns)})")
         found = [r[1] for r in db.execute(f"PRAGMA table_info({table})")]
@@ -112,11 +158,37 @@ def insert_pin(db: sqlite3.Connection, snapshot_id: str, holder_id: str, holder_
 class Index:
     """`root` is the `runs/` folder; its `pins` table is the canonical record of pins (4.2)."""
 
-    def __init__(self, root: Path) -> None:
-        self.root = Path(root)
+    def __init__(self, root: Path, *, family_id: str | None = None) -> None:
+        """`family_id` is the project's `[research] family_id`, `None` when the toml has none."""
+        if family_id is not None and not _is_uuid(family_id):
+            raise ValueError(f"family_id {family_id!r} is not a UUID as `nexusbt init` writes it")
+        self.root, self._family_id = Path(root), family_id
         self.root.mkdir(parents=True, exist_ok=True)
+        path = self.root / "index.sqlite"
+        with closing(sqlite3.connect(path)) as db:
+            db.execute("PRAGMA journal_mode=WAL")
+            copy = path.with_name(path.name + ".before-families")
+            if _before_families(db):
+                if not copy.exists():  # once, to go back to (#305)
+                    partial = copy.with_name(copy.name + ".tmp")
+                    partial.unlink(missing_ok=True)
+                    with closing(sqlite3.connect(partial)) as to:
+                        db.backup(to)
+                    partial.rename(copy)
+                db.execute("BEGIN IMMEDIATE")  # one writer: another open waits, finds families
+            with db:
+                if _before_families(db):
+                    _migrate(db, family_id or str(uuid.uuid4()))
+                _ensure(db)
+
+    @property
+    def warnings(self) -> tuple[str, ...]:
+        """The line every run carries until the toml names the family of the migration (5.9.5)."""
+        if self._family_id is not None:
+            return ()
         with connect(self.root) as db:
-            _ensure(db)
+            rows = db.execute("SELECT family_id FROM families WHERE reason = ?", (_MIGRATED,))
+            return tuple(f'add `[research] family_id = "{f}"` to nexusbt.toml' for (f,) in rows)
 
     def pin(self, snapshot_id: str, holder_id: str, holder_kind: str = "run") -> None:
         with connect(self.root) as db:
