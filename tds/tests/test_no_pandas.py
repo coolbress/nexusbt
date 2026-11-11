@@ -135,6 +135,21 @@ def test_T006_counts_a_delay_in_nanoseconds_and_names_an_instant_past_year_9999(
     assert "TDS-T006" not in result.unchecked
 
 
+def test_a_footer_arrow_gives_no_schema_for_leaves_its_statistics_unknown() -> None:
+    from types import SimpleNamespace as Fake
+
+    from nexusbt_tds.check import _stat
+
+    def no_schema() -> None:
+        raise pa.ArrowNotImplementedError("a Parquet type with no Arrow type")
+
+    statistics = Fake(has_null_count=True, num_values=1, has_min_max=True)
+    group = Fake(column=lambda i: Fake(statistics=statistics))
+    schema = Fake(column=lambda i: Fake(path="ts_end"), to_arrow_schema=no_schema)
+    meta = Fake(num_columns=1, schema=schema, row_group=lambda g: group)
+    assert _stat(meta, 0, "ts_end", dt.datetime) is None
+
+
 _FAR = "9999-12-31"  # an open end written as a date: past int64 in nanoseconds (year 2262)
 
 
