@@ -10,6 +10,7 @@ a daily session bar has with that day's open and close. T007 compares the UTC da
 `ts_available` with `period_end`, a warning for `value_how` `preliminary`. T008's tolerance is
 0. A row with a null in what a code compares is skipped. One finding per dataset, code and
 severity; a code a row could not be judged by is unchecked unless another row found it.
+An instant is compared as `keys.Instant`, integer nanoseconds, whatever its column's unit (#382).
 Memory holds the calendar and the instruments' calendars, besides a batch of rows.
 """
 
@@ -39,6 +40,7 @@ SAID = {T001: "row(s) available before their event", T002: "row(s) whose ts_avai
         T010: "instrument(s) with last_session before listed_on",
         T011: "exit value(s) published before the exit"}  # fmt: skip
 Row = dict[str, Any]
+_EPOCH_DAY, _DAY_NS = dt.date(1970, 1, 1).toordinal(), 86_400 * 10**9
 
 
 def check_instants(m: Manifest, only: Sequence[str] | None, blind: set[str]) -> list[Finding]:
@@ -143,9 +145,10 @@ def _broken(
     if day and any(v is not None and v != s for v, s in zip(
         (r["ts_start"], r["ts_end"]), day, strict=True)):  # fmt: skip
         yield T005, "error"
-    utc_day = available.astimezone(dt.UTC).date() if available is not None else None
-    if kind == "fundamentals_events" and _before(utc_day, r["period_end"]):
-        yield T007, "warning" if r["value_how"] == "preliminary" else "error"
+    if kind == "fundamentals_events" and available is not None:
+        utc_day = dt.date.fromordinal(_EPOCH_DAY + available // _DAY_NS)
+        if _before(utc_day, r["period_end"]):
+            yield T007, "warning" if r["value_how"] == "preliminary" else "error"
     for code, severity, kinds, (early, late) in LATER:
         if kind in kinds and _before(r[early], r[late]):
             yield code, severity
@@ -166,13 +169,14 @@ def _before(a: Any, b: Any) -> bool:
     return a is not None and b is not None and bool(a < b)
 
 
-def _span(text: str | None) -> dt.timedelta | None:
-    """An ISO 8601 delay without years or months; None for one with them."""
+def _span(text: str | None) -> int | None:
+    """An ISO 8601 delay without years or months, in nanoseconds; None for one with them."""
     delay = _DELAY.fullmatch(text or "P")
     if delay is None:
         return None
-    w, d, h, minutes, s = (float(x or 0) for x in delay.groups())
-    return dt.timedelta(weeks=w, days=d, hours=h, minutes=minutes, seconds=s)
+    w, d, h, minutes, s = (x or "0" for x in delay.groups())
+    whole = (((int(w) * 7 + int(d)) * 24 + int(h)) * 60 + int(minutes)) * 60
+    return whole * 10**9 + round(float(s) * 10**9)
 
 
 def _derive(

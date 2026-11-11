@@ -42,6 +42,25 @@ KEPT = {
 BATCH_ROWS = 65_536
 Row = dict[str, Any]
 Batch = dict[str, list[Any]]
+_EPOCH = dt.datetime(1970, 1, 1)
+_NS = {"s": 10**9, "ms": 10**6, "us": 10**3, "ns": 1}
+
+
+class Instant(int):
+    """An instant as nanoseconds since the epoch, which is how `batches` gives a timestamp of any
+    unit: pyarrow makes a `timestamp[ns]` value a `datetime` only when pandas is there or the
+    value is a whole microsecond (#382). It compares and adds as an integer; its text is the
+    instant in UTC, as a `datetime`'s is."""
+
+    __slots__ = ()
+
+    def __str__(self) -> str:
+        seconds, ns = divmod(int(self), 10**9)
+        try:
+            when = (_EPOCH + dt.timedelta(seconds=seconds)).isoformat(" ")
+        except OverflowError:  # outside years 1 to 9999: no calendar date to write
+            return f"{int(self)} ns"
+        return f"{when}{f'.{ns:09}' if ns % 1000 else f'.{ns // 1000:06}' if ns else ''}+00:00"
 
 
 def check_keys(
@@ -79,7 +98,8 @@ def batches(
     root: Path, rel: str, parts: Mapping[str, str], columns: Sequence[str], size: int
 ) -> Iterator[tuple[int, Batch]]:
     """`columns` of the file `rel`, `size` rows at a time, as (rows, Python lists); a column the
-    file does not store takes its partition value from the path, and one in neither is left out."""
+    file does not store takes its partition value from the path, and one in neither is left out.
+    A timestamp column comes as `Instant`s, with or without a time zone (S004's to tell)."""
     source = pq.ParquetFile(root / rel)
     names = source.schema_arrow.names
     if len(set(names)) < len(names):  # which of two `instrument_id`s? its rows unseen
@@ -87,7 +107,15 @@ def batches(
     stored = [c for c in columns if c in names]
     for batch in source.iter_batches(batch_size=size, columns=stored):
         given = {c: [parts[c]] * batch.num_rows for c in columns if c in parts}
-        yield batch.num_rows, given | {c: batch.column(c).to_pylist() for c in stored}
+        yield batch.num_rows, given | {c: _values(batch.column(c)) for c in stored}
+
+
+def _values(column: pa.Array) -> list[Any]:
+    """A column as Python values; a timestamp of any unit as `Instant`s, nothing lost."""
+    if not pa.types.is_timestamp(column.type):
+        return list(column.to_pylist())
+    scale = _NS[column.type.unit]  # in Python integers: a far `timestamp[s]` does not overflow
+    return [None if v is None else Instant(v * scale) for v in column.cast(pa.int64()).to_pylist()]
 
 
 def _scan(
@@ -193,8 +221,7 @@ def _variant(value: object, params: Mapping[str, Any]) -> list[str] | None:
 
 def _shown(columns: Sequence[str], row: Row) -> dict[str, object]:
     """A row's `columns` as TDS 8.4's JSON `key`."""
-    plain = (str, int, float, bool, type(None))
-    return {c: row[c] if isinstance(row[c], plain) else str(row[c]) for c in columns}
+    return {c: row[c] if row[c].__class__ in _LITERAL else str(row[c]) for c in columns}
 
 
 _LITERAL = frozenset({str, int, float, bool, type(None)})
@@ -202,13 +229,8 @@ _LITERAL = frozenset({str, int, float, bool, type(None)})
 
 def _literals(values: list[Any]) -> list[Any]:
     """A column's values as Python literals, so a key's `repr` is equal for equal keys and reads
-    back with `ast.literal_eval`: a date or an instant (made UTC) as (type name, text)."""
-
-    def typed(v: Any) -> tuple[str, str]:
-        v = v.astimezone(dt.UTC) if isinstance(v, dt.datetime) and v.tzinfo else v
-        return type(v).__name__, str(v)
-
-    return [v if v.__class__ in _LITERAL else typed(v) for v in values]
+    back with `ast.literal_eval`: a date or an `Instant` as (type name, text)."""
+    return [v if v.__class__ in _LITERAL else (type(v).__name__, str(v)) for v in values]
 
 
 def _duplicates(records: Iterable[Record], key: list[str]) -> Iterable[Finding]:
