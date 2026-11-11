@@ -26,6 +26,7 @@ import pytest
 from nexusbt.testing import _synth_daily as daily
 from nexusbt.testing import _synth_events as events
 from nexusbt.testing import _synth_package as pkg
+from nexusbt.testing import _synth_trade as trade
 from nexusbt.testing import synth
 from nexusbt.testing.synth import a001, main, make_snapshot, read
 
@@ -327,8 +328,8 @@ def called_names(source: str) -> set[str]:
 def test_small_value_path_uses_no_platform_math() -> None:
     for step in (synth._listings, synth._small, synth._actions, synth._terms, synth._dividend,
                  synth._revise, synth._move, synth._delistings, events.exit_value, daily._snap,
-                 daily._ratios, daily._kr_rows, synth._tradability, synth._sample, synth._halts,
-                 synth._limits, synth._wobble, synth._status, synth._last_traded,
+                 daily._ratios, daily._kr_rows, trade._tradability, trade._sample, trade._halts,
+                 trade._limits, trade._wobble, trade._status, trade._last_traded,
                  daily._share_counts, daily._eligibility, daily._venues, daily._value_traded,
                  daily._market_rules):  # fmt: skip
         assert not called_names(inspect.getsource(step)) & PLATFORM_MATH, step.__name__
@@ -658,7 +659,7 @@ def test_a_halt_never_hides_a_close_a_factor_uses() -> None:
     for refs in ({(0, 3)}, set()):  # another event's factor uses session 3's close, or none
         bars: dict[str, list[Any]] = {n: [np.full(6, 100.0)] for n in (*daily.OHLC, "volume")}
         bars["obs_status"] = [["traded"] * 6]
-        halted = synth._halts([0], [5], split, refs, bars, rng, set())
+        halted = trade._halts([0], [5], split, refs, bars, rng, set())
         assert (bars["obs_status"][0][3] == "halted") == bool(halted) == (not refs)
 
 
@@ -723,7 +724,7 @@ def test_limit_prices_round_inward_on_the_issue_example() -> None:
     """KR reference 10,030 won at 0.30 on the 2023 table's 10-won band: 13,039 down to 13,030
     and 7,021 up to 7,030; 10,000 x 0.7, 7,000 within a float error, stays 7,000."""
     dates = np.array(["2024-01-02"] * 2, dtype="datetime64[D]")
-    up, down = synth._limit_prices(np.array([10030.0, 10000.0]), np.full(2, 0.3), dates, "XKRX")
+    up, down = trade._limit_prices(np.array([10030.0, 10000.0]), np.full(2, 0.3), dates, "XKRX")
     assert (up.tolist(), down.tolist()) == ([13030.0, 13000.0], [7030.0, 7000.0])
 
 
@@ -738,9 +739,9 @@ def test_no_limit_hit_before_kr_had_a_price_limit(monkeypatch: pytest.MonkeyPatc
         for d in range(first[0] + 1, last[0] + 1):
             take(0, d)
 
-    monkeypatch.setattr(synth, "_sample", every_day)
+    monkeypatch.setattr(trade, "_sample", every_day)
     rng = np.random.Generator(np.random.PCG64(0))
-    hits = synth._limits([0], [len(dates) - 1], ["XKRX"], [0], set(), bars, rng)
+    hits = trade._limits([0], [len(dates) - 1], ["XKRX"], [0], set(), bars, rng)
     assert hits  # the days from 1995-04-01 take some
     assert min(dates[d] for _, d in hits) >= np.datetime64("1995-04-01")
     assert not any(np.isnan(bars[n][0]).any() for n in daily.OHLC)
