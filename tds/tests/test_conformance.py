@@ -1858,6 +1858,8 @@ _DENSE_2 = build._both(build._sessions(0), build._set("params", build.DENSE, in_
         (build._both(_DENSE_2, _through), ["TDS-D001"], []),  # the 3rd, to the watermark
         (_three(2, 4), ["TDS-D001"], []),  # a row after the watermark hides no gap
         (_three(2, 3, through="2024-01-04T01:00:00Z"), [], []),  # 20:00 on the 3rd in New York
+        (build._both(_three(2, 3, through="2024-01-04T01:00:00Z"), lambda m, f: m["markets"]["US"]
+                     .update(timezone="Mars/Olympus")), ["TDS-D001"], []),  # unknown zone: UTC
         (_three(4, last=JAN[3]), ["TDS-D001"], []),  # rows only after last_session: judged
         (build._covered(2), ["TDS-D004"], []),  # the dataset's rows
         (build._both(build._covered(), lambda m, f: build.bars(m)["files"][0].update(rows=2)),
