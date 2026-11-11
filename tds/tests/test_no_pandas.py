@@ -45,10 +45,13 @@ TICK = 1704189600000000001  # 2024-01-02T10:00:00.000000001Z: not a whole micros
 NS = pa.timestamp("ns", "UTC")
 
 
-def _quotes(recv: int, availability: str | None = None, *, statistics: bool = False) -> Any:
-    """One US:AAA quote at `TICK`, received at `recv`, beside the event of TDS-T001's package.
-    Its file has no footer statistics unless `statistics`: without pandas the schema level stops
-    on a nanosecond one (`check.py`), before a row is read."""
+CLOSE = TICK - 1 + 11 * 3600 * 10**9  # 21:00, the session close and `build.THROUGH`
+
+
+def _quotes(recv: int, availability: str | None = None, *, end: int | None = None) -> Any:
+    """One US:AAA quote at `TICK`, received at `recv`, beside the event of TDS-T001's package;
+    with `end`, the daily bar ends then, under a calendar and the US watermark `build.THROUGH`.
+    The files have pyarrow's footer statistics, which the schema level and T006 read."""
     rel = "quotes/venue=XNYS/date=2024-01-02/part-00000.parquet"
     columns = {
         "instrument_id": ["US:AAA"], "session_date": build.DAY, "ts_event": pa.array([TICK], NS),
@@ -58,9 +61,12 @@ def _quotes(recv: int, availability: str | None = None, *, statistics: bool = Fa
 
     def change(m: dict[str, Any], f: Any) -> None:
         build._add("quotes", columns, rel)(m, f)
-        build.rewrite(m, f, rel, pa.table(columns), write_statistics=statistics)
         if availability:
             m["datasets"][-1]["availability"] = availability
+        if end is not None:
+            m["markets"]["US"]["complete_through"] = build.THROUGH.isoformat()
+            build._sessions(0)(m, f)
+            build.rewrite(m, f, build.BARS, build.bars_table(ts_end=pa.array([end], NS)))
         build.CASES["TDS-T001"][1](m, f)  # an `events` row available a second before its event
 
     return change
@@ -85,6 +91,8 @@ def _run(package: Path, pandas: str) -> dict[str, Any]:
         # `ts_available` 500 ns after `ts_recv`, a column 5.7 does not give quotes (S005)
         (_quotes(TICK + 1, "ts_recv+PT0.0000005S"), ["TDS-S005", "TDS-T001"]),
         (_quotes(TICK + 1, "ts_recv+PT0.000001S"), ["TDS-S005", "TDS-T001", "TDS-T002"]),
+        (_quotes(TICK + 1, end=CLOSE), ["TDS-T001"]),  # at the watermark and the close
+        (_quotes(TICK + 1, end=CLOSE + 1), ["TDS-T001", "TDS-T005", "TDS-T006"]),  # 1 ns after
     ],
 )
 def test_a_tick_that_is_not_a_whole_microsecond_is_judged(
@@ -99,14 +107,8 @@ def test_a_tick_that_is_not_a_whole_microsecond_is_judged(
     assert sorted(code for code, _, _ in said["found"]) == found, said
     assert ["TDS-T001", "events"] in [f[:2] for f in said["found"]]
     assert [c for c in said["unchecked"] if c in INSTANT_CODES] == []
-
-
-@pytest.mark.xfail(strict=True, reason="#382: `check.py` reads a footer statistic as a datetime")
-def test_a_tick_in_a_file_with_footer_statistics_is_judged_without_pandas(tmp_path: Path) -> None:
-    manifest, files = build.base()
-    _quotes(TICK + 1, statistics=True)(manifest, files)
-    said = _run(build.write(tmp_path, manifest, files), "blocked")
-    assert [c for c in said["unchecked"] if c in INSTANT_CODES] == []
+    late = [message for code, _, message in said["found"] if code == "TDS-T006"]
+    assert all("available until 2024-01-02T21:00:00.000000001+00:00" in m for m in late), late
 
 
 _FAR = "9999-12-31"  # an open end written as a date: past int64 in nanoseconds (year 2262)
