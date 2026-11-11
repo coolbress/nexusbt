@@ -26,6 +26,7 @@ import pytest
 from nexusbt.testing import _synth_actions as acts
 from nexusbt.testing import _synth_daily as daily
 from nexusbt.testing import _synth_events as events
+from nexusbt.testing import _synth_exits as delist
 from nexusbt.testing import _synth_package as pkg
 from nexusbt.testing import _synth_trade as trade
 from nexusbt.testing import synth
@@ -328,7 +329,7 @@ def called_names(source: str) -> set[str]:
 
 def test_small_value_path_uses_no_platform_math() -> None:
     for step in (synth._listings, synth._small, acts._actions, acts._terms, acts._dividend,
-                 acts._revise, acts._move, synth._delistings, events.exit_value, daily._snap,
+                 acts._revise, acts._move, delist._delistings, events.exit_value, daily._snap,
                  daily._ratios, daily._kr_rows, trade._tradability, trade._sample, trade._halts,
                  trade._limits, trade._wobble, trade._status, trade._last_traded,
                  daily._share_counts, daily._eligibility, daily._venues, daily._value_traded,
@@ -890,7 +891,7 @@ def test_injected_delisting_ends_the_listing(tmp_path: Path) -> None:
     out = exit_agrees(make_snapshot(tmp_path / "t", preset="tiny", events=[exit_]), "KR:T00003")
     assert (out["exit_date"], out["last_trading_date"]) == (
         dt.date(2020, 3, 2), dt.date(2020, 2, 28))  # fmt: skip
-    assert out["delist_type"] == synth.EXIT_TYPE[out["exit_value_status"]]  # 4.8 (6) fills it
+    assert out["delist_type"] == delist.EXIT_TYPE[out["exit_value_status"]]  # 4.8 (6) fills it
     early = exit_ | {ID: "KR:T00002", "exit_date": "2020-02-03"}  # before its ticker change
     renamed = make_snapshot(tmp_path / "r", preset="tiny", events=[early])
     spans = [(r["valid_from"], r["valid_to"]) for r in rows(renamed, "instrument_symbols")
