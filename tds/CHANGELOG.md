@@ -8,5 +8,7 @@ package version follows the `tds_version` it checks (`1.0.x`), tagged
 
 ### Added
 - `tds manifest build PATH`: a `tds.json` draft for a folder of Parquet files, with a `TODO` list
-  of what a person fills in
+  of what a person fills in; a folder that holds several datasets of one kind is drafted as one
+  dataset per `tds.dataset` name the files state, else one per `freq=` value (`bars_1d` at
+  `bars/freq=1d`), and any other mix of partition keys is named in `TODO`
 - Package skeleton with the `tds` entry point

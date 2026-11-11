@@ -1,13 +1,15 @@
 """`build_manifest(path) -> Manifest`: a tds.json draft for a folder of Parquet files (TDS 8.1).
 
-The draft holds what the files say: the datasets (the folder above the first `key=value` part,
-named by the files' `tds.dataset` when they agree, `schema_version` theirs or else `1.0`, the
-only one there is), each file's rows, bytes and sha256, the
-physical hash, and a dataset's value hash where its kind and key are known. What the files do
-not say is a person's (#258 Decisions): `profiles`, `id_namespaces`, `markets` and a `kind` no
-schema file names are left out, so `tds check` reports each as TDS-M003; `availability` is
-written `"TODO"`, which is TDS-M014; `TODO`, the first field, lists these with the parameters
-and descriptions to add. A tds.json that is already there is never replaced.
+The draft holds what the files say: the datasets (the folder above the first `key=value` part;
+in it one dataset per `tds.dataset` the files state, and among the files that state none one per
+`freq=` value, named `<folder>_<value>` with `params.freq`, as TDS 4.2 lists `bars_1d` (#371);
+`schema_version` theirs or else `1.0`, the only one there is), each file's rows, bytes and
+sha256, the physical hash, and a dataset's value hash where its kind and key are known. What the
+files do not say is a person's (#258 Decisions): `profiles`, `id_namespaces`, `markets` and a
+`kind` no schema file names are left out, so `tds check` reports each as TDS-M003;
+`availability` is written `"TODO"`, which is TDS-M014; `TODO`, the first field, lists these with
+the parameters and descriptions to add, and a folder that mixes partition keys, to split by hand.
+A tds.json that is already there is never replaced.
 """
 
 from __future__ import annotations
@@ -39,6 +41,19 @@ _TODO = {
 }  # fmt: skip
 
 
+def _own(folder: str, files: list[dict[str, Any]], others: list[str]) -> str:
+    """The path of a dataset the files name: `folder`, or when it holds another dataset's files
+    too, the first folder below it that holds all of `files` and none of `others`."""
+    dirs = files[0]["path"].split("/")[:-1]
+    for depth in range(folder.count("/") + 2, len(dirs) + 1 if others else 0):
+        below = "/".join(dirs[:depth]) + "/"
+        if not all(f["path"].startswith(below) for f in files):
+            break
+        if not any(other.startswith(below) for other in others):
+            return below[:-1]
+    return folder
+
+
 def build_manifest(path: Path) -> Manifest:
     """Write `<path>/tds.json` as a draft and return it; `ManifestError` when one is there, the
     folder has no Parquet file or a file cannot be read."""
@@ -57,30 +72,53 @@ def build_manifest(path: Path) -> Manifest:
     if not groups:
         raise ManifestError(f"no Parquet file under {root}")
     schemas, todo = load_schemas() | dictionary_schemas(), dict(_TODO)
-    datasets, sha256, created_by = [], {}, ""
+    datasets, sha256, created_by, mixed = [], {}, "", []
+    versions: dict[str, str | None] = {}
+    split: list[tuple[str, str | None, str, dict[str, str], list[dict[str, Any]]]] = []
     for folder, paths in groups.items():
-        files, said = [], set()
+        named: dict[str | None, list[dict[str, Any]]] = {}
         for rel in paths:
             try:
                 meta = pq.read_metadata(root / rel)
             except (OSError, pa.ArrowException) as exc:
                 raise ManifestError(f"{rel} is not read as Parquet: {exc}") from None
             keys = meta.metadata or {}  # only these two are read; any other may be bytes
-            said.add(tuple(keys.get(k, b"").decode("utf-8", "replace") or None
-                           for k in (b"tds.dataset", b"tds.schema_version")))  # fmt: skip
+            name, versions[rel] = (keys.get(k, b"").decode("utf-8", "replace") or None
+                                   for k in (b"tds.dataset", b"tds.schema_version"))  # fmt: skip
             created_by = created_by or meta.created_by
             sha256[rel] = file_sha256(root / rel)
-            files.append({"path": rel, "rows": meta.num_rows,
-                          "bytes": (root / rel).stat().st_size, "sha256": sha256[rel]})  # fmt: skip
-        name, schema_version = said.pop() if len(said) == 1 else (None, None)  # 3.7, when one
-        name = name or folder.replace("/", "_")
+            named.setdefault(name, []).append({"path": rel, "rows": meta.num_rows,
+                "bytes": (root / rel).stat().st_size, "sha256": sha256[rel]})  # fmt: skip
+        # #371 Decisions: (1) each name the files state is a dataset; among the files with none,
+        # (2) `freq=` first is one dataset per value, (3) any other mix of first keys stays one
+        rest, depth = named.pop(None, []), folder.count("/") + 1
+        first = [f["path"].split("/")[depth] for f in rest]  # the file's own name when not split
+        keys = sorted({p.split("=")[0] for p in first if "=" in p})
+        if rest and all(p.startswith("freq=") and p != "freq=" for p in first):
+            for part in sorted(set(first)):
+                files = [f for f, p in zip(rest, first, strict=True) if p == part]
+                value = part.split("=", 1)[1]
+                split.append((folder, f"{folder.replace('/', '_')}_{value}", f"{folder}/{part}",
+                              {"freq": value}, files))  # fmt: skip
+        elif rest:
+            split.append((folder, None, folder, {}, rest))
+            mixed += [f"{folder} mixes the partition keys {', '.join(keys)}"] * (len(keys) > 1)
+        for name, files in named.items():
+            others = [rel for rel in paths if rel not in {f["path"] for f in files}]
+            split.append((folder, name, _own(folder, files, others), {}, files))
+    for folder, stated, own, params, files in split:
+        name = stated or folder.replace("/", "_")
         kind = next((k for k in (folder, name) if k in schemas), None)
-        entry: dict[str, Any] = {"name": name, "kind": kind, "path": folder,
+        said = {versions[f["path"]] for f in files}
+        schema_version = said.pop() if len(said) == 1 else None  # 3.7, when the files agree
+        entry: dict[str, Any] = {"name": name, "kind": kind, "path": own,
                                  "schema_version": schema_version or "1.0"}  # fmt: skip
         if kind is None:
             del entry["kind"]
             was = todo.get("datasets[].kind", "one of the TDS 5 kinds, for")
             todo = {"datasets[].kind": f"{was} {name}", **todo}
+        if params:
+            entry["params"] = params
         if kind not in TIMELESS:
             entry["availability"] = "TODO"
         entry |= {"rows": sum(f["rows"] for f in files), "files": files}
@@ -93,6 +131,9 @@ def build_manifest(path: Path) -> Manifest:
                 ArithmeticError, struct.error, pa.ArrowException):  # fmt: skip
             pass  # no kind or params yet, or rows that are not the kind's: `tds hash --write`
         datasets.append(entry)
+    if mixed:  # first in the list: the entry is to be split before its other fields are filled
+        todo = {"datasets[] to split": f"{'; '.join(mixed)}; a dataset has one layout (TDS 3.6),"
+                " so list each layout's files as a dataset of its own", **todo}  # fmt: skip
     names = [d["name"] for d in datasets]
     if twice := sorted({n for n in names if names.count(n) > 1}):
         raise ManifestError(f"two folders give the dataset name {', '.join(twice)}; a dataset's"

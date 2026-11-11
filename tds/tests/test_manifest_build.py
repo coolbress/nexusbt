@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import hashlib
 import json
 from pathlib import Path
@@ -18,6 +19,7 @@ from nexusbt_tds.manifest import ManifestError
 from .test_import_csv import BARS, CHAPTER_7, MINIMAL, write
 
 BARS_FILE = "bars/freq=1d/market=US/year=2024/part-00000.parquet"
+MINUTE_FILE = "bars/freq=1m/market=US/date=2024-01-02/part-00000.parquet"
 
 
 def folder(tmp_path: Path) -> tuple[Path, dict[str, Any]]:
@@ -104,6 +106,99 @@ def test_todo_fields_flagged(tmp_path: Path, capsys: pytest.CaptureFixture[str])
     capsys.readouterr()
     assert main(["check", str(package), "--level", "full"]) == 0
     assert "0 errors, 0 warnings at level full" in capsys.readouterr().out
+
+
+def two_freqs(package: Path, names: dict[str, str | None]) -> None:
+    """Rewrite the daily file and add a one-minute one, each stating `names[freq]` or no name."""
+    day = pq.read_table(package / BARS_FILE)
+    at = [dt.datetime(2024, 1, 2, 14, 30 + i, tzinfo=dt.UTC) for i in (0, 1)]
+    minute = day.append_column("ts_start", pa.array(at[:1], pa.timestamp("us", "UTC")))
+    minute = minute.append_column("ts_end", pa.array(at[1:], pa.timestamp("us", "UTC")))
+    for rel, rows in ((BARS_FILE, day), (MINUTE_FILE, minute)):
+        said = names[rel.split("/")[1][5:]]
+        meta = {"tds.schema_version": "1.0"} | ({"tds.dataset": said} if said else {})
+        (package / rel).parent.mkdir(parents=True, exist_ok=True)
+        pq.write_table(rows.replace_schema_metadata(meta), package / rel)
+
+
+def filled(package: Path, draft: dict[str, Any]) -> None:
+    """Write the draft with its `TODO`s filled in, the `freq` only where the draft left it."""
+    bars = {"availability": {"rule": "ts_end"}, "params": {"price_basis": "total_adjusted"}}
+    for entry in (d for d in draft["datasets"] if d.get("kind") == "bars"):
+        freq = {"freq": entry["path"][-2:]} | entry.get("params", {})
+        entry |= bars | {"params": bars["params"] | freq}
+    draft |= {"profiles": [], "id_namespaces": {"XNYS": "ids as the files give them"},
+              "markets": {"US": {"calendar_id": "XNYS", "currency": "USD"}}}  # fmt: skip
+    del draft["TODO"]
+    (package / "tds.json").write_text(json.dumps(draft), encoding="utf-8")
+
+
+def test_folder_with_two_datasets_of_one_kind(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """#371: `bars/freq=1d/...` and `bars/freq=1m/...` are two datasets in the draft, by the name
+    the files state, else by `freq=`; any other mix of partition keys is one, said in `TODO`."""
+    package, _ = folder(tmp_path)
+    # (1) the files say their dataset: one dataset per name, each with the path of its files
+    two_freqs(package, {"1d": "daily", "1m": "minute"})
+    draft = dict(build_manifest(package).data)
+    assert [(d["name"], d.get("kind"), d["path"], [f["path"] for f in d["files"]], d.get("params"))
+            for d in draft["datasets"] if d.get("kind") == "bars"] == [
+        ("daily", "bars", "bars/freq=1d", [BARS_FILE], None),
+        ("minute", "bars", "bars/freq=1m", [MINUTE_FILE], None)]  # fmt: skip
+    assert not [line for line in draft["TODO"] if "mixes" in line]
+    filled(package, draft)
+    assert main(["check", str(package)]) == 0  # level schema: S010 reads the names
+    (package / "tds.json").unlink()
+    # (2) no name in the files: one dataset per `freq=` value, as TDS 4.2 lists `bars_1d`
+    two_freqs(package, {"1d": None, "1m": None})
+    draft = dict(build_manifest(package).data)
+    assert [(d["name"], d["kind"], d["path"], [f["path"] for f in d["files"]], d["params"])
+            for d in draft["datasets"] if d.get("kind") == "bars"] == [
+        ("bars_1d", "bars", "bars/freq=1d", [BARS_FILE], {"freq": "1d"}),
+        ("bars_1m", "bars", "bars/freq=1m", [MINUTE_FILE], {"freq": "1m"})]  # fmt: skip
+    filled(package, draft)
+    assert main(["check", str(package), "--level", "manifest"]) == 0
+    capsys.readouterr()
+    assert main(["check", str(package), "--format", "json"]) == 1  # level schema
+    errors = [json.loads(line) for line in capsys.readouterr().out.splitlines()[:-1]]
+    # the one thing left is the files': they still state no name (3.7), which no draft can add
+    assert {f["code"] for f in errors if f["severity"] == "error"} == {"TDS-S010"}
+    (package / "tds.json").unlink()
+    # one name and one file with none: the name's dataset, and the `freq=` one for the other
+    two_freqs(package, {"1d": "daily", "1m": None})
+    assert [(d["name"], d["path"]) for d in build_manifest(package).data["datasets"]] == [
+        ("bars_1m", "bars/freq=1m"),
+        ("daily", "bars/freq=1d"),
+        ("instruments", "instruments"),
+    ]
+    (package / "tds.json").unlink()
+    # (3) any other mix of first keys: one dataset, and `TODO` names the folder and the keys
+    for rel in ("notes/b=2/a.parquet", "notes/a=1/a.parquet", "notes/a=1/c=3/b.parquet"):
+        (package / rel).parent.mkdir(parents=True)
+        pq.write_table(pa.table({"x": [1]}), package / rel)
+    draft = dict(build_manifest(package).data)
+    notes = draft["datasets"][3]
+    assert (notes["name"], notes["path"], notes["rows"], "params" in notes) == (
+        "notes", "notes", 3, False)  # fmt: skip
+    assert draft["TODO"][0] == (
+        "datasets[] to split: notes mixes the partition keys a, b; a dataset has one layout"
+        " (TDS 3.6), so list each layout's files as a dataset of its own"
+    )
+    (package / "tds.json").unlink()
+    # the edges: two names in one partition folder both keep the folder as path; a `freq=` with
+    # no value is no split; a name the files state that a `freq=` value gives too is refused
+    for rel, said in (("odd/freq=1d/a.parquet", "p"), ("odd/freq=1d/b.parquet", "q"),
+                      ("gap/freq=/a.parquet", None), ("gap/freq=1d/a.parquet", None)):  # fmt: skip
+        (package / rel).parent.mkdir(parents=True, exist_ok=True)
+        rows = pa.table({"x": [1]}).replace_schema_metadata({"tds.dataset": said} if said else None)
+        pq.write_table(rows, package / rel)
+    paths = {d["name"]: d["path"] for d in build_manifest(package).data["datasets"]}
+    assert (paths["p"], paths["q"], paths["gap"]) == ("odd", "odd", "gap")
+    (package / "tds.json").unlink()
+    two_freqs(package, {"1d": None, "1m": "bars_1d"})
+    with pytest.raises(ManifestError, match="the dataset name bars_1d"):
+        build_manifest(package)
 
 
 def test_folder_the_schema_files_do_not_name(
