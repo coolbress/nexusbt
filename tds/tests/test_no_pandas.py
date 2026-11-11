@@ -212,6 +212,14 @@ def test_a_time_column_is_read_only_as_its_own_type(
     assert TIME_TYPES[tag](kind) is read
 
 
+def test_the_value_hash_refuses_only_a_time_column_holding_another_time_type() -> None:
+    from nexusbt_tds.hash import HashError, _values
+
+    assert _values(pa.chunked_array([pa.array([1])]), "ts_ns", "ts_end") == [1]  # as before
+    with pytest.raises(HashError, match=r"ts_end is time64\[ns\], TDS type ts_ns"):
+        _values(pa.chunked_array([pa.array([1], TIME)]), "ts_ns", "ts_end")
+
+
 @pytest.mark.parametrize("level", ["schema", "full"])
 @pytest.mark.parametrize(
     ("change", "column"),

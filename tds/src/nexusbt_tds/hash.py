@@ -92,8 +92,10 @@ TIME_TYPES: dict[str, Callable[[pa.DataType], bool]] = {
 
 def _values(column: pa.ChunkedArray, tag: str, name: str = "") -> list[Any]:
     """The column as Python values in the units the bytes use (days, the tag's time unit); a
-    time column of another Arrow type (S002's) raises `HashError` before a value is made."""
-    if tag in TIME_TYPES and not TIME_TYPES[tag](column.type):
+    time column holding another time type (S002's) raises `HashError` before a value is made,
+    one with no time in it (an `int64`) is hashed as before."""
+    kind = column.type
+    if tag in TIME_TYPES and not TIME_TYPES[tag](kind) and _holds_time(kind):
         raise HashError(f"{name} is {column.type}, TDS type {tag}")
     if pa.types.is_dictionary(column.type):
         column = column.cast(column.type.value_type)
