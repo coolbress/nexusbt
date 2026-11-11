@@ -14,6 +14,7 @@ import re
 from collections import defaultdict
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import replace
+from functools import cache
 from itertools import combinations, groupby
 from operator import itemgetter
 from pathlib import Path, PurePosixPath
@@ -23,7 +24,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from .check import KEY_CODES, Finding, _unsafe
-from .hash import HashError, Record, SortedRuns, spill_folder
+from .hash import TIME_TYPES, HashError, Record, SortedRuns, resolved_columns, spill_folder
 from .manifest import Manifest
 from .profiles import meets
 
@@ -99,17 +100,43 @@ def check_keys(
     return out
 
 
+@cache
+def _schemas() -> Mapping[str, Any]:
+    from .schemas.verify import load_schemas
+
+    return load_schemas()
+
+
+class Untyped(pa.ArrowTypeError):  # type: ignore[misc]  # pyarrow ships no type hints
+    """A time column stored as another Arrow type (S002's): its values are not read, so the
+    codes that compare them are unchecked, the same with pandas and without (#389)."""
+
+
+def time_columns(ds: Mapping[str, Any]) -> dict[str, str]:
+    """The dataset's columns of a time type, by name, as its schema file and `tds.json` resolve
+    them (`hash.resolved_columns`); a kind with no schema file, its declared ones only."""
+    schema = _schemas().get(str(ds.get("kind")))
+    columns = resolved_columns(ds, schema.columns if schema else ())
+    return {c.name: c.type for c in columns if c.type in TIME_TYPES}
+
+
 def batches(
-    root: Path, rel: str, parts: Mapping[str, str], columns: Sequence[str], size: int
-) -> Iterator[tuple[int, Batch]]:
+    root: Path, rel: str, parts: Mapping[str, str], columns: Sequence[str], size: int,
+    times: Mapping[str, str],
+) -> Iterator[tuple[int, Batch]]:  # fmt: skip
     """`columns` of the file `rel`, `size` rows at a time, as (rows, Python lists); a column the
     file does not store takes its partition value from the path, and one in neither is left out.
-    A timestamp column comes as `Instant`s, with or without a time zone (S004's to tell)."""
+    A timestamp column comes as `Instant`s, with or without a time zone (S004's to tell); a
+    column of `times` (`time_columns`) stored as another type raises `Untyped` before a row is
+    read."""
     source = pq.ParquetFile(root / rel)
-    names = source.schema_arrow.names
+    arrow = source.schema_arrow
+    names = arrow.names
     if len(set(names)) < len(names):  # which of two `instrument_id`s? its rows unseen
         raise pa.ArrowInvalid(f"{rel}: a column name twice")
     stored = [c for c in columns if c in names]
+    for c in (c for c in stored if c in times and not TIME_TYPES[times[c]](arrow.field(c).type)):
+        raise Untyped(f"{rel}: {c} is {arrow.field(c).type}, TDS type {times[c]}")
     for batch in source.iter_batches(batch_size=size, columns=stored):
         given = {c: [parts[c]] * batch.num_rows for c in columns if c in parts}
         yield batch.num_rows, given | {c: _values(batch.column(c)) for c in stored}
@@ -137,7 +164,7 @@ def _scan(
 ) -> list[Finding]:  # fmt: skip
     """One pass over the files in path order, so each folder's files come in name order (3.5)."""
     date, kept = "period" if kind in PANELS else "session_date", KEPT.get(kind, ())
-    files = sorted(listed(root, ds))
+    files, typed = sorted(listed(root, ds)), time_columns(ds)
     unseen = {c for c, cols in ((K001, key), (K002, sort)) if cols is None}  # not judged
     pending: list[Record] = []  # K001: keys not yet in a sorted run
     last: dict[str, list[Any]] = {}  # K002, per folder: the last row's sort values
@@ -151,7 +178,7 @@ def _scan(
         wanted = dict.fromkeys([*(key or []), *(sort or []), *([date] if times else []), *kept])
         days: list[Any] = []  # K003: this file's dates outside one of its folders
         dateless = False  # a row without the date column: K003 unchecked for this file
-        for n, b in batches(root, rel, parts, list(wanted), BATCH_ROWS):
+        for n, b in batches(root, rel, parts, list(wanted), BATCH_ROWS, typed):
             if not n:  # pragma: no cover - a row group of no rows, which pyarrow does not write
                 continue
             if key is None or any(c not in b for c in key):

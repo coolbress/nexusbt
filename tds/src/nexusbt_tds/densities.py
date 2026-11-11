@@ -27,7 +27,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from .check import DENSITY_CODES, Finding, _instant
-from .keys import PANELS, batches, listed
+from .keys import PANELS, batches, listed, time_columns
 from .manifest import Manifest
 from .refs import _rows
 
@@ -152,9 +152,10 @@ def _coverage(
     date = "period" if ds.get("kind") in PANELS else "session_date"
     ids: defaultdict[Any, set[Any]] = defaultdict(set)  # market (None: all) → instrument ids
     spans: dict[Any, list[Any]] = {}  # market → [first, last, rows]
+    typed = time_columns(ds)
     for rel, parts in files:
         market = parts.get("market")
-        for n, b in batches(root, rel, parts, ("instrument_id", date), 65_536):
+        for n, b in batches(root, rel, parts, ("instrument_id", date), 65_536, typed):
             ids[None].update(b.get("instrument_id", ()))
             ids[market].update(b.get("instrument_id", ()))
             got = [d for d in b.get(date, ()) if d is not None]
