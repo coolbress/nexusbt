@@ -175,7 +175,7 @@ def test_the_columns_chapter_7_names_per_profile() -> None:
     # TDS 7, the "required" cell of each row that names a column, by the dataset that holds it
     raw_dense = "bars(freq=1d, price_basis=raw, density=dense)"
     core = {raw_dense: "open high low close volume obs_status"}
-    recorded = ("events", "classifications", "fundamentals_state")
+    recorded = ("events", "fundamentals_events")  # #397 Decisions
     named = {
         name.removeprefix("tds:").removesuffix("@1.0"): {
             describe((need,)): " ".join(columns) for need, columns in profile.columns
@@ -295,3 +295,31 @@ def test_bitemporal_needs_ts_recorded_where_the_dataset_is_present(tmp_path: Pat
     ]
     named = check(tmp_path / "b", level="schema", profiles=[bitemporal], datasets=["bars_1d"])
     assert [f.code for f in named.errors] == []  # --datasets: only the named ones are read
+
+
+BITEMPORAL = "tds:bitemporal@1.0"
+
+
+def test_bitemporal_fundamentals_events_without_ts_recorded_is_M008(tmp_path: Path) -> None:
+    # #397 Decisions: the profile names the two datasets whose schema carries `ts_recorded` (5.17)
+    manifest, files = build.base()
+    build._facts("F1")(manifest, files)  # fundamentals_events and _state, without ts_recorded
+    result = check(Path(build.write(tmp_path / "a", manifest, files)), level="schema",
+                   profiles=[BITEMPORAL])  # fmt: skip
+    assert [f.message for f in result.errors if f.code == "TDS-M008"] == [
+        f"{BITEMPORAL} requires column ts_recorded in fundamentals_events: missing"
+    ]  # and none for fundamentals_state, whose schema has no `ts_recorded`
+    manifest, files = build.base()
+    build._facts("F1", ts_recorded=pa.array([build.NEW_YEAR], build.TS_UTC))(manifest, files)
+    held = check(Path(build.write(tmp_path / "b", manifest, files)), level="schema",
+                 profiles=[BITEMPORAL])  # fmt: skip
+    assert (held.errors, [f.code for f in held.warnings if "ts_recorded" in f.message]) == ((), [])
+
+
+def test_bitemporal_classifications_written_to_their_schema_are_clean(tmp_path: Path) -> None:
+    # #397: `classifications` carries its recorded time as `ts_known_from` (5.1.5), no M008/S005
+    manifest, files = build.base()
+    build._classified(build._A)(manifest, files)
+    result = check(Path(build.write(tmp_path, manifest, files)), level="schema",
+                   profiles=[BITEMPORAL])  # fmt: skip
+    assert (result.errors, [f.code for f in result.warnings if f.code == "TDS-S005"]) == ((), [])

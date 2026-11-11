@@ -127,8 +127,8 @@ _TABLE = (
 _OHLCV = {_CORE[1]: "open high low close volume obs_status"}
 #: Chapter 7's "required" cell: the columns it names, under the dataset that holds them. Where
 #: the cell names no dataset, the row's dataset whose schema lists the column (10.3). The
-#: `tds:bitemporal` cell names its three; the `classifications` and `fundamentals_state` schemas
-#: do not list `ts_recorded` yet, so there it is S005's unknown column too (noted on #352).
+#: `tds:bitemporal` cell names the two datasets whose schema carries `ts_recorded` (5.17);
+#: `classifications` and `fundamentals_state` carry `ts_known_from` instead (#397 Decisions).
 _COLUMNS = {
     "minimal-daily": {_MINIMAL[1]: "close"},
     "equity-daily-core": _OHLCV,
@@ -136,7 +136,7 @@ _COLUMNS = {
     "panels": {"feature_panels": "ts_available", "label_panels": "ts_available"},
     "pit-fundamentals": {"fundamentals_events": "fact_id doc_id"}
     | {"fundamentals_state": "lineage_id"},
-    "bitemporal": dict.fromkeys(("events", "classifications", "fundamentals_state"), "ts_recorded"),
+    "bitemporal": dict.fromkeys(("events", "fundamentals_events"), "ts_recorded"),
     "intraday-bars": {"bars:freq<1d": "ts_start ts_end session_date"},
     "l1-ticks": {"trades": "ts_event sequence", "quotes": "ts_event sequence"},
     "l2-book": {"book_deltas:depth_kind=mbp": "is_last"},
