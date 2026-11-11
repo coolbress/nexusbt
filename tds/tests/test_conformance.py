@@ -1003,9 +1003,10 @@ def test_full_level_checks_only_the_keys_references_and_hashes_so_far(tmp_path: 
     assert result.profiles == {
         "tds:minimal-daily@1.0": ProfileStatus(True, "schema", "not_checked")
     }
-    assert {"TDS-D001", "TDS-V031"} <= set(result.unchecked)
+    assert {"TDS-V031", "TDS-V032"} <= set(result.unchecked)
     hashes = {"TDS-H001", "TDS-H002", "TDS-H003", "TDS-H004"}
-    judged = {*K_CODES, *R_CODES, *hashes, "TDS-V012", *T_CODES} - {*_NO_CAL, *_NO_EXITS}
+    judged = {*K_CODES, *R_CODES, *hashes, "TDS-V012", *T_CODES, *D_CODES, "TDS-D002"}
+    judged -= {*_NO_CAL, *_NO_EXITS}
     assert not judged & set(result.unchecked)
     assert {*_NO_CAL, *_NO_EXITS} <= set(result.unchecked)  # no calendar_sessions, delistings
     # a column whose type is declared nowhere: no value hash, so H002 and H003 are not checked
@@ -1795,3 +1796,83 @@ def test_instant_rules_edges(
     assert [f.code for f in (*result.errors, *result.warnings)] == found
     assert [c for c in result.unchecked if c in (*T_CODES, "TDS-T002")] == unchecked
     assert "TDS-T007" not in [f.code for f in result.errors]  # preliminary: lowered (5.16)
+
+
+#: D002's package is the schema level's (`test_S_codes`); its rows: `test_density_rules_edges`.
+D_CODES = ["TDS-D001", "TDS-D004"]
+
+
+@pytest.mark.usefixtures("refs_batches")
+@pytest.mark.parametrize("code", D_CODES)
+def test_D_codes(code: str, tmp_path: Path) -> None:
+    test_K_codes(code, tmp_path)
+
+
+def _through(m: dict[str, Any], f: Any) -> None:  # US complete through the 3rd's close
+    m["markets"]["US"]["complete_through"] = "2024-01-03T21:00:00Z"
+
+
+def _three(*days: int, through: str = "2024-01-03T21:00:00Z", last: dt.date | None = None) -> Any:
+    """Dense bars of US:AAA on `days`, XNYS sessions on the 2nd to the 4th, US complete
+    `through`, `last_session` `last`."""
+
+    def change(m: dict[str, Any], f: Any) -> None:
+        build._sessions(0, (2, 3, 4))(m, f)
+        build._instruments(last_session=pa.array([last], pa.date32()))(m, f)
+        build._set("params", build.DENSE, in_bars=True)(m, f)
+        n, on = len(days), pa.array([JAN[d] for d in days])
+        ids, traded, close = pa.array(["US:AAA"] * n), pa.array(["traded"] * n), pa.array([1.0] * n)
+        build._bars(instrument_id=ids, session_date=on, obs_status=traded, close=close)(m, f)
+        m["markets"]["US"]["complete_through"] = through
+
+    return change
+
+
+def test_D004_reads_no_file_outside_the_package(tmp_path: Path) -> None:
+    """M012's paths are not read: an outside file's rows are not D004's, nor do they stop it."""
+    (tmp_path / "outside.txt").write_text("not parquet\n")
+
+    def change(m: dict[str, Any], f: Any) -> None:  # and the dataset's rows 2, read 1: D004
+        build._covered(2)(m, f)
+        build.bars(m)["files"].append({"path": "../outside.txt", "rows": 7, "bytes": 12})
+
+    result = check(write(tmp_path / "pkg", change), level="full")
+    assert sorted(f.code for f in result.errors) == ["TDS-D004", "TDS-M012"]
+    assert "outside" not in next(f.message for f in result.errors if f.code == "TDS-D004")
+
+
+_TRADED = build._bars(obs_status=pa.array(["traded"]))  # the 2nd only
+_DENSE_2 = build._both(build._sessions(0), build._set("params", build.DENSE, in_bars=True), _TRADED)
+
+
+@pytest.mark.parametrize(
+    ("change", "found", "unchecked"),
+    [  # #225 Decisions, 2026-11-11
+        (_days(JAN[2], ids=("US:AAA", "US:BBB"), listed_on=pa.array([JAN[3]])), ["TDS-D002"],
+         []),  # before listed_on, which the statistics of two ids cannot show
+        (_days(JAN[4], delisted_on=pa.array([JAN[4]])), [], []),  # on delisted_on: listed
+        (build.CASES["TDS-D002"][1], ["TDS-D002"], []),  # the statistics found it: once
+        (build._instruments(listed_on=pa.array(["2024-01-02"])), ["TDS-S002"],
+         ["TDS-D001", "TDS-D002", "TDS-D004"]),  # a text listed_on: none judged
+        (_DENSE_2, [], ["TDS-D001"]),  # no last_session, no complete_through: not judged
+        (build._both(_DENSE_2, _through), ["TDS-D001"], []),  # the 3rd, to the watermark
+        (_three(2, 4), ["TDS-D001"], []),  # a row after the watermark hides no gap
+        (_three(2, 3, through="2024-01-04T01:00:00Z"), [], []),  # 20:00 on the 3rd in New York
+        (build._both(_three(2, 3, through="2024-01-04T01:00:00Z"), lambda m, f: m["markets"]["US"]
+                     .update(timezone="Mars/Olympus")), ["TDS-D001"], []),  # unknown zone: UTC
+        (_three(4, last=JAN[3]), ["TDS-D001"], []),  # rows only after last_session: judged
+        (build._covered(2), ["TDS-D004"], []),  # the dataset's rows
+        (build._both(build._covered(), lambda m, f: build.bars(m)["files"][0].update(rows=2)),
+         ["TDS-D004"], []),  # a file's rows
+        (build._covered(by_market={"US": build.COVERAGE["by_market"]["US"] | {"rows": 2}}),
+         ["TDS-D004"], []),
+        (build._covered(ts_max="2024-01-03"), ["TDS-D004"], []),
+        (build._covered(note="free text"), [], []),  # a key 4.2's example does not show
+    ],
+)  # fmt: skip
+def test_density_rules_edges(
+    change: Any, found: list[str], unchecked: list[str], tmp_path: Path
+) -> None:
+    result = check(write(tmp_path, change), level="full")
+    assert [f.code for f in (*result.errors, *result.warnings)] == found
+    assert [c for c in result.unchecked if c.startswith("TDS-D")] == unchecked
