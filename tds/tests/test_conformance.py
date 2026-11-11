@@ -1424,6 +1424,13 @@ def test_D002_from_the_statistics(change: Any, found: list[str], tmp_path: Path)
 
 
 _bars, TS, VERSION_1_9 = build._bars, build.TS, build.VERSION_1_9
+TS_NS = TS.cast(pa.timestamp("ns", "UTC"))
+
+
+def _declares(name: str, tag: str | None, **columns: Any) -> Any:
+    """The bars' tds.json `columns` declares `name` as `tag`; `columns` rewrites its file."""
+    entry = {"name": name, "unit": "x"} if tag is None else {"name": name, "type": tag}
+    return lambda m, f: (build.bars(m).update(columns=[entry]), _bars(**columns)(m, f))
 
 
 @pytest.mark.parametrize(
@@ -1432,6 +1439,16 @@ _bars, TS, VERSION_1_9 = build._bars, build.TS, build.VERSION_1_9
         (_bars(ts_end=TS.cast(pa.timestamp("ns", "UTC"))), []),  # `ts_us/ns`: either unit
         (lambda m, f: (build.bars(m).update(columns=[{"name": "ts_end", "type": "ts_ns"}]),
                        _bars(ts_end=TS)(m, f)), ["TDS-S004"]),  # unless tds.json names one
+        (_declares("ts_end", "ts_us/ns", ts_end=TS_NS), []),  # the schema's own type: either
+        (_declares("ts_end", "f64"), ["TDS-S002"]),  # #373: not a unit of `ts_us/ns`
+        (_declares("ts_available", "ts_ns", ts_available=TS_NS), ["TDS-S002", "TDS-S004"]),
+        # ^ #373: the schema's `ts_us` decides; the declaration is S002, the file S004
+        (_declares("ts_available", "ts_ns", ts_available=TS), ["TDS-S002"]),  # the file is right
+        (_declares("ts_available", "ts_us", ts_available=TS_NS), ["TDS-S004"]),  # as declared
+        (_declares("close", "string", close=pa.array(["1"])), ["TDS-S002", "TDS-S002"]),
+        # ^ the declaration, and the file against the schema's f64
+        (_declares("close", None), []),  # an entry without a type declares none
+        (_declares("close", ""), []),  # nor does an empty one, as the value hash reads it
         (_bars(ts_end=TS.cast(pa.timestamp("us"))), ["TDS-S004"]),  # no UTC
         (lambda m, f: build.rewrite(m, f, build.BARS, build.bars_table(ts_end=TS),
                                     use_deprecated_int96_timestamps=True), ["TDS-S004"]),
@@ -1466,6 +1483,21 @@ _bars, TS, VERSION_1_9 = build._bars, build.TS, build.VERSION_1_9
 def test_schema_rules(change: Any, expected: list[str], tmp_path: Path) -> None:
     found = codes(write(tmp_path, change), "schema")
     assert [c for c in found if not c.startswith("TDS-M")] == expected  # M010, M008: not S rules
+
+
+def test_S002_names_the_declaration_once_for_the_dataset(tmp_path: Path) -> None:
+    """#373: the finding is the manifest's, not a file's, and says both types."""
+    other = build.BARS.replace("part-00000", "part-00001")
+
+    def change(m: Any, f: Any) -> None:
+        _declares("ts_available", "ts_ns")(m, f)
+        f[other] = f[build.BARS]  # a second file: the declaration is still one finding
+        add_bars_file(other, len(f[other]))(m, f)
+
+    errors = check(write(tmp_path, change), level="schema").errors
+    (found,) = [e for e in errors if e.code == "TDS-S002"]
+    assert (found.dataset, found.file) == ("bars_1d", None)
+    assert found.message == "tds.json declares ts_available as ts_ns, schema type ts_us"
 
 
 @pytest.mark.parametrize(

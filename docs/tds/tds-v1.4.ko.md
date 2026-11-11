@@ -22,6 +22,7 @@
 > 판 이력(이어서): **v1.4, 2026-11-10 명확화**: 5.11 `ratio_num, ratio_den` 칸과 검사 A010이 둘 다 있고 양수이지만 f64 칼럼과 상대 1e-12 넘게 다른 정확 비율을 소비자가 어떻게 할지 말한다: 없는 비율과 같은 소비자 설정이 정하고, 어긋나는 비율은 쓰지 않는다(NexusBT는 엔진 명세 5.6.1과 4.4 4단계, 사용자 결정 2026-11-04, #188); 생산자에게 A010은 E 그대로. 문구만 바뀌어 `tds_version`은 `"1.0"` 그대로.
 > 판 이력(이어서): **v1.4, 2026-11-10 변경**: 검사 V011(3.4, 8.3)이 분모에 `instruments.multiplier`를 곱하고, `price_basis`가 `raw`인 bars만 읽고, `index` 종목을 뺀다: 적힌 식대로면 계약 수가 맞는 선물·옵션에 경고가 났다. 5.27은 검사기가 V012를 어느 단위로 비교하는지 말한다: 격자 자체의 가장 작은 호가 단위(사용자 결정 2026-11-10, #229). 검사기 동작이고 형식 변경이 없으므로 `tds_version`은 `"1.0"` 그대로.
 > 판 이력(이어서): **v1.4, 2026-11-11 명확화**: 8.3의 TDS-M008 줄은 프로필의 데이터셋에 그 프로필의 7장 줄이 이름 붙인 칼럼이 없는 경우도 포함한다(`tds:equity-daily-core`는 bars의 OHLCV와 `obs_status`; `tds:bitemporal`은 패키지에 있는 events·classifications·state의 `ts_recorded`; 칼럼 이름을 적은 그 밖의 모든 줄). `schema` 수준에서 보인다: 그 칼럼이 데이터셋의 어느 파일에도 없거나, 행이 있는 데이터셋의 모든 행에서 null이다. 값 옆의 null 하나는 행의 문제이고(5.5), 빈 표는 아무것도 빠뜨리지 않는다. 7장이 이미 `@1.0`에 이 칼럼들을 요구했고 검사기가 읽지 않았을 뿐이므로 새 검사가 아니다(사용자 결정 2026-11-11, #352). 문구만 바꿨으므로 `tds_version`은 `"1.0"` 그대로.
+> 판 이력(이어서): **v1.4, 2026-11-11 명확화**: 7장의 `tds:bitemporal@1.0` 줄은 스키마 파일에 `ts_recorded`가 있는 데이터셋, 곧 `events`와 `fundamentals_events`(5.17)를 이름 붙인다. `classifications`와 `fundamentals_state`는 기록 시각을 이미 `ts_known_from`으로 지니므로 프로필이 두 번째 칼럼을 더하지 않는다. 이 줄은 "events·classifications·state"라고 적었고, 스키마 파일대로 쓴 패키지는 TDS-M008이나 TDS-S005 없이 그것을 맞출 수 없었다(사용자 결정 2026-11-11, #397). 스키마 파일은 바뀌지 않으므로 `tds_version`은 `"1.0"` 그대로.
 > 관계: 이 문서는 엔진 명세서 v3.4(`engine-spec-v3.4-2026-10-28.md`) **4장이 참조하는 입력 정본**이다. 둘이 다르면 입력 형식은 이 문서가 맞다(차이 목록은 12장). 사용자 결정(설계 문서 9.0)은 이 문서보다 우선한다.
 > 공개: 이 표준과 검사기(`nexusbt-tds`, import `nexusbt_tds`, 명령 `tds`)는 공개(Apache-2.0)다. 작업판 11장(생산자별 대응)은 표준의 규범이 아니라서 이 공개판에 넣지 않았다.
 > 예시: 엔진이 읽는 모든 데이터셋(사건·거시 계열 포함)의 예시 행은 `tds-examples.md`(같은 폴더)에 있다.
@@ -974,7 +975,7 @@ LEAN 계수 파일·Qlib `factor`·공급사 조정 종가만 있는 사용자�
 | `tds:equity-daily-research@1.0` | 위 + `tradability_daily`, `eligibility_daily`, `instrument_symbols`, `fx_rates`(시장이 둘 이상이면), `fundamentals_state`, `classifications`, `dictionary/columns`, `dictionary/items` (선택 `market_rules`, v1.2) | `ts_available` 규칙 명시(`tradability_daily.availability_by_column` 포함). (v1의 `cum_factor_*` 필수는 뺐다) | v1 전체(Fund.*, Universe, 다중 통화 슬리브) — **기준 생산자 목표** |
 | `tds:panels@1.0` | `feature_panels`, `label_panels`, `dictionary/columns` | 행 단위 `ts_available` | `Panel.*`, `evaluate(target=Label.*)` |
 | `tds:pit-fundamentals@1.0` | `fundamentals_events` + `fundamentals_state` | `fact_id`, `doc_id`, `lineage_id` | `nx.explain` 계보 |
-| `tds:bitemporal@1.0` | (다른 프로필 위에) | `ts_recorded`가 events·classifications·state에 | 시스템 이력 재생 |
+| `tds:bitemporal@1.0` | (다른 프로필 위에) | `ts_recorded`가 `events`·`fundamentals_events`에; classifications와 state는 `ts_known_from`을 지닌다 | 시스템 이력 재생 |
 | `tds:intraday-bars@1.0` (experimental) | `instruments`, `calendar_sessions`, `bars(freq<1d)` | `ts_start`, `ts_end`, `session_date`, `density` 선언 | E4 장중 경로 체결 |
 | `tds:l1-ticks@1.0` (experimental) | `trades`, `quotes` | `ts_event`, `sequence`, 공개 시각 규칙 | E4 |
 | `tds:l2-book@1.0` (experimental) | `book_deltas(mbp)` 또는 `book_snapshots` | `is_last`, 시작 스냅숏 | E4 |
@@ -1063,9 +1064,9 @@ tds export {zipline-bundle|nautilus-catalog|wide-parquet} ... # 9.8
 | TDS-M014 | E | 모르는 **필수 해석 규칙**(공개 규칙 이름, 실행에 영향이 있는 닫힌 열거의 새 값, 모르는 `hash_spec`) — 무시하면 뜻이 달라지므로 거절 [v1.1] |
 | TDS-M015 | W | `experimental` 스키마 데이터셋이 있음(1.x 호환 약속 밖) [v1.1] |
 | TDS-S001 | E | 필수 칼럼 없음 |
-| TDS-S002 | E | 칼럼 형 다름 |
+| TDS-S002 | E | 칼럼 형 다름: 파일의 칼럼이 제 형과 다르거나, 매니페스트 `columns[].type`이 스키마 파일이 그 칼럼에 적은 형과 다름(`ts_us/ns` 칼럼에 `ts_us`나 `ts_ns`를 적는 것은 다른 것이 아니다) [2026-11-11] |
 | TDS-S003 | E | null 금지 칼럼에 null |
-| TDS-S004 | E | 순간 칼럼이 UTC tz가 아니거나 단위가 그 데이터셋 규정과 다름, INT96 |
+| TDS-S004 | E | 순간 칼럼이 UTC tz가 아니거나 단위가 그 데이터셋 규정과 다름, INT96. 단위는 스키마 파일의 것이고, 매니페스트 `columns[].type`은 `ts_us/ns` 칼럼의 단위만 정한다 [2026-11-11] |
 | TDS-S005 | W | 모르는 칼럼(`x_` 접두 없음) |
 | TDS-S006 | E | 닫힌 열거에 없는 값 |
 | TDS-S007 | W | 열린 열거에 없는 값(`dictionary/codes`에도 없음) |
@@ -1529,3 +1530,4 @@ datasets:
 - 2026-11-11: **v1.4** 안에서. 8.3: T003·T004·T012 행에 각 코드가 검사하는 표를 적는다. `instrument_symbols`의 겹침(5.2의 T003 줄)은 T012와 같은 조건이라 T012로 한 번만 보고한다. null인 구간 끝은 열려 있어 T004가 아니다(관리자 결정 2026-11-11, #225). `tds_version` `"1.0"` 그대로(검사기 동작, 형식 변경 없음).
 - 2026-11-11: **v1.4** 안에서. 8.3: T008의 허용치는 매개변수가 정의되기 전까지 0이다(관리자 결정 2026-11-11, #225). `tds_version` `"1.0"` 그대로(검사기 동작, 형식 변경 없음).
 - 2026-11-11: **v1.4** 안에서. 8.3: D001·D002·D004 행에 `full` 단계가 읽는 것을 적는다. D001의 대상 종목과 끝점, 상장 기간 밖의 행인 D002(세션이 아닌 날은 R003), D004의 `rows`와 4.2 예시의 `coverage` 키(관리자 결정 2026-11-11, #225). `tds_version` `"1.0"` 그대로(검사기 동작, 형식 변경 없음).
+- 2026-11-11: **v1.4** 안에서. 8.3: 스키마 파일이 형을 적은 칼럼은 스키마 파일이 형과 시각 단위를 정한다. 그와 다른 매니페스트 `columns[].type`은 S002이고 파일마다가 아니라 데이터셋에 그런 칼럼마다 한 번 보고하며, S004는 파일을 스키마 파일의 단위와 비교한다. 지금까지는 선언된 `ts_us`나 `ts_ns`가 그 단위를 대신해서, 단위가 틀린 파일이 통과했다. 선언은 여전히 `ts_us/ns` 칼럼의 단위를 정한다. 값 해시의 형 태그(4.5 3단계)는 그대로다(관리자 결정 2026-11-11, #373). `tds_version` `"1.0"` 그대로(검사기 동작, 형식 변경 없음).
