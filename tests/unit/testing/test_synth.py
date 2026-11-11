@@ -1295,10 +1295,13 @@ def test_full_check_judges_k002_on_small(small: Path) -> None:
 
 def test_k002_takes_the_schema_files_sort_when_tds_json_has_none(tmp_path: Path) -> None:
     # #412: the three schema files carry the sort TDS states, so a manifest that leaves it out
-    # is judged too
-    package = make_snapshot(tmp_path / "bare", preset="tiny")
+    # is judged too; a cut-down small, which has share_counts and eligibility_daily
+    package = make_snapshot(tmp_path / "bare", preset="small", end=dt.date(2015, 6, 30),
+                            n_kr=8, n_us=8)  # fmt: skip
     path = package / "tds.json"
     manifest = json.loads(path.read_text(encoding="utf-8"))
+    names = {d["name"] for d in manifest["datasets"]}
+    assert {"instrument_xref", "share_counts", "eligibility_daily"} <= names
     for dataset in manifest["datasets"]:
         dataset.pop("sort", None)
     path.write_text(json.dumps(manifest), encoding="utf-8")
