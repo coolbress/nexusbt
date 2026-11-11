@@ -353,6 +353,31 @@ def _classified(*rows: Classified) -> Change:
 _A = ("A", "2019-01-01", None, "2018-12-01", "2020-03-06", 1, "both", "native")
 _A2 = ("A", "2019-01-01", "2020-03-20", "2020-03-06", None, 1, "both", "native")
 _B = ("B", "2020-03-20", None, "2020-03-06", None, 1, "both", "native")
+DENSE = {"freq": "1d", "price_basis": "raw", "density": "dense"}
+
+
+def _dense(*days: int) -> Change:
+    """Dense daily bars of US:AAA on `days` of January 2024, XNYS sessions on the 2nd and 3rd,
+    `last_session` the 3rd (5.5 D001)."""
+    n, on = len(days), pa.array([dt.date(2024, 1, d) for d in days])
+    return _both(_sessions(0), _instruments(last_session=pa.array([dt.date(2024, 1, 3)])),
+                 _set("params", DENSE, in_bars=True),
+                 _bars(instrument_id=pa.array(["US:AAA"] * n), session_date=on,
+                       close=pa.array([10.0] * n),
+                       obs_status=pa.array(["traded"] * n)))  # fmt: skip
+
+
+#: TDS 4.2's example `coverage`, as the base package's one bar makes it.
+COVERAGE = {"instruments": 1, "ts_min": "2024-01-02", "ts_max": "2024-01-02",
+            "by_market": {"US": {"instruments": 1, "first": "2024-01-02", "last": "2024-01-02",
+                                 "rows": 1}}}  # fmt: skip
+
+
+def _covered(rows: int = 1, **coverage: Any) -> Change:
+    """The bars dataset's `rows` and `coverage` (COVERAGE with `coverage` changed)."""
+    return lambda m, f: bars(m).update(rows=rows, coverage=COVERAGE | coverage)
+
+
 WRONG = "0" * 64
 
 
@@ -636,6 +661,8 @@ CASES: dict[str, tuple[Change, Change]] = {
         _exits(delisted=True, ts_exit_known=_at(2), ts_value_available=_at(2, 14, 0)),
     ),
     "TDS-D002": (_keep, _bars(session_date=pa.array([dt.date(2024, 1, 1)]))),  # before listed_on
+    "TDS-D001": (_dense(2, 3), _dense(2)),  # the 3rd missing
+    "TDS-D004": (_covered(), _covered(instruments=2)),
     "TDS-K001": (  # GICS sector and industry on one day (5.19), a key in two editions: no K001
         lambda m, f: (_gics(1, 3)(m, f), _panels("strict", "compare")(m, f)),
         _panels("strict", "strict"),  # one key twice in one folder
@@ -758,6 +785,7 @@ FAILS: dict[str, tuple[str | None, ...]] = {
     ], ("instruments",)),
     "TDS-M014": ("bars_1d", "instruments"),  # the unknown rule, the unknown object
     "TDS-T002": ("delistings", "instrument_symbols"),  # the two-instant form, the one-column
+    **dict.fromkeys(["TDS-D001", "TDS-D004"], ("bars_1d",)),
     "TDS-T001": ("events",),
     "TDS-T005": ("bars_1d",),
     "TDS-T007": ("fundamentals_events",),
