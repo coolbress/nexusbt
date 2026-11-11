@@ -1276,6 +1276,25 @@ def test_T006_from_the_statistics(
     assert ("TDS-T006" in check(tmp_path, level="full").unchecked) is unchecked
 
 
+def _xref(m: dict[str, Any], f: Any) -> None:
+    """A US `instrument_xref` with no `availability`, US `complete_through` END."""
+    m["markets"]["US"]["complete_through"] = END.isoformat()
+    rel = "instrument_xref/market=US/part-00000.parquet"
+    f[rel] = build.parquet(pa.table({"instrument_id": ["US:AAA"]}), "instrument_xref")
+    m["datasets"].append({"name": "instrument_xref", "kind": "instrument_xref",
+                          "schema_version": "1.0", "path": "instrument_xref",
+                          "files": [{"path": rel, "bytes": len(f[rel])}]})  # fmt: skip
+
+
+@pytest.mark.parametrize("level", ["schema", "full"])
+def test_T006_does_not_read_instrument_xref(level: Level, tmp_path: Path) -> None:
+    """When I run `tds check --level schema --datasets instrument_xref`, then `TDS-T006` is
+    not in `unchecked`: the table is timeless for T006 (TDS 8.2, #332, #360)."""
+    result = check(write(tmp_path, _xref), level=level, datasets=["instrument_xref"])
+    assert "TDS-T006" not in result.unchecked
+    assert "TDS-T006" not in [f.code for f in result.errors]
+
+
 def _state(ts_known_from: dt.datetime, availability: object) -> Any:
     """A US `fundamentals_state` row known at `ts_known_from`, US `complete_through` END."""
 
