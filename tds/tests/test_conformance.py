@@ -1448,6 +1448,7 @@ def _declares(name: str, tag: str | None, **columns: Any) -> Any:
         (_declares("close", "string", close=pa.array(["1"])), ["TDS-S002", "TDS-S002"]),
         # ^ the declaration, and the file against the schema's f64
         (_declares("close", None), []),  # an entry without a type declares none
+        (_declares("close", ""), []),  # nor does an empty one, as the value hash reads it
         (_bars(ts_end=TS.cast(pa.timestamp("us"))), ["TDS-S004"]),  # no UTC
         (lambda m, f: build.rewrite(m, f, build.BARS, build.bars_table(ts_end=TS),
                                     use_deprecated_int96_timestamps=True), ["TDS-S004"]),

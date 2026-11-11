@@ -511,12 +511,12 @@ def _check_declared(ds: Mapping[str, Any], schema: Any) -> list[Finding]:
     """S002 of each tds.json `columns[].type` that differs from the type the schema file states.
 
     The schema file decides a typed column's type and timestamp unit (#373); a declaration only
-    names the one unit of a `ts_us/ns` column, and types a column the schema leaves untyped."""
+    names the one unit of a `ts_us/ns` column. One finding per column, for the dataset."""
     declared, out = _by_name(ds.get("columns")), []
     for column in schema.columns:
         said, tag = declared.get(column.name), column.type
         narrows = tag == "ts_us/ns" and said in ("ts_us", "ts_ns")
-        if said is not None and tag is not None and said != tag and not narrows:
+        if said and tag is not None and said != tag and not narrows:  # "": none, as the hash reads
             message = f"tds.json declares {column.name} as {said}, schema type {tag}"
             out.append(Finding("TDS-S002", "error", message, dataset=ds.get("name")))
     return out
