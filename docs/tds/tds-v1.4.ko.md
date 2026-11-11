@@ -1097,9 +1097,9 @@ tds export {zipline-bundle|nautilus-catalog|wide-parquet} ... # 9.8
 | TDS-T010 | E | `last_session < listed_on` |
 | TDS-T011 | W | 종료 대가 공개가 퇴출 공개보다 이름 |
 | TDS-T012 | E | 두 시간축 **직사각형** 조회 결과가 한 시점·한 판별 열쇠(분류는 scheme·level·판 필터 포함)에 둘 이상, 직사각형 조회 표 셋(6.3 ③)에서: `classifications`, `universe_membership`, `instrument_symbols` [2026-11-11] |
-| TDS-D001 | E | dense 일봉에 세션 행 빠짐 |
-| TDS-D002 | E | 세션이 아닌 날 행, 또는 상장 기간 밖 행 |
-| TDS-D004 | E | 매니페스트 `rows`·`coverage`가 실제와 다름 |
+| TDS-D001 | E | dense 일봉에 세션 행 빠짐. 데이터셋에 행이 있는 종목마다 `listed_on`부터 `last_session`까지, 없으면 그 시장 `complete_through`의 날짜까지. 둘 다 없으면 그 종목은 판단하지 않는다(unchecked) [2026-11-11] |
+| TDS-D002 | E | 세션이 아닌 날 행, 또는 상장 기간 밖 행. `full` 단계의 행 단위 D002는 종목의 `listed_on`..`delisted_on` 밖의 일봉이고, 세션이 아닌 날은 R003이다 [2026-11-11] |
+| TDS-D004 | E | 매니페스트 `rows`·`coverage`가 실제와 다름: 데이터셋과 파일마다의 `rows`, 그리고 4.2 예시에 있는 `coverage` 키 중 적힌 것(`instruments`, `session_date` 또는 패널 `period`의 `ts_min`·`ts_max`, `market=` 파티션마다 `by_market`의 `instruments`·`first`·`last`·`rows`) [2026-11-11] |
 | TDS-A001 | E | 누적 계수 비 ≠ 그 세션 사건 계수 곱(상대 1e-12; 5.11 해석 절차로 정정 사슬마다 최신판 하나, 취소 사슬은 1.0, 계수 "없음" 경계는 대조하지 않음) |
 | TDS-A002 | E | 첫 세션 누적 계수 ≠ 1.0 |
 | TDS-A003 | E | `price_factor ≤ 0`·null인데 `factor_method ≠ unavailable` |
@@ -1527,3 +1527,4 @@ datasets:
 - 2026-11-11: **v1.4** 안에서. 5장: stable 데이터셋이 형 없이 적던 칼럼 67개에 3.2의 형을 적는다(5.3, 5.4 `calendar_segments`, 5.10, 5.14, 5.16, 5.19, 5.20, 5.21, 5.25). `universe_membership.ts_known_to`는 null을 허용한다고 적는다. 끝이 열린 알려진 구간(6.3)에 이미 필요하던 것이다. 형 없는 칼럼이 있는 실험 판 데이터셋(5.7, 5.8, 5.9, 5.22, 5.23, 5.24)은 스키마가 `experimental`을 벗어날 때 그 형을 정한다고 적는다. 10.2: 표준이 초안인 동안 적지 않았던 형을 적는 것은 문장 고침이다(결정 2026-11-03, #105). `tds_version` `"1.0"` 그대로(문장 고침; 초안).
 - 2026-11-11: **v1.4** 안에서. 8.3: T003·T004·T012 행에 각 코드가 검사하는 표를 적는다. `instrument_symbols`의 겹침(5.2의 T003 줄)은 T012와 같은 조건이라 T012로 한 번만 보고한다. null인 구간 끝은 열려 있어 T004가 아니다(관리자 결정 2026-11-11, #225). `tds_version` `"1.0"` 그대로(검사기 동작, 형식 변경 없음).
 - 2026-11-11: **v1.4** 안에서. 8.3: T008의 허용치는 매개변수가 정의되기 전까지 0이다(관리자 결정 2026-11-11, #225). `tds_version` `"1.0"` 그대로(검사기 동작, 형식 변경 없음).
+- 2026-11-11: **v1.4** 안에서. 8.3: D001·D002·D004 행에 `full` 단계가 읽는 것을 적는다. D001의 대상 종목과 끝점, 상장 기간 밖의 행인 D002(세션이 아닌 날은 R003), D004의 `rows`와 4.2 예시의 `coverage` 키(관리자 결정 2026-11-11, #225). `tds_version` `"1.0"` 그대로(검사기 동작, 형식 변경 없음).
