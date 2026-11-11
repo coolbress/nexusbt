@@ -2123,7 +2123,7 @@ runs/<run_id>/
 - `n_not_yet_published`: 조회가 아무것도 주지 않고, 스냅숏에 그 종목·필드의 행으로 판단 시점 이전에 관측되었으나 `ts_available`이 `decision_ts` 뒤인 것이 있음.
 - `n_missing`: 조회가 아무것도 주지 않고 그런 행도 없음.
 
-무엇을 값으로 세는지는 데이터셋의 종류에 따른다(#394). 상태 표와 일별 표(`bars`, `share_counts`, `fundamentals_state`, `classifications` 등)에서는 조회가 아무것도 주지 않으면 `n_missing`(위대로 `n_not_yet_published`일 수도)이다. `eligibility_daily`에서는 "행 없음 = false"(5.1.5)가 값이다: 그런 쌍은 `n_value`에 센다. 사건 데이터셋(`corporate_actions`, `Events.*`, `fundamentals_events`)에서는 사건이 없는 것이 빈틈이 아니다: 그 연도에 분할이 없던 종목은 결측이 아니라 완전하므로, 그 행은 `n_value`에 그 연도·시장에서 읽은 사건 수를 적고 `n_missing`과 `n_stale`은 null로 둔다.
+무엇을 값으로 세는지는 데이터셋의 종류에 따른다(#394). 상태 표와 일별 표(`bars`, `share_counts`, `fundamentals_state`, `classifications` 등)에서는 조회가 아무것도 주지 않으면 `n_missing`(위대로 `n_not_yet_published`일 수도)이다. `eligibility_daily`에서는 "행 없음 = false"(5.1.5)가 값이다: 그런 쌍은 `n_value`에 센다. 사건 데이터셋(`corporate_actions`, `Events.*`, `fundamentals_events`)에서는 사건이 없는 것이 빈틈이 아니다: 그 연도에 분할이 없던 종목은 결측이 아니라 완전하므로, 그 행은 `n_value`에 그 연도·시장에서 읽은 사건 수를 적고 `n_missing`, `n_stale`, `n_not_yet_published`, `share_value`는 null로 둔다. (판단, 종목) 쌍에 대한 사건 수는 비율이 아니기 때문이다.
 
 결측이 전략에 한 일은 이 표에 없다: 그 때문에 빠진 종목과 판단은 `skips.parquet`와 `skipped:` 줄(6.6)이 센다.
 
