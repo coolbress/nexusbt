@@ -22,6 +22,7 @@ import pyarrow as pa
 
 from .actions import SPLIT_LIKE, ActionsError, _ts_terms, resolve
 from .check import ACTION_CODES, Finding, Severity
+from .keys import ranked
 from .manifest import Manifest
 from .refs import _rows
 
@@ -96,7 +97,7 @@ def _check(
         return out
     by_id = {e["event_id"]: e for e in events}
     try:
-        chains = resolve(pa.Table.from_pylist(events), None).chains if events else {}
+        chains = resolve(pa.Table.from_pylist(ranked(events)[0]), None).chains if events else {}
     except (ActionsError, TypeError) as exc:  # a cycle (A007), a dangling `revision_of`
         blind.add(A001)
         notes.append(f"{A001} not checked: the resolver cannot tie the chains: {exc}")
