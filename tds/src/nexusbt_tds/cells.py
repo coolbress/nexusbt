@@ -42,7 +42,9 @@ def check_cells(m: Manifest, only: Sequence[str] | None, blind: set[str]) -> lis
     blind.difference_update(CELL_CODES)  # the causes the rows share are added again below
     try:
         return _check(m, only, blind)
-    except (OSError, pa.ArrowException):  # a file Parquet cannot read: S010's, its rows unseen
+    # pragma: no cover: `_check` catches each file's read and `_dictionary_codes` its own, so
+    # only an OSError resolving the package root reaches here; no test makes the root fail so.
+    except (OSError, pa.ArrowException):  # pragma: no cover
         blind.update(CELL_CODES)
         return []
 
