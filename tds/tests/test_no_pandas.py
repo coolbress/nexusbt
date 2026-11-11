@@ -111,6 +111,30 @@ def test_a_tick_that_is_not_a_whole_microsecond_is_judged(
     assert all("available until 2024-01-02T21:00:00.000000001+00:00" in m for m in late), late
 
 
+_LAST = dt.datetime(9999, 12, 31, 23, 59, 59, 999999, tzinfo=dt.UTC)
+
+
+@pytest.mark.parametrize(
+    ("rule", "ts_end", "until"),
+    [  # T006 from the footer statistics, the delay in nanoseconds
+        ("ts_end", pa.array([CLOSE], NS), None),  # at the watermark: not after it
+        ("ts_end+PT0.000000001S", pa.array([CLOSE], NS), "2024-01-02T21:00:00.000000001+00:00"),
+        ("ts_end+P1D", pa.array([_LAST], build.TS_UTC), "253402387199999999000 ns"),  # year 10000
+    ],
+)
+def test_T006_counts_a_delay_in_nanoseconds_and_names_an_instant_past_year_9999(
+    rule: str, ts_end: pa.Array, until: str | None, tmp_path: Path
+) -> None:
+    manifest, files = build.base()
+    manifest["markets"]["US"]["complete_through"] = build.THROUGH.isoformat()
+    build.bars(manifest)["availability"] = {"rule": rule}
+    build.rewrite(manifest, files, build.BARS, build.bars_table(ts_end=ts_end))
+    result = check(build.write(tmp_path, manifest, files), level="schema")
+    late = [f.message for f in result.errors if f.code == "TDS-T006"]
+    assert [m.split(",")[0] for m in late] == ([f"available until {until}"] if until else [])
+    assert "TDS-T006" not in result.unchecked
+
+
 _FAR = "9999-12-31"  # an open end written as a date: past int64 in nanoseconds (year 2262)
 
 

@@ -669,8 +669,7 @@ def _check_ranges(m: Manifest, only: Sequence[str] | None, blind: set[str]) -> l
                 if through is None or last is None:
                     blind.add(T006)  # no watermark, no statistics, or a rule they cannot apply
                 elif last > (through - _EPOCH) // _MICRO * 1000:  # both in nanoseconds
-                    until = str(Instant(last)).replace(" ", "T")
-                    msg = f"available until {until}, after the market's"
+                    msg = f"available until {Instant(last).iso()}, after the market's"
                     msg += f" complete_through {market['complete_through']}"
                     out.append(Finding(T006, "error", msg, ds.get("name"), rel))
             if daily and meta:
