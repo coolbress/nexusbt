@@ -266,7 +266,9 @@ def test_a_column_with_one_value_or_no_row_is_not_lacking(tmp_path: Path) -> Non
     }
     assert [f.code for f in _core(tmp_path / "a", two).errors] == []
     empty = {name: column.slice(0, 0) for name, column in two.items()}
-    assert [f.code for f in _core(tmp_path / "b", empty).errors] == []  # no row lacks nothing
+    for name, bars in (("b", empty), ("c", empty | {"open": None})):  # no row lacks nothing
+        result = _core(tmp_path / name, bars)
+        assert (result.errors, result.notes) == ((), ())
 
 
 def test_a_column_without_statistics_is_a_note_not_an_error(tmp_path: Path) -> None:

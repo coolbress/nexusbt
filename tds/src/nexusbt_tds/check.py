@@ -855,28 +855,31 @@ def _lacks(root: Path, ds: Mapping[str, Any], column: str) -> str | None:
     "null in every row"; "" when one holds a value, when the dataset has no row (an empty table
     lacks nothing) or no readable footer, or when the column is a partition's; None when a
     footer has the column without its null count."""
-    footers = rows = 0
+    rows = 0  # of every listed file, with the column or without
     held = unknown = False
     for rel, meta in _footers(root, ds):
         if meta is None or any(p.startswith(f"{column}=") for p in PurePosixPath(rel).parts):
             return ""
-        footers += 1
+        rows += meta.num_rows
         paths = [meta.schema.column(i).path for i in range(meta.num_columns)]
         if column not in {p.split(".")[0] for p in paths}:
             continue
-        held, rows = True, rows + meta.num_rows
+        held = True
         for g in range(meta.num_row_groups if column in paths else 0):
             s = meta.row_group(g).column(paths.index(column)).statistics
+            if not meta.row_group(g).num_rows:
+                continue  # a row group without rows has no null count and no value
             if s is None or not s.has_null_count:
                 unknown = True
             elif s.null_count < meta.row_group(g).num_rows:
                 return ""
-        unknown = unknown or column not in paths  # a nested column: its leaves' counts only
+        # a nested column: its leaves' counts only
+        unknown = unknown or (column not in paths and meta.num_rows > 0)
     if unknown:
         return None
-    if not held:
-        return "missing" if footers else ""
-    return "null in every row" if rows else ""
+    if not rows:
+        return ""
+    return "null in every row" if held else "missing"
 
 
 def _has(datasets: Iterable[Mapping[str, Any]], need: Need) -> bool:
