@@ -518,7 +518,7 @@
 
 ### 5.3 `instrument_xref` (외부 식별자 연결)
 
-열쇠 (`instrument_id`, `id_type`, `id_value`, `valid_from`). 칼럼: `instrument_id` id, `id_type` code(열림: `figi`, `figi_composite`, `figi_share_class`, `isin`, `cusip`, `sedol`, `permno`, `permco`, `gvkey_iid`, `cik`, `lei`, `sharadar_permaticker`, `lean_sid`, `nautilus_instrument_id`, `databento_instrument_id`, `occ_osi`, `dart_corp_code` …), `id_value` string, `valid_from` date null(모름), `valid_to` date null, `link_quality` code(`primary`/`secondary`/`inferred`), `source` string.
+열쇠 (`instrument_id`, `id_type`, `id_value`, `valid_from`). 정렬 같음. 칼럼: `instrument_id` id, `id_type` code(열림: `figi`, `figi_composite`, `figi_share_class`, `isin`, `cusip`, `sedol`, `permno`, `permco`, `gvkey_iid`, `cik`, `lei`, `sharadar_permaticker`, `lean_sid`, `nautilus_instrument_id`, `databento_instrument_id`, `occ_osi`, `dart_corp_code` …), `id_value` string, `valid_from` date null(모름), `valid_to` date null, `link_quality` code(`primary`/`secondary`/`inferred`), `source` string.
 - Databento처럼 날마다 바뀌는 게시자 id는 `valid_from = valid_to − 1일`의 하루 구간으로 적는다. 64비트 부호 없는 게시자 id는 `id_value`에 10진 문자열로(정밀도 손실 없음) [v1.1].
 - 앎 축: `instrument_xref`는 v1에서 앎 시각이 없다. 그래서 K6의 두 시간축 약속은 이 표에 **적용하지 않는다**(설명·대응용, 판단 입력 아님). 앎 시각이 필요한 연결은 다음 MINOR에서 `ts_known_from/to`를 선택 칼럼으로 더한다 [v1.1].
 - CRSP CCM 같은 회사 단위 연결(GVKEY ↔ PERMNO)은 `id_type = gvkey_iid`, `link_quality`에 LINKPRIM의 뜻을 옮긴다.
@@ -744,7 +744,7 @@ LEAN 계수 파일·Qlib `factor`·공급사 조정 종가만 있는 사용자�
 
 ### 5.14 `share_counts` (주식 수, PIT)
 
-열쇠 (`instrument_id`, `count_kind`, `as_of_date`, `ts_available`). 칼럼 `instrument_id` id, `count_kind` code(`listed`(상장주식수), `outstanding`(발행 유통), `float`, `treasury`), `as_of_date` date(그 수가 맞는 날짜), `shares` f64, `ts_available` ts_us, `source` string, `evidence_id` string. 한국 상장주식수(거래소 일별)는 `as_of_date = 세션, ts_available = 세션 마감`, 미국 SEC dei 주식 수는 `as_of_date = 표지 기준일, ts_available = 제출 순간`.
+열쇠 (`instrument_id`, `count_kind`, `as_of_date`, `ts_available`). 정렬 같음. 칼럼 `instrument_id` id, `count_kind` code(`listed`(상장주식수), `outstanding`(발행 유통), `float`, `treasury`), `as_of_date` date(그 수가 맞는 날짜), `shares` f64, `ts_available` ts_us, `source` string, `evidence_id` string. 한국 상장주식수(거래소 일별)는 `as_of_date = 세션, ts_available = 세션 마감`, 미국 SEC dei 주식 수는 `as_of_date = 표지 기준일, ts_available = 제출 순간`.
 
 ### 5.15 `fx_rates` (환율)
 
@@ -844,7 +844,7 @@ LEAN 계수 파일·Qlib `factor`·공급사 조정 종가만 있는 사용자�
 
 `universe_membership`(지수 편입 등 기간): 열쇠 (`universe_id`, `instrument_id`, `effective_from`, `ts_known_from`), 조회는 직사각형(6.3). 칼럼 `universe_id` id(예 `index:KOSPI200`, `index:SP500`), `instrument_id` id, `effective_from` date, `effective_to` date null, `ts_known_from` ts_us, `ts_known_to` ts_us null, `weight` f64 null, `source` string. 지수 변경은 발표가 효력보다 앞서므로 두 축이 모두 필요하다.
 
-`eligibility_daily`(만든 쪽의 투자 대상 판정): 파티션 `market=/year=`, 열쇠 (`rule_id`, `instrument_id`, `session_date`). 칼럼 `rule_id` id(예 `investable-v1`), `instrument_id` id, `session_date` date, `is_eligible` bool, `reason` code null(열림: `not_common`, `administrative`, `unit`, `preferred`, `fund`, `no_price`, `no_mcap` …), `ts_available` ts_us(v1.1 **기본 `session_close`** — 판정이 그날 정보를 쓰는 경우가 보통이라 보수적 기본; 판정이 개장 전 정보만 쓴다고 생산자가 선언할 때만 `session_open`) [RV-C09]. dense일 필요 없음. **읽는 규칙**(v1.1): 판단 세션 s에서는 그 세션의 행 하나만 본다; 행이 없거나 `ts_available > 판단 시각`이면 **대상 아님(거짓)**이다 — 앞 세션의 참을 이어 쓰지 않는다(`params.missing_means = false`는 이 뜻의 선언이고 다른 값은 v1.1에 없음). 이월 상태가 필요한 생산자는 이월을 미리 풀어 dense로 내보낸다.
+`eligibility_daily`(만든 쪽의 투자 대상 판정): 파티션 `market=/year=`, 열쇠 (`rule_id`, `instrument_id`, `session_date`), 정렬 (`session_date`, `instrument_id`, `rule_id`) — 일봉(5.5)처럼 세션 날짜 먼저. 칼럼 `rule_id` id(예 `investable-v1`), `instrument_id` id, `session_date` date, `is_eligible` bool, `reason` code null(열림: `not_common`, `administrative`, `unit`, `preferred`, `fund`, `no_price`, `no_mcap` …), `ts_available` ts_us(v1.1 **기본 `session_close`** — 판정이 그날 정보를 쓰는 경우가 보통이라 보수적 기본; 판정이 개장 전 정보만 쓴다고 생산자가 선언할 때만 `session_open`) [RV-C09]. dense일 필요 없음. **읽는 규칙**(v1.1): 판단 세션 s에서는 그 세션의 행 하나만 본다; 행이 없거나 `ts_available > 판단 시각`이면 **대상 아님(거짓)**이다 — 앞 세션의 참을 이어 쓰지 않는다(`params.missing_means = false`는 이 뜻의 선언이고 다른 값은 v1.1에 없음). 이월 상태가 필요한 생산자는 이월을 미리 풀어 dense로 내보낸다.
 
 ### 5.21 사건·대체 자료: `events`, `series_observations`
 
@@ -1295,6 +1295,7 @@ datasets:
 | 새 오류(E) 검사 추가 | MAJOR. 단 "원래 표준 문장이 금지했는데 검사가 없었던 것"은 MINOR + 한 판 동안 W로 먼저 |
 | 문장 고침(뜻 그대로) | 판 안 바꿈(문서 고침 기록만) |
 | 표준이 초안인 동안(10.5), 5장이 형이나 null 여부 없이 적은 칼럼에 그것을 적는 것 | 판 안 바꿈(문장 고침; 문서 고침 기록만) |
+| 표준이 초안인 동안(10.5), 5장이 열쇠만 적고 정렬은 적지 않은 데이터셋에 정렬을 적는 것 | 판 안 바꿈(문장 고침; 문서 고침 기록만). 적힌 정렬을 바꾸는 것은 그대로 MAJOR |
 
 ### 10.3 읽는 쪽·쓰는 쪽 의무
 
@@ -1531,3 +1532,4 @@ datasets:
 - 2026-11-11: **v1.4** 안에서. 8.3: T008의 허용치는 매개변수가 정의되기 전까지 0이다(관리자 결정 2026-11-11, #225). `tds_version` `"1.0"` 그대로(검사기 동작, 형식 변경 없음).
 - 2026-11-11: **v1.4** 안에서. 8.3: D001·D002·D004 행에 `full` 단계가 읽는 것을 적는다. D001의 대상 종목과 끝점, 상장 기간 밖의 행인 D002(세션이 아닌 날은 R003), D004의 `rows`와 4.2 예시의 `coverage` 키(관리자 결정 2026-11-11, #225). `tds_version` `"1.0"` 그대로(검사기 동작, 형식 변경 없음).
 - 2026-11-11: **v1.4** 안에서. 8.3: 스키마 파일이 형을 적은 칼럼은 스키마 파일이 형과 시각 단위를 정한다. 그와 다른 매니페스트 `columns[].type`은 S002이고 파일마다가 아니라 데이터셋에 그런 칼럼마다 한 번 보고하며, S004는 파일을 스키마 파일의 단위와 비교한다. 지금까지는 선언된 `ts_us`나 `ts_ns`가 그 단위를 대신해서, 단위가 틀린 파일이 통과했다. 선언은 여전히 `ts_us/ns` 칼럼의 단위를 정한다. 값 해시의 형 태그(4.5 3단계)는 그대로다(관리자 결정 2026-11-11, #373). `tds_version` `"1.0"` 그대로(검사기 동작, 형식 변경 없음).
+- 2026-11-11: **v1.4** 안에서. 5.3 `instrument_xref`와 5.14 `share_counts`는 열쇠 순서로 정렬하고, 5.20 `eligibility_daily`는 일봉처럼 세션 날짜를 먼저 두어 (`session_date`, `instrument_id`, `rule_id`)로 정렬한다(3.5). 5장이 셋에 열쇠만 적고 정렬을 적지 않아 K002가 판정하지 못했다. 10.2: 표준이 초안인 동안 적지 않았던 정렬을 적는 것은 문장 고침이다(결정 2026-11-11, #412). `tds_version` `"1.0"` 그대로(문장 고침; 초안).

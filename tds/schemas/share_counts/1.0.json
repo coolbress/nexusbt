@@ -1,6 +1,7 @@
 {
   "kind": "share_counts", "schema_version": "1.0", "status": "stable", "section": "5.14",
-  "key": ["instrument_id", "count_kind", "as_of_date", "ts_available"], "sort": null, "partitions": [],
+  "key": ["instrument_id", "count_kind", "as_of_date", "ts_available"],
+  "sort": ["instrument_id", "count_kind", "as_of_date", "ts_available"], "partitions": [],
   "columns": [
     {"name": "instrument_id", "type": "id", "null": null},
     {"name": "count_kind", "type": "code", "null": null},

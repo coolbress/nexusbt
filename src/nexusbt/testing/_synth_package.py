@@ -57,7 +57,8 @@ FIELDS: dict[str, dict[str, Any]] = {
         "kind": "bars", "path": "bars/freq=1d", "availability": {"rule": "ts_end"},
         "params": {"freq": "1d", "price_basis": "raw", "density": "dense", "bar_time": "session"},
         "columns": _typed(("ts_start", "ts_us"), ("ts_end", "ts_us"))},
-    "instrument_xref": {"columns": _typed(
+    # TDS 5.3, 5.14, 5.20: the sort each is written in, so K002 judges it (#412)
+    "instrument_xref": {"sort": [ID, "id_type", "id_value", "valid_from"], "columns": _typed(
         (ID, "id"), ("id_type", "code"), ("link_quality", "code"), ("source", "string"))},
     # TDS 4.2, 6.2: availability as the columns that hold it (#276)
     "instrument_symbols": {"availability": {"column": "ts_known_from"}},
@@ -69,9 +70,12 @@ FIELDS: dict[str, dict[str, Any]] = {
         "columns": _typed((ID, "id"), ("session_date", "date"))},
     "eligibility_daily": {  # TDS 5.20: the rule is session_close, a missing row means false
         "availability": {"rule": "session_close"}, "params": {"missing_means": False},
+        "sort": ["session_date", ID, "rule_id"],
         "columns": _typed(("rule_id", "id"), (ID, "id"), ("session_date", "date"),
                           ("is_eligible", "bool"), ("ts_available", "ts_us"))},
-    "share_counts": {"availability": {"column": "ts_available"}, "columns": _typed(
+    "share_counts": {
+        "availability": {"column": "ts_available"},
+        "sort": [ID, "count_kind", "as_of_date", "ts_available"], "columns": _typed(
         (ID, "id"), ("count_kind", "code"), ("ts_available", "ts_us"), ("source", "string"))},
 }  # fmt: skip
 #: TDS 5.3 `instrument_xref`, written empty (4.8 (2)).
@@ -183,7 +187,7 @@ def datasets(
     if rules:
         made["market_rules"] = _market_rules
     if all("share_counts" in t for t in tables.values()):  # tiny has none yet
-        made["share_counts"] = lambda: joined("share_counts", [ID, "count_kind", "as_of_date"])
+        made["share_counts"] = lambda: joined("share_counts", FIELDS["share_counts"]["sort"])
     return made
 
 
