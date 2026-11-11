@@ -23,6 +23,7 @@ import pyarrow.compute as pc
 import pyarrow.parquet as pq
 import pytest
 
+from nexusbt.testing import _synth_actions as acts
 from nexusbt.testing import _synth_daily as daily
 from nexusbt.testing import _synth_events as events
 from nexusbt.testing import _synth_package as pkg
@@ -326,8 +327,8 @@ def called_names(source: str) -> set[str]:
 
 
 def test_small_value_path_uses_no_platform_math() -> None:
-    for step in (synth._listings, synth._small, synth._actions, synth._terms, synth._dividend,
-                 synth._revise, synth._move, synth._delistings, events.exit_value, daily._snap,
+    for step in (synth._listings, synth._small, acts._actions, acts._terms, acts._dividend,
+                 acts._revise, acts._move, synth._delistings, events.exit_value, daily._snap,
                  daily._ratios, daily._kr_rows, trade._tradability, trade._sample, trade._halts,
                  trade._limits, trade._wobble, trade._status, trade._last_traded,
                  daily._share_counts, daily._eligibility, daily._venues, daily._value_traded,
@@ -425,10 +426,10 @@ def test_cash_reaching_the_previous_close_has_no_factor(
 ) -> None:
     """TDS 5.11: 1 - D / close[e-1] is not positive, so the factor is null and its method
     `unavailable`, never a value A003 refuses; one cent on a two-cent close keeps its factor."""
-    terms = synth._terms("cash_dividend", term, ref, unit, "USD")
+    terms = acts._terms("cash_dividend", term, ref, unit, "USD")
     assert (terms["cash_per_share"], terms["factor_ref_price"]) == (cash, ref)
     assert (terms["price_factor"], terms["factor_method"]) == (None, "unavailable")
-    below = synth._terms("cash_dividend", 20, 0.02, 100, "USD")
+    below = acts._terms("cash_dividend", 20, 0.02, 100, "USD")
     assert (below["price_factor"], below["factor_method"]) == (0.5, "cash_prev_close")
 
 
@@ -507,7 +508,7 @@ def test_revisions_and_cancellations_present(
     for a, b in cancelled:  # cancelled after the announcement, before it took effect
         assert a["status"] == "announced"
         assert a["ts_announced"] < b["ts_announced"] < b["ts_effective"]
-    for r in (r for r in actions if r["kind"] in synth.SHARE_EVENTS):  # exact ratios (#220 (2))
+    for r in (r for r in actions if r["kind"] in acts.SHARE_EVENTS):  # exact ratios (#220 (2))
         quotient = r["ratio_num"] / r["ratio_den"]
         assert quotient == r["share_factor"] == pytest.approx(1 / r["price_factor"], rel=1e-12)
     dividends = [r for r in actions if r["kind"] == "cash_dividend"]
@@ -1085,7 +1086,7 @@ def test_exact_ratios_present(
 ) -> None:
     # 4.8 (4) [V31-01]: every share event has its exact ratio, the others none
     actions = rows(small, "corporate_actions")
-    shares = [r for r in actions if r["kind"] in synth.SHARE_EVENTS]
+    shares = [r for r in actions if r["kind"] in acts.SHARE_EVENTS]
     ratios = {(r["ratio_num"], r["ratio_den"]) for r in shares}
     assert {(7, 1), (1, 3), (129, 100)} <= ratios  # 1/7, 1/3 and 1.29: no binary fraction
     for r in shares:  # the f64 columns are the quotient (TDS 5.11), so no A010
