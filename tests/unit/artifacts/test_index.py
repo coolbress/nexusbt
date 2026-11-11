@@ -203,7 +203,7 @@ def test_migration_without_family_id_warns_until_the_toml_has_it(tmp_path: Path)
     line = f'add `[research] family_id = "{family}"` to nexusbt.toml'
     assert store.warnings == (line,)
     sealed = store.begin("backtest", "mom", None)
-    sealed.set_manifest({"warnings": ["E11 daily-bar fills"]})
+    sealed.set_manifest({"warnings": ("E11 daily-bar fills",)})  # the run's own are kept
     manifest = json.loads((sealed.seal().path / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["warnings"] == [line, "E11 daily-bar fills"]  # every run carries the line
     assert RunStore(runs).warnings == (line,)  # the same family at every later open

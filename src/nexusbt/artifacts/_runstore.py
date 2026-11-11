@@ -342,7 +342,8 @@ class RunTxn:
             manifest |= {"schema_version": "nexusbt-run/2", "outputs": outputs}
             if carried := self._store.warnings:
                 own = manifest.get("warnings")
-                manifest["warnings"] = [*carried, *(own if isinstance(own, list) else [])]
+                rest = list(own) if isinstance(own, (list, tuple)) else [] if own is None else [own]
+                manifest["warnings"] = [*carried, *rest]
             value = value_hash(manifest)  # a NaN in the manifest fails here, before the rename
             manifest["created_at"] = self._created.isoformat()
             text = json.dumps(manifest, sort_keys=True, indent=2, ensure_ascii=False)

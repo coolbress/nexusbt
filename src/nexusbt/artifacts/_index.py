@@ -97,6 +97,20 @@ def _before_families(db: sqlite3.Connection) -> bool:
     return {"runs", "families"} & _tables(db) == {"runs"}
 
 
+def _copy_beside(path: Path) -> None:
+    """`index.sqlite.before-families`: the index as it is, to go back to (#305).
+
+    Called inside the migration's write transaction, so one process writes it and no row
+    arrives after it; a migration that fails leaves the copy of the state it failed on.
+    """
+    copy = path.with_name(path.name + ".before-families")
+    partial = copy.with_name(copy.name + ".tmp")
+    partial.unlink(missing_ok=True)
+    with closing(sqlite3.connect(path)) as index, closing(sqlite3.connect(partial)) as to:
+        index.backup(to)
+    partial.replace(copy)
+
+
 def _migrate(db: sqlite3.Connection, family_id: str) -> None:
     """5.9.5 "Migration to families": every existing row is carried into the 5.9.5 tables.
 
@@ -167,17 +181,11 @@ class Index:
         path = self.root / "index.sqlite"
         with closing(sqlite3.connect(path)) as db:
             db.execute("PRAGMA journal_mode=WAL")
-            copy = path.with_name(path.name + ".before-families")
             if _before_families(db):
-                if not copy.exists():  # once, to go back to (#305)
-                    partial = copy.with_name(copy.name + ".tmp")
-                    partial.unlink(missing_ok=True)
-                    with closing(sqlite3.connect(partial)) as to:
-                        db.backup(to)
-                    partial.rename(copy)
                 db.execute("BEGIN IMMEDIATE")  # one writer: another open waits, finds families
             with db:
                 if _before_families(db):
+                    _copy_beside(path)
                     _migrate(db, family_id or str(uuid.uuid4()))
                 _ensure(db)
 
