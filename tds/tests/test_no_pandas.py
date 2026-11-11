@@ -37,9 +37,10 @@ try:
     converts = bool(pa.array([1], pa.timestamp("ns", "UTC")).to_pylist())
 except ValueError:
     converts = False
-result = check(sys.argv[1], level="full")
+result = check(sys.argv[1], level=sys.argv[3])
 found = [[f.code, f.dataset, f.message] for f in (*result.errors, *result.warnings)]
-print(json.dumps({"found": found, "unchecked": result.unchecked, "converts": converts}))
+print(json.dumps({"found": found, "unchecked": result.unchecked, "converts": converts,
+                  "notes": list(result.notes)}))
 """
 TICK = 1704189600000000001  # 2024-01-02T10:00:00.000000001Z: not a whole microsecond
 NS = pa.timestamp("ns", "UTC")
@@ -72,9 +73,9 @@ def _quotes(recv: int, availability: str | None = None, *, end: int | None = Non
     return change
 
 
-def _run(package: Path, pandas: str) -> dict[str, Any]:
+def _run(package: Path, pandas: str, level: str = "full") -> dict[str, Any]:
     done = subprocess.run(  # noqa: S603 - this interpreter, the script above
-        [sys.executable, "-c", RUN, str(package), pandas],
+        [sys.executable, "-c", RUN, str(package), pandas, level],
         capture_output=True, text=True, check=False,
     )  # fmt: skip
     assert done.returncode == 0, done.stderr
@@ -185,3 +186,81 @@ def test_an_instant_is_nanoseconds_of_any_unit_and_reads_as_text_in_a_finding() 
     assert str(Instant(TICK - 1)) == str(dt.datetime(2024, 1, 2, 10, tzinfo=dt.UTC))
     assert str(Instant(1_500_000)) == "1970-01-01 00:00:00.001500+00:00"  # as a datetime's text
     assert str(Instant(10**30)) == f"{10**30} ns"  # past year 9999: no calendar date to write
+
+
+TIME = pa.time64("ns")
+
+
+@pytest.mark.parametrize(
+    ("tag", "kind", "read"),
+    [
+        ("ts_ns", pa.timestamp("s"), True),  # any unit or zone: S004's
+        ("ts_ns", pa.int64(), False),
+        ("ts_us", pa.list_(NS), False),
+        ("date", pa.date32(), True),
+        ("date", pa.string(), True),  # no time in it: the codes that need a date skip it (#366)
+        ("date", pa.date64(), False),
+        ("date", pa.struct([("t", pa.duration("ns"))]), False),
+        ("date", pa.map_(pa.string(), TIME), False),
+    ],
+)
+def test_a_time_column_is_read_only_as_its_own_type(
+    tag: str, kind: pa.DataType, read: bool
+) -> None:
+    from nexusbt_tds.hash import TIME_TYPES
+
+    assert TIME_TYPES[tag](kind) is read
+
+
+def test_an_instant_column_of_another_type_is_named_in_this_process(tmp_path: Path) -> None:
+    """The guards go by type, so they run here, pandas or not; the subprocess runs above are
+    not counted by coverage."""
+    manifest, files = build.base()
+    build._bars(ts_end=pa.array([1], TIME))(manifest, files)
+    result = check(build.write(tmp_path, manifest, files), level="full")
+    assert "TDS-S002" in [f.code for f in result.errors]
+    assert set(INSTANT_CODES) <= set(result.unchecked)
+    said = [n for n in result.notes if n.startswith(", ".join(INSTANT_CODES))]
+    assert len(said) == 1
+    assert "ts_end is time64[ns], TDS type ts_us/ns" in said[0]
+
+
+def test_the_value_hash_refuses_only_a_time_column_holding_another_time_type() -> None:
+    from nexusbt_tds.hash import HashError, _values
+
+    assert _values(pa.chunked_array([pa.array([1])]), "ts_ns", "ts_end") == [1]  # as before
+    with pytest.raises(HashError, match=r"ts_end is time64\[ns\], TDS type ts_ns"):
+        _values(pa.chunked_array([pa.array([1], TIME)]), "ts_ns", "ts_end")
+
+
+@pytest.mark.parametrize("level", ["schema", "full"])
+@pytest.mark.parametrize(
+    ("change", "column"),
+    [  # an instant or a date column of a type that is not its own (#389)
+        (build._bars(ts_end=pa.array([1], TIME)), "ts_end is time64[ns]"),
+        (build._bars(session_date=pa.array([1], TIME)), "session_date is time64[ns]"),
+        (build._instruments(listed_on=pa.array([1], TIME)), "listed_on is time64[ns]"),
+        (build._bars(ts_end=pa.array([1], pa.duration("ns"))), "ts_end is duration[ns]"),
+        (build._bars(ts_end=pa.array([[TICK]], pa.list_(NS))), "ts_end is list<element: timestamp"),
+        (build._bars(ts_end=pa.array([{"t": TICK}], pa.struct([("t", NS)]))),
+         "ts_end is struct<t: timestamp"),
+    ],
+    ids=["ts_end-time64", "session_date-time64", "listed_on-time64", "ts_end-duration",
+         "ts_end-list", "ts_end-struct"],
+)  # fmt: skip
+def test_a_column_of_another_type_is_S002_and_the_same_without_pandas(
+    change: Any, column: str, level: str, tmp_path: Path
+) -> None:
+    pytest.importorskip("pandas")
+    manifest, files = build.base()
+    change(manifest, files)
+    package = build.write(tmp_path, manifest, files)
+    blocked, installed = (_run(package, pandas, level) for pandas in ("blocked", "installed"))
+    assert "TDS-S002" in [code for code, _, _ in blocked["found"]], blocked
+    del blocked["converts"], installed["converts"]
+    assert blocked == installed  # findings, `unchecked` and notes
+    if level == "full":  # a value the schema does not type is not compared, and the note says so
+        assert set(INSTANT_CODES) <= set(blocked["unchecked"]), blocked
+        said = [n for n in blocked["notes"] if n.startswith(", ".join(INSTANT_CODES))]
+        assert len(said) == 1, blocked["notes"]
+        assert column in said[0]

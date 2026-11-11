@@ -178,9 +178,8 @@ def _volume_units(
     out, name, judged = [], str(ds.get("name")), False
     for _, files in groupby(sorted(listed(root, ds), key=year), key=year) if _raw(ds) else ():
         ratios: defaultdict[tuple[Any, Any], array[float]] = defaultdict(lambda: array("d"))
-        for i, day, high, low, close, volume, value in _rows(
-            root, {"files": [{"path": rel} for rel, _ in files]}, RATIO
-        ):
+        year_ds = {**ds, "files": [{"path": rel} for rel, _ in files]}  # its kind too (#389)
+        for i, day, high, low, close, volume, value in _rows(root, year_ds, RATIO):
             year_of = getattr(day, "year", None)  # a `session_date` that is no date: S002's
             asset, _, multiplier = kinds.get(i, (None, None, None))
             if None in (year_of, high, low, close, volume, value) or asset == "index":

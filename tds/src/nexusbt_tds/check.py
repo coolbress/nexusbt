@@ -180,7 +180,7 @@ def check(
             found += check_actions(manifest, datasets, blind, notes)
             found += check_values(manifest, datasets, blind, notes)
             found += check_times(manifest, datasets, blind)
-            found += check_instants(manifest, datasets, blind)
+            found += check_instants(manifest, datasets, blind, notes)
             seen = {f.dataset for f in found if f.code == D002}  # by the statistics
             found += check_densities(manifest, datasets, blind, seen)
             found += _check_hashes(manifest, datasets, blind, notes, tmp_dir)
@@ -732,7 +732,8 @@ def _stat(meta: Any, g: int, name: str, want: type) -> Stat | None:
     """Row group `g`'s statistics of the top-level column `name` holding `want` values, or None
     when the footer does not say. A timestamp counts only with a time zone (S004) and where
     `want` is a datetime, and comes as `keys.Instant`s from the stored integers: pyarrow makes
-    a nanosecond one a Python value only with pandas (#382)."""
+    a nanosecond one a Python value only with pandas (#382). Of the other time types only a
+    `date32` where `want` is a date is read; any other is S002's and not made a value (#389)."""
     from .keys import _NS, Instant
 
     paths = [meta.schema.column(i).path for i in range(meta.num_columns)]
@@ -751,6 +752,8 @@ def _stat(meta: Any, g: int, name: str, want: type) -> Stat | None:
             return None
         first, last = (Instant(v * _NS[kind.unit]) for v in (s.min_raw, s.max_raw))
         return first, last, s.null_count
+    if pa.types.is_temporal(kind) and not (want is dt.date and pa.types.is_date32(kind)):
+        return None  # S002's: pyarrow makes a `time64[ns]` a Python value only with pandas
     low, high = (_text(v) if want is str else v for v in (s.min, s.max))
     fits = type(low) is want and type(high) is want  # a datetime is a date, not a `date`
     return (low, high, s.null_count) if fits else None

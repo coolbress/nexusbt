@@ -22,7 +22,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from .check import REF_CODES, Finding, Severity
-from .keys import Batch, batches, listed
+from .keys import Batch, batches, listed, time_columns
 from .manifest import Manifest
 
 R001, R002, R003, R004, R005, R006, R007, R008, R009 = REF_CODES
@@ -62,8 +62,9 @@ ISO_4217 = frozenset(_ISO.split())
 
 def _batches(root: Path, ds: Mapping[str, Any], columns: Sequence[str]) -> Iterator[Batch]:
     """`columns` of each listed file, `BATCH_ROWS` rows at a time (`keys.batches`)."""
+    typed = time_columns(ds)
     for rel, parts in listed(root, ds):
-        yield from (b for _, b in batches(root, rel, parts, columns, BATCH_ROWS))
+        yield from (b for _, b in batches(root, rel, parts, columns, BATCH_ROWS, typed))
 
 
 def _rows(root: Path, ds: Mapping[str, Any], columns: Sequence[str]) -> Iterator[tuple[Any, ...]]:
