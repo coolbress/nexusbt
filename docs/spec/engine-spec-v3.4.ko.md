@@ -2105,19 +2105,19 @@ runs/<run_id>/
 
 `account_events.parquet` 정규 칼럼(스키마 `nexusbt-events/1`) [RV-I04, RV-C07]: `event_id, seq, ts_event, session_date, phase, sleeve_id, instrument_id(null 가능), kind(fill_cash|cost|dividend_entitlement|receivable_booked|receivable_paid|action_correction|cash_in_lieu|rights_lapsed|terminal_entitlement|terminal_receivable|funding|fx_conversion|dividend_tax|approximated|ratio_snapped|distribution_in_terminal|external_flow|override_set|override_cleared|user_fill|user_reject|user_trade|dividend_short|borrow_fee|short_rebate|collateral_change|cash_interest|ratio_unsnapped|sleeve_ruined|user_correct), (v3.1 종류 [V31-01, V31-04, V31-18, V31-19, V31-LS-04, V31-LS-05]; v3.2 종류 [R3-06, R3-09, R3-21, R3-25]) event_chain_id(기업행동 사슬, 5.3.3a), amount_minor(int64, 부호 있음), currency, amount_unrounded(float64), qty_delta(int64), cash_after_minor, ts_known(그 금액을 알게 된 순간), shortfall(bool; 꼭 내야 하는 의무가 현금을 넘어 음수 현금이 됨 [R3-09]), snapshot_id, reason`. 같은 (sleeve, seq)는 유일하고 `seq`는 빈틈없이 오른다.
 
-**데이터가 충분했나: 표 두 개**(#160; 기록 #157의 R2). `survivorship.parquet`와 `coverage_fields.parquet`는 보고서의 질문 7(3.9)에 답하고, 보고서는 요약만 보이며 전체는 Parquet 파일에 남는다. 엔진은 둘 다 실행이 이미 읽는 것(스냅숏, `coverage.parquet`, 정본 사건)에서 계산하고, 새 자료는 필요 없다. 둘 다 늘 쓴다(위의 1단계). T3.14가 이 절의 다른 표·사건 스키마와 함께 두 표의 스키마를 정하므로, 뒤의 티켓이 이 둘 때문에 `nexusbt-events/1`을 바꾸지 않는다. `year`는 시장 현지 세션 날짜의 달력 연도이고, 각 표는 앞쪽 열 순서로 정렬한다.
+**데이터가 충분했나: 표 두 개**(#160; 기록 #157의 R2). `survivorship.parquet`와 `coverage_fields.parquet`는 보고서의 질문 7(3.9)에 답하고, 보고서는 요약만 보이며 전체는 Parquet 파일에 남는다. 엔진은 둘 다 실행이 이미 읽는 것(스냅숏, `coverage.parquet`, 정본 사건, 그리고 lo·hi 열은 돌고 있는 시나리오 재생)에서 계산하고, 새 자료는 필요 없다. 둘 다 늘 쓴다(위의 1단계). T3.14가 이 절의 다른 표·사건 스키마와 함께 두 표의 스키마를 정하므로, 뒤의 티켓이 이 둘 때문에 `nexusbt-events/1`을 바꾸지 않는다. `year`는 시장 현지 세션 날짜의 달력 연도이고, 각 표는 앞쪽 열 순서로 정렬한다.
 
 `survivorship.parquet`는 실행 기간의 (`year`, `market`)마다 한 행이고, 상장폐지가 없는 연도에도 행이 있어, 유니버스가 오늘의 생존 종목이 아니라 그때 있던 유니버스였음을 읽는 사람이 본다:
-- `n_universe`, `n_excluded_by_reason(json)`, `n_microcap_excluded`: 그 연도 첫 판단에서 그 시장에 대해 `coverage.parquet`가 주는 값 [SC-23] — 그때의 유니버스 크기와 제외 이유.
+- `n_universe`, `n_excluded_by_reason(json)`, `n_microcap_excluded`: 그 연도 첫 판단에서 그 시장에 대해 `coverage.parquet`가 주는 값 [SC-23] — 그때의 유니버스 크기와 제외 이유; 그 연도에 그 시장의 판단이 없으면 null.
 - `n_delisted`: 실행의 판단 가운데 한 번 이상 유니버스에 있었고 종료 세션 x(5.6.13)가 그 연도와 실행 기간 안에 드는 종목 수.
-- `n_delisted_held`: `n_delisted` 가운데 x 시작에 매수든 공매도든 보유 중이던 수. `n_observed`, `n_policy`, `n_unobserved`는 이를 `exits while held` 줄(3.9)과 같게 나누며, 세 열을 모든 행에 걸쳐 더하면 그 줄의 숫자다.
+- `n_delisted_held`: `n_delisted` 가운데 x 시작에 매수든 공매도든 보유 중이던 수. `n_observed`, `n_policy`, `n_unobserved`는 이를 `exits while held` 줄(3.9)과 같게 나눈다. 유니버스에 한 번도 없던 종목(spinoff로 받은 주식, 5.6.12)의 보유 중 상장폐지는 그 줄에는 있고 이 표에는 없다.
 - `terminal_value_base`: 그 보유 중 상장폐지들의 종료가치 금액(5.6.13, 공용 `terminal_value` 함수)을 실행의 `[delisting] policy`로 계산해 더한 값, 기준 통화. `terminal_value_lo_base`와 `terminal_value_hi_base`: `delist_lo`·`delist_hi` 재생(3.8)에서의 같은 합; 그 시나리오가 꺼져 있으면 null.
 - `nav_share`, `nav_share_lo`, `nav_share_hi`: 각 합을 같은 재생의 그 연도 마지막 평가 `nav_economic`(범위 `ALL`)으로 나눈 값; lo·hi 열은 그 합이 null이면 null.
 
-`coverage_fields.parquet`는 전략이 읽은 필드마다 (`year`, `market`, `dataset`, `field`)에 한 행이다: 가격과 거래량(`bars` 열), 재무 항목 각각(`field` = 그 항목), 기업행위, 자격, 그 밖의 모든 항 그래프 잎. 어느 연도에 값이 하나도 없는 필드도 `share_value` 0인 행으로 남아, "30년치 데이터"가 필드마다 실제로 덮는 연수로 읽힌다. 단위는 연도와 시장이고 유니버스 규칙별로는 나누지 않는다(결정 2026-11-11, #160); 규칙은 매니페스트에 있다.
+`coverage_fields.parquet`는 전략이 읽은 필드마다 (`year`, `market`, `dataset`, `field`)에 한 행이다: 가격과 거래량(`bars` 열), 재무 항목 각각(`field` = 그 항목), 기업행위, 자격, 그 밖의 모든 항 그래프 잎. 어느 연도에 값이 하나도 없는 필드도 행으로 남고 그 연도에 유니버스 행이 있으면 `share_value`는 0이어서, "30년치 데이터"가 필드마다 실제로 덮는 연수로 읽힌다. 단위는 연도와 시장이고 유니버스 규칙별로는 나누지 않는다(결정 2026-11-11, #160); 규칙은 매니페스트에 있다.
 - `n_universe_rows`: 그 연도·시장에서 유니버스가 참인 (판단, 종목) 쌍의 수. 각 쌍은 그 `decision_ts`에 네 상태 가운데 정확히 하나이므로 `n_value + n_stale + n_not_yet_published + n_missing = n_universe_rows`(null인 `n_stale`은 0으로 셈).
 - `n_value`: 조회(5.1.5)가 값을 주고 그 값이 낡지 않음. `share_value = n_value / n_universe_rows`(분모가 0이면 null).
-- `n_stale`: 조회가 준 값의 `ts_available`이 `decision_ts`보다 그 필드 `freq`의 한 주기를 넘게 앞섬. `freq`는 그 필드의 `dictionary/columns` 행의 `freq`(TDS 4.4; 재무 항목은 그 값을 담은 열의 행)이고 엔진이 따로 가진 표가 아니다(결정 2026-11-11, #160): `daily`는 그 시장 달력의 한 세션, `weekly`·`monthly`·`quarterly`·`annual`은 7일과 달력 1·3·12개월. `freq`가 `event`거나 null이거나 그 밖의 값이면 아무것도 낡았다고 하지 않는다: `n_stale`은 null이고 그런 쌍은 `n_value`에 센다.
+- `n_stale`: 조회가 준 값의 `ts_available`이 `decision_ts`보다 그 필드 `freq`의 한 주기를 넘게 앞섬. `freq`는 그 필드의 `dictionary/columns` 행의 `freq`(TDS 4.4; 재무 항목은 그 값을 담은 열의 행)이고 엔진이 따로 가진 표가 아니다(결정 2026-11-11, #160): `daily`는 그 시장 달력의 한 세션, `weekly`·`monthly`·`quarterly`·`annual`은 7일과 달력 1·3·12개월. `freq`가 `event`거나 null(사전에 그 필드의 행이 없을 때도)이거나 그 밖의 값이면 아무것도 낡았다고 하지 않는다: `n_stale`은 null이고 그런 쌍은 `n_value`에 센다.
 - `n_not_yet_published`: 조회가 아무것도 주지 않고, 스냅숏에 그 종목·필드의 행으로 판단 시점 이전에 관측되었으나 `ts_available`이 `decision_ts` 뒤인 것이 있음.
 - `n_missing`: 조회가 아무것도 주지 않고 그런 행도 없음.
 
