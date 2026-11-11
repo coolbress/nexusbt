@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+import datetime as dt
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+import pyarrow as pa
 import pytest
 
-from nexusbt_tds import PROFILES, ProfileStatus, check
-from nexusbt_tds.profiles import profile_id
+from nexusbt_tds import PROFILES, CheckResult, ProfileStatus, check
+from nexusbt_tds.profiles import describe, profile_id
 
 from .conformance_build import build
 
@@ -167,3 +169,127 @@ def test_a_package_error_fails_every_profile(tmp_path: Path) -> None:
     result = check(tmp_path, level="manifest", profiles=["tds:minimal-daily@1.0"])
     assert [f.code for f in result.errors] == ["TDS-M001"]
     assert result.profiles["tds:minimal-daily@1.0"] == ProfileStatus(False, "manifest", "fail")
+
+
+def test_the_columns_chapter_7_names_per_profile() -> None:
+    # TDS 7, the "required" cell of each row that names a column, by the dataset that holds it
+    raw_dense = "bars(freq=1d, price_basis=raw, density=dense)"
+    core = {raw_dense: "open high low close volume obs_status"}
+    recorded = ("events", "classifications", "fundamentals_state")
+    named = {
+        name.removeprefix("tds:").removesuffix("@1.0"): {
+            describe((need,)): " ".join(columns) for need, columns in profile.columns
+        }
+        for name, profile in PROFILES.items()
+        if profile.columns
+    }
+    assert named == {
+        "minimal-daily": {"bars(freq=1d, price_basis)": "close"},
+        "equity-daily-core": core,
+        "equity-daily-research": core,  # "above +"
+        "panels": {"feature_panels": "ts_available", "label_panels": "ts_available"},
+        "pit-fundamentals": {
+            "fundamentals_events": "fact_id doc_id",
+            "fundamentals_state": "lineage_id",
+        },
+        "bitemporal": dict.fromkeys(recorded, "ts_recorded"),
+        "intraday-bars": {"bars(freq<1d)": "ts_start ts_end session_date"},
+        "l1-ticks": {"trades": "ts_event sequence", "quotes": "ts_event sequence"},
+        "l2-book": {"book_deltas(depth_kind=mbp)": "is_last"},
+        "l3-book": {"book_deltas(depth_kind=mbo)": "order_id"},
+        "alt-events": {"events": "ts_available", "series_observations": "ts_available"},
+    }
+
+
+CORE, MINIMAL = "tds:equity-daily-core@1.0", "tds:minimal-daily@1.0"
+_OHLCV = ("open", "high", "low", "close", "volume")
+
+
+def _core(
+    tmp_path: Path, columns: dict[str, Any], profile: str = CORE, level: Any = "schema"
+) -> CheckResult:
+    """`profile` checked on a package with core's datasets and one traded, whole daily bar,
+    its bars' `columns` replaced (`None`: left out)."""
+    manifest, files = build.base()
+    build.bars(manifest)["params"] = dict(build.DENSE)
+    whole = dict.fromkeys(_OHLCV, pa.array([10.0])) | {"obs_status": pa.array(["traded"])}
+    build.rewrite(manifest, files, build.BARS, build.bars_table(**(whole | columns)))
+    for kind in ("calendar_sessions", "corporate_actions", "delistings"):
+        _add(kind)(manifest)
+    return check(Path(build.write(tmp_path, manifest, files)), level=level, profiles=[profile])
+
+
+def test_a_whole_core_package_has_no_error(tmp_path: Path) -> None:
+    result = _core(tmp_path, {})
+    assert result.errors == ()
+    assert result.profiles[CORE] == ProfileStatus(False, "schema", "not_checked")
+
+
+@pytest.mark.parametrize("column", ["open", "high", "low", "volume", "obs_status"])
+def test_core_bars_without_a_required_column_are_M008(column: str, tmp_path: Path) -> None:
+    # TDS 7: core's bars hold OHLCV and `obs_status` (#352); the footer shows it
+    result = _core(tmp_path / "a", {column: None})
+    found = [f for f in result.errors if f.code == "TDS-M008"]
+    assert [f.message for f in found] == [f"{CORE} requires column {column} in bars: missing"]
+    assert found[0].dataset == "bars_1d"
+    assert result.profiles[CORE] == ProfileStatus(False, "schema", "fail")
+    # the manifest level reads no footer: not_checked, never an error
+    below = _core(tmp_path / "b", {column: None}, level="manifest")
+    assert below.errors == ()
+    assert below.profiles[CORE] == ProfileStatus(False, "manifest", "not_checked")
+    # counter-example: the same bars under minimal-daily, which names only `close`. Dense bars
+    # without `obs_status` are S001 under any profile (5.5 "no if dense"), beside core's M008.
+    others = [f.code for f in _core(tmp_path / "c", {column: None}, MINIMAL).errors]
+    assert others == (["TDS-S001"] if column == "obs_status" else [])
+    assert [f.code for f in result.errors] == [*others, "TDS-M008"]
+
+
+def test_a_column_null_in_every_row_is_lacking(tmp_path: Path) -> None:
+    # the `no_ohlc` shape: the column is there and holds no value (#352, decided 2026-11-11)
+    null = pa.nulls(1, pa.float64())
+    result = _core(tmp_path / "a", {"open": null})
+    assert [f.message for f in result.errors] == [
+        f"{CORE} requires column open in bars: null in every row"
+    ]
+    assert _core(tmp_path / "b", {"open": null}, MINIMAL).errors == ()
+    wanted = [f"{MINIMAL} requires column close in bars: null in every row"]
+    no_close = _core(tmp_path / "c", {"close": null}, MINIMAL)
+    assert [f.message for f in no_close.errors if f.code == "TDS-M008"] == wanted
+
+
+def test_a_column_with_one_value_or_no_row_is_not_lacking(tmp_path: Path) -> None:
+    # a null beside a value is a row's matter (5.5: null prices on a halted bar), not M008's
+    two = {c: pa.array([None, 10.0]) for c in _OHLCV} | {
+        "instrument_id": pa.array(["US:AAA", "US:AAA"]),
+        "session_date": pa.array([dt.date(2024, 1, 2), dt.date(2024, 1, 3)]),
+        "obs_status": pa.array(["halted", "traded"]),
+    }
+    assert [f.code for f in _core(tmp_path / "a", two).errors] == []
+    empty = {name: column.slice(0, 0) for name, column in two.items()}
+    assert [f.code for f in _core(tmp_path / "b", empty).errors] == []  # no row lacks nothing
+
+
+def test_a_column_without_statistics_is_a_note_not_an_error(tmp_path: Path) -> None:
+    manifest, files = build.base()
+    build.rewrite(manifest, files, build.BARS, build.bars_table(), write_statistics=False)
+    result = check(Path(build.write(tmp_path, manifest, files)), level="schema")
+    assert [f.code for f in result.errors if f.code == "TDS-M008"] == []
+    assert result.notes == (
+        f"TDS-M008 not checked for column close of bars_1d ({MINIMAL}): no statistics",
+    )
+
+
+def test_bitemporal_needs_ts_recorded_where_the_dataset_is_present(tmp_path: Path) -> None:
+    # TDS 7: "(on top of other profiles)": no dataset of its own, a column in those it names
+    bitemporal = "tds:bitemporal@1.0"
+    manifest, files = build.base()
+    assert check(Path(build.write(tmp_path / "a", manifest, files)), level="schema",
+                 profiles=[bitemporal]).errors == ()  # fmt: skip
+    build._event()(manifest, files)
+    result = check(Path(build.write(tmp_path / "b", manifest, files)), level="schema",
+                   profiles=[bitemporal], datasets=["events"])  # fmt: skip
+    assert [f.message for f in result.errors if f.code == "TDS-M008"] == [
+        f"{bitemporal} requires column ts_recorded in events: missing"
+    ]
+    named = check(tmp_path / "b", level="schema", profiles=[bitemporal], datasets=["bars_1d"])
+    assert [f.code for f in named.errors] == []  # --datasets: only the named ones are read

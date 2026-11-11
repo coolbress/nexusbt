@@ -1196,24 +1196,22 @@ def test_degrade_drops_declared_profiles(tmp_path: Path) -> None:
     tiny: dict[str, Any] = {"preset": "tiny", "markets": ("KR",)}
     both = make_snapshot(tmp_path / "two", **tiny, degrade=["no_cum_factors", "no_delistings"])
     assert json.loads((both / "tds.json").read_text(encoding="utf-8"))["profiles"] == [MINIMAL]
-    # counter-example: declared again, core fails the check where the checker sees the gap.
-    # no_ohlc is dropped by 4.8's own words; TDS 7's OHLCV condition is not checked yet.
+    # counter-example: declared again, core fails the check where the checker sees the gap
     missing = {"no_sessions": "dataset calendar_sessions", "no_delistings": "dataset delistings",
-               "sparse_bars": "density=dense"}  # fmt: skip
+               "sparse_bars": "density=dense",
+               "no_ohlc": "column open in bars: null in every row"}  # fmt: skip  # OHLCV (#352)
     for value in (v for v, drops in DROPS_CORE.items() if drops):
         package = make_snapshot(tmp_path / value, **tiny, degrade=[value])
         check_full(package)
         path = package / "tds.json"
         manifest = json.loads(path.read_text(encoding="utf-8"))
         assert manifest["profiles"] == [MINIMAL]
-        if value not in missing:
-            continue
         path.write_text(json.dumps(manifest | {"profiles": [MINIMAL, CORE]}), encoding="utf-8")
         assert synth._tds("hash", str(package), "--write").returncode == 0
         done = synth._tds("check", str(package), "--level", "full")
         assert done.returncode != 0
-        assert f"error TDS-M008: {CORE} requires" in done.stdout
-        assert missing[value] in done.stdout
+        said = rf"^error TDS-M008(?: bars_1d)?: {re.escape(CORE)} requires .*"
+        assert re.search(said + re.escape(missing[value]), done.stdout, re.M), done.stdout
     for wrong, error, words in (
         (["no_eligibility"], NotImplementedError, r"come with T0.16b \(spec"),
         (["no_ohlcv"], ValueError, "spec 4.8 has"),
