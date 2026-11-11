@@ -212,6 +212,19 @@ def test_a_time_column_is_read_only_as_its_own_type(
     assert TIME_TYPES[tag](kind) is read
 
 
+def test_an_instant_column_of_another_type_is_named_in_this_process(tmp_path: Path) -> None:
+    """The guards go by type, so they run here, pandas or not; the subprocess runs above are
+    not counted by coverage."""
+    manifest, files = build.base()
+    build._bars(ts_end=pa.array([1], TIME))(manifest, files)
+    result = check(build.write(tmp_path, manifest, files), level="full")
+    assert "TDS-S002" in [f.code for f in result.errors]
+    assert set(INSTANT_CODES) <= set(result.unchecked)
+    said = [n for n in result.notes if n.startswith(", ".join(INSTANT_CODES))]
+    assert len(said) == 1
+    assert "ts_end is time64[ns], TDS type ts_us/ns" in said[0]
+
+
 def test_the_value_hash_refuses_only_a_time_column_holding_another_time_type() -> None:
     from nexusbt_tds.hash import HashError, _values
 
