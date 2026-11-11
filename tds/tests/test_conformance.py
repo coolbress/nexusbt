@@ -11,7 +11,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from nexusbt_tds import ProfileStatus, check, keys, refs
+from nexusbt_tds import ProfileStatus, check, keys, pit, refs
 from nexusbt_tds.check import Level
 from nexusbt_tds.hash import value_hash
 from nexusbt_tds.manifest import read_manifest
@@ -1625,3 +1625,86 @@ def test_jsonl_ends_with_the_summary(tmp_path: Path) -> None:
     *findings, last = check(package, level="manifest").to_jsonl().splitlines()
     assert [line.count('"code": "TDS-M003"') for line in findings] == [1]
     assert last.startswith('{"summary": {"errors": 1, "warnings": 0, "level": "manifest"')
+
+
+#: The interval codes; T001, T002's rows, T005, T007, T008, T010, T011 come with #225's next
+#: pull request. T009 and T013 are not in TDS 8.3.
+T_CODES = ["TDS-T003", "TDS-T004", "TDS-T012"]
+
+
+@pytest.mark.usefixtures("refs_batches")
+@pytest.mark.parametrize("code", T_CODES)
+def test_T_codes(code: str, tmp_path: Path) -> None:
+    test_K_codes(code, tmp_path)
+
+
+_E = ("E", "2024-01-02", None, "2024-01-01", None, 1, "strict", "native")
+_F = ("F", "2024-01-02", None, "2024-01-01", None, 1, "compare", "native")
+_G = ("G", "2024-01-02", None, "2024-01-01", None, 2, "both", "native")  # in both editions
+_H = ("H", "2024-01-02", None, "2024-01-01T12:00", None, 1, "strict", "backfilled")  # not strict
+
+
+@pytest.mark.parametrize(
+    ("rows", "query", "edition", "answer"),
+    [  # TDS 6.3 ③; dates and times as in the spec, the known time at 00:00 UTC
+        ([build._A, build._A2, build._B], ("2020-03-10", "2020-03-10"), None, ["A"]),  # A2
+        ([("O", "2010-01-01", None, "2010-01-01", "2017-01-01", 1, "both", "native"),
+          ("C", "2015-06-01", None, "2017-01-01", None, 1, "both", "native")],
+         ("2016-01-01", "2016-01-01"), None, ["O"]),  # ② effective, not yet known: the old row
+        ([("D", "2018-01-01", None, "2018-01-02", "2019-05-01", 1, "both", "native"),
+          ("D2", "2018-01-01", None, "2019-05-01", None, 1, "both", "native")],
+         ("2019-06-01", "2018-06-01"), None, ["D2"]),  # ③ the correction
+        ([("L1", "2024-01-02", None, "2024-01-01", None, 1, "both", "native"),
+          ("L3", "2024-01-02", None, "2024-01-01", None, 3, "both", "native")],
+         ("2024-01-05", "2024-01-05"), None, ["L1", "L3"]),  # ④ one per level
+        ([_F, _E, _H, _G], ("2024-01-05", "2024-01-05"), "strict", ["E", "G"]),  # ⑤
+        ([_F, _E, _H, _G], ("2024-01-05", "2024-01-05"), "compare", ["F", "G"]),
+    ],
+)  # fmt: skip
+def test_T012_rectangle_examples_1_to_5(
+    rows: list[Any], query: tuple[str, str], edition: str | None, answer: list[str],
+    tmp_path: Path,
+) -> None:  # fmt: skip
+    """`rect_lookup` answers each example; its package has no T012, and T012 is judged."""
+    cutoff = dt.datetime.fromisoformat(query[0]).replace(tzinfo=dt.UTC)
+    table = build.classified_table(rows)
+    found = pit.rect_lookup(table, cutoff, dt.date.fromisoformat(query[1]), edition=edition)
+    assert found["code"].to_pylist() == answer
+    result = check(write(tmp_path, build._classified(*rows)), level="full")
+    assert (result.errors, result.warnings, "TDS-T012" in result.unchecked) == ((), (), False)
+
+
+def _tickers(second_known: dt.datetime | None) -> Any:
+    """US:AAA's tickers A0 valid from 2024-01-02 known until 2024-01-03 00:00, and A1 valid from
+    2024-01-03 known from `second_known` (None: the session open of `valid_from`, 5.2)."""
+    return build._add("instrument_symbols", {
+        "instrument_id": ["US:AAA"] * 2, "symbol_type": ["ticker"] * 2, "symbol": ["A0", "A1"],
+        "venue_mic": ["XNYS"] * 2,
+        "valid_from": pa.array([dt.date(2024, 1, 2), dt.date(2024, 1, 3)]),
+        "ts_known_from": pa.array([build.NEW_YEAR, second_known], build.TS_UTC),
+        "ts_known_to": pa.array([_at(3, 0), None], build.TS_UTC),
+    })  # fmt: skip
+
+
+def _at(day: int, hour: int) -> dt.datetime:
+    return dt.datetime(2024, 1, day, hour, tzinfo=dt.UTC)
+
+
+@pytest.mark.parametrize(
+    ("change", "found", "unchecked"),
+    [  # TDS 5.2's T003 is T012's condition, reported once as T012 (#225, 2026-11-11)
+        (_tickers(_at(2, 0)), ["TDS-T012"], []),  # both known on the 2nd, both valid the 3rd on
+        (_tickers(_at(3, 0)), [], []),  # A1 known as A0 stops being known
+        (_tickers(None), [], ["TDS-T012"]),  # a null known start: undecided, as K010 is
+        (_rules((0.0, 1.0, 0.0001), (0.5, None, 0.01)), ["TDS-T003"], []),  # bands overlap
+        (_rules((0.0, 1.0, 0.0001), (1.0, None, 0.01), until=dt.date(2024, 1, 2)),
+         ["TDS-T004"], []),  # valid_to == valid_from: one finding for the dataset
+        (_rules((0.0, 1.0, 0.0001), (1.0, None, 0.01)), [], []),  # null ends are open
+    ],
+)  # fmt: skip
+def test_interval_rules_edges(
+    change: Any, found: list[str], unchecked: list[str], tmp_path: Path
+) -> None:
+    result = check(write(tmp_path, change), level="full")
+    assert [f.code for f in (*result.errors, *result.warnings)] == found
+    assert [c for c in result.unchecked if c in T_CODES] == unchecked

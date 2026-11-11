@@ -3,9 +3,10 @@
 The `manifest` level reads `tds.json` and file sizes (M001~M014); the `schema` level adds the
 Parquet footers and statistics and the `dictionary/` tables, no data rows (S001~S010, T006, part
 of D002); the `full` level adds, so far, the key checks (K001~K004, K010, K011; `keys`), the
-reference checks (R001~R009; `refs`) and the hashes (H001~H004, TDS 4.5); no profile is
-verified beyond `schema`. None reports a profile as `pass`: the rules a level cannot see are
-listed in `unchecked`, and the profile is `not_checked`.
+reference checks (R001~R009; `refs`), the adjustment and value checks (`adjustments`,
+`values`), the interval checks (T003, T004, T012; `times`) and the hashes (H001~H004, TDS
+4.5); no profile is verified beyond `schema`. None reports a profile as `pass`: the rules a
+level cannot see are listed in `unchecked`, and the profile is `not_checked`.
 """
 
 from __future__ import annotations
@@ -162,6 +163,7 @@ def check(
             from .hash import spilled_note
             from .keys import check_keys
             from .refs import check_refs
+            from .times import check_times
             from .values import check_values
 
             spilled: list[Path] = []
@@ -172,6 +174,7 @@ def check(
             found += check_refs(manifest, datasets, blind)
             found += check_actions(manifest, datasets, blind, notes)
             found += check_values(manifest, datasets, blind, notes)
+            found += check_times(manifest, datasets, blind)
             found += _check_hashes(manifest, datasets, blind, notes, tmp_dir)
     except ManifestError as exc:
         found = [Finding("TDS-M001", "error", str(exc))]
@@ -182,7 +185,7 @@ def check(
     for name in dict.fromkeys(wanted):
         own = list(_check_profile(manifest, name)) if manifest else []
         found += own
-        # `full` checks only the K, R and H codes so far: no profile is verified to it
+        # `full` checks only `FULL_CODES` so far: no profile is verified to it
         verified: Level = "schema" if level == "full" else level
         statuses[name] = ProfileStatus(
             declared=name in declared,
@@ -217,7 +220,8 @@ REF_CODES = tuple(f"TDS-R{n:03}" for n in range(1, 10))  # `refs` checks them
 ACTION_CODES = tuple(f"TDS-A{n:03}" for n in range(1, 12))  # `adjustments` checks them
 #: `values` checks them; V031 and V032 (#227) are not judged yet.
 VALUE_CODES = tuple(f"TDS-V{n:03}" for n in (1, 2, 4, 5, 10, 11, 12, 20, 30, 40, 41, 50))
-FULL_CODES = (*KEY_CODES, *REF_CODES, *ACTION_CODES, *VALUE_CODES, *HASH_CODES)
+TIME_CODES = ("TDS-T003", "TDS-T004", "TDS-T012")  # `times` checks them (#225)
+FULL_CODES = (*KEY_CODES, *REF_CODES, *ACTION_CODES, *VALUE_CODES, *TIME_CODES, *HASH_CODES)
 
 
 def _check_hashes(

@@ -1088,15 +1088,15 @@ Severity: E = error (profile fails), W = warning.
 | TDS-R009 | E | `item` not in `dictionary/items`, panel column not in `dictionary/columns` |
 | TDS-T001 | E | `ts_available < ts_event` (bars, events; where it cannot be later by rule) |
 | TDS-T002 | E | The `ts_available` column and the declared rule give different values, or a column a 6.2 column form names is not in the dataset's files [2026-11-05] |
-| TDS-T003 | E | Overlapping state or history intervals |
-| TDS-T004 | E | Interval end ≤ start |
+| TDS-T003 | E | Overlapping state or history intervals, on one time axis: `fundamentals_state` known intervals per (`edition`, `instrument_id`, `item`), `market_rules` tick bands per (`rule_id`, `venue_group`, date). An overlap in the two-time-axis tables, 5.2's line included, is T012 [2026-11-11] |
+| TDS-T004 | E | Interval end ≤ start, for every `[from, to)` pair: `fundamentals_state` known; `classifications`, `universe_membership`, `instrument_symbols` effective and known; `instrument_xref`, `market_rules` valid. A null end is open and not checked [2026-11-11] |
 | TDS-T005 | E | Daily `ts_start/ts_end` differ from the session open and close (when present) |
 | TDS-T006 | E | Data after the market watermark `complete_through` |
 | TDS-T007 | E | Fundamentals `ts_available < period_end` (without a preliminary marker) |
 | TDS-T008 | W | `ts_recv < ts_event − tolerance` |
 | TDS-T010 | E | `last_session < listed_on` |
 | TDS-T011 | W | Publication of the exit consideration earlier than publication of the exit |
-| TDS-T012 | E | The two-time-axis **rectangle** lookup returns more than one row for one time and one discriminating key (for classifications including scheme, level and edition filter) |
+| TDS-T012 | E | The two-time-axis **rectangle** lookup returns more than one row for one time and one discriminating key (for classifications including scheme, level and edition filter), in the three rectangle-lookup tables (6.3 ③): `classifications`, `universe_membership`, `instrument_symbols` [2026-11-11] |
 | TDS-D001 | E | Missing session row in dense daily bars |
 | TDS-D002 | E | Row on a non-session day, or outside the listing period |
 | TDS-D004 | E | Manifest `rows` or `coverage` differs from the actual data |
@@ -1525,3 +1525,4 @@ Reference numbers are `R4F-NN` of specification v3.4 (appendix I). **`tds_versio
 - 2026-11-10: **v1.4**, in place. 8.2: `instrument_xref` is timeless for T006's purpose; the newest-data check does not read it, its validity intervals (5.3) stay as they are, and it is not a decision input (decision 2026-11-10, #332). `tds_version` stays `"1.0"` (wording, no format change).
 - 2026-11-10: **v1.4**, in place. 3.4 and 8.3 TDS-V011: the denominator takes `instruments.multiplier`, the check reads bars whose `price_basis` is `raw` and leaves out `index` instruments; 5.27: V012 compares in integers of the grid's own smallest tick, the checker having no market minimum unit (maintainer decision 2026-11-10, #229). `tds_version` stays `"1.0"` (checker behaviour, no format change).
 - 2026-11-11: **v1.4**, in place. Chapter 5 states a 3.2 type for the 67 columns the stable datasets named without one (5.3, 5.4 `calendar_segments`, 5.10, 5.14, 5.16, 5.19, 5.20, 5.21, 5.25) and says `universe_membership.ts_known_to` is nullable, which its open known interval already needed (6.3); each experimental dataset with untyped columns (5.7, 5.8, 5.9, 5.22, 5.23, 5.24) says they are typed when its schema leaves `experimental`; 10.2 says stating a type that was unstated is a wording fix while the standard is a draft (decision 2026-11-03, #105). `tds_version` stays `"1.0"` (wording fix; draft).
+- 2026-11-11: **v1.4**, in place. 8.3: the T003, T004 and T012 rows name the tables each checks; an overlap in `instrument_symbols` (5.2's T003 line) is the same condition as T012 and is reported once, as T012; a null interval end is open and not T004 (maintainer decision 2026-11-11, #225). `tds_version` stays `"1.0"` (checker behaviour, no format change).
