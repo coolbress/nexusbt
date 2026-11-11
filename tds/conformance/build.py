@@ -197,6 +197,17 @@ def _bars_on(*days: int) -> Change:
     return _bars(instrument_id=pa.array(["US:AAA"] * n), close=pa.array([10.0] * n), **columns)
 
 
+def _no_close(status: str) -> Change:
+    """A bar of `status` without a close, then a traded one with it: the dataset holds `close`,
+    which `tds:minimal-daily` requires (M008, #352)."""
+    return _bars(
+        instrument_id=pa.array(["US:AAA"] * 2),
+        session_date=pa.array([dt.date(2024, 1, 2), dt.date(2024, 1, 3)]),
+        close=pa.array([None, 10.0]),
+        obs_status=pa.array([status, "traded"]),
+    )
+
+
 def _ranged(second_from: str) -> Change:
     """The bars as two files named by time range (TDS 3.6), the second from `second_from`."""
 
@@ -741,10 +752,7 @@ CASES: dict[str, tuple[Change, Change]] = {
         _both(_instruments(asset_class=pa.array(["index"])), _bars(close=pa.array([-1.0]))),
         _bars(close=pa.array([-1.0])),
     ),
-    "TDS-V004": (
-        _bars(obs_status=pa.array(["halted"]), close=pa.array([None], pa.float64())),
-        _bars(obs_status=pa.array(["traded"]), close=pa.array([None], pa.float64())),
-    ),
+    "TDS-V004": (_no_close("halted"), _no_close("traded")),
     "TDS-V005": (_fx(1400.0), _fx(0.0)),
     "TDS-V010": (_bars(volume=pa.array([2.0])), _bars(volume=pa.array([2.5]))),
     "TDS-V011": (_traded(100.0), _traded(1.0)),  # R = 1000 / (volume * 10): 1, then 100
