@@ -13,6 +13,7 @@ import pytest
 
 from nexusbt_tds import ProfileStatus, check, keys, refs
 from nexusbt_tds.check import Level
+from nexusbt_tds.hash import value_hash
 from nexusbt_tds.manifest import read_manifest
 
 from .conformance_build import build
@@ -643,6 +644,40 @@ def test_a_tradability_daily_id_or_date_of_the_wrong_type_is_S002(
     row = {"instrument_id": ["US:AAA"], "session_date": session_date, "status_known": [True]}
     found = codes(write(tmp_path, build._add("tradability_daily", row)), "schema")
     assert ("TDS-S002" in found) is wrong
+
+
+_SHARES = {
+    "instrument_id": ["US:AAA"], "count_kind": ["listed"], "as_of_date": build.DAY,
+    "shares": [1e6], "ts_available": pa.array([build.NEW_YEAR], build.TS_UTC),
+    "source": ["synthetic"], "evidence_id": ["e1"],
+}  # fmt: skip
+
+
+@pytest.mark.parametrize(
+    ("kind", "row", "code"),
+    [
+        ("share_counts", _SHARES, None),  # the control: the stated types raise neither
+        ("share_counts", _SHARES | {"instrument_id": [1]}, "TDS-S002"),
+        ("share_counts", _SHARES | {"source": [1]}, "TDS-S002"),
+        ("trading_status_events", {"sequence": pa.array([1], pa.int32())}, "TDS-S002"),
+        ("trading_status_events", {"ts_event": _SHARES["ts_available"]}, "TDS-S004"),  # us, not ns
+        ("rates", {"ts_available": pa.array([0], pa.timestamp("us"))}, "TDS-S004"),  # no time zone
+    ],
+)
+def test_a_column_typed_by_105_is_checked_for_S002_and_S004(
+    kind: str, row: dict[str, Any], code: str | None, tmp_path: Path
+) -> None:
+    # TDS 5.10 ~ 5.25: the columns chapter 5 named without a type have one in the schema file.
+    found = codes(write(tmp_path, build._add(kind, row)), "schema")
+    assert [c for c in ("TDS-S002", "TDS-S004") if c in found] == ([code] if code else [])
+
+
+def test_a_dataset_typed_by_105_has_a_value_hash_with_no_columns_in_tds_json(
+    tmp_path: Path,
+) -> None:
+    # Before #105 its untyped columns had "no declared type" unless tds.json `columns` gave one.
+    root = write(tmp_path, build._add("share_counts", _SHARES))
+    assert len(value_hash(root, "share_counts")) == 64
 
 
 def test_book_codes_stay_unchecked(tmp_path: Path) -> None:

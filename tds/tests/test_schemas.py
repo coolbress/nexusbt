@@ -194,6 +194,16 @@ def test_schema_files_cover_stable_datasets() -> None:
     assert [k for k in stable if k not in schemas or schemas[k].status != "stable"] == []
 
 
+def test_every_stable_schema_column_has_a_type() -> None:
+    """#105: chapter 5 types every stable column; an experimental one may wait for its schema."""
+    schemas = load_schemas()
+    stable = {k: s for k, s in schemas.items() if s.status == "stable"}
+    assert [(k, c.name) for k, s in stable.items() for c in s.columns if c.type is None] == []
+    assert any(c.type is None for c in schemas["quotes"].columns)
+    known_to = {c.name: c.null for c in schemas["universe_membership"].columns}["ts_known_to"]
+    assert known_to is True  # 5.20, 6.3: an open known interval
+
+
 _RULE = {"rule_id": "us-tick", "market": "US", "rule_kind": "tick_band", "venue_group": "*",
          "valid_from": dt.date(2024, 1, 2), "price_from": 0.0, "tick_size": 0.01,
          "source": "https://example.test/r", "verified": False}  # fmt: skip

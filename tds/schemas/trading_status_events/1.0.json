@@ -2,14 +2,14 @@
   "kind": "trading_status_events", "schema_version": "1.0", "status": "stable", "section": "5.10",
   "key": ["instrument_id", "ts_event", "sequence"], "sort": null, "partitions": [],
   "columns": [
-    {"name": "instrument_id", "type": null, "null": null},
-    {"name": "ts_event", "type": null, "null": null},
-    {"name": "sequence", "type": null, "null": null},
-    {"name": "ts_recv", "type": null, "null": null},
-    {"name": "status", "type": null, "null": null},
-    {"name": "reason", "type": null, "null": null},
-    {"name": "reason_group", "type": null, "null": null},
-    {"name": "source", "type": null, "null": null},
-    {"name": "source_record_id", "type": null, "null": null}
+    {"name": "instrument_id", "type": "id", "null": null},
+    {"name": "ts_event", "type": "ts_ns", "null": null},
+    {"name": "sequence", "type": "i64", "null": null},
+    {"name": "ts_recv", "type": "ts_ns", "null": null},
+    {"name": "status", "type": "code", "null": null},
+    {"name": "reason", "type": "string", "null": null},
+    {"name": "reason_group", "type": "code", "null": null},
+    {"name": "source", "type": "string", "null": null},
+    {"name": "source_record_id", "type": "string", "null": null}
   ]
 }
