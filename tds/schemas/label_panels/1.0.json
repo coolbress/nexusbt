@@ -2,18 +2,18 @@
   "kind": "label_panels", "schema_version": "1.0", "status": "stable", "section": "5.25",
   "key": ["instrument_id", "period"], "sort": null, "partitions": ["name=/edition=/year="], "more_columns": "dictionary/columns",
   "columns": [
-    {"name": "instrument_id", "type": null, "null": null},
+    {"name": "instrument_id", "type": "id", "null": null},
     {"name": "period", "type": "date", "null": null},
     {"name": "as_of_date", "type": "date", "null": null},
-    {"name": "ts_available", "type": null, "null": false},
-    {"name": "entry_date", "type": null, "null": null},
-    {"name": "entry_price_basis", "type": null, "null": null},
-    {"name": "exit_date", "type": null, "null": null},
-    {"name": "horizon", "type": null, "null": null},
-    {"name": "return_definition", "type": null, "null": null},
-    {"name": "terminal_policy_id", "type": null, "null": null},
-    {"name": "ts_label_start", "type": null, "null": true},
-    {"name": "ts_label_end", "type": null, "null": true},
-    {"name": "ts_label_available", "type": null, "null": true}
+    {"name": "ts_available", "type": "ts_us", "null": false},
+    {"name": "entry_date", "type": "date", "null": null},
+    {"name": "entry_price_basis", "type": "code", "null": null},
+    {"name": "exit_date", "type": "date", "null": null},
+    {"name": "horizon", "type": "string", "null": null},
+    {"name": "return_definition", "type": "code", "null": null},
+    {"name": "terminal_policy_id", "type": "id", "null": null},
+    {"name": "ts_label_start", "type": "ts_us", "null": true},
+    {"name": "ts_label_end", "type": "ts_us", "null": true},
+    {"name": "ts_label_available", "type": "ts_us", "null": true}
   ]
 }

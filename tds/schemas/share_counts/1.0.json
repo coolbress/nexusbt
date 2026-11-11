@@ -2,12 +2,12 @@
   "kind": "share_counts", "schema_version": "1.0", "status": "stable", "section": "5.14",
   "key": ["instrument_id", "count_kind", "as_of_date", "ts_available"], "sort": null, "partitions": [],
   "columns": [
-    {"name": "instrument_id", "type": null, "null": null},
-    {"name": "count_kind", "type": null, "null": null},
+    {"name": "instrument_id", "type": "id", "null": null},
+    {"name": "count_kind", "type": "code", "null": null},
     {"name": "as_of_date", "type": "date", "null": null},
     {"name": "shares", "type": "f64", "null": null},
-    {"name": "ts_available", "type": null, "null": null},
-    {"name": "source", "type": null, "null": null},
-    {"name": "evidence_id", "type": null, "null": null}
+    {"name": "ts_available", "type": "ts_us", "null": null},
+    {"name": "source", "type": "string", "null": null},
+    {"name": "evidence_id", "type": "string", "null": null}
   ]
 }
