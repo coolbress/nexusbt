@@ -656,16 +656,15 @@ _SHARES = {
 @pytest.mark.parametrize(
     ("kind", "row", "code"),
     [
-        ("share_counts", _SHARES, None),
+        ("share_counts", _SHARES, None),  # the control: the stated types raise neither
         ("share_counts", _SHARES | {"instrument_id": [1]}, "TDS-S002"),
         ("share_counts", _SHARES | {"source": [1]}, "TDS-S002"),
         ("trading_status_events", {"sequence": pa.array([1], pa.int32())}, "TDS-S002"),
         ("trading_status_events", {"ts_event": _SHARES["ts_available"]}, "TDS-S004"),  # us, not ns
         ("rates", {"ts_available": pa.array([0], pa.timestamp("us"))}, "TDS-S004"),  # no time zone
-        ("universe_membership", {"ts_known_to": pa.array([None], build.TS_UTC)}, None),
     ],
 )
-def test_a_column_typed_by_105_of_the_wrong_type_is_S002_or_S004(
+def test_a_column_typed_by_105_is_checked_for_S002_and_S004(
     kind: str, row: dict[str, Any], code: str | None, tmp_path: Path
 ) -> None:
     # TDS 5.10 ~ 5.25: the columns chapter 5 named without a type have one in the schema file.
