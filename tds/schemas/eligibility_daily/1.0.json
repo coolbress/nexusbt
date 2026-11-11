@@ -1,6 +1,7 @@
 {
   "kind": "eligibility_daily", "schema_version": "1.0", "status": "stable", "section": "5.20",
-  "key": ["rule_id", "instrument_id", "session_date"], "sort": null, "partitions": ["market=/year="],
+  "key": ["rule_id", "instrument_id", "session_date"],
+  "sort": ["session_date", "instrument_id", "rule_id"], "partitions": ["market=/year="],
   "columns": [
     {"name": "rule_id", "type": "id", "null": null},
     {"name": "instrument_id", "type": "id", "null": null},

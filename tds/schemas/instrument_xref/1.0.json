@@ -1,6 +1,7 @@
 {
   "kind": "instrument_xref", "schema_version": "1.0", "status": "stable", "section": "5.3",
-  "key": ["instrument_id", "id_type", "id_value", "valid_from"], "sort": null, "partitions": [],
+  "key": ["instrument_id", "id_type", "id_value", "valid_from"],
+  "sort": ["instrument_id", "id_type", "id_value", "valid_from"], "partitions": [],
   "columns": [
     {"name": "instrument_id", "type": "id", "null": null},
     {"name": "id_type", "type": "code", "null": null},
