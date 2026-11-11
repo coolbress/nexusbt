@@ -25,6 +25,7 @@ import pytest
 
 from nexusbt.testing import _synth_daily as daily
 from nexusbt.testing import _synth_events as events
+from nexusbt.testing import _synth_package as pkg
 from nexusbt.testing import synth
 from nexusbt.testing.synth import a001, main, make_snapshot, read
 
@@ -408,7 +409,7 @@ def test_full_is_small_rules_at_full_scale(tmp_path: Path, monkeypatch: pytest.M
     paths = {f["path"] for d in manifest["datasets"] for f in d["files"]}
     assert {f"bars/freq=1d/market={m}/year={y}/part-00000.parquet"
             for m in ("KR", "US") for y in (1995, 2024)} <= paths  # fmt: skip
-    done = synth._tds("check", str(full), "--level", "full")
+    done = pkg._tds("check", str(full), "--level", "full")
     assert done.returncode == 0, done.stdout + done.stderr
     assert "0 errors, 0 warnings at level full" in done.stdout
 
@@ -448,7 +449,7 @@ def test_full_slice_with_a_dividend_above_the_close_conforms(tmp_path: Path) -> 
     assert all(r["price_factor"] > 0 for r in actions if r not in none)
     assert min(b["close"] for b in rows(full, "bars")) > 0  # a negative factor flipped them
     assert a001(read(full, "corporate_actions"), read(full, "bars_1d")) == 0
-    assert "0 errors" in synth._tds("check", str(full), "--level", "full").stdout
+    assert "0 errors" in pkg._tds("check", str(full), "--level", "full").stdout
 
 
 def steps(package: Path, basis: str) -> dict[tuple[str, dt.date], float]:
@@ -486,7 +487,7 @@ def test_reverse_split_makes_factor_non_monotonic(small: Path) -> None:
     ups = [r for r in reverse if split[r["instrument_id"], r["ex_date"]] > 1]
     assert ups  # a rising factor is data, not an error: A001 above and tds check below hold
     assert min(split.values()) < 1
-    assert "0 errors" in synth._tds("check", str(small), "--level", "full").stdout
+    assert "0 errors" in pkg._tds("check", str(small), "--level", "full").stdout
 
 
 def test_revisions_and_cancellations_present(
@@ -646,8 +647,8 @@ def test_prices_on_grid_with_ulp_noise(small: Path, tmp_path: Path) -> None:
     bars = pq.read_table(path)
     lows = pc.multiply(bars["low"], 1 - 1e-7)
     pq.write_table(bars.set_column(bars.schema.get_field_index("low"), "low", lows), path)
-    assert synth._tds("hash", str(package), "--write").returncode == 0
-    printed = synth._tds("check", str(package), "--level", "full").stdout
+    assert pkg._tds("hash", str(package), "--write").returncode == 0
+    printed = pkg._tds("check", str(package), "--level", "full").stdout
     off = len(bars) - bars["low"].null_count
     assert f"warning TDS-V012 bars_1d: {off} raw price(s) off the price grid" in printed
 
@@ -876,7 +877,7 @@ def exit_agrees(package: Path, iid: str) -> dict[str, Any]:
         out["exit_date"], out["last_trading_date"])  # fmt: skip
     assert held[-1]["session_date"] == out["last_trading_date"] == out["ref_date"]
     assert held[-1]["close"] == out["ref_price"]
-    assert "0 errors" in synth._tds("check", str(package), "--level", "full").stdout
+    assert "0 errors" in pkg._tds("check", str(package), "--level", "full").stdout
     assert a001(read(package, "corporate_actions"), read(package, "bars_1d")) == 0
     return out
 
@@ -937,7 +938,7 @@ def test_injected_halt_blanks_its_bar(tmp_path: Path) -> None:
         True, 0)  # fmt: skip
     assert (on["eligibility_daily"]["is_eligible"], on["eligibility_daily"]["reason"]) == (
         False, "no_price")  # fmt: skip
-    assert "0 errors" in synth._tds("check", str(package), "--level", "full").stdout
+    assert "0 errors" in pkg._tds("check", str(package), "--level", "full").stdout
     assert a001(read(package, "corporate_actions"), read(package, "bars_1d")) == 0
 
 
@@ -1003,7 +1004,7 @@ def us_dividend_before_split(tmp_path_factory: pytest.TempPathFactory) -> list[d
 
 
 def check_full(package: Path) -> str:
-    done = synth._tds("check", str(package), "--level", "full")
+    done = pkg._tds("check", str(package), "--level", "full")
     assert done.returncode == 0, done.stdout + done.stderr
     assert re.search(r"\b0 errors\b", done.stdout), done.stdout
     return done.stdout
@@ -1207,8 +1208,8 @@ def test_degrade_drops_declared_profiles(tmp_path: Path) -> None:
         manifest = json.loads(path.read_text(encoding="utf-8"))
         assert manifest["profiles"] == [MINIMAL]
         path.write_text(json.dumps(manifest | {"profiles": [MINIMAL, CORE]}), encoding="utf-8")
-        assert synth._tds("hash", str(package), "--write").returncode == 0
-        done = synth._tds("check", str(package), "--level", "full")
+        assert pkg._tds("hash", str(package), "--write").returncode == 0
+        done = pkg._tds("check", str(package), "--level", "full")
         assert done.returncode != 0
         said = rf"^error TDS-M008(?: bars_1d)?: {re.escape(CORE)} requires .*"
         assert re.search(said + re.escape(missing[value]), done.stdout, re.M), done.stdout
@@ -1229,7 +1230,7 @@ def manifest_of(package: Path) -> tuple[dict[str, Any], dict[str, Any]]:
 
 def unchecked(package: Path) -> list[str]:
     """The codes `tds check --level full` leaves unchecked, on a package without an error."""
-    done = synth._tds("check", str(package), "--level", "full", "--format", "json")
+    done = pkg._tds("check", str(package), "--level", "full", "--format", "json")
     summary = json.loads(done.stdout)["summary"]
     assert summary["errors"] == 0, done.stdout
     return list(summary["unchecked"])
@@ -1298,6 +1299,6 @@ def test_coverage_of_a_wrong_count_fails_d004(tiny: Path, tmp_path: Path) -> Non
     (bars,) = (d for d in manifest["datasets"] if d["name"] == "bars_1d")
     bars["coverage"]["by_market"]["KR"]["rows"] += 1
     path.write_text(json.dumps(manifest), encoding="utf-8")
-    done = synth._tds("check", str(package), "--level", "full")
+    done = pkg._tds("check", str(package), "--level", "full")
     assert done.returncode != 0
     assert "TDS-D004" in done.stdout
