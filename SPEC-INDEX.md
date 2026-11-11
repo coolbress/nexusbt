@@ -279,7 +279,7 @@ Generated from `docs/spec/engine-spec-v3.4.md` (chapter 10) by the spec checker 
 | T7.1 | `feat(portfolio): target-state recursion and hold band` | 5.5.3 | — | T6.11, T6.18, T7.G, T4.14, T5.16, T6.22, T6.24, T6.25, T6.27 |
 | T7.V | `verify: post-T7.1 release re-verification (no features)` | 7, 8, 9.1 | P-SHORT-OFF | T7.1 |
 | T6.28 | `perf: re-measure chapter 7 on a real snapshot (summary evidence)` | 7, 2.7, 12 | — | T7.V, T6.15 |
-| T6.29 | `test(release): verify a real ledger event by event against the situation table` | 8.4, 5.9.7, 2.7, 12 | RL-01..RL-08 | T7.V, T6.15, T5.11b |
+| T6.29 | `test(release): verify a real ledger event by event against the situation table` | 8.4, 5.9.7, 2.7, 12 | LV-01..LV-08 | T7.V, T6.15, T5.11b |
 
 ## v1.x — Right after v1
 

@@ -2731,18 +2731,18 @@ s+2 뒤에 펴낸 스냅숏으로 다시 돌려도 행 s와 s+1은 비트까지 
 
 **주문표 전 최신 자료** (5.9.6 규칙 4) [결정 2026-11-03]: 워터마크 `complete_through_session`이 세션 d이고 `bars`·`calendar_sessions`가 d를 덮지만 `eligibility_daily`의 범위 `by_market.KR.last`는 세션 d−2에서 멈춘 시장 KR의 합성 스냅숏(4.8). 전략 A는 `investable=True`를 쓰고, 전략 B는 가격만 읽으며, 둘 다 d의 종가에 판단한다. `nexusbt live A --book paper:t`는 주문표를 내지 않고 장부의 `state_version`을 바꾸지 않으며 E19 "eligibility_daily for KR ends at session d−2, before decision session d in snapshot {id}"와 함께 종료 코드 3으로 끝난다; 같은 스냅숏에서 B는 주문표를 받는다. `tradability_daily`도 d−1로 자르고 A가 거래 가능성 규칙을 쓰면 E19는 두 줄이다. 시험은 T5.12: `tests/unit/api/test_live_checks.py::test_newest_data_per_dataset_E19`, `::test_newest_data_names_every_missing_dataset`.
 
-**실제 장부 상황 표** (5.9.7, OI-46) [결정 2026-11-11, #162]: 줄마다 엔진이 다룬다고 주장하는 상황 하나이고, 그 증거는 그 상황이 일어난 소유자의 실제 장부 세션 하나를 `reconcile`(5.9.7)로 대조한 것이다. 기준은 이 표이지 정해진 길이의 장부가 아니다: 장부는 덮을 수 있는 줄을 덮고, 그런 세션이 없는 줄은 사유와 함께 "not observed"로 적는다. 장부·스냅숏과 그 행은 저장소 밖에 둔다(2.7); 저장소에는 이 표와 줄마다 요약 숫자만 둔다(T6.29).
+**실제 장부 상황 표** (5.9.7, OI-46) [결정 2026-11-11, #162]: 줄마다 엔진이 다룬다고 주장하는 상황 하나이고, 그 증거는 그 상황이 일어난 소유자의 실제 장부 세션 하나를 `reconcile`(5.9.7)로 대조한 것이다. 기준은 이 표이지 정해진 길이의 장부가 아니다: 장부는 덮을 수 있는 줄을 덮고, 그런 세션이 없는 줄은 사유와 함께 "not observed"로 적는다. `manual:` 장부의 `reconcile` 보고는 보유와 체결가를 견주고(5.9.7 (4)), 그런 장부는 체결·거부·정정만 기록한다(5.9.6). 그래서 마지막 칸은 실제 값이 어디서 오는지를 말한다: "reconcile"은 그 보고이고, "statement"는 그 보고가 견주지 않는 금액으로, 소유자가 계좌 자체의 명세서에서 읽어 모형이 기입한 사건에 대고 그 차이를 숫자로 적는다. 장부·스냅숏·명세서와 그 행은 저장소 밖에 둔다(2.7); 저장소에는 이 표와 줄마다 요약 숫자만 둔다(T6.29).
 
-| 줄 | 상황 | 규칙 | 대조한 세션이 견주는 것 |
-|---|---|---|---|
-| RL-01 | 보유 종목의 분할 | 5.6.10 | 효력 세션 뒤 모형의 보유 수량과 장부의 보유 수량 |
-| RL-02 | 지급일을 추정한 현금배당 | 5.6.11 | 모형의 미수금과 그 지급 세션, 그리고 장부가 받은 현금과 그것이 들어온 세션 |
-| RL-03 | 종료 가치가 있는 상장폐지 | 5.6.13 | 모형의 종료 권리와 제거된 보유에 대해 장부가 받은 현금 |
-| RL-04 | 체결 세션의 거래정지 | 5.6.5 | 모형의 `blocked` 주문과 그 이월, 그리고 그 세션과 다음 세션의 장부 체결 |
-| RL-05 | 거래량 상한에 걸린 부분 체결 | 5.6.6 | 모형의 체결 수량·이월 수량과 장부의 것 |
-| RL-06 | 가격제한일 | 5.6.5 | 상하한에서 모형의 막힘 또는 체결과 그 세션의 장부 체결 |
-| RL-07 | 정정된 기업행동 | 5.3.3a (7) | 모형의 정정 기입(`action_correction`)과 장부의 조정 |
-| RL-08 | 차입 비용이 있는 숏 포지션 | 5.6.3 (발생) | 보유한 밤 동안 모형의 `borrow_fee`와 장부에 부과된 금액 |
+| 줄 | 상황 | 규칙 | 모형이 기입하는 것 | 견주는 대상 |
+|---|---|---|---|---|
+| LV-01 | 보유 종목의 분할 | 5.6.10 | 효력 세션 뒤의 보유 수량 | 실제 보유 (reconcile) |
+| LV-02 | 지급일을 추정한 현금배당 | 5.6.11 | 미수금과 그 지급 세션 | 받은 현금과 그것이 들어온 세션 (statement) |
+| LV-03 | 종료 가치가 있는 상장폐지 | 5.6.13 | 종료 권리 | 제거된 보유에 대해 받은 현금 (statement) |
+| LV-04 | 체결 세션의 거래정지 | 5.6.5 | `blocked` 주문과 그 이월 | 그 세션과 다음 세션의 실제 체결 (reconcile) |
+| LV-05 | 거래량 상한에 걸린 부분 체결 | 5.6.6 | 체결 수량과 이월 수량 | 실제 체결 (reconcile) |
+| LV-06 | 가격제한일 | 5.6.5 | 상하한에서의 막힘 또는 체결 | 그 세션의 실제 체결 (reconcile) |
+| LV-07 | 정정된 기업행동 | 5.3.3a (7) | 정정 기입(`action_correction`) | 계좌가 받은 조정 (statement) |
+| LV-08 | 차입 비용이 있는 숏 포지션 | 5.6.3 (발생) | 보유한 밤 동안의 `borrow_fee` | 계좌에 부과된 금액 (statement) |
 
 세션에 체결이 있는 줄은 체결 대 판단 bp도 모형 자신의 기준에 대어 보고한다: 다음 시가이며, 주문 시각·종류·수량을 실제 주문에 맞춘다. 밤사이 가격 변화를 체결 비용으로 읽지 않기 위해서다.
 
@@ -4149,14 +4149,14 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 - Acceptance: `tests/repo/test_release.py::test_release_rerun_after_last_feature`.
 
 **T6.28 `perf: re-measure chapter 7 on a real snapshot (summary evidence)`** **[2026-11-11, #162]** · `M6 (T7.V 뒤 출시 증거, 기능 아님)` `bench` · S · Blocked by: T7.V, T6.15 · §7, §2.7, 12장 OI-46 — **사용자가 계산 기계에서 실행**
-- Context: OI-46 출시 정의의 공개 절반 중 첫째. 7장의 작업 P1~P7과 P5-daily를 T6.11과 같은 `bench/run.py` 명령·측정 규칙으로, 저장소 밖에 두는 실제 스냅숏에서 잰다. 공개 규칙(2.7)을 다시 적는다: 요약 숫자만. 결과 JSON은 p50/p95, USS, 캐시 상태, 그리고 `snapshot_id` 자리에 스냅숏의 해시를 담고, 스냅숏의 다른 것은 담지 않는다: 경로·호스트·계정·생산자·종목 이름도, 행도 없다. `release_evidence.json`(T6.15)이 `real_data.measurement` 아래에 이 파일을 가리킨다.
+- Context: OI-46 출시 정의의 공개 절반 중 첫째; M6의 끝(합성 적합성, 10.0)은 이것을 기다리지 않는다. 7장의 작업 P1~P7과 P5-daily를 T6.11과 같은 `bench/run.py` 명령·측정 규칙으로, 저장소 밖에 두는 실제 스냅숏에서 잰다. 공개 규칙(2.7)을 다시 적는다: 요약 숫자만. 결과 JSON은 7장 측정 규칙의 그것(작업마다 p50/p95, RSS와 USS, 캐시 상태, 거기 적힌 나머지 필드)이되 `snapshot_id` 자리에 스냅숏의 해시를 담고, 스냅숏의 다른 것은 담지 않는다: 경로·호스트·계정·생산자·종목 이름도, 행도 없다. `release_evidence.json`(T6.15)이 `real_data.measurement` 아래에 이 파일을 가리킨다.
 - Done means: `bench/results/<YYYYMMDD>-<git sha>-m4-real.json`이 커밋되고, PR에 작업마다 한 줄인 짧은 표가 있다: 합성 p50/p95와 USS(T7.V의 JSON) 옆에 실제 값.
-- Acceptance: `tests/unit/bench/test_results_present.py::test_real_snapshot_result_has_summary_fields_only`(이름이 `-real.json`인 결과 파일은 스냅숏 해시가 있고 `snapshot_id`와 위 목록 밖의 키가 없다), `tests/repo/test_release.py::test_gate_summary_links_real_measurement`.
+- Acceptance: `tests/unit/bench/test_results_present.py::test_real_snapshot_result_has_summary_fields_only`(이름이 `-real.json`인 결과 파일은 스냅숏 해시가 있고 `snapshot_id`와 7장 목록 밖의 키가 없다), `tests/repo/test_release.py::test_gate_summary_links_real_measurement`.
 
-**T6.29 `test(release): verify a real ledger event by event against the situation table`** **[2026-11-11, #162]** · `M6 (T7.V 뒤 출시 증거, 기능 아님)` `release` · S · Blocked by: T7.V, T6.15, T5.11b · §8.4 (RL-01..RL-08), §5.9.7, §2.7, 12장 OI-46 — **사용자가 자신의 장부로 실행**
-- Context: OI-46 출시 정의의 공개 절반 중 둘째. `manual:` 장부로 옮긴 소유자의 실제 장부와 실제 스냅숏, 둘 다 저장소 밖. 8.4 표의 RL-01~RL-08 줄마다 그 상황이 일어난 세션 하나를 `reconcile`(5.9.7)로 대조하고, 체결이 있으면 체결 대 판단 bp를 모형의 기준(다음 시가; 주문 시각·종류·수량을 맞춤)에 대어 잰다. 기준은 표이지 장부의 길이가 아니다: 장부가 덮지 못하는 줄은 사유와 함께 "not observed"다. 공개 규칙(2.7)을 다시 적는다: 요약 숫자만. `release_evidence.json`(T6.15)은 `real_data.ledger_situations` 아래에 줄마다 항목 하나를 담는다: 줄 id, `reconciled` 또는 `not observed`, 대조한 세션 수, 8.4 칸이 견주는 값이 같았는지(다르면 그 차이를 숫자로), bp 중앙값, 관찰되지 않았을 때의 사유; 날짜·종목·수량·가격·경로·이름은 없다.
-- Done means: `uv run python -m tests.repo.release_check --all`이 "real-data evidence: measurement linked · ledger situations a reconciled, b not observed (of 8)"를, 증거가 없으면 "real-data evidence: none (synthetic conformance)"를 출력하고, PR에 여덟 줄 표가 있다.
-- Acceptance: `tests/repo/test_release.py::test_ledger_situation_entries_match_the_RL_rows`(8.4의 줄마다 항목 하나, 각각 세션이 하나 이상인 `reconciled`이거나 사유가 있는 `not observed`), `::test_ledger_situation_entries_have_summary_fields_only`, `::test_gate_summary_links_ledger_situations`, `::test_verified_claim_needs_measurement_and_ledger_situations`(T6.15의 "KR/US verified" 문장은 둘이 다 있을 때만); 시험은 합성 장부(4.8)로 쓴 증거를 읽는다.
+**T6.29 `test(release): verify a real ledger event by event against the situation table`** **[2026-11-11, #162]** · `M6 (T7.V 뒤 출시 증거, 기능 아님)` `release` · S · Blocked by: T7.V, T6.15, T5.11b · §8.4 (LV-01..LV-08), §5.9.7, §2.7, 12장 OI-46 — **사용자가 자신의 장부로 실행**
+- Context: OI-46 출시 정의의 공개 절반 중 둘째; T6.28처럼 M6의 끝은 이것을 기다리지 않는다. `manual:` 장부로 옮긴 소유자의 실제 장부와 실제 스냅숏, 둘 다 저장소 밖. 8.4 표의 LV-01~LV-08 줄마다 그 상황이 일어난 세션 하나를 `reconcile`(5.9.7)로 대조하고, "statement" 줄은 8.4가 말한 대로 소유자가 읽으며, 체결이 있으면 체결 대 판단 bp를 모형의 기준(다음 시가; 주문 시각·종류·수량을 맞춤)에 대어 잰다. 기준은 표이지 장부의 길이가 아니다: 장부가 덮지 못하는 줄은 사유와 함께 "not observed"다. 공개 규칙(2.7)을 다시 적는다: 요약 숫자만. `release_evidence.json`(T6.15)은 `real_data.ledger_situations` 아래에 줄마다 항목 하나를 담는다: 줄 id, `reconciled` 또는 `not observed`, 대조한 세션 수, 8.4 줄이 견주는 두 값이 같았는지(다르면 그 차이를 숫자로), bp 중앙값, 관찰되지 않았을 때의 사유; 날짜·종목·수량·가격·경로·이름은 없다.
+- Done means: `uv run python -m tests.repo.release_check --all`이 "real-data evidence: measurement linked (또는 `missing`) · ledger situations a reconciled, b not observed (of 8)"를, 증거가 없으면 "real-data evidence: none (synthetic conformance)"를 출력하고, PR에 여덟 줄 표가 있다.
+- Acceptance: `tests/repo/test_release.py::test_ledger_situation_entries_match_the_LV_rows`(8.4의 줄마다 항목 하나, 각각 세션이 하나 이상인 `reconciled`이거나 사유가 있는 `not observed`), `::test_ledger_situation_entries_have_summary_fields_only`, `::test_gate_summary_links_ledger_situations`, `::test_verified_claim_needs_measurement_and_ledger_situations`(T6.15의 "KR/US verified" 문장은 둘이 다 있을 때만); 시험은 커밋된 `release_evidence.json`에 `real_data`가 있으면 그것을, 없으면 합성 `small` 스냅숏(4.8)의 모의 장부로 쓴 것을 읽는다.
 
 #### v1.x — v1 직후 (M6 뒤)
 
@@ -4305,7 +4305,7 @@ v1 명세의 O1~O11, 청사진 OQ-1~OQ-15, TDS Q1~Q16을 하나로 모았고, v3
 | OI-43 (설계 9.2-12) | 메모리 "백테스트는 zipline-reloaded로" | 일상은 NexusBT, zipline은 대조 기준(ADR-0011, A-31) | 결정됨 2026-10-28 (추천 기본값 확정) | | 사용자 |
 | OI-44 (새, RV-Q05) | PyPI 게시 | 이름 `nexusbt`만 지금 예약(사용자가 직접, 로그인 필요), 게시는 v1 출시 때 신뢰 게시(T6.16은 dry run까지) | 결정됨 2026-10-28 |  | 사용자 |
 | OI-45 (새, RV-Q05) | 공개 문서 언어 | TDS 본문·README·빠른 시작·오류 문장·`CONTEXT.md`는 영어 정본 + 한국어 번역. TDS 영어 정본은 T0.1에. **2026-10-31 개정: 명세도 영어 정본 + 한국어 번역**(머리말의 2026-10-31 결정; 옮기는 동안은 한국어 판이 정본) | 결정됨 2026-10-28, 개정 2026-10-31 |  | T0.1 |
-| OI-46 (새, RV-I07) | v1 "출시"의 뜻 | 출시 = "KR/US 실제 자료 검증" 통과(생산자가 시가·달력·기업행동을 채운 스냅숏으로 대조·관문 요약 증거). "합성 적합성"(M6 끝)은 출시 전 단계로 따로 부름. 엔진 개발은 합성으로 멈추지 않고 진행. 출시 정의의 공개 절반(사용자 결정 2026-11-03): 10.0 M6 줄의 R1 증거(M6 티켓 둘로: T6.28, 실제 스냅숏에서 다시 잰 7장, 그리고 T6.29, 8.4 표 RL-01~RL-08에 대어 사건별로 검증한 장부; #162)와 10.0 M5 줄의 R4 증거; 요약 숫자만(2.7) | 결정됨 2026-10-28, 공개 절반 2026-11-03 |  | 사용자 |
+| OI-46 (새, RV-I07) | v1 "출시"의 뜻 | 출시 = "KR/US 실제 자료 검증" 통과(생산자가 시가·달력·기업행동을 채운 스냅숏으로 대조·관문 요약 증거). "합성 적합성"(M6 끝)은 출시 전 단계로 따로 부름. 엔진 개발은 합성으로 멈추지 않고 진행. 출시 정의의 공개 절반(사용자 결정 2026-11-03): 10.0 M6 줄의 R1 증거(M6 티켓 둘로: T6.28, 실제 스냅숏에서 다시 잰 7장, 그리고 T6.29, 8.4 표 LV-01~LV-08에 대어 사건별로 검증한 장부; #162)와 10.0 M5 줄의 R4 증거; 요약 숫자만(2.7) | 결정됨 2026-10-28, 공개 절반 2026-11-03 |  | 사용자 |
 | OI-47 (새, RV-D1) | 창 커널 정의 A(왼쪽 접기) vs B(절대 블록 부분합) | A로 시작. T1.24 측정에서 `SMA(252)` 일간 전체 행이 단계 예산을 넘으면 ADR-0019로 B(미리 등록됨, 둘 다 결정적). 바꾸는 규칙이 미리 정해져 있어 결정할 것이 남지 않음 | 결정됨 2026-10-28 |  | T1.24 측정이 규칙대로 |
 | OI-48 (새, RV-D2) | 기본 정답의 뜻 | 경제 보유 수익(배당락일 종가 재투자, CRSP식; 2:1 합의), 조정가 비율은 `fwd_return_adj`. 현금 보유 변형은 v1.x | 적용 | (알림) | – |
 | OI-49 (새, RV-I07) | TDS 1.0 선언 시점 | 상태 초안 → RC → 1.0(`tds_version`은 `"1.0"` 그대로, 상태는 태그·문서 머리). 졸업 조건 TDS 10.5 | 적용 | | T6.15 + 생산자 |
