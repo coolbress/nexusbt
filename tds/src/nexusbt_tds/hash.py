@@ -73,8 +73,28 @@ def _sort_key(tag: str, value: Any) -> bytes:
     return b"\x01" + (int(value) + 2**63).to_bytes(8)  # bool, integers, days, instants
 
 
-def _values(column: pa.ChunkedArray, tag: str) -> list[Any]:
-    """The column as Python values in the units the bytes use (days, the tag's time unit)."""
+def _holds_time(kind: pa.DataType) -> bool:
+    """Whether an Arrow type is, or holds in a list, struct, map or dictionary, a time type."""
+    inner = [kind.field(i).type for i in range(kind.num_fields)]
+    inner += [kind.value_type] if pa.types.is_dictionary(kind) else []
+    return pa.types.is_temporal(kind) or any(_holds_time(t) for t in inner)
+
+
+#: TDS 3.2: the time types and the Arrow types a column of one is read as: pyarrow makes another
+#: time type, such as a `time64[ns]`, a Python value only with pandas (#389). An instant is a
+#: timestamp; a date is a `date32`, or a type with no time in it, which the codes that need a
+#: date skip (a text `session_date` leaves the other V codes judged, #366).
+TIME_TYPES: dict[str, Callable[[pa.DataType], bool]] = {
+    **dict.fromkeys(("ts_us", "ts_ns", "ts_us/ns"), pa.types.is_timestamp),
+    "date": lambda kind: pa.types.is_date32(kind) or not _holds_time(kind),
+}
+
+
+def _values(column: pa.ChunkedArray, tag: str, name: str = "") -> list[Any]:
+    """The column as Python values in the units the bytes use (days, the tag's time unit); a
+    time column of another Arrow type (S002's) raises `HashError` before a value is made."""
+    if tag in TIME_TYPES and not TIME_TYPES[tag](column.type):
+        raise HashError(f"{name} is {column.type}, TDS type {tag}")
     if pa.types.is_dictionary(column.type):
         column = column.cast(column.type.value_type)
     if pa.types.is_timestamp(column.type):
@@ -95,7 +115,8 @@ def _rows(table: pa.Table, columns: Columns, key: Sequence[str]) -> list[tuple[b
     the table lacks is null (a file without a column the dataset has)."""
     tags = dict(columns)
     order = [*key, *(name for name, _ in columns if name not in key)]
-    cols = {n: _values(table.column(n), t) if n in table.column_names else [None] * table.num_rows
+    none = [None] * table.num_rows
+    cols = {n: _values(table.column(n), t, n) if n in table.column_names else none
             for n, t in columns}  # fmt: skip
     return [
         (b"".join(_sort_key(tags[n], cols[n][i]) for n in order),

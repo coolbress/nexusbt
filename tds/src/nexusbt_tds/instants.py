@@ -26,6 +26,7 @@ from typing import Any
 import pyarrow as pa
 
 from .check import _COL, _DUR, INSTANT_CODES, RULE, Finding, Severity, _delay
+from .keys import Untyped
 from .manifest import Manifest
 from .refs import _rows
 
@@ -43,10 +44,17 @@ Row = dict[str, Any]
 _EPOCH_DAY, _DAY_NS = dt.date(1970, 1, 1).toordinal(), 86_400 * 10**9
 
 
-def check_instants(m: Manifest, only: Sequence[str] | None, blind: set[str]) -> list[Finding]:
-    """The seven codes on the checked datasets; a file they cannot read leaves them unchecked."""
+def check_instants(
+    m: Manifest, only: Sequence[str] | None, blind: set[str], notes: list[str]
+) -> list[Finding]:
+    """The seven codes on the checked datasets; a file they cannot read leaves them unchecked,
+    and a time column stored as another type (S002's) too, named in `notes` (#389)."""
     try:
         return _check(m, only, blind)
+    except Untyped as exc:
+        blind.update(INSTANT_CODES)
+        notes.append(f"{', '.join(INSTANT_CODES)} not checked: {exc}")
+        return []
     except (OSError, pa.ArrowException, TypeError, ValueError, OverflowError):
         blind.update(INSTANT_CODES)  # unreadable, or a column of the wrong type: not compared
         return []
