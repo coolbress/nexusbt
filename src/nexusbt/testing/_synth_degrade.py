@@ -1,4 +1,4 @@
-"""Spec 4.8 `degrade=`: the core values (T0.16a), each one gap of the 4.5 fallback table.
+"""Spec 4.8 `degrade=`: the core values (T0.16a, T0.16c), each one gap of the 4.5 fallback table.
 
 A value changes the generated rows of each market, or leaves a dataset out, and the package
 then declares only the profiles it still keeps (TDS 7), so `tds check` still passes. Which
@@ -28,15 +28,19 @@ CORE = {
     "us_div_split_adjusted_no_dates": False,  # F-09
     "no_delistings": True,  # F-13: delistings
     "late_bars": False,  # #354: no gap of the 4.5 table; a late `ts_available` is valid data
+    "no_tick_info": False,  # F-15: market_rules and tick_rule_id are required in no profile
+    "volume_in_lots": False,  # F-16: V011 is a warning
 }
+LOT = 100  # `volume_in_lots`: the shares of one KR lot (4.8 (11a))
 #: `late_bars` (#354): the share of the KR bars that are late, by 1 to LATE_BY sessions, drawn
 #: from a stream of their own, PCG64 seeded [seed, LATE_STREAM], so no other row changes.
 LATE_SHARE, LATE_BY, LATE_STREAM = 0.005, 3, 354
-#: Spec 4.8's other values, built by later tickets (spec 10.1: T0.16b, T0.16c).
+#: Spec 4.8's other values, built by a later ticket (spec 10.1: T0.16b).
 LATER = ("no_fundamentals_state", "no_eligibility", "no_share_counts", "no_fundamentals_events",
-         "no_benchmarks", "no_panels", "no_tick_info", "volume_in_lots")  # fmt: skip
+         "no_benchmarks", "no_panels")  # fmt: skip
 #: The datasets a value leaves out.
-ABSENT = {"no_sessions": "calendar_sessions", "no_delistings": "delistings"}
+ABSENT = {"no_sessions": "calendar_sessions", "no_delistings": "delistings",
+          "no_tick_info": "market_rules"}  # fmt: skip
 DATES = ("record_date", "declared_date", "pay_date", "resolution_date")
 
 
@@ -49,7 +53,7 @@ def check(degrade: Sequence[str]) -> None:
         raise ValueError(f"degrade {unknown}: spec 4.8 has {[*CORE, *LATER]}")
     later = [v for v in degrade if v in LATER]
     if later:
-        raise NotImplementedError(f"degrade {later} come with T0.16b and T0.16c (spec 10.1);"
+        raise NotImplementedError(f"degrade {later} come with T0.16b (spec 10.1);"
                                   f" built so far: {list(CORE)}")  # fmt: skip
 
 
@@ -122,6 +126,11 @@ def apply(market: str, tables: dict[str, pa.Table], degrade: Sequence[str],
             "cash_per_share": r["cash_per_share"] / later(r[ID], r["ex_date"])})  # fmt: skip
     if "late_bars" in degrade:
         bars = _late(market, bars, closes, seed)
+    if "volume_in_lots" in degrade and market == "KR":  # F-16: whole lots, odd shares dropped
+        lots = pc.floor(pc.divide(bars["volume"], float(LOT)))
+        bars = bars.set_column(bars.schema.get_field_index("volume"), "volume", lots)
+    if "no_tick_info" in degrade and "tick_rule_id" in out["instruments"].column_names:  # F-15
+        out["instruments"] = out["instruments"].drop_columns(["tick_rule_id"])
     out["bars_1d"], out["corporate_actions"] = bars, actions
     for name in absent(degrade):
         out.pop(name, None)
