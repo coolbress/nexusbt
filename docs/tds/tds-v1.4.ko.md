@@ -1088,15 +1088,15 @@ tds export {zipline-bundle|nautilus-catalog|wide-parquet} ... # 9.8
 | TDS-R009 | E | `item`이 `dictionary/items`에 없음, 패널 칼럼이 `dictionary/columns`에 없음 |
 | TDS-T001 | E | `ts_available < ts_event`(봉·사건; 규칙상 늦을 수 없는 곳) |
 | TDS-T002 | E | `ts_available` 칼럼과 선언 규칙의 값이 다름, 또는 6.2 칼럼 형식이 지목한 칼럼이 데이터셋 파일에 없음 [2026-11-05] |
-| TDS-T003 | E | 상태·이력 구간 겹침 |
-| TDS-T004 | E | 구간 끝 ≤ 시작 |
+| TDS-T003 | E | 상태·이력 구간 겹침, 한 시간축에서: `fundamentals_state`의 알려진 구간은 (`edition`, `instrument_id`, `item`)마다, `market_rules`의 호가 구간은 (`rule_id`, `venue_group`, 날짜)마다. 두 시간축 표의 겹침은 5.2의 줄까지 T012다 [2026-11-11] |
+| TDS-T004 | E | 구간 끝 ≤ 시작, 모든 `[from, to)` 쌍에 대해: `fundamentals_state`의 알려진 구간, `classifications`·`universe_membership`·`instrument_symbols`의 효력·알려진 구간, `instrument_xref`·`market_rules`의 유효 구간. null 끝은 열려 있어 검사하지 않는다 [2026-11-11] |
 | TDS-T005 | E | 일봉 `ts_start/ts_end`가 세션 개장·마감과 다름(값이 있을 때) |
 | TDS-T006 | E | 시장 워터마크 `complete_through` 뒤의 자료 |
 | TDS-T007 | E | 재무 `ts_available < period_end`(잠정치 표시 없음) |
 | TDS-T008 | W | `ts_recv < ts_event − 허용치` |
 | TDS-T010 | E | `last_session < listed_on` |
 | TDS-T011 | W | 종료 대가 공개가 퇴출 공개보다 이름 |
-| TDS-T012 | E | 두 시간축 **직사각형** 조회 결과가 한 시점·한 판별 열쇠(분류는 scheme·level·판 필터 포함)에 둘 이상 |
+| TDS-T012 | E | 두 시간축 **직사각형** 조회 결과가 한 시점·한 판별 열쇠(분류는 scheme·level·판 필터 포함)에 둘 이상, 직사각형 조회 표 셋(6.3 ③)에서: `classifications`, `universe_membership`, `instrument_symbols` [2026-11-11] |
 | TDS-D001 | E | dense 일봉에 세션 행 빠짐 |
 | TDS-D002 | E | 세션이 아닌 날 행, 또는 상장 기간 밖 행 |
 | TDS-D004 | E | 매니페스트 `rows`·`coverage`가 실제와 다름 |
@@ -1525,3 +1525,4 @@ datasets:
 - 2026-11-10: **v1.4** 안에서. 8.2: `instrument_xref`는 T006에서는 시간이 없는 표다. 최신 데이터 검사가 읽지 않고, 유효 구간(5.3)은 그대로이며, 판단 입력이 아니다(결정 2026-11-10, #332). `tds_version` `"1.0"` 그대로(문구, 형식 변경 없음).
 - 2026-11-10: **v1.4** 안에서. 3.4와 8.3 TDS-V011: 분모에 `instruments.multiplier`를 곱하고, `price_basis`가 `raw`인 bars만 읽고, `index` 종목을 뺀다. 5.27: 검사기에는 시장 최소 단위가 없으므로 V012는 격자 자체의 가장 작은 호가 단위의 정수로 비교한다(사용자 결정 2026-11-10, #229). `tds_version` `"1.0"` 그대로(검사기 동작, 형식 변경 없음).
 - 2026-11-11: **v1.4** 안에서. 5장: stable 데이터셋이 형 없이 적던 칼럼 67개에 3.2의 형을 적는다(5.3, 5.4 `calendar_segments`, 5.10, 5.14, 5.16, 5.19, 5.20, 5.21, 5.25). `universe_membership.ts_known_to`는 null을 허용한다고 적는다. 끝이 열린 알려진 구간(6.3)에 이미 필요하던 것이다. 형 없는 칼럼이 있는 실험 판 데이터셋(5.7, 5.8, 5.9, 5.22, 5.23, 5.24)은 스키마가 `experimental`을 벗어날 때 그 형을 정한다고 적는다. 10.2: 표준이 초안인 동안 적지 않았던 형을 적는 것은 문장 고침이다(결정 2026-11-03, #105). `tds_version` `"1.0"` 그대로(문장 고침; 초안).
+- 2026-11-11: **v1.4** 안에서. 8.3: T003·T004·T012 행에 각 코드가 검사하는 표를 적는다. `instrument_symbols`의 겹침(5.2의 T003 줄)은 T012와 같은 조건이라 T012로 한 번만 보고한다. null인 구간 끝은 열려 있어 T004가 아니다(관리자 결정 2026-11-11, #225). `tds_version` `"1.0"` 그대로(검사기 동작, 형식 변경 없음).

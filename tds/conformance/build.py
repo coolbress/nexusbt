@@ -284,6 +284,72 @@ def _facts(selected: str, state_item: str = "revenue") -> Change:
     )  # fmt: skip
 
 
+def _states(*known: tuple[int, int | None]) -> Change:
+    """US:AAA's `revenue` states known over days `[from, to)` of January 2024 (5.18)."""
+    n = len(known)
+
+    def at(day: int | None) -> dt.datetime | None:
+        return None if day is None else _at(day, 0, 0)
+
+    return _both(
+        _add("fundamentals_state", {
+            "instrument_id": ["US:AAA"] * n, "item": ["revenue"] * n,
+            "ts_known_from": pa.array([at(a) for a, _ in known], TS_UTC),
+            "ts_known_to": pa.array([at(b) for _, b in known], TS_UTC),
+            "period_end": pa.array([dt.date(2023, 12, 31)] * n), "period_kind": ["FY"] * n,
+            "statement_basis": ["consolidated"] * n, "value": [1.0] * n,
+            "unit": ["currency"] * n, "scale": pa.array([0] * n, pa.int8()),
+            "strict_eligible": [True] * n, "vendor_input": [False] * n,
+            "resolution_policy": ["latest"] * n,
+        }),
+        _add("dictionary/items", {"item": ["revenue"]}),
+    )  # fmt: skip
+
+
+def _members(effective_to: dt.date | str) -> Change:
+    """US:AAA in `index:X` effective from 2024-01-03 to `effective_to` (5.20)."""
+    return _add("universe_membership", {
+        "universe_id": ["index:X"], "instrument_id": ["US:AAA"],
+        "effective_from": pa.array([dt.date(2024, 1, 3)]), "effective_to": pa.array([effective_to]),
+        "ts_known_from": pa.array([NEW_YEAR], TS_UTC), "source": ["synthetic"],
+    })  # fmt: skip
+
+
+#: A `classifications` row of US:AAA's `gics`: code, effective from and to, known from and to
+#: (ISO dates, None: open), level, edition, pit_quality.
+Classified = tuple[str, str, str | None, str, str | None, int, str, str]
+
+
+def classified_table(rows: list[Classified]) -> pa.Table:
+    def day(s: str | None) -> dt.date | None:
+        return None if s is None else dt.date.fromisoformat(s)
+
+    def ts(s: str | None) -> dt.datetime | None:
+        return None if s is None else dt.datetime.fromisoformat(s).replace(tzinfo=dt.UTC)
+
+    code, ef, et, kf, kt, level, edition, quality = (list(c) for c in zip(*rows, strict=True))
+    return pa.table({
+        "instrument_id": ["US:AAA"] * len(rows), "scheme": ["gics"] * len(rows),
+        "level": pa.array(level, pa.int8()), "code": code,
+        "effective_from": pa.array([day(d) for d in ef], pa.date32()),
+        "effective_to": pa.array([day(d) for d in et], pa.date32()),
+        "ts_known_from": pa.array([ts(t) for t in kf], TS_UTC),
+        "ts_known_to": pa.array([ts(t) for t in kt], TS_UTC),
+        "edition": pa.array(edition, pa.string()), "pit_quality": pa.array(quality, pa.string()),
+        "source": ["synthetic"] * len(rows),
+    })  # fmt: skip
+
+
+def _classified(*rows: Classified) -> Change:
+    table = classified_table(list(rows))
+    return _add("classifications", {name: table[name] for name in table.column_names})
+
+
+#: TDS 6.3 ③'s pinned example 1: A, A2 (A's correction) and B; without A2, A is still known
+#: when B is (T012).
+_A = ("A", "2019-01-01", None, "2018-12-01", "2020-03-06", 1, "both", "native")
+_A2 = ("A", "2019-01-01", "2020-03-20", "2020-03-06", None, 1, "both", "native")
+_B = ("B", "2020-03-20", None, "2020-03-06", None, 1, "both", "native")
 WRONG = "0" * 64
 
 
@@ -541,6 +607,9 @@ CASES: dict[str, tuple[Change, Change]] = {
     ),
     "TDS-T002": (_column_forms(complete=True), _column_forms(complete=False)),
     "TDS-T006": (_watermark(THROUGH), _watermark(THROUGH + dt.timedelta(microseconds=1))),
+    "TDS-T003": (_states((1, 2), (2, None)), _states((1, 3), (2, None))),
+    "TDS-T004": (_members(dt.date(2024, 1, 4)), _members(dt.date(2024, 1, 3))),
+    "TDS-T012": (_classified(_A, _A2, _B), _classified((*_A[:4], None, *_A[5:]), _B)),
     "TDS-D002": (_keep, _bars(session_date=pa.array([dt.date(2024, 1, 1)]))),  # before listed_on
     "TDS-K001": (  # GICS sector and industry on one day (5.19), a key in two editions: no K001
         lambda m, f: (_gics(1, 3)(m, f), _panels("strict", "compare")(m, f)),
@@ -664,6 +733,9 @@ FAILS: dict[str, tuple[str | None, ...]] = {
     ], ("instruments",)),
     "TDS-M014": ("bars_1d", "instruments"),  # the unknown rule, the unknown object
     "TDS-T002": ("delistings", "instrument_symbols"),  # the two-instant form, the one-column
+    "TDS-T003": ("fundamentals_state",),
+    "TDS-T004": ("universe_membership",),
+    "TDS-T012": ("classifications",),
     "TDS-K001": ("feature_panels",),
     "TDS-K010": ("instrument_symbols",),
     "TDS-K011": ("calendar_sessions",),
