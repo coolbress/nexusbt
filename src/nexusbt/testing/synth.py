@@ -12,7 +12,8 @@ not depend on the platform's math library (#128). Both write `instruments`,
 and `delistings` (both empty in `tiny`; in `small` 4.8 (4) and (6)) and dense daily `bars`
 whose raw prices and cumulative factors follow the events (all 1.0 in `tiny`); `small` also
 `tradability_daily` (4.8 (5), whose KR grid, halts and limits move its bars), `share_counts`
-(4.8 (7)) and `eligibility_daily` (4.8 (10)). The hashes in
+(4.8 (7)), `eligibility_daily` (4.8 (10)), the bars' `value_traded` and, with KR, `market_rules`
+(4.8 (11a)). The hashes in
 `tds.json` and `--validate`'s check are the `tds` command's, run as a separate process: spec
 2.5 draws no arrow from `testing` to `nexusbt_tds`, so this module does not import it.
 """
@@ -24,6 +25,7 @@ import datetime as dt
 import itertools
 import json
 import math
+import re
 import subprocess
 import sys
 import sysconfig
@@ -43,10 +45,13 @@ from nexusbt.testing import _synth_events as ev
 from nexusbt.testing._synth_daily import (
     OHLC,
     PRODUCER,
+    TICK_RULE,
     _eligibility,
+    _market_rules,
     _ratios,
     _share_counts,
     _snap,
+    _value_traded,
     _venues,
 )
 from nexusbt.testing._synth_events import _cash, _ratio, check, given, targets
@@ -375,11 +380,12 @@ def _small(
                           (events, ids, days))  # moves `bars` too  # fmt: skip
     out, payouts, delisted = _delistings(market, ids, first, last, sessions, bars, rng, ended)
     counts, eligible = _share_counts(market, sessions, bars, rng), _eligibility(bars, status)
+    bars["value_traded"] = _value_traded(bars)  # of the bars every event and halt has moved
     instruments = _instruments(
         market, ids, mics, [days[i].item() for i in first],
         listed_on_censored=[i == 0 for i in first],
         last_session=[days[j].item() if g else None for j, g in zip(last, gone, strict=True)],
-        delisted_on=delisted,
+        delisted_on=delisted, tick_rule_id=[TICK_RULE if market == "KR" else None] * n,
     )  # fmt: skip
     order = [("session_date", "ascending"), (ID, "ascending")]
     table, status, eligible = (
@@ -781,7 +787,7 @@ _TYPES = {
     "ts_known_to": _TS, "ts_start": _TS, "ts_end": _TS, "ts_open": _TS, "ts_close": _TS,
     "session_ord": pa.int32(), "venue_mic": pa.string(), "listed_on_censored": pa.bool_(),
     "halt_count": pa.int32(), "admin_status": pa.string(), "ts_available": _TS,
-    "reason": pa.string(),
+    "reason": pa.string(), "tick_rule_id": pa.string(),
     **dict.fromkeys(DAY_FLAGS, pa.bool_()), **dict.fromkeys(LIMIT_PRICES, pa.float64()),
 }  # fmt: skip
 
@@ -886,8 +892,8 @@ def make_snapshot(
     `corporate_actions` and `delistings` rows, in `tiny` too, and KR halts in `small` and
     `full`. `full` is `small`'s rules over full's period, counts and lives, the M1 datasets only;
     its M2 datasets, `full_ci` and `overrides` come with later tickets (spec 10.1: T0.8c).
-    `degrade` takes 4.8's core values (T0.16a; `_synth_degrade`) and `late_bars` (#354), the
-    others with T0.16b/c.
+    `degrade` takes 4.8's core values (T0.16a, T0.16c; `_synth_degrade`) and `late_bars`
+    (#354), the others with T0.16b.
     """
     if preset not in ("tiny", *PRESETS) or overrides:
         raise NotImplementedError("only presets tiny, small and full, without overrides, are"
@@ -931,6 +937,8 @@ def make_snapshot(
         "corporate_actions": lambda: joined("corporate_actions", [ID, "ex_date", "event_id"]),
         "delistings": lambda: joined("delistings", [ID, "exit_date"]),
     }  # fmt: skip
+    if preset != "tiny" and "KR" in chosen:  # 4.8 (11a); tiny's prices are on no grid
+        made["market_rules"] = _market_rules
     files = {
         name: [_write(root, f"{name}/part-00000.parquet", name, make())]
         for name, make in made.items()
@@ -1049,6 +1057,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         late = pa.compute.greater(bars["ts_available"], bars["ts_end"])
         print(f"late bars {pa.compute.sum(late).as_py()}")
     done = _tds("check", str(root), "--level", "full")
+    names = {ds["name"] for ds in manifest["datasets"]}
+    # from `instruments`, which a package without `delistings` (F-13) still has
+    last = {r[ID]: r["last_session"] for r in read(root, "instruments").to_pylist()}
+    rows = actions.to_pylist()
+    paid = sum(r["cash_per_share"] is not None and (last[r[ID]] or r["ex_date"]) < r["ex_date"]
+               for r in rows)  # fmt: skip
+    # the checker's own counts: V012's raw prices per dataset, V011's instrument-years
+    off = sum(int(n) for n in re.findall(r"^warning TDS-V012 .*: (\d+) raw price", done.stdout,
+                                         re.M))  # fmt: skip
+    print(f"exact ratios: {sum(r['ratio_num'] is not None for r in rows)}, distributions before"
+          f" delisting: {paid}, off-grid rows:"
+          f" {off if 'market_rules' in names else 'no grid information'}")  # fmt: skip
+    if "TDS-V011 not checked" not in done.stdout:  # the checker's note: volume unit unverified
+        print(f"TDS-V011 warnings: {len(re.findall(r'^warning TDS-V011 ', done.stdout, re.M))}")
     sys.stdout.write(done.stdout)
     sys.stderr.write(done.stderr)
     return done.returncode or int(bool(bad))

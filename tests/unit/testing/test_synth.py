@@ -302,8 +302,8 @@ def test_small_hashes_match_on_macos_and_linux(tmp_path: Path) -> None:
     package = make_snapshot(tmp_path / "d", preset="small")  # default markets KR, US; seed 0
     hashes = json.loads((package / "tds.json").read_text())["hashes"]
     assert (hashes["value_sha256"], hashes["semantic_sha256"]) == (
-        "d31700ab2272c95bec9d69eff687760df314e154471c984acb307930bf8e2e5e",
-        "8fdd001d1ec856f2f40af568ff5ad38902443f0a1a5518b0338b4a589b981afc",  # #287: limit prices
+        "be5d9625deac39764d994d74558799a48cd1227c77a6b9c85f2645a2577e8f9f",
+        "e86cb0abf4d73c2c8650133171561e93557e7710d2db9adae7dd688b47d4775f",  # #231: value_traded
     )
 
 
@@ -328,7 +328,8 @@ def test_small_value_path_uses_no_platform_math() -> None:
                  synth._revise, synth._move, synth._delistings, events.exit_value, daily._snap,
                  daily._ratios, daily._kr_rows, synth._tradability, synth._sample, synth._halts,
                  synth._limits, synth._wobble, synth._status, synth._last_traded,
-                 daily._share_counts, daily._eligibility, daily._venues):  # fmt: skip
+                 daily._share_counts, daily._eligibility, daily._venues, daily._value_traded,
+                 daily._market_rules):  # fmt: skip
         assert not called_names(inspect.getsource(step)) & PLATFORM_MATH, step.__name__
     # the check refuses what it is for, so the pass above is not vacuous
     bad = "def f(rng, p):\n    return np.exp(rng.normal(0, 1)) * p.sqrt() + math.log(2) ** 2\n"
@@ -533,6 +534,7 @@ def test_small_declares_availability_for_every_dataset_with_an_instant(small: Pa
         "calendar_sessions": None,
         "corporate_actions": {"effect": "ts_effective", "terms": "ts_terms_available"},
         "delistings": {"exit": "ts_exit_known", "value": "ts_value_available"},
+        "market_rules": None,  # 5.27 has no instant column, only its validity dates
         "bars_1d": {"rule": "ts_end"},
         "tradability_daily": None,  # its rules are `params.availability_by_column` (6.2, 5.10)
         "share_counts": {"column": "ts_available"},
@@ -614,6 +616,40 @@ def test_kr_prices_on_grid_with_halts_and_limits(small: Path) -> None:
     over = {r["kind"] for r in rows(small, "corporate_actions")
             if (r["instrument_id"], r["ex_date"]) in halted}  # fmt: skip
     assert {"split", "cash_dividend"} <= over  # G-54: a split and an ex-dividend in a halt
+
+
+def warned(printed: str, code: str) -> int:
+    """The warnings of `code` in what `tds check` printed, one line per dataset or key."""
+    return len(re.findall(rf"^warning TDS-{code}\b", printed, re.M))
+
+
+def test_prices_on_grid_with_ulp_noise(small: Path, tmp_path: Path) -> None:
+    # 4.8 (5), (11a) [V31-05]: the package declares the KR grid, and its raw prices are on it
+    rules = rows(small, "market_rules")
+    bands = [r for r in rules if r["rule_kind"] == "tick_band"]
+    assert {r["valid_from"] for r in bands} == {dt.date(2010, 10, 4), dt.date(2023, 1, 25)}
+    assert {(r["venue_group"], r["limit_ratio"]) for r in rules
+            if r["rule_kind"] == "price_limit" and r["valid_to"] is None} == {
+        ("KOSPI", 0.3), ("KOSDAQ", 0.3)}  # fmt: skip
+    assert {r["market"] for r in rules} == {"KR"}
+    pointed = {(r["market"], r["tick_rule_id"]) for r in rows(small, "instruments")}
+    assert pointed == {("KR", bands[0]["rule_id"]), ("US", None), ("ZZ", None)}
+    closes = [b["close"] for b in rows(small, "bars")
+              if b[ID].startswith("KR:") and b["close"] is not None]  # fmt: skip
+    noisy = [c for c in closes if c != round(c)]  # every KR tick is a whole number of won
+    assert noisy
+    assert all(c == math.nextafter(round(c), math.inf) for c in noisy)  # 1 ULP: within 1e-9
+    assert warned(check_full(small), "V012") == 0
+    # counter-example: the lows of one file 1e-7 lower, and V012 counts each of them
+    package = make_snapshot(tmp_path / "off", **SHORT, markets=("KR",))
+    path = package / "bars/freq=1d/market=KR/year=2019/part-00000.parquet"
+    bars = pq.read_table(path)
+    lows = pc.multiply(bars["low"], 1 - 1e-7)
+    pq.write_table(bars.set_column(bars.schema.get_field_index("low"), "low", lows), path)
+    assert synth._tds("hash", str(package), "--write").returncode == 0
+    printed = synth._tds("check", str(package), "--level", "full").stdout
+    off = len(bars) - bars["low"].null_count
+    assert f"warning TDS-V012 bars_1d: {off} raw price(s) off the price grid" in printed
 
 
 def test_a_halt_never_hides_a_close_a_factor_uses() -> None:
@@ -949,7 +985,7 @@ CORE, MINIMAL = "tds:equity-daily-core@1.0", "tds:minimal-daily@1.0"
 #: bars with OHLCV and obs_status, so these four cannot keep it, and the other three can.
 DROPS_CORE = {"no_ohlc": True, "no_sessions": True, "sparse_bars": True, "no_cum_factors": False,
               "kr_ex_is_record": False, "us_div_split_adjusted_no_dates": False,
-              "no_delistings": True,
+              "no_delistings": True, "no_tick_info": False,  # F-15: market_rules is optional
               "late_bars": False}  # #354: no gap of the 4.5 table, valid data  # fmt: skip
 
 
@@ -1018,6 +1054,13 @@ def test_synth_conforms_degraded_core(
         assert kinds["bars"]["availability"] == {"column": "ts_available"}
         assert "ready_delay" not in kinds["bars"]["params"]
         assert pc.sum(pc.greater(bars["ts_available"], bars["ts_end"])).as_py() > 0
+    elif value == "no_tick_info":  # F-15: no grid information anywhere, the prices as they were
+        assert "market_rules" not in kinds
+        assert "tick_rule_id" not in rows(package, "instruments")[0]
+        plain = make_snapshot(tmp_path / "plain", **SHORT, events=us_dividend_before_split)
+        assert "market_rules" in {d["kind"] for d in json.loads(
+            (plain / "tds.json").read_text(encoding="utf-8"))["datasets"]}  # fmt: skip
+        assert bars.equals(read(plain, "bars_1d"))
     else:  # F-13: instruments still say they left, with no delistings to say how
         assert "delistings" not in kinds
         assert any(r["delisted_on"] for r in rows(package, "instruments"))
@@ -1026,6 +1069,83 @@ def test_synth_conforms_degraded_core(
     # the generator's own A001 agrees, also across the halted days sparse bars leave out
     assert a001(read(package, "corporate_actions"), bars) == (
         None if value == "no_cum_factors" else 0)  # fmt: skip
+
+
+def validate_short(monkeypatch: pytest.MonkeyPatch, out: Path, *more: str) -> None:
+    """The command with `--validate` on `small` cut to SHORT's year and counts."""
+    short = synth.PRESETS["small"]._replace(start=SHORT["start"], counts={"KR": 20, "US": 20})
+    monkeypatch.setitem(synth.PRESETS, "small", short)
+    assert main(["--preset", "small", "--out", str(out), "--validate", *more]) == 0
+
+
+def test_exact_ratios_present(
+    small: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # 4.8 (4) [V31-01]: every share event has its exact ratio, the others none
+    actions = rows(small, "corporate_actions")
+    shares = [r for r in actions if r["kind"] in synth.SHARE_EVENTS]
+    ratios = {(r["ratio_num"], r["ratio_den"]) for r in shares}
+    assert {(7, 1), (1, 3), (129, 100)} <= ratios  # 1/7, 1/3 and 1.29: no binary fraction
+    for r in shares:  # the f64 columns are the quotient (TDS 5.11), so no A010
+        assert r["share_factor"] == r["ratio_num"] / r["ratio_den"]
+        new_per_old = r["share_factor"] - (r["kind"] == "bonus_issue")
+        assert r["ratio_new_per_old"] == pytest.approx(new_per_old, rel=1e-12)
+    assert all((r["ratio_num"], r["ratio_den"]) == (None, None) for r in actions
+               if r not in shares)  # fmt: skip
+    printed = check_full(small)
+    assert warned(printed, "A011") == 0  # [V31-04]: every distribution's exit says if it counts
+    # the done line, on a short `small`: the counts are those of the rows it wrote
+    validate_short(monkeypatch, tmp_path / "cli")
+    written = rows(tmp_path / "cli", "corporate_actions")
+    last = {r[ID]: r["last_trading_date"] for r in rows(tmp_path / "cli", "delistings")}
+    n = sum(r["ratio_num"] is not None for r in written)
+    k = sum(r["kind"] == "return_of_capital" and r["ex_date"] > last[r[ID]] for r in written)
+    assert n > 0
+    assert k > 0
+    line = f"exact ratios: {n}, distributions before delisting: {k}, off-grid rows: 0"
+    assert line in capsys.readouterr().out.splitlines()
+    assert main(["--preset", "tiny", "--out", str(tmp_path / "tiny"), "--validate"]) == 0
+    line = "exact ratios: 0, distributions before delisting: 0, off-grid rows: no grid information"
+    assert line in capsys.readouterr().out.splitlines()
+
+
+def test_volume_in_lots_triggers_V011(  # noqa: N802 - the ticket's test name
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # 4.8 (3), (11a), F-16 [V31-16]: value traded in shares, KR volume in lots of 100
+    plain = make_snapshot(tmp_path / "plain", **SHORT)
+    bars = read(plain, "bars_1d").to_pylist()
+    for b in bars:
+        halted = b["obs_status"] == "halted"
+        typical = 0.0 if halted else (b["high"] + b["low"] + b["close"]) / 3
+        assert b["value_traded"] == pytest.approx(b["volume"] * typical, rel=1e-12), b
+    printed = check_full(plain)
+    assert warned(printed, "V011") == 0
+    assert "volume unit unverified" not in printed
+    package = make_snapshot(tmp_path / "lots", **SHORT, degrade=["volume_in_lots"])
+    for b, lot in zip(bars, read(package, "bars_1d").to_pylist(), strict=True):
+        kr = b[ID].startswith("KR:")  # whole lots, the odd shares dropped; nothing else moves
+        assert lot == b | {"volume": float(b["volume"] // 100) if kr else b["volume"]}, b
+    printed = check_full(package)
+    traded = {b[ID] for b in bars if b[ID].startswith("KR:") and b["volume"] >= 100}
+    assert warned(printed, "V011") == len(traded) > 0  # one per KR instrument and year
+    assert "hint: volume may be in lots" in printed
+    assert CORE in json.loads((package / "tds.json").read_text(encoding="utf-8"))["profiles"]
+    # the done line: the command names the count, 0 without the value
+    validate_short(monkeypatch, tmp_path / "cli", "--degrade", "volume_in_lots")
+    assert f"TDS-V011 warnings: {len(traded)}" in capsys.readouterr().out.splitlines()
+    validate_short(monkeypatch, tmp_path / "cli")
+    assert "TDS-V011 warnings: 0" in capsys.readouterr().out.splitlines()
+    # no count where the checker could not judge (no high or low), and the distributions are
+    # still counted without `delistings`
+    validate_short(monkeypatch, tmp_path / "cli", "--degrade", "no_ohlc,no_delistings")
+    printed = capsys.readouterr().out
+    assert "TDS-V011 warnings" not in printed
+    assert "note: TDS-V011 not checked" in printed
+    written = rows(tmp_path / "cli", "corporate_actions")
+    paid = sum(r["kind"] == "return_of_capital" for r in written)
+    assert f"distributions before delisting: {paid}, " in printed
+    assert paid > 0
 
 
 def test_late_bars_variant_has_late_bars_in_an_overlap_tail(tmp_path: Path) -> None:
@@ -1095,7 +1215,7 @@ def test_degrade_drops_declared_profiles(tmp_path: Path) -> None:
         assert f"error TDS-M008: {CORE} requires" in done.stdout
         assert missing[value] in done.stdout
     for wrong, error, words in (
-        (["no_eligibility"], NotImplementedError, r"come with T0.16b and T0.16c"),
+        (["no_eligibility"], NotImplementedError, r"come with T0.16b \(spec"),
         (["no_ohlcv"], ValueError, "spec 4.8 has"),
         ("no_ohlc", ValueError, "a sequence of values"),
     ):  # fmt: skip
