@@ -64,7 +64,11 @@ def _check(m: Manifest, only: Sequence[str] | None, blind: set[str]) -> list[Fin
             continue
         columns = resolved_columns(ds, schema.columns)
         for rel, _ in listed(root, ds):
-            found = _check_file(root / rel, columns, codes)
+            try:
+                found = _check_file(root / rel, columns, codes)
+            except (OSError, pa.ArrowException):  # S010's: this file's rows unseen, not others'
+                blind.update(CELL_CODES)
+                continue
             out += [replace(f, dataset=ds.get("name"), file=rel) for f in found]
     return out
 

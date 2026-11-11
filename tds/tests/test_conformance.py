@@ -139,6 +139,11 @@ def test_an_unreadable_file_leaves_the_row_S_codes_unchecked(tmp_path: Path) -> 
 
     result = check(write(tmp_path, broken), level="full")
     assert {"TDS-S006", "TDS-S007", "TDS-S009"} <= set(result.unchecked)
+    # another file's findings stay (review): the +Inf close, with the unreadable instruments
+    unread = build._both(build._bars(close=pa.array([math.inf])), lambda m, f: (
+        f.update({build.INSTRUMENTS: b"not parquet"}),
+        m["datasets"][0]["files"][0].update(bytes=len(b"not parquet"))))  # fmt: skip
+    assert sorted(codes(write(tmp_path / "both", unread), "full")) == ["TDS-S009", "TDS-S010"]
 
 
 def test_M015_warns_of_an_experimental_dataset_and_otherwise_passes(tmp_path: Path) -> None:
