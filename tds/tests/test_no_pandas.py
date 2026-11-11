@@ -105,6 +105,7 @@ def test_a_tick_that_is_not_a_whole_microsecond_is_judged(
     change(manifest, files)
     said = _run(build.write(tmp_path, manifest, files), pandas)
     assert said["converts"] is (pandas == "installed")  # blocked: a pandas-free install's path
+    found = sorted(["TDS-M015", *found])  # quotes are experimental (TDS 5.7)
     assert sorted(code for code, _, _ in said["found"]) == found, said
     assert ["TDS-T001", "events"] in [f[:2] for f in said["found"]]
     assert [c for c in said["unchecked"] if c in INSTANT_CODES] == []

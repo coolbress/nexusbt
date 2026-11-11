@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import math
 import tracemalloc
 from pathlib import Path
 from typing import Any
@@ -68,6 +69,87 @@ def test_S_codes(code: str, tmp_path: Path) -> None:
     assert codes(build.write(tmp_path / "pass", *build.package(code, "pass")), "schema") == []
 
 
+@pytest.mark.parametrize("code", ["TDS-S006", "TDS-S007", "TDS-S009"])
+def test_S_codes_from_rows_at_full(code: str, tmp_path: Path) -> None:
+    """The same packages at `full`, which judges these three from the rows (TDS 8.1, #391)."""
+    fail = check(build.write(tmp_path / "fail", *build.package(code, "fail")), level="full")
+    assert pairs(tmp_path / "fail", "full") == stated(code)
+    assert code not in fail.unchecked
+    passed = check(build.write(tmp_path / "pass", *build.package(code, "pass")), level="full")
+    assert code not in codes(tmp_path / "pass", "full")  # S009's has a V002 close, -1e300
+    assert code not in passed.unchecked
+
+
+def _listed3(**columns: list[Any]) -> Any:
+    """Three instruments; `columns` replaces base columns. The middle value lies between a
+    row group's minimum and maximum, where the footer cannot see it."""
+    ids = {"instrument_id": ["US:AAA", "US:BBB", "US:CCC"]}
+    base = {k: v * 3 for k, v in build.instruments().to_pydict().items()} | ids
+    table = pa.table(base | columns)
+    return lambda m, f: build.rewrite(m, f, build.INSTRUMENTS, table, row_group_size=3)
+
+
+@pytest.mark.parametrize(
+    ("change", "found"),
+    [
+        (_listed3(asset_class=["bond", "cash", "rate"]), ["TDS-S006"]),  # closed: an error
+        (_listed3(asset_class=["bond", "equity", "rate"]), []),
+        (_listed3(category=["adr", "ordinary", "reit"]), ["TDS-S007"]),  # open: a warning
+        (build._both(_listed3(category=["adr", "ordinary", "reit"]), build._codes), []),
+        (_listed3(category=["adr", None, "reit"]), []),  # a null is no value
+    ],
+)
+def test_S006_S007_rows(change: Any, found: list[str], tmp_path: Path) -> None:
+    package = write(tmp_path, change)
+    result = check(package, level="full")
+    assert [f.code for f in (*result.errors, *result.warnings)] == found
+    assert not {"TDS-S006", "TDS-S007"} & set(result.unchecked)
+    assert codes(package, "schema") == []  # min and max are listed: the footer sees no fault
+    assert found == [] or {"TDS-S006", "TDS-S007"} & set(check(package, level="schema").unchecked)
+
+
+def test_S006_names_the_file_and_the_value(tmp_path: Path) -> None:
+    """When a bar has `obs_status = "tradedd"`, `full` reports S006 with the file and value."""
+    package = write(tmp_path, build._bars(obs_status=pa.array(["tradedd"])))
+    (finding,) = check(package, level="full").errors
+    assert (finding.code, finding.dataset, finding.file) == ("TDS-S006", "bars_1d", build.BARS)
+    assert "'tradedd'" in finding.message
+
+
+@pytest.mark.parametrize(
+    ("change", "found", "at_schema"),
+    [
+        (build._instruments(lot_size=pa.array([math.nan])), ["TDS-S009"], []),  # not in footers
+        (build._bars(close=pa.array([math.inf])), ["TDS-S009"], ["TDS-S009"]),  # once, not twice
+        (build._instruments(lot_size=pa.array([2.0])), [], []),
+    ],
+)
+def test_S009_rows(change: Any, found: list[str], at_schema: list[str], tmp_path: Path) -> None:
+    package = write(tmp_path, change)
+    result = check(package, level="full")
+    assert [f.code for f in result.errors] == found
+    assert "TDS-S009" not in result.unchecked
+    assert codes(package, "schema") == at_schema
+
+
+def test_an_unreadable_file_leaves_the_row_S_codes_unchecked(tmp_path: Path) -> None:
+    def broken(m: dict[str, Any], f: Any) -> None:
+        f[build.BARS] = b"not parquet"
+        build.bars(m)["files"][0]["bytes"] = len(f[build.BARS])
+
+    result = check(write(tmp_path, broken), level="full")
+    assert {"TDS-S006", "TDS-S007", "TDS-S009"} <= set(result.unchecked)
+
+
+def test_M015_warns_of_an_experimental_dataset_and_otherwise_passes(tmp_path: Path) -> None:
+    plain = write(tmp_path / "plain")
+    for level in ("manifest", "schema", "full"):
+        assert "TDS-M015" not in check(plain, level=level).unchecked
+    trades = write(tmp_path / "trades", build._add("trades", {"instrument_id": ["US:AAA"]}))
+    assert pairs(trades, "manifest") == [("TDS-M015", "trades")]
+    assert check(trades, level="manifest").warnings[0].severity == "warning"
+
+
 K_CODES = ["TDS-K001", "TDS-K002", "TDS-K003", "TDS-K004", "TDS-K010", "TDS-K011"]
 
 
@@ -82,11 +164,16 @@ def keys_batches(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
 @pytest.mark.parametrize("code", K_CODES)
 def test_K_codes(code: str, tmp_path: Path) -> None:
     fail = check(build.write(tmp_path / "fail", *build.package(code, "fail")), level="full")
-    assert pairs(tmp_path / "fail", "full") == stated(code)
+    assert [p for p in pairs(tmp_path / "fail", "full") if p not in EXPERIMENTAL] == stated(code)
     assert code not in fail.unchecked
-    assert codes(tmp_path / "fail", "schema") == []  # the schema level reads no rows
+    assert [c for c in codes(tmp_path / "fail", "schema") if c != "TDS-M015"] == []  # no rows
     passed = check(build.write(tmp_path / "pass", *build.package(code, "pass")), level="full")
-    assert (passed.errors, passed.warnings, code in passed.unchecked) == ((), (), False)
+    warned = [p for p in ((w.code, w.dataset) for w in passed.warnings) if p not in EXPERIMENTAL]
+    assert (passed.errors, warned, code in passed.unchecked) == ((), [], False)
+
+
+#: The M015 warning a package with an experimental dataset also gets (TDS 5.7: `quotes`).
+EXPERIMENTAL = [("TDS-M015", "quotes")]
 
 
 def _custom_in_year(m: dict[str, Any], f: Any) -> None:  # no schema: no key, sort, date column
