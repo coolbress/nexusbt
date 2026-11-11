@@ -2,9 +2,9 @@
   "kind": "calendar_segments", "schema_version": "1.0", "status": "stable", "section": "5.4",
   "key": ["calendar_id", "session_date", "segment", "ts_start"], "sort": null, "partitions": [],
   "columns": [
-    {"name": "calendar_id", "type": null, "null": null},
-    {"name": "session_date", "type": null, "null": null},
+    {"name": "calendar_id", "type": "id", "null": null},
+    {"name": "session_date", "type": "date", "null": null},
     {"name": "segment", "type": "code", "null": null},
-    {"name": "ts_start", "type": null, "null": null}
+    {"name": "ts_start", "type": "ts_us", "null": null}
   ]
 }

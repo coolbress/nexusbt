@@ -2,14 +2,14 @@
   "kind": "rates", "schema_version": "1.0", "status": "stable", "section": "5.16",
   "key": ["curve_id", "tenor_days", "ts_event"], "sort": null, "partitions": [],
   "columns": [
-    {"name": "curve_id", "type": null, "null": null},
-    {"name": "currency", "type": null, "null": null},
+    {"name": "curve_id", "type": "id", "null": null},
+    {"name": "currency", "type": "code", "null": null},
     {"name": "tenor_days", "type": "i32", "null": null},
     {"name": "rate", "type": "f64", "null": null},
     {"name": "compounding", "type": "code", "null": null},
     {"name": "day_count", "type": "code", "null": null},
-    {"name": "ts_event", "type": null, "null": null},
-    {"name": "ts_available", "type": null, "null": null},
-    {"name": "source", "type": null, "null": null}
+    {"name": "ts_event", "type": "ts_us", "null": null},
+    {"name": "ts_available", "type": "ts_us", "null": null},
+    {"name": "source", "type": "string", "null": null}
   ]
 }
