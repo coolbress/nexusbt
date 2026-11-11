@@ -1674,6 +1674,15 @@ def test_T012_rectangle_examples_1_to_5(
     assert (result.errors, result.warnings, "TDS-T012" in result.unchecked) == ((), (), False)
 
 
+def test_rect_lookup_reads_a_null_edition_and_pit_quality() -> None:
+    """5.19: a null `edition` is `both`; a null `pit_quality` is not `backfilled`."""
+    table = build.classified_table([(*_G[:6], None, None)])
+    noon = dt.datetime(2024, 1, 5, 12, tzinfo=dt.UTC)
+    for edition in ("strict", "compare"):
+        found = pit.rect_lookup(table, noon, dt.date(2024, 1, 5), edition=edition)
+        assert found["code"].to_pylist() == ["G"]
+
+
 def _tickers(second_known: dt.datetime | None) -> Any:
     """US:AAA's tickers A0 valid from 2024-01-02 known until 2024-01-03 00:00, and A1 valid from
     2024-01-03 known from `second_known` (None: the session open of `valid_from`, 5.2)."""
@@ -1696,6 +1705,10 @@ def _at(day: int, hour: int) -> dt.datetime:
         (_tickers(_at(2, 0)), ["TDS-T012"], []),  # both known on the 2nd, both valid the 3rd on
         (_tickers(_at(3, 0)), [], []),  # A1 known as A0 stops being known
         (_tickers(None), [], ["TDS-T012"]),  # a null known start: undecided, as K010 is
+        (build._both(build._classified(  # a null edition is `both` (5.19), in each filter
+            ("N1", "2024-01-02", None, "2024-01-01", None, 1, None, None),
+            ("N2", "2024-01-03", None, "2024-01-01", None, 1, None, None),
+        ), build.CASES["TDS-T003"][1]), ["TDS-T012", "TDS-T003"], []),
         (_rules((0.0, 1.0, 0.0001), (0.5, None, 0.01)), ["TDS-T003"], []),  # bands overlap
         (_rules((0.0, 1.0, 0.0001), (1.0, None, 0.01), until=dt.date(2024, 1, 2)),
          ["TDS-T004"], []),  # valid_to == valid_from: one finding for the dataset

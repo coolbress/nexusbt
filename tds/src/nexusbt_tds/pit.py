@@ -34,10 +34,14 @@ def rect_lookup(
         upper = pc.field(hi)
         return (pc.field(lo) <= pc.scalar(at)) & (upper.is_null() | (upper > pc.scalar(at)))
 
+    def text(name: str, default: str) -> pc.Expression:  # null, or no column: `default`
+        if name not in rows.column_names:
+            return pc.scalar(default)
+        return pc.coalesce(pc.field(name).cast(pa.string()), pc.scalar(default))
+
     keep = inside("ts_known_from", "ts_known_to", cutoff) & inside(start, end, date)
-    if edition is not None:
-        keep &= pc.field("edition").isin(list(EDITIONS[edition]))
-        if edition == "strict" and "pit_quality" in rows.column_names:
-            quality = pc.coalesce(pc.field("pit_quality"), pc.scalar(""))
-            keep &= quality != pc.scalar("backfilled")
+    if edition is not None:  # a null edition is `both` (5.19)
+        keep &= text("edition", "both").isin(list(EDITIONS[edition]))
+        if edition == "strict":
+            keep &= text("pit_quality", "") != pc.scalar("backfilled")
     return rows.filter(keep)

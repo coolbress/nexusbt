@@ -335,7 +335,8 @@ def classified_table(rows: list[Classified]) -> pa.Table:
         "effective_to": pa.array([day(d) for d in et], pa.date32()),
         "ts_known_from": pa.array([ts(t) for t in kf], TS_UTC),
         "ts_known_to": pa.array([ts(t) for t in kt], TS_UTC),
-        "edition": edition, "pit_quality": quality, "source": ["synthetic"] * len(rows),
+        "edition": pa.array(edition, pa.string()), "pit_quality": pa.array(quality, pa.string()),
+        "source": ["synthetic"] * len(rows),
     })  # fmt: skip
 
 

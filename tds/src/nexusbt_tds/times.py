@@ -92,7 +92,8 @@ def _dataset(m: Manifest, ds: Mapping[str, Any], undecided: list[bool]) -> list[
     ids = {id(r) for r in broken}
     groups = _group(_filtered(kind, [r for r in rows if id(r) not in ids]),
                     lambda r: tuple(r[c] for c in (*key, "filter")))  # fmt: skip
-    hits = [h for g in groups.values() if (h := _overlap(g, pairs, undecided))]
+    unsure = undecided if code == T012 else []  # a null start in T003's tables is S003's
+    hits = [h for g in groups.values() if (h := _overlap(g, pairs, unsure))]
     if hits:
         a, b = hits[0]
         msg = f"{len(hits)} {SAID[code]}" + (_shown_at(a, b) if code == T012 else "")
