@@ -1136,6 +1136,16 @@ def test_volume_in_lots_triggers_V011(  # noqa: N802 - the ticket's test name
     assert f"TDS-V011 warnings: {len(traded)}" in capsys.readouterr().out.splitlines()
     validate_short(monkeypatch, tmp_path / "cli")
     assert "TDS-V011 warnings: 0" in capsys.readouterr().out.splitlines()
+    # no count where the checker could not judge (no high or low), and the distributions are
+    # still counted without `delistings`
+    validate_short(monkeypatch, tmp_path / "cli", "--degrade", "no_ohlc,no_delistings")
+    printed = capsys.readouterr().out
+    assert "TDS-V011 warnings" not in printed
+    assert "note: TDS-V011 not checked" in printed
+    written = rows(tmp_path / "cli", "corporate_actions")
+    paid = sum(r["kind"] == "return_of_capital" for r in written)
+    assert f"distributions before delisting: {paid}, " in printed
+    assert paid > 0
 
 
 def test_late_bars_variant_has_late_bars_in_an_overlap_tail(tmp_path: Path) -> None:

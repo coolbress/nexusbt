@@ -1058,9 +1058,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"late bars {pa.compute.sum(late).as_py()}")
     done = _tds("check", str(root), "--level", "full")
     names = {ds["name"] for ds in manifest["datasets"]}
-    exits = read(root, "delistings").to_pylist() if "delistings" in names else []
-    last, rows = {r[ID]: r["last_trading_date"] for r in exits}, actions.to_pylist()
-    paid = sum(r["cash_per_share"] is not None and r["ex_date"] > last.get(r[ID], r["ex_date"])
+    # from `instruments`, which a package without `delistings` (F-13) still has
+    last = {r[ID]: r["last_session"] for r in read(root, "instruments").to_pylist()}
+    rows = actions.to_pylist()
+    paid = sum(r["cash_per_share"] is not None and (last[r[ID]] or r["ex_date"]) < r["ex_date"]
                for r in rows)  # fmt: skip
     # the checker's own counts: V012's raw prices per dataset, V011's instrument-years
     off = sum(int(n) for n in re.findall(r"^warning TDS-V012 .*: (\d+) raw price", done.stdout,
@@ -1068,7 +1069,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     print(f"exact ratios: {sum(r['ratio_num'] is not None for r in rows)}, distributions before"
           f" delisting: {paid}, off-grid rows:"
           f" {off if 'market_rules' in names else 'no grid information'}")  # fmt: skip
-    if "value_traded" in bars.column_names:  # else the checker's note: volume unit unverified
+    if "TDS-V011 not checked" not in done.stdout:  # the checker's note: volume unit unverified
         print(f"TDS-V011 warnings: {len(re.findall(r'^warning TDS-V011 ', done.stdout, re.M))}")
     sys.stdout.write(done.stdout)
     sys.stderr.write(done.stderr)

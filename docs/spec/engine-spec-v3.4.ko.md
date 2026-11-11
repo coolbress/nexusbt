@@ -1341,7 +1341,7 @@ def make_snapshot(root: Path, *, preset: Literal["tiny","small","full","full_ci"
 
 `EventSpec`(사건 주입): `{"kind": "split", "instrument_id": "KR:T00001", "ex_date": "2020-02-03", "ratio_new_per_old": 2.0}`처럼 TDS 데이터셋(`corporate_actions`, `delistings`, `fundamentals_events`/`fundamentals_state`, `tradability_daily`)의 칼럼 이름을 그대로 쓰는 dict와 `"dataset"` 키. 주입된 사건이 있으면 같은 날짜의 무작위 사건을 만들지 않는다(그 종목에 대해). 생성기 출력은 같은 인자에서 바이트 동일해야 한다(시험 `test_synth_deterministic`).
 
-`python -m nexusbt.testing.synth --preset P --out DIR [--markets KR,US,ZZ] [--degrade a,b] --validate`는 만든 뒤 `tds check --level full`을 돌려 데이터셋별 행 수, 패키지 `value_sha256`·`semantic_sha256`, 프로필 세 결과를 출력한다. `--validate`를 주면 "exact ratios: n, distributions before delisting: k, off-grid rows: m"(`ratio_num`이 있는 `corporate_actions` 행 수; 권리락일이 그 종목의 마지막 거래일보다 뒤인 현금 분배 수; TDS-V012가 센 가격 수, `market_rules`가 없는 패키지는 "no grid information")도 출력하고, 바에 `value_traded`가 있으면 "TDS-V011 warnings: n"도 출력한다(#231).
+`python -m nexusbt.testing.synth --preset P --out DIR [--markets KR,US,ZZ] [--degrade a,b] --validate`는 만든 뒤 `tds check --level full`을 돌려 데이터셋별 행 수, 패키지 `value_sha256`·`semantic_sha256`, 프로필 세 결과를 출력한다. `--validate`를 주면 "exact ratios: n, distributions before delisting: k, off-grid rows: m"(`ratio_num`이 있는 `corporate_actions` 행 수; 권리락일이 그 종목의 마지막 거래일보다 뒤인 현금 분배 수; TDS-V012가 센 가격 수, `market_rules`가 없는 패키지는 "no grid information")도 출력하고, 검사기가 TDS-V011을 검사하지 못했다고 말하지 않는 한(`value_traded`·거래량·고가·저가·종가를 모두 가진 바가 없는 경우) "TDS-V011 warnings: n"도 출력한다(#231).
 
 ---
 
