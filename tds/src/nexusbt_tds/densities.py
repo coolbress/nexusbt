@@ -19,8 +19,9 @@ import bisect
 import datetime as dt
 from collections import Counter, defaultdict
 from collections.abc import Collection, Mapping, Sequence
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -77,24 +78,24 @@ def _listed(
     """D002 and, on dense bars, D001 of one daily bars dataset."""
     outside, first, held = 0, None, Counter[Any]()
     on = {c: set(v) for c, v in sessions.items()} if dense else {}
+    ends = {i: _end(r[4], markets.get(r[2])) for i, r in listings.items()} if dense else {}
     for i, day in _rows(root, ds, ("instrument_id", "session_date")):
-        _, calendar, _, listed_on, last, delisted = listings.get(i, (None,) * 6)
+        _, calendar, _, listed_on, _, delisted = listings.get(i, (None,) * 6)
         if day is None or i not in listings:
             continue  # R001's, S003's
         if (listed_on is not None and day < listed_on) or (delisted and day > delisted):
             outside, first = outside + 1, first or {"instrument_id": i, "session_date": str(day)}
-        elif dense and listed_on is not None and day >= listed_on and (last is None or day <= last):
-            held[i] += day in on.get(calendar, ())
+        held[i] += dense and listed_on is not None and ends[i] is not None and (
+            listed_on <= day <= ends[i] and day in on.get(calendar, ()))  # fmt: skip
     out = []
     if outside and name not in reported:
         msg = f"{outside} daily bar(s) outside their instrument's listed_on..delisted_on"
         out.append(Finding(D002, "error", msg, name, key=first, count=outside))
     missing, shown = 0, None
-    for i in sorted(held, key=str) if dense else ():
-        _, calendar, market, listed_on, last, _ = listings[i]
-        through = _instant((markets.get(market) or {}).get("complete_through"))
-        end = last or (through.date() if through else None)
-        if end is None or calendar not in sessions:
+    for i in sorted(held, key=str) if dense else ():  # each instrument with a row
+        _, calendar, _, listed_on, _, _ = listings[i]
+        end = ends[i]
+        if end is None or listed_on is None or calendar not in sessions:
             blind.add(D001)
             continue
         lack = len(_between(sessions[calendar], listed_on, end)) - held[i]
@@ -105,6 +106,20 @@ def _listed(
     return out
 
 
+def _end(last: Any, market: object) -> Any:
+    """D001's last day: `last_session`, else the market's `complete_through` as a date in the
+    market's `timezone` (UTC when it names none); None without either."""
+    entry = market if isinstance(market, dict) else {}
+    through = _instant(entry.get("complete_through"))
+    if last is not None or through is None:
+        return last
+    try:
+        zone: dt.tzinfo = ZoneInfo(str(entry.get("timezone")))
+    except (KeyError, ValueError):  # no or an unknown zone name
+        zone = dt.UTC
+    return through.astimezone(zone).date()
+
+
 def _between(days: list[Any], start: Any, end: Any) -> list[Any]:
     """The sorted `days` from `start` to `end`, both included."""
     return days[bisect.bisect_left(days, start) : bisect.bisect_right(days, end)]
@@ -112,14 +127,13 @@ def _between(days: list[Any], start: Any, end: Any) -> list[Any]:
 
 def _counts(root: Path, ds: Mapping[str, Any], name: str) -> list[Finding]:
     """D004: the declared `rows` and `coverage` against the files."""
-    wrong = []
-    for entry in (f for f in ds.get("files") or [] if isinstance(f, dict)):
-        rel = entry.get("path")
-        if isinstance(rel, str) and (root / rel).is_file() and "rows" in entry:
-            n = pq.ParquetFile(root / rel).metadata.num_rows
-            wrong += [f"{rel} rows {entry['rows']}, read {n}"] if entry["rows"] != n else []
-    files = list(listed(root, ds))
-    total = sum(pq.ParquetFile(root / rel).metadata.num_rows for rel, _ in files)
+    files = list(listed(root, ds))  # inside the package and there (M012, M004), once each
+    read = {rel: pq.ParquetFile(root / rel).metadata.num_rows for rel, _ in files}
+    total, wrong = sum(read.values()), []
+    for entry in (f for f in ds.get("files") or [] if isinstance(f, dict) and "rows" in f):
+        n = read.get(str(PurePosixPath(str(entry.get("path")))))
+        if n is not None and n != entry["rows"]:
+            wrong.append(f"{entry['path']} rows {entry['rows']}, read {n}")
     if "rows" in ds and ds["rows"] != total:
         wrong.append(f"rows {ds['rows']}, read {total}")
     coverage = ds.get("coverage")

@@ -1812,6 +1812,35 @@ def _through(m: dict[str, Any], f: Any) -> None:  # US complete through the 3rd'
     m["markets"]["US"]["complete_through"] = "2024-01-03T21:00:00Z"
 
 
+def _three(*days: int, through: str = "2024-01-03T21:00:00Z", last: dt.date | None = None) -> Any:
+    """Dense bars of US:AAA on `days`, XNYS sessions on the 2nd to the 4th, US complete
+    `through`, `last_session` `last`."""
+
+    def change(m: dict[str, Any], f: Any) -> None:
+        build._sessions(0, (2, 3, 4))(m, f)
+        build._instruments(last_session=pa.array([last], pa.date32()))(m, f)
+        build._set("params", build.DENSE, in_bars=True)(m, f)
+        n, on = len(days), pa.array([JAN[d] for d in days])
+        ids, traded, close = pa.array(["US:AAA"] * n), pa.array(["traded"] * n), pa.array([1.0] * n)
+        build._bars(instrument_id=ids, session_date=on, obs_status=traded, close=close)(m, f)
+        m["markets"]["US"]["complete_through"] = through
+
+    return change
+
+
+def test_D004_reads_no_file_outside_the_package(tmp_path: Path) -> None:
+    """M012's paths are not read: an outside file's rows are not D004's, nor do they stop it."""
+    (tmp_path / "outside.txt").write_text("not parquet\n")
+
+    def change(m: dict[str, Any], f: Any) -> None:  # and the dataset's rows 2, read 1: D004
+        build._covered(2)(m, f)
+        build.bars(m)["files"].append({"path": "../outside.txt", "rows": 7, "bytes": 12})
+
+    result = check(write(tmp_path / "pkg", change), level="full")
+    assert sorted(f.code for f in result.errors) == ["TDS-D004", "TDS-M012"]
+    assert "outside" not in next(f.message for f in result.errors if f.code == "TDS-D004")
+
+
 _TRADED = build._bars(obs_status=pa.array(["traded"]))  # the 2nd only
 _DENSE_2 = build._both(build._sessions(0), build._set("params", build.DENSE, in_bars=True), _TRADED)
 
@@ -1827,6 +1856,9 @@ _DENSE_2 = build._both(build._sessions(0), build._set("params", build.DENSE, in_
          ["TDS-D001", "TDS-D002", "TDS-D004"]),  # a text listed_on: none judged
         (_DENSE_2, [], ["TDS-D001"]),  # no last_session, no complete_through: not judged
         (build._both(_DENSE_2, _through), ["TDS-D001"], []),  # the 3rd, to the watermark
+        (_three(2, 4), ["TDS-D001"], []),  # a row after the watermark hides no gap
+        (_three(2, 3, through="2024-01-04T01:00:00Z"), [], []),  # 20:00 on the 3rd in New York
+        (_three(4, last=JAN[3]), ["TDS-D001"], []),  # rows only after last_session: judged
         (build._covered(2), ["TDS-D004"], []),  # the dataset's rows
         (build._both(build._covered(), lambda m, f: build.bars(m)["files"][0].update(rows=2)),
          ["TDS-D004"], []),  # a file's rows
