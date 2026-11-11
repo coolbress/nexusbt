@@ -1093,7 +1093,7 @@ Severity: E = error (profile fails), W = warning.
 | TDS-T005 | E | Daily `ts_start/ts_end` differ from the session open and close (when present) |
 | TDS-T006 | E | Data after the market watermark `complete_through` |
 | TDS-T007 | E | Fundamentals `ts_available < period_end` (without a preliminary marker) |
-| TDS-T008 | W | `ts_recv < ts_event − tolerance` |
+| TDS-T008 | W | `ts_recv < ts_event − tolerance`; the tolerance is 0 until a parameter defines it [2026-11-11] |
 | TDS-T010 | E | `last_session < listed_on` |
 | TDS-T011 | W | Publication of the exit consideration earlier than publication of the exit |
 | TDS-T012 | E | The two-time-axis **rectangle** lookup returns more than one row for one time and one discriminating key (for classifications including scheme, level and edition filter), in the three rectangle-lookup tables (6.3 ③): `classifications`, `universe_membership`, `instrument_symbols` [2026-11-11] |
@@ -1526,3 +1526,4 @@ Reference numbers are `R4F-NN` of specification v3.4 (appendix I). **`tds_versio
 - 2026-11-10: **v1.4**, in place. 3.4 and 8.3 TDS-V011: the denominator takes `instruments.multiplier`, the check reads bars whose `price_basis` is `raw` and leaves out `index` instruments; 5.27: V012 compares in integers of the grid's own smallest tick, the checker having no market minimum unit (maintainer decision 2026-11-10, #229). `tds_version` stays `"1.0"` (checker behaviour, no format change).
 - 2026-11-11: **v1.4**, in place. Chapter 5 states a 3.2 type for the 67 columns the stable datasets named without one (5.3, 5.4 `calendar_segments`, 5.10, 5.14, 5.16, 5.19, 5.20, 5.21, 5.25) and says `universe_membership.ts_known_to` is nullable, which its open known interval already needed (6.3); each experimental dataset with untyped columns (5.7, 5.8, 5.9, 5.22, 5.23, 5.24) says they are typed when its schema leaves `experimental`; 10.2 says stating a type that was unstated is a wording fix while the standard is a draft (decision 2026-11-03, #105). `tds_version` stays `"1.0"` (wording fix; draft).
 - 2026-11-11: **v1.4**, in place. 8.3: the T003, T004 and T012 rows name the tables each checks; an overlap in `instrument_symbols` (5.2's T003 line) is the same condition as T012 and is reported once, as T012; a null interval end is open and not T004 (maintainer decision 2026-11-11, #225). `tds_version` stays `"1.0"` (checker behaviour, no format change).
+- 2026-11-11: **v1.4**, in place. 8.3: T008's tolerance is 0 until a parameter defines it (maintainer decision 2026-11-11, #225). `tds_version` stays `"1.0"` (checker behaviour, no format change).

@@ -254,7 +254,9 @@ def _crypto(declared: bool) -> Change:
     return _both(_instruments(currency=pa.array(["USDT"])), _set("currencies", usdt))
 
 
-def _exits(*, delisted: bool, ret_lo: float = 0.0, includes: bool | None = None) -> Change:
+def _exits(
+    *, delisted: bool, ret_lo: float = 0.0, includes: bool | None = None, **times: dt.datetime
+) -> Change:
     """US:AAA's delisting on 2024-01-02 (5.13), `ret_hi` 0; `delisted` sets
     `instruments.delisted_on` too; `includes`: `ret_observed_includes_distributions`, if any."""
     flag = {"ret_observed_includes_distributions": [includes]} if includes is not None else {}
@@ -263,11 +265,12 @@ def _exits(*, delisted: bool, ret_lo: float = 0.0, includes: bool | None = None)
         "exit_date": DAY, "delist_type": ["merger"], "ref_date": DAY, "ref_price": [10.0],
         "exit_value_status": ["observed"], "ret_lo": [ret_lo], "ret_hi": [0.0],
         "policy_id": ["exit-value-v1"], **flag,
+        **{k: pa.array([v], TS_UTC) for k, v in times.items()},
     })  # fmt: skip
     return _both(exit_, _instruments(delisted_on=DAY)) if delisted else exit_
 
 
-def _facts(selected: str, state_item: str = "revenue") -> Change:
+def _facts(selected: str, state_item: str = "revenue", **fact: list[Any]) -> Change:
     """Fact F1 (`revenue`) in `fundamentals_events`, a state row choosing `selected` for item
     `state_item`, and `dictionary/items` listing `revenue` (5.16~5.18, 4.4)."""
     known = pa.array([NEW_YEAR], TS_UTC)
@@ -277,7 +280,7 @@ def _facts(selected: str, state_item: str = "revenue") -> Change:
             "vendor_input": [False]}  # fmt: skip
     return _both(
         _add("fundamentals_events", both | {"fact_id": ["F1"], "item": ["revenue"],
-             "ts_available": known, "source": ["synthetic"], "pit_quality": ["native"]}),
+             "ts_available": known, "source": ["synthetic"], "pit_quality": ["native"]} | fact),
         _add("fundamentals_state", both | {"item": [state_item], "ts_known_from": known,
              "selected_fact_id": [selected], "resolution_policy": ["latest"]}),
         _add("dictionary/items", {"item": ["revenue"]}),
@@ -503,22 +506,23 @@ def _traded(volume: float) -> Change:
     return _bars(high=ten, low=ten, volume=pa.array([volume]), value_traded=pa.array([1000.0]))
 
 
-def _quote(bid: int, ask: int) -> Change:
+def _quote(bid: int, ask: int, **recv: list[dt.datetime]) -> Change:
     """One US:AAA quote (5.7, experimental) on 2024-01-02; prices are `fixed` integers."""
     rel = "quotes/venue=XNYS/date=2024-01-02/part-00000.parquet"
     return _add("quotes", {
         "instrument_id": ["US:AAA"], "session_date": DAY,
         "ts_event": pa.array([NEW_YEAR], pa.timestamp("ns", "UTC")), "sequence": [1],
         "bid_px": [bid], "ask_px": [ask],
+        **{k: pa.array(v, pa.timestamp("ns", "UTC")) for k, v in recv.items()},
     }, rel)  # fmt: skip
 
 
-def _event(**ids: list[str | None]) -> Change:
+def _event(available: dt.datetime = NEW_YEAR, **ids: list[str | None]) -> Change:
     """One `events` row (5.21) with the ids `ids` (each a one-item list)."""
     rel = "events/event_type=earnings.announcement/part-00000.parquet"
     return _add("events", {
         "event_id": ["US:EV1"], "ts_event": pa.array([NEW_YEAR], TS_UTC),
-        "ts_available": pa.array([NEW_YEAR], TS_UTC), "source": ["synthetic"], "doc_id": ["d1"],
+        "ts_available": pa.array([available], TS_UTC), "source": ["synthetic"], "doc_id": ["d1"],
         **{k: pa.array(v, pa.string()) for k, v in ids.items()},
     }, rel)  # fmt: skip
 
@@ -607,9 +611,30 @@ CASES: dict[str, tuple[Change, Change]] = {
     ),
     "TDS-T002": (_column_forms(complete=True), _column_forms(complete=False)),
     "TDS-T006": (_watermark(THROUGH), _watermark(THROUGH + dt.timedelta(microseconds=1))),
+    "TDS-T001": (  # a second before the event
+        _event(series_id=["US:CPI"]),
+        _event(NEW_YEAR - dt.timedelta(seconds=1), series_id=["US:CPI"]),
+    ),
+    "TDS-T005": (  # XNYS on the 2nd: 14:30 to 21:00
+        _both(_sessions(0), _bars(ts_start=pa.array([_at(2)]), ts_end=pa.array([_at(2, 21, 0)]))),
+        _both(_sessions(0), _bars(ts_start=pa.array([_at(2)]), ts_end=pa.array([_at(2, 20, 0)]))),
+    ),
     "TDS-T003": (_states((1, 2), (2, None)), _states((1, 3), (2, None))),
     "TDS-T004": (_members(dt.date(2024, 1, 4)), _members(dt.date(2024, 1, 3))),
     "TDS-T012": (_classified(_A, _A2, _B), _classified((*_A[:4], None, *_A[5:]), _B)),
+    "TDS-T007": (_facts("F1"), _facts("F1", period_end=[dt.date(2024, 1, 2)])),  # known the 1st
+    "TDS-T008": (
+        _quote(99, 100, ts_recv=[NEW_YEAR]),
+        _quote(99, 100, ts_recv=[NEW_YEAR - dt.timedelta(microseconds=1)]),
+    ),
+    "TDS-T010": (
+        _instruments(last_session=DAY),
+        _instruments(last_session=pa.array([dt.date(2024, 1, 1)])),
+    ),
+    "TDS-T011": (
+        _exits(delisted=True, ts_exit_known=_at(2), ts_value_available=_at(2)),
+        _exits(delisted=True, ts_exit_known=_at(2), ts_value_available=_at(2, 14, 0)),
+    ),
     "TDS-D002": (_keep, _bars(session_date=pa.array([dt.date(2024, 1, 1)]))),  # before listed_on
     "TDS-K001": (  # GICS sector and industry on one day (5.19), a key in two editions: no K001
         lambda m, f: (_gics(1, 3)(m, f), _panels("strict", "compare")(m, f)),
@@ -733,6 +758,12 @@ FAILS: dict[str, tuple[str | None, ...]] = {
     ], ("instruments",)),
     "TDS-M014": ("bars_1d", "instruments"),  # the unknown rule, the unknown object
     "TDS-T002": ("delistings", "instrument_symbols"),  # the two-instant form, the one-column
+    "TDS-T001": ("events",),
+    "TDS-T005": ("bars_1d",),
+    "TDS-T007": ("fundamentals_events",),
+    "TDS-T008": ("quotes",),
+    "TDS-T010": ("instruments",),
+    "TDS-T011": ("delistings",),
     "TDS-T003": ("fundamentals_state",),
     "TDS-T004": ("universe_membership",),
     "TDS-T012": ("classifications",),
