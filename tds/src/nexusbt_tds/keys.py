@@ -118,6 +118,14 @@ def _values(column: pa.Array) -> list[Any]:
     return [None if v is None else Instant(v * scale) for v in column.cast(pa.int64()).to_pylist()]
 
 
+def ranked(rows: Sequence[Row]) -> tuple[list[Row], dict[Any, int]]:
+    """`rows` with each `Instant` replaced by its rank among theirs, and the ranks: the same
+    order, in numbers an Arrow table holds, which the nanoseconds of a year past 2262 are not."""
+    seen = {v for r in rows for v in r.values() if isinstance(v, Instant)}
+    rank = {v: i for i, v in enumerate(sorted(seen))}
+    return [{c: rank[v] if isinstance(v, Instant) else v for c, v in r.items()} for r in rows], rank
+
+
 def _scan(
     root: Path, ds: Mapping[str, Any], kind: str, key: list[str] | None,
     sort: list[str] | None, blind: set[str], runs: SortedRuns, notes: list[str],

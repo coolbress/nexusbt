@@ -15,6 +15,7 @@ from typing import Any
 import pyarrow as pa
 import pytest
 
+from nexusbt_tds import check
 from nexusbt_tds.check import INSTANT_CODES
 
 from .conformance_build import build
@@ -106,6 +107,31 @@ def test_a_tick_in_a_file_with_footer_statistics_is_judged_without_pandas(tmp_pa
     _quotes(TICK + 1, statistics=True)(manifest, files)
     said = _run(build.write(tmp_path, manifest, files), "blocked")
     assert [c for c in said["unchecked"] if c in INSTANT_CODES] == []
+
+
+_FAR = "9999-12-31"  # an open end written as a date: past int64 in nanoseconds (year 2262)
+
+
+@pytest.mark.parametrize(
+    ("change", "found"),
+    [  # the two places that put instants back in an Arrow table
+        (build._classified((*build._A[:4], _FAR, *build._A[5:]),
+                           (*build._B[:4], _FAR, *build._B[5:])), "TDS-T012"),
+        (build._actions({"ts_terms_available": dt.datetime.fromisoformat(_FAR + "T00Z")}),
+         "TDS-A008"),
+    ],
+)  # fmt: skip
+def test_an_instant_past_int64_nanoseconds_is_judged(
+    change: Any, found: str, tmp_path: Path
+) -> None:
+    manifest, files = build.base()
+    change(manifest, files)
+    result = check(build.write(tmp_path, manifest, files), level="full")
+    said = (*result.errors, *result.warnings)  # A008 is a warning
+    assert [f.code for f in said] == [found]
+    assert {"TDS-T012", "TDS-A001"} & set(result.unchecked) == set()
+    if found == "TDS-T012":  # the corner both rows are seen at, as before
+        assert "at known time 2020-03-06T00:00:00+00:00 on 2020-03-20, 2 rows" in said[0].message
 
 
 def test_an_instant_is_nanoseconds_of_any_unit_and_reads_as_text_in_a_finding() -> None:
