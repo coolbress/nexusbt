@@ -843,16 +843,54 @@ def _write(root: Path, rel: str, name: str, table: pa.Table) -> dict[str, Any]:
     return {"path": rel, "rows": table.num_rows, "bytes": path.stat().st_size}
 
 
-def _daily(root: Path, tables: Mapping[str, Mapping[str, Any]]) -> dict[str, list[Any]]:
-    """The datasets partitioned by market and year, of the markets that have them (tiny: the
-    bars only so far)."""
-    files: dict[str, list[Any]] = {}
+def _span(table: pa.Table) -> dict[str, Any]:
+    """`table`'s distinct instruments and its first and last `session_date`, each when it has
+    the column, and its rows: the values D004 reads from the files (TDS 8.3)."""
+    out: dict[str, Any] = {}
+    if ID in table.column_names:
+        out["instruments"] = pa.compute.count_distinct(table[ID]).as_py()
+    if "session_date" in table.column_names and table.num_rows:
+        low, high = pa.compute.min_max(table["session_date"]).as_py().values()
+        out |= {"first": low.isoformat(), "last": high.isoformat()}
+    return out | {"rows": table.num_rows}
+
+
+def _coverage(parts: Mapping[str | None, pa.Table]) -> dict[str, Any]:
+    """A dataset's tds.json `coverage` (TDS 4.3), from its `market=` partitions `parts` (key
+    None: it has none, so no `by_market`): the keys of 4.2's example it has a column for, and
+    no block when it has neither column."""
+    slim = {m: t.select([c for c in (ID, "session_date") if c in t.column_names])
+            for m, t in parts.items()}  # fmt: skip
+    whole = _span(pa.concat_tables(list(slim.values())))
+    keys = {"instruments": "instruments", "ts_min": "first", "ts_max": "last"}
+    out: dict[str, Any] = {k: whole[v] for k, v in keys.items() if v in whole}
+    if out and None not in slim:
+        out["by_market"] = {m: _span(t) for m, t in slim.items()}
+    return {"coverage": out} if out else {}
+
+
+def _watermark(sessions: Table) -> dict[str, str]:
+    """TDS 3.8's watermark of the market whose calendar rows are `sessions`: a synthetic
+    package is complete through its period's last session, to that session's close (4.8)."""
+    last = _arrow(sessions).slice(len(sessions["session_date"]) - 1).to_pylist()[0]
+    return {"complete_through_session": last["session_date"].isoformat(),
+            "complete_through": f"{last['ts_close']:%Y-%m-%dT%H:%M:%SZ}"}  # fmt: skip
+
+
+def _daily(
+    root: Path, tables: Mapping[str, Mapping[str, Any]], files: dict[str, list[Any]],
+    cover: dict[str, Any],
+) -> None:  # fmt: skip
+    """Writes the datasets partitioned by market and year, of the markets that have them
+    (tiny: the bars only so far), adding their `files` entries and their coverage."""
     for name in ("bars_1d", "tradability_daily", "eligibility_daily"):
         path = FIELDS[name].get("path", name)
-        for m in (m for m in tables if name in tables[m]):
-            files.setdefault(name, []).extend(_by_year(root, f"{path}/market={m}", name,
-                                                       _arrow(tables[m][name])))  # fmt: skip
-    return files
+        parts: dict[str | None, pa.Table]
+        parts = {m: _arrow(tables[m][name]) for m in tables if name in tables[m]}
+        for m, rows in parts.items():
+            files.setdefault(name, []).extend(_by_year(root, f"{path}/market={m}", name, rows))
+        if parts:
+            cover[name] = _coverage(parts)
 
 
 def _by_year(root: Path, rel: str, name: str, rows: pa.Table) -> list[dict[str, Any]]:
@@ -890,7 +928,9 @@ def make_snapshot(
     deleted, so a `root` used with other markets keeps their files. `tiny` is hand-set and
     takes none of `seed`, `start`, `end`, `n_kr`, `n_us`. `events` (4.8 `EventSpec`) injects
     `corporate_actions` and `delistings` rows, in `tiny` too, and KR halts in `small` and
-    `full`. `full` is `small`'s rules over full's period, counts and lives, the M1 datasets only;
+    `full`. Every preset writes each dataset's `coverage` (TDS 4.3) and each market's
+    watermark at the period's last session (TDS 3.8; #390), neither in a hash. `full` is
+    `small`'s rules over full's period, counts and lives, the M1 datasets only;
     its M2 datasets, `full_ci` and `overrides` come with later tickets (spec 10.1: T0.8c).
     `degrade` takes 4.8's core values (T0.16a, T0.16c; `_synth_degrade`) and `late_bars`
     (#354), the others with T0.16b.
@@ -911,7 +951,7 @@ def make_snapshot(
     counts = seeded.counts | {k: v for k, v in (("KR", n_kr), ("US", n_us)) if v is not None}
     # one stream per market from PCG64(seed), so a market's rows do not depend on the others
     rngs = dict(zip(MARKETS, np.random.Generator(np.random.PCG64(seed)).spawn(3), strict=True))
-    calendars, tables = {}, {}
+    calendars, tables, through = {}, {}, {}
     for m in chosen:
         cal = MARKETS[m]["calendar_id"]
         if preset == "tiny":
@@ -919,6 +959,7 @@ def make_snapshot(
         else:
             calendars[cal] = _small_calendar(cal, first, final)
             tables[m] = _small(m, counts[m], calendars[cal], rngs[m], events, seeded.life[m])
+        through[m] = _watermark(calendars[cal])
         if degrade:
             closes = _arrow(calendars[cal])["ts_close"].combine_chunks()
             tables[m] = dg.apply(m, {k: _arrow(v) for k, v in tables[m].items()}, degrade,
@@ -939,25 +980,25 @@ def make_snapshot(
     }  # fmt: skip
     if preset != "tiny" and "KR" in chosen:  # 4.8 (11a); tiny's prices are on no grid
         made["market_rules"] = _market_rules
-    files = {
-        name: [_write(root, f"{name}/part-00000.parquet", name, make())]
-        for name, make in made.items()
-        if name not in dg.absent(degrade)
-    }
     if all("share_counts" in tables[m] for m in chosen):  # tiny has none yet
-        rows = joined("share_counts", [ID, "count_kind", "as_of_date"])
-        files["share_counts"] = [_write(root, "share_counts/part-00000.parquet", "share_counts",
-                                        rows)]  # fmt: skip
-    files |= _daily(root, {m: tables[m] for m in chosen})
+        made["share_counts"] = lambda: joined("share_counts", [ID, "count_kind", "as_of_date"])
+    files: dict[str, list[Any]] = {}
+    cover: dict[str, Any] = {}  # dataset → its `coverage` field, or nothing (TDS 4.3)
+    for name, make in made.items():
+        if name not in dg.absent(degrade):
+            table = make()
+            files[name] = [_write(root, f"{name}/part-00000.parquet", name, table)]
+            cover[name] = _coverage({None: table})
+    _daily(root, {m: tables[m] for m in chosen}, files, cover)
     manifest = {
         "tds_version": "1.0", "name": f"synth-{preset}", "created": f"{final}T00:00:00Z",
         "snapshot_id": snapshot_id, "producer": {"name": PRODUCER, "hints": HINTS},
         "profiles": dg.profiles(["tds:minimal-daily@1.0", "tds:equity-daily-core@1.0"], degrade),
         "id_namespaces": {m: NAMESPACES[m] for m in chosen},
-        "markets": {m: MARKETS[m] for m in chosen},
+        "markets": {m: MARKETS[m] | through[m] for m in chosen},
         "datasets": [
             {"name": name, "kind": name, "path": name, "schema_version": "1.0",
-             **dg.fields(name, FIELDS.get(name, {}), degrade), "files": entries}
+             **dg.fields(name, FIELDS.get(name, {}), degrade), **cover[name], "files": entries}
             for name, entries in files.items()
         ],
         "hashes": {"hash_spec": "tds-hash-1"},

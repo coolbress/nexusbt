@@ -1221,3 +1221,85 @@ def test_degrade_drops_declared_profiles(tmp_path: Path) -> None:
     ):  # fmt: skip
         with pytest.raises(error, match=words):
             make_snapshot(tmp_path / "x", **tiny, degrade=wrong)
+
+
+def manifest_of(package: Path) -> tuple[dict[str, Any], dict[str, Any]]:
+    """A package's `markets` and its datasets by name."""
+    manifest = json.loads((package / "tds.json").read_text(encoding="utf-8"))
+    return manifest["markets"], {d["name"]: d for d in manifest["datasets"]}
+
+
+def unchecked(package: Path) -> list[str]:
+    """The codes `tds check --level full` leaves unchecked, on a package without an error."""
+    done = synth._tds("check", str(package), "--level", "full", "--format", "json")
+    summary = json.loads(done.stdout)["summary"]
+    assert summary["errors"] == 0, done.stdout
+    return list(summary["unchecked"])
+
+
+def test_small_watermark_is_each_markets_last_session(small: Path) -> None:
+    # #390, TDS 3.8: a synthetic package is complete through its period's last session
+    markets, _ = manifest_of(small)
+    sessions = rows(small, "calendar_sessions")
+    assert set(markets) == {"KR", "US", "ZZ"}
+    for market, entry in markets.items():
+        last = max((r for r in sessions if r["calendar_id"] == entry["calendar_id"]),
+                   key=lambda r: r["session_date"])  # fmt: skip
+        assert entry["complete_through_session"] == last["session_date"].isoformat(), market
+        assert dt.datetime.fromisoformat(entry["complete_through"]) == last["ts_close"], market
+    assert markets["KR"]["complete_through"] == "2019-12-30T06:30:00Z"  # TDS 4.2's form
+
+
+def test_small_coverage_matches_the_rows(small: Path) -> None:
+    # #390, TDS 4.3: the keys of 4.2's example, counted here from the rows
+    _, datasets = manifest_of(small)
+    for name in ("bars_1d", "tradability_daily", "eligibility_daily"):
+        table, coverage = read(small, name), datasets[name]["coverage"]
+        low, high = pc.min_max(table["session_date"]).as_py().values()
+        assert coverage["instruments"] == pc.count_distinct(table[ID]).as_py() == 420, name
+        assert (coverage["ts_min"], coverage["ts_max"]) == (low.isoformat(), high.isoformat())
+        assert set(coverage["by_market"]) == {"KR", "US", "ZZ"}
+        for market, said in coverage["by_market"].items():  # ids are `KR:T00001`
+            part = table.filter(pc.equal(pc.utf8_slice_codeunits(table[ID], 0, 2), market))
+            first, last = pc.min_max(part["session_date"]).as_py().values()
+            assert said == {"instruments": pc.count_distinct(part[ID]).as_py(),
+                            "first": first.isoformat(), "last": last.isoformat(),
+                            "rows": part.num_rows}, (name, market)  # fmt: skip
+    # a dataset without `market=` partitions has no `by_market`; a key needs its column
+    assert datasets["instruments"]["coverage"] == {"instruments": 420}
+    assert datasets["calendar_sessions"]["coverage"] == {"ts_min": "2015-01-02",
+                                                         "ts_max": "2019-12-31"}  # fmt: skip
+    assert "coverage" not in datasets["market_rules"]
+
+
+def test_full_check_judges_d001_on_small(small: Path) -> None:
+    # #390: every instrument's dense bars are judged to its last session or the watermark,
+    # and D004 compares the coverage. T006 is judged on the bars and stays unchecked for the
+    # datasets TDS 8.2 cannot judge from statistics (#192).
+    left = unchecked(small)
+    assert "TDS-D001" not in left
+    assert "TDS-D004" not in left
+
+
+def test_tiny_has_the_watermark_and_coverage_too(tiny: Path) -> None:
+    # #390 "Not sure yet", decided with the owner: tiny takes the same path as small
+    markets, datasets = manifest_of(tiny)
+    through = {"complete_through_session": "2020-03-31", "complete_through": "2020-03-31T20:00:00Z"}
+    assert markets["US"] == synth.MARKETS["US"] | through
+    kr = [r for r in rows(tiny, "bars") if r[ID].startswith("KR:")]
+    assert datasets["bars_1d"]["coverage"]["by_market"]["KR"] == {
+        "instruments": 6, "first": "2020-01-02", "last": "2020-03-31", "rows": len(kr)}  # fmt: skip
+    assert "TDS-D001" not in unchecked(tiny)
+
+
+def test_coverage_of_a_wrong_count_fails_d004(tiny: Path, tmp_path: Path) -> None:
+    # counter-example: the checker does compare what the generator declares
+    package = make_snapshot(tmp_path / "wrong", preset="tiny")
+    path = package / "tds.json"
+    manifest = json.loads(path.read_text(encoding="utf-8"))
+    (bars,) = (d for d in manifest["datasets"] if d["name"] == "bars_1d")
+    bars["coverage"]["by_market"]["KR"]["rows"] += 1
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+    done = synth._tds("check", str(package), "--level", "full")
+    assert done.returncode != 0
+    assert "TDS-D004" in done.stdout
