@@ -1003,9 +1003,9 @@ def test_full_level_checks_only_the_keys_references_and_hashes_so_far(tmp_path: 
     assert result.profiles == {
         "tds:minimal-daily@1.0": ProfileStatus(True, "schema", "not_checked")
     }
-    assert {"TDS-T001", "TDS-V031"} <= set(result.unchecked)
+    assert {"TDS-D001", "TDS-V031"} <= set(result.unchecked)
     hashes = {"TDS-H001", "TDS-H002", "TDS-H003", "TDS-H004"}
-    judged = {*K_CODES, *R_CODES, *hashes, "TDS-V012"} - {*_NO_CAL, *_NO_EXITS}
+    judged = {*K_CODES, *R_CODES, *hashes, "TDS-V012", *T_CODES} - {*_NO_CAL, *_NO_EXITS}
     assert not judged & set(result.unchecked)
     assert {*_NO_CAL, *_NO_EXITS} <= set(result.unchecked)  # no calendar_sessions, delistings
     # a column whose type is declared nowhere: no value hash, so H002 and H003 are not checked
@@ -1646,9 +1646,10 @@ def test_jsonl_ends_with_the_summary(tmp_path: Path) -> None:
     assert last.startswith('{"summary": {"errors": 1, "warnings": 0, "level": "manifest"')
 
 
-#: The interval codes; T001, T002's rows, T005, T007, T008, T010, T011 come with #225's next
-#: pull request. T009 and T013 are not in TDS 8.3.
-T_CODES = ["TDS-T003", "TDS-T004", "TDS-T012"]
+#: The T codes the rows show; T002's package and T006's are the schema level's (`test_S_codes`;
+#: T002's rows: `test_instant_rules_edges`), and T009 and T013 are not in TDS 8.3.
+T_CODES = [f"TDS-T{n:03}" for n in (1, 3, 4, 5, 7, 8, 10, 11, 12)]
+INTERVAL_CODES = ["TDS-T003", "TDS-T004", "TDS-T012"]
 
 
 @pytest.mark.usefixtures("refs_batches")
@@ -1737,7 +1738,7 @@ def _at(day: int, hour: int) -> dt.datetime:
             "id_value": ["F1"], "valid_from": [dt.date(2024, 1, 3)], "valid_to": [build.DAY[0]],
             "link_quality": ["primary"], "source": ["s"]}), ["TDS-T004"], []),  # T004 only
         (build._both(build.CASES["TDS-T003"][1], build._members("2024-01-04")), ["TDS-S002"],
-         T_CODES),  # a text effective_to is S002's: no T code judged, the T003 there neither
+         INTERVAL_CODES),  # a text effective_to is S002's: none judged, the T003 there neither
         (_rules((0.0, 1.0, 0.0001), (1.0, None, 0.01)), [], []),  # null ends are open
     ],
 )  # fmt: skip
@@ -1747,3 +1748,50 @@ def test_interval_rules_edges(
     result = check(write(tmp_path, change), level="full")
     assert [f.code for f in (*result.errors, *result.warnings)] == found
     assert [c for c in result.unchecked if c in T_CODES] == unchecked
+
+
+_HALF = dt.timedelta(minutes=30)
+_ENDS = build._bars(ts_end=pa.array([_at(2, 21)]), ts_available=pa.array([_at(2, 22)]))
+_CALENDAR_RULE = build._both(build._sessions(0), build._bars(ts_available=pa.array([_at(2, 21)])))
+
+
+@pytest.mark.parametrize(
+    ("change", "found", "unchecked"),
+    [  # #225 Decisions, 2026-11-11; T002's rows (its package is the schema level's)
+        (_ENDS, ["TDS-T002"], ["TDS-T005"]),  # rule `ts_end` (the base), stored an hour later;
+        (build._both(_ENDS, build._set("availability", "ts_end+PT1H", in_bars=True)), [],
+         ["TDS-T005"]),  # a `ts_end` and no calendar_sessions to bound it: T005 not judged
+        (build._both(_CALENDAR_RULE, build._set("availability", "session_close", in_bars=True)),
+         [], []),  # the 2nd's close, from the calendar
+        (build._both(_CALENDAR_RULE, build._set("availability", "session_open", in_bars=True)),
+         ["TDS-T002"], []),
+        (build._both(build._bars(ts_available=pa.array([_at(2, 21)])),
+                     build._set("availability", "session_close", in_bars=True)),
+         [], ["TDS-T002"]),  # no calendar session: not judged
+        (build._both(_CALENDAR_RULE, build._set("availability", "ts_end+P1M", in_bars=True)),
+         [], ["TDS-T002"]),  # a month is no fixed span
+        (build._both(build._sessions(0), build._bars(ts_available=pa.array([_at(3, 14) + _HALF])),
+                     build._set("availability", "next_session_open(session_date)", in_bars=True)),
+         [], []),  # the 3rd's 14:30 open
+        (build._both(build._sessions(0), build._set("availability", "ts_recv_else(ts_end+PT1M)",
+                                                    in_bars=True),
+                     build._bars(ts_end=pa.array([_at(2, 21)]),
+                                 ts_available=pa.array([_at(2, 21) + _HALF]))),
+         ["TDS-T002"], []),  # no ts_recv: ts_end and a minute, not half an hour
+        (build._instruments(last_session=pa.array(["2024-01-01"])), ["TDS-S002"],
+         [f"TDS-T{n:03}" for n in (1, 2, 5, 7, 8, 10, 11)]),  # a text date: none judged
+        (build._bars(ts_end=pa.array([_at(2, 20)])), [], ["TDS-T005"]),  # no calendar_sessions
+        (build._both(build._sessions(0, (3,)), build._bars(ts_end=pa.array([_at(2, 20)]))),
+         ["TDS-D002", "TDS-R003"], ["TDS-T005"]),  # a calendar, no session that day: not judged
+        (build._facts("F1", period_end=[dt.date(2024, 1, 2)], value_how=["preliminary"]),
+         ["TDS-T007"], []),  # a warning
+        (build._event(_at(1, 0), series_id=["US:CPI"]), [], []),  # at the event: not before it
+    ],
+)  # fmt: skip
+def test_instant_rules_edges(
+    change: Any, found: list[str], unchecked: list[str], tmp_path: Path
+) -> None:
+    result = check(write(tmp_path, change), level="full")
+    assert [f.code for f in (*result.errors, *result.warnings)] == found
+    assert [c for c in result.unchecked if c in (*T_CODES, "TDS-T002")] == unchecked
+    assert "TDS-T007" not in [f.code for f in result.errors]  # preliminary: lowered (5.16)
