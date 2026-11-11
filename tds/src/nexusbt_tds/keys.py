@@ -62,6 +62,11 @@ class Instant(int):
             return f"{int(self)} ns"
         return f"{when}{f'.{ns:09}' if ns % 1000 else f'.{ns // 1000:06}' if ns else ''}+00:00"
 
+    def iso(self) -> str:
+        """The text with ISO 8601's `T`, as a `datetime`'s `isoformat()`."""
+        text = str(self)
+        return text if text.endswith(" ns") else text.replace(" ", "T")
+
 
 def check_keys(
     m: Manifest, only: Sequence[str] | None, blind: set[str],

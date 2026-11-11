@@ -25,7 +25,7 @@ from typing import Any
 
 import pyarrow as pa
 
-from .check import _COL, _DELAY, _DUR, INSTANT_CODES, RULE, Finding, Severity
+from .check import _COL, _DUR, INSTANT_CODES, RULE, Finding, Severity, _delay
 from .manifest import Manifest
 from .refs import _rows
 
@@ -169,23 +169,13 @@ def _before(a: Any, b: Any) -> bool:
     return a is not None and b is not None and bool(a < b)
 
 
-def _span(text: str | None) -> int | None:
-    """An ISO 8601 delay without years or months, in nanoseconds; None for one with them."""
-    delay = _DELAY.fullmatch(text or "P")
-    if delay is None:
-        return None
-    w, d, h, minutes, s = (x or "0" for x in delay.groups())
-    whole = (((int(w) * 7 + int(d)) * 24 + int(h)) * 60 + int(minutes)) * 60
-    return whole * 10**9 + round(float(s) * 10**9)
-
-
 def _derive(
     rule: str, r: Row, session: Callable[[Row], tuple[Any, Any] | None],
     next_open: Callable[[Row, Any], Any],
 ) -> Any:  # fmt: skip
     """The instant TDS 6.2's `rule` gives row `r`; None when it cannot say."""
     match = _PARTS.fullmatch(rule)
-    add = _span(match["add"]) if match else None
+    add = _delay(match["add"]) if match else None
     if match is None or add is None:
         return None
     name, column, inner = match["name"], match["column"], match["inner"]
@@ -195,7 +185,7 @@ def _derive(
         base = day[1] if base is None and name == "ts_end" and day else base  # 5.5
     elif name == "ts_recv_else":
         fallback: Any = r.get(str(column))
-        more = _span(inner)
+        more = _delay(inner)
         base = r.get("ts_recv")
         if base is None and fallback is not None and more is not None:
             base = fallback + more

@@ -23,7 +23,7 @@ import pyarrow as pa
 
 from . import pit
 from .check import TIME_CODES, Finding
-from .keys import _before, _group, _shown, ranked
+from .keys import Instant, _before, _group, _shown, ranked
 from .manifest import Manifest
 from .refs import _rows
 
@@ -135,4 +135,5 @@ def _shown_at(a: dict[str, Any], b: dict[str, Any]) -> str:
     rows, rank = ranked([a, b])  # the instants in an order Arrow holds, `cutoff` as they are
     at = rank.get(cutoff, cutoff)
     n = pit.rect_lookup(pa.Table.from_pylist(rows), at, date, edition=a["filter"]).num_rows
-    return f"; at known time {str(cutoff).replace(' ', 'T')} on {date}, {n} rows"
+    when = cutoff.iso() if isinstance(cutoff, Instant) else cutoff
+    return f"; at known time {when} on {date}, {n} rows"

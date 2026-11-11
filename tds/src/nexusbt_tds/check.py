@@ -581,8 +581,9 @@ def _check_column(
         blind.add("TDS-S003")
     elif required and (nulls := sum(s.null_count for s in stats)):
         yield Finding("TDS-S003", "error", f"{name} may not be null", count=nulls)
-    seen = [v for s in stats if s is not None and s.has_min_max for v in (s.min, s.max)]
-    if tag == "f64" and any(math.isinf(v) for v in seen):
+    # an f64's only: without pandas pyarrow gives no nanosecond instant's as a Python value (#382)
+    seen = [s for s in stats if tag == "f64" and s is not None and s.has_min_max]
+    if any(math.isinf(v) for s in seen for v in (s.min, s.max)):
         yield Finding("TDS-S009", "error", f"{name} holds ±Inf (statistics; NaN is not visible)")
 
 
@@ -624,6 +625,7 @@ def _listed(value: str, values: Sequence[str]) -> bool:
 
 
 Stat = tuple[Any, Any, int]  # a row group's minimum, maximum (None: all null) and null count
+_EPOCH, _MICRO = dt.datetime(1970, 1, 1, tzinfo=dt.UTC), dt.timedelta(microseconds=1)
 #: The kinds with no availability instant to hold against a watermark (5.1, 5.3, 5.4, 4.4;
 #: `instrument_xref` has no known time in v1, 8.2, #332); any other kind without a rule
 #: leaves T006 unchecked, never passed (#181 review).
@@ -633,6 +635,8 @@ TIMELESS = frozenset({"instruments", "instrument_xref", "calendar_sessions",
 
 def _check_ranges(m: Manifest, only: Sequence[str] | None, blind: set[str]) -> list[Finding]:
     """T006 and D002's part from file statistics (TDS 8.2; rules: #181 Decisions)."""
+    from .keys import Instant
+
     root, out, seen = m.root.resolve(), [], set()
     markets = m.data["markets"] if isinstance(m.data.get("markets"), dict) else {}
     calendars = _reference(m, root, "calendar_sessions", ("calendar_id", "session_date"))
@@ -664,8 +668,8 @@ def _check_ranges(m: Manifest, only: Sequence[str] | None, blind: set[str]) -> l
                 last = _available(meta, rule, column) if meta is not None else None
                 if through is None or last is None:
                     blind.add(T006)  # no watermark, no statistics, or a rule they cannot apply
-                elif last > through:
-                    msg = f"available until {last.isoformat()}, after the market's"
+                elif last > (through - _EPOCH) // _MICRO * 1000:  # both in nanoseconds
+                    msg = f"available until {Instant(last).iso()}, after the market's"
                     msg += f" complete_through {market['complete_through']}"
                     out.append(Finding(T006, "error", msg, ds.get("name"), rel))
             if daily and meta:
@@ -709,18 +713,29 @@ def _footers(root: Path, ds: Mapping[str, Any]) -> Iterable[tuple[str, Any]]:
 
 def _stat(meta: Any, g: int, name: str, want: type) -> Stat | None:
     """Row group `g`'s statistics of the top-level column `name` holding `want` values, or None
-    when the footer does not say. A timestamp counts only with a time zone (S004)."""
+    when the footer does not say. A timestamp counts only with a time zone (S004) and where
+    `want` is a datetime, and comes as `keys.Instant`s from the stored integers: pyarrow makes
+    a nanosecond one a Python value only with pandas (#382)."""
+    from .keys import _NS, Instant
+
     paths = [meta.schema.column(i).path for i in range(meta.num_columns)]
     s = meta.row_group(g).column(paths.index(name)).statistics if name in paths else None
     if s is None or not s.has_null_count or (s.num_values and not s.has_min_max):
         return None
     if not s.has_min_max:
         return None, None, s.null_count
+    try:
+        arrow = meta.schema.to_arrow_schema()
+    except pa.ArrowException:  # a type Arrow does not read: S010's
+        return None
+    kind = arrow.types[arrow.names.index(name)]  # the first of a name stored twice, as `paths`
+    if pa.types.is_timestamp(kind):
+        if want is not dt.datetime or not kind.tz or s.physical_type != "INT64":  # INT96: S004's
+            return None
+        first, last = (Instant(v * _NS[kind.unit]) for v in (s.min_raw, s.max_raw))
+        return first, last, s.null_count
     low, high = (_text(v) if want is str else v for v in (s.min, s.max))
-    if want is dt.datetime:  # pandas' Timestamp for nanoseconds is a datetime too
-        fits = all(isinstance(v, dt.datetime) and v.tzinfo is not None for v in (low, high))
-    else:
-        fits = type(low) is want and type(high) is want  # a datetime is a date, not a `date`
+    fits = type(low) is want and type(high) is want  # a datetime is a date, not a `date`
     return (low, high, s.null_count) if fits else None
 
 
@@ -767,23 +782,30 @@ def _lookup(groups: list[Any], key: str, value: object, column: str) -> Stat | N
 _DELAY = re.compile(r"P(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?)?")
 
 
-def _available(meta: Any, rule: object, column: str) -> dt.datetime | None:
-    """The latest availability instant under 6.2 `rule` from the statistics, rule `column`
-    reading `column`; None when they cannot say: a rule on the calendar or with a fallback, a
-    null in its column (a daily bar's null `ts_end` is its session close; a null in a named
-    column has its dataset's fallback, 5.2, 5.11, 5.13), a delay in years or months."""
+def _delay(text: str | None) -> int | None:
+    """An ISO 8601 delay without years or months, in nanoseconds; None for one with them."""
+    delay = _DELAY.fullmatch(text or "P")
+    if delay is None:
+        return None
+    w, d, h, minutes, s = (x or "0" for x in delay.groups())
+    whole = (((int(w) * 7 + int(d)) * 24 + int(h)) * 60 + int(minutes)) * 60
+    return whole * 10**9 + round(float(s) * 10**9)
+
+
+def _available(meta: Any, rule: object, column: str) -> float | None:
+    """The latest availability instant under 6.2 `rule` from the statistics, in nanoseconds
+    since the epoch, rule `column` reading `column`; None when they cannot say: a rule on the
+    calendar or with a fallback, a null in its column (a daily bar's null `ts_end` is its
+    session close; a null in a named column has its dataset's fallback, 5.2, 5.11, 5.13), a
+    delay in years or months."""
     match = re.fullmatch(rf"(column|ts_end|ts_recv)(?:\+({_DUR}))?", str(rule))
-    delay = _DELAY.fullmatch(match[2] or "P") if match and RULE.fullmatch(str(rule)) else None
+    delay = _delay(match[2]) if match and RULE.fullmatch(str(rule)) else None
     if match is None or delay is None:
         return None
-    w, d, h, minutes, s = (float(x or 0) for x in delay.groups())
     span = _span(meta, column if match[1] == "column" else match[1], dt.datetime)
     if span is None:
         return None
-    if not span:  # no rows: nothing after any watermark
-        return dt.datetime.min.replace(tzinfo=dt.UTC)
-    last: dt.datetime = span[1] + dt.timedelta(weeks=w, days=d, hours=h, minutes=minutes, seconds=s)
-    return last
+    return span[1] + delay if span else -math.inf  # no rows: nothing after any watermark
 
 
 def _instant(value: object) -> dt.datetime | None:
