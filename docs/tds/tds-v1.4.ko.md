@@ -23,7 +23,7 @@
 > 판 이력(이어서): **v1.4, 2026-11-10 변경**: 검사 V011(3.4, 8.3)이 분모에 `instruments.multiplier`를 곱하고, `price_basis`가 `raw`인 bars만 읽고, `index` 종목을 뺀다: 적힌 식대로면 계약 수가 맞는 선물·옵션에 경고가 났다. 5.27은 검사기가 V012를 어느 단위로 비교하는지 말한다: 격자 자체의 가장 작은 호가 단위(사용자 결정 2026-11-10, #229). 검사기 동작이고 형식 변경이 없으므로 `tds_version`은 `"1.0"` 그대로.
 > 판 이력(이어서): **v1.4, 2026-11-11 명확화**: 8.3의 TDS-M008 줄은 프로필의 데이터셋에 그 프로필의 7장 줄이 이름 붙인 칼럼이 없는 경우도 포함한다(`tds:equity-daily-core`는 bars의 OHLCV와 `obs_status`; `tds:bitemporal`은 패키지에 있는 events·classifications·state의 `ts_recorded`; 칼럼 이름을 적은 그 밖의 모든 줄). `schema` 수준에서 보인다: 그 칼럼이 데이터셋의 어느 파일에도 없거나, 행이 있는 데이터셋의 모든 행에서 null이다. 값 옆의 null 하나는 행의 문제이고(5.5), 빈 표는 아무것도 빠뜨리지 않는다. 7장이 이미 `@1.0`에 이 칼럼들을 요구했고 검사기가 읽지 않았을 뿐이므로 새 검사가 아니다(사용자 결정 2026-11-11, #352). 문구만 바꿨으므로 `tds_version`은 `"1.0"` 그대로.
 > 판 이력(이어서): **v1.4, 2026-11-11 명확화**: 7장의 `tds:bitemporal@1.0` 줄은 스키마 파일에 `ts_recorded`가 있는 데이터셋, 곧 `events`와 `fundamentals_events`(5.17)를 이름 붙인다. `classifications`와 `fundamentals_state`는 기록 시각을 이미 `ts_known_from`으로 지니므로 프로필이 두 번째 칼럼을 더하지 않는다. 이 줄은 "events·classifications·state"라고 적었고, 스키마 파일대로 쓴 패키지는 TDS-M008이나 TDS-S005 없이 그것을 맞출 수 없었다(사용자 결정 2026-11-11, #397). 스키마 파일은 바뀌지 않으므로 `tds_version`은 `"1.0"` 그대로.
-> 판 이력(이어서): **v1.4, 2026-11-12 명확화**: 6.4가 7장 `tds:bitemporal@1.0` 줄이 이름 붙인 네 데이터셋에서 시스템 이력(`history_mode = system`)을 무엇이 제한하는지 말한다: `events`와 `fundamentals_events`는 `ts_recorded <= t`, `ts_recorded`가 없는 `classifications`와 `fundamentals_state`는 `ts_known_from <= t`. 6.1에 한 문장을 더한다: 이 두 데이터셋의 `ts_known_from`은 쓸 수 있는 기간의 시작이면서 만든 쪽의 기록 시각이고, 위 2026-11-11 줄의 "기록 시각"이 이것이라 그 줄은 정정 없이 그대로 둔다(사용자 결정 2026-11-12, #405). 엔진은 v1에서 `tds:bitemporal`을 읽지 않는다(엔진 명세 4.3, 3.11). 문구만 바꿨으므로 `tds_version`은 `"1.0"` 그대로.
+> 판 이력(이어서): **v1.4, 2026-11-12 명확화**: 6.4가 7장 `tds:bitemporal@1.0` 줄이 이름 붙인 네 데이터셋에서 시스템 이력(`history_mode = system`)을 무엇이 제한하는지 말한다: `events`와 `fundamentals_events`는 `ts_recorded <= t`, `ts_recorded`가 없는 `classifications`와 `fundamentals_state`는 `ts_known_from <= t`. 6.1에 한 문장을 더한다: 이 두 데이터셋의 `native` 행에서 `ts_known_from`은 쓸 수 있는 기간의 시작이면서 만든 쪽의 기록 시각이고, 위 2026-11-11 줄의 "기록 시각"이 이것이라 그 줄은 정정 없이 그대로 둔다. `backfilled` 행(K6)에서는 기간의 시작일 뿐 기록 시각은 남지 않으며, 6.4는 그런 행이 시스템 이력 재생에서 `ts_known_from`부터 보이고 `pit_quality = backfilled`가 그 경고라고 말한다(사용자 결정 2026-11-12, 2026-11-12 (2), #405). 엔진은 v1에서 `tds:bitemporal`을 읽지 않는다(엔진 명세 4.3, 3.11). 문구만 바꿨으므로 `tds_version`은 `"1.0"` 그대로.
 > 관계: 이 문서는 엔진 명세서 v3.4(`engine-spec-v3.4-2026-10-28.md`) **4장이 참조하는 입력 정본**이다. 둘이 다르면 입력 형식은 이 문서가 맞다(차이 목록은 12장). 사용자 결정(설계 문서 9.0)은 이 문서보다 우선한다.
 > 공개: 이 표준과 검사기(`nexusbt-tds`, import `nexusbt_tds`, 명령 `tds`)는 공개(Apache-2.0)다. 작업판 11장(생산자별 대응)은 표준의 규범이 아니라서 이 공개판에 넣지 않았다.
 > 예시: 엔진이 읽는 모든 데이터셋(사건·거시 계열 포함)의 예시 행은 `tds-examples.md`(같은 폴더)에 있다.
@@ -924,7 +924,7 @@ LEAN 계수 파일·Qlib `factor`·공급사 조정 종가만 있는 사용자�
 | `ts_recorded` | 만든 쪽 시스템이 처음 기록한 순간(시스템 시간) | 만든 쪽 |
 | `known_on` | 공개 날짜(날짜만 있을 때의 원 값) | 원자료 |
 
-- 상태·분류 행(`fundamentals_state`, `classifications`)의 `ts_known_from`은 그 행을 쓸 수 있게 된 기간의 시작이면서 만든 쪽이 그 행을 기록한 순간이다: 만든 쪽은 알게 된 때 행을 쓴다. 7장 `tds:bitemporal@1.0` 줄에 관한 2026-11-11 판 이력 줄이 말하는 "기록 시각"이 이것이고, 그래서 이 데이터셋들에는 `ts_recorded`가 없다(6.4) [2026-11-12].
+- `pit_quality = native`인 상태·분류 행(`fundamentals_state`, `classifications`)의 `ts_known_from`은 그 행을 쓸 수 있게 된 기간의 시작이면서 만든 쪽이 그 행을 기록한 순간이다: 만든 쪽은 알게 된 때 행을 쓴다. 7장 `tds:bitemporal@1.0` 줄에 관한 2026-11-11 판 이력 줄이 말하는 "기록 시각"이 이것이고, 그래서 이 데이터셋들에는 `ts_recorded`가 없다(6.4). `backfilled` 행(K6, 2.2)의 `ts_known_from`은 기간의 시작일 뿐이다: 만든 쪽이 그 행을 기록한 순간은 남지 않고, `pit_quality`(행에, 행 칼럼이 없으면 데이터셋에)가 그것을 알린다 [2026-11-12].
 
 ### 6.2 공개 시각 유도 규칙 (매니페스트 `availability.rule`)
 
@@ -959,7 +959,7 @@ LEAN 계수 파일·Qlib `factor`·공급사 조정 종가만 있는 사용자�
 ### 6.4 이력 방식 두 가지
 
 - **경제 이력**(`history_mode = economic`, 기본): 나중에 모은 옛 공시도 원래 공개 시각으로 쓴다. `ts_available`만 본다.
-- **시스템 이력**(`history_mode = system`): "그때 만든 쪽 시스템이 실제로 알던 것"을 재생한다. 판단 t에서 `events`나 `fundamentals_events`의 행은 `ts_recorded <= t`일 때만, `ts_recorded`가 없는 `classifications`나 `fundamentals_state`의 행은 `ts_known_from <= t`일 때만 보인다(앎 축이 곧 기록 축이라(6.1) 재생할 두 번째 시각이 없다) [2026-11-12]. `tds:bitemporal` 프로필은 `events`와 `fundamentals_events`에서 `ts_recorded`를 필수로 만든다(7장).
+- **시스템 이력**(`history_mode = system`): "그때 만든 쪽 시스템이 실제로 알던 것"을 재생한다. 판단 t에서 `events`나 `fundamentals_events`의 행은 `ts_recorded <= t`일 때만, `ts_recorded`가 없는 `classifications`나 `fundamentals_state`의 행은 `ts_known_from <= t`일 때만 보인다(그 행이 가진 유일한 시간축, 6.1). 그래서 `backfilled` 행은 만든 쪽이 알게 된 때보다 이른 `ts_known_from`부터 재생에 보이고, `pit_quality = backfilled`가 읽는 쪽에 그 경고다 [2026-11-12]. `tds:bitemporal` 프로필은 `events`와 `fundamentals_events`에서 `ts_recorded`를 필수로 만든다(7장).
 
 ### 6.5 `pit_quality`
 
