@@ -26,14 +26,15 @@ def judge(
     kind: str = "mbp",
     carry: bool = False,
     snapshot: int = 0,
+    split: int = 0,
 ) -> tuple[list[Finding], list[str]]:
     """V031's lines and notes on a package whose `book_deltas` holds `days` (`venue=XNYS`); the
-    first `snapshot` rows of each day are `is_snapshot` rows."""
+    first `snapshot` rows of each day are `is_snapshot` rows. With `split`, the rows from that
+    one on go in a second file, which `tds.json` lists first."""
     m, files = build.base()
     entries = []
     for day, rows in days.items():
         full = [(*r, *(None, "US:AAA")[len(r) - 5 :]) for r in rows]
-        rel = f"book_deltas/venue=XNYS/date={day}/part-00000.parquet"
         table = pa.table({
             "instrument_id": [r[6] for r in full],
             "session_date": [dt.date.fromisoformat(day)] * len(full),
@@ -47,8 +48,11 @@ def judge(
             "is_snapshot": [n < snapshot for n in range(len(full))],
             "is_last": [r[4] for r in full],
         })  # fmt: skip
-        files[rel] = build.parquet(table, "book_deltas")
-        entries.append({"path": rel, "rows": len(full), "bytes": len(files[rel])})
+        parts = [table.slice(split), table.slice(0, split)] if split else [table]
+        for n, part in enumerate(parts):
+            rel = f"book_deltas/venue=XNYS/date={day}/part-{len(parts) - 1 - n:05}.parquet"
+            files[rel] = build.parquet(part, "book_deltas")
+            entries.append({"path": rel, "rows": part.num_rows, "bytes": len(files[rel])})
     params = {"depth_kind": kind} | ({"continuity": "carry"} if carry else {})
     m["datasets"].append({"name": "book_deltas", "kind": "book_deltas", "schema_version": "1.0",
                           "path": "book_deltas", "params": params, "files": entries})  # fmt: skip
@@ -61,7 +65,9 @@ def judge(
 
 def crossed(found: list[Finding]) -> list[tuple[Any, ...]]:
     """(session_date, instrument_id, first crossed ts_event, count) of each V031 line."""
-    assert {(f.code, f.severity) for f in found} <= {("TDS-V031", "warning")}
+    assert {(f.code, f.severity, f.key and f.key["venue"]) for f in found} <= {
+        ("TDS-V031", "warning", "XNYS")
+    }
     return [(f.key["session_date"], f.key["instrument_id"], f.key["ts_event"], f.count)
             for f in found if f.key]  # fmt: skip
 
@@ -75,6 +81,15 @@ def test_mbp_crossed_after_is_last(tmp_path: Path) -> None:
     found, notes = judge(tmp_path, {"2024-01-02": rows})
     assert crossed(found) == [("2024-01-02", "US:AAA", at(1), 1)]
     assert notes == []
+
+
+def test_files_of_a_partition_are_read_in_file_name_order(tmp_path: Path) -> None:
+    rows = [
+        ("add", "bid", 101, 1, True),  # part-00000
+        ("cancel", "bid", 101, 0, True),  # part-00001, listed first in tds.json
+        ("add", "ask", 100, 1, True),  # not crossed: the bid went first
+    ]
+    assert judge(tmp_path, {"2024-01-02": rows}, split=1) == ([], [])
 
 
 def test_mbp_size_is_the_new_total_and_only_0_or_null_removes(tmp_path: Path) -> None:
