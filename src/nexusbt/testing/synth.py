@@ -35,6 +35,7 @@ from typing import Any, Literal, NamedTuple
 import exchange_calendars as xc
 import numpy as np
 import pyarrow as pa
+import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
 from nexusbt.contracts import ID_COLUMN as ID
@@ -402,7 +403,8 @@ def make_snapshot(
     `degrade` takes 4.8's core values (T0.16a, T0.16c; `_synth_degrade`) and `late_bars`
     (#354), the others with T0.16b. Each dataset is processed through the watermark session in
     every market (TDS 4.3, #192), but `behind[name]` sessions earlier for each dataset `name`
-    without a row per session (4.8 `behind`).
+    without a row per session, without its rows first known after that session (4.8 `behind`,
+    #425).
     """
     root, chosen = _arguments(root, preset, markets, events, overrides, degrade,
                               (start, end, n_kr, n_us))  # fmt: skip
@@ -431,6 +433,11 @@ def make_snapshot(
     days = {m: pk._arrow(calendars[MARKETS[m]["calendar_id"]])["session_date"].to_pylist()
             for m in chosen}  # fmt: skip
     through = pk.processed(behind or {}, set(made) - set(dg.absent(degrade)), days)
+    for name in behind or {}:  # `made` reads `tables` when it writes them
+        for m in chosen:
+            tables[m] = _cut(
+                tables[m], name, through(name)[m], calendars[MARKETS[m]["calendar_id"]]
+            )
     return pk.write(root, made, tables, about, degrade, through)
 
 
@@ -453,6 +460,24 @@ def a001(actions: pa.Table, bars: pa.Table) -> int | None:
     """
     if "cum_factor_split" not in bars.column_names:  # degrade no_cum_factors (F-04)
         return None
+    want = _factors(actions)
+    rows = bars.select([ID, "session_date", "cum_factor_split", "cum_factor_total"])
+    rows = rows.sort_by([(ID, "ascending"), ("session_date", "ascending")]).to_pylist()
+    bad = 0
+    for before, now in itertools.pairwise(rows):
+        for basis in ("total", "split") if before[ID] == now[ID] else ():
+            step = now[f"cum_factor_{basis}"] / before[f"cum_factor_{basis}"]
+            due = [f for ex, f in want.get((now[ID], basis), ())
+                   if before["session_date"] < ex <= now["session_date"]]  # fmt: skip
+            if None not in due:  # a session with a "none" factor is not reconciled (5.11)
+                m = math.prod(due)
+                bad += abs(step - m) > 1e-12 * abs(m)
+    return bad
+
+
+def _factors(actions: pa.Table) -> dict[tuple[str, str], list[tuple[dt.date, float]]]:
+    """(instrument, basis) → each (ex_date, price_factor) the bars' `cum_factor_<basis>` steps
+    by, at c = +inf (a001)."""
     parent = {r["event_id"]: r["revision_of"] for r in actions.to_pylist()}
     latest: dict[str, tuple[Any, dict[str, Any]]] = {}
     for r in sorted(actions.to_pylist(), key=lambda r: r["event_id"]):
@@ -468,18 +493,63 @@ def a001(actions: pa.Table, bars: pa.Table) -> int | None:
         bases = {"split_and_total": ("total", "split"), "total_only": ("total",)}
         for basis in bases.get(r["affects"], ()) if r["status"] == "effective" else ():
             want.setdefault((r[ID], basis), []).append((r["ex_date"], r["price_factor"]))
-    rows = bars.select([ID, "session_date", "cum_factor_split", "cum_factor_total"])
-    rows = rows.sort_by([(ID, "ascending"), ("session_date", "ascending")]).to_pylist()
-    bad = 0
-    for before, now in itertools.pairwise(rows):
-        for basis in ("total", "split") if before[ID] == now[ID] else ():
-            step = now[f"cum_factor_{basis}"] / before[f"cum_factor_{basis}"]
-            due = [f for ex, f in want.get((now[ID], basis), ())
-                   if before["session_date"] < ex <= now["session_date"]]  # fmt: skip
-            if None not in due:  # a session with a "none" factor is not reconciled (5.11)
-                m = math.prod(due)
-                bad += abs(step - m) > 1e-12 * abs(m)
-    return bad
+    return want
+
+
+def _cut(table: Mapping[str, Any], name: str, day: str, sessions: Table) -> dict[str, Any]:
+    """One market's tables without dataset `name`'s rows first known after the close of
+    session `day` (spec 4.8 `behind`, #425), and what derives from them: a cut action no longer
+    steps the bars' `cum_factor_*` (their prices keep its move), a cut exit leaves its
+    instrument's `delisted_on` null. The instant is TDS 4.3's: an action's existence instant
+    (5.11), an exit's `ts_exit_known`, a column form's column; a null one stays."""
+    known = pk.FIELDS.get(name, {}).get("availability", {})
+    out = dict(table)
+    if not known.keys() & {"terms", "exit", "column"}:
+        return out  # no instant: nothing to cut (instruments, instrument_xref, market_rules)
+    rows = pk._arrow(table[name])
+    if "terms" in known:
+        told, terms, effect = (rows[c].to_pylist() for c in ("ts_announced", known["terms"],
+                                                              known["effect"]))  # fmt: skip
+        at = [min((t for t in pair if t is not None), default=e)
+              for *pair, e in zip(told, terms, effect, strict=True)]  # fmt: skip
+    else:
+        at = rows[known.get("exit") or known["column"]].to_pylist()
+    calendar = pk._arrow(sessions)
+    close = calendar["ts_close"].to_pylist()[
+        calendar["session_date"].to_pylist().index(dt.date.fromisoformat(day))
+    ]
+    keep = pa.array([t is None or t <= close for t in at], pa.bool_())
+    out[name] = rows.filter(keep)
+    if name == "corporate_actions" and "bars_1d" in out:
+        out["bars_1d"] = _refactor(pk._arrow(out["bars_1d"]), _factors(rows), _factors(out[name]))
+    if name == "delistings":
+        held = pk._arrow(out["instruments"])
+        gone = pc.is_in(held[ID], value_set=rows.filter(pc.invert(keep))[ID])
+        on = pc.if_else(gone, pa.scalar(None, held["delisted_on"].type), held["delisted_on"])
+        at_col = held.schema.get_field_index("delisted_on")
+        out["instruments"] = held.set_column(at_col, "delisted_on", on)
+    return out
+
+
+def _refactor(bars: pa.Table, was: Mapping[Any, Any], now: Mapping[Any, Any]) -> pa.Table:
+    """`bars` with each `cum_factor_*` stepping by the factors `now` instead of `was`."""
+    if "cum_factor_split" not in bars.column_names:  # degrade no_cum_factors (F-04)
+        return bars
+    ids = np.asarray(bars[ID].to_pylist())
+    days = bars["session_date"].to_numpy(zero_copy_only=False)
+    for basis in ("total", "split"):
+        name = f"cum_factor_{basis}"
+        column = bars[name].to_numpy(zero_copy_only=False).copy()
+        for key in {
+            k for k in was.keys() | now.keys() if k[1] == basis and was.get(k) != now.get(k)
+        }:
+            steps = [(ex, 1 / f) for ex, f in was.get(key, []) if f is not None]
+            steps += [(ex, f) for ex, f in now.get(key, []) if f is not None]
+            for ex, f in steps:  # undo the factors it had, then apply those it has now
+                column[(ids == key[0]) & (days >= np.datetime64(ex))] *= f
+        bars = bars.set_column(bars.schema.get_field_index(name), name,
+                               pa.array(column, from_pandas=True))  # fmt: skip
+    return bars
 
 
 def main(argv: Sequence[str] | None = None) -> int:

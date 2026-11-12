@@ -1362,6 +1362,35 @@ def test_behind_cuts_one_datasets_processed_through_session(tmp_path: Path) -> N
     assert "TDS-M016" not in unchecked(package)
 
 
+CUT = dict.fromkeys(("corporate_actions", "delistings", "share_counts", "instrument_symbols"), 300)
+
+
+def test_behind_cuts_the_rows_known_after_the_session(small: Path, tmp_path: Path) -> None:
+    # #425, spec 4.8 `behind`: each moved dataset loses its rows first known after the cut
+    # session's close, the bars' factors and the instruments follow, and `full` finds nothing,
+    # D003 judging every moved dataset
+    package = make_snapshot(tmp_path / "cut", preset="small", markets=("KR", "US", "ZZ"),
+                            behind=CUT)  # fmt: skip
+    done = pkg._tds("check", str(package), "--level", "full")
+    assert "\n0 errors" in done.stdout, done.stdout
+    for name in CUT:
+        assert len(rows(package, name)) < len(rows(small, name)), name
+        assert f"TDS-D003 not checked on {name}:" not in done.stdout
+
+
+def test_behind_cuts_actions_from_bars_without_factors(tmp_path: Path) -> None:
+    # #425: with no_cum_factors (F-04) the bars carry no factor to follow a cut action
+    package = make_snapshot(tmp_path / "bare", preset="tiny", behind={"corporate_actions": 2},
+                            degrade=["no_cum_factors"])  # fmt: skip
+    check_full(package)
+
+
+def test_behind_cuts_nothing_from_a_dataset_without_an_instant(tmp_path: Path) -> None:
+    # #425 review: instrument_xref (written whole, not per market) has no instant to cut by
+    package = make_snapshot(tmp_path / "xref", preset="tiny", behind={"instrument_xref": 1})
+    assert "TDS-M016" not in unchecked(package)
+
+
 @pytest.mark.parametrize("behind", [
     {"bars_1d": 1}, {"calendar_sessions": 1},  # a row per session: cut with its rows, not here
     {"fundamentals_state": 1},  # not written by this generator yet
