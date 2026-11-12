@@ -27,6 +27,7 @@ def judge(
     carry: bool = False,
     snapshot: int = 0,
     split: int = 0,
+    broken: bool = False,
 ) -> tuple[list[Finding], list[str]]:
     """V031's lines and notes on a package whose `book_deltas` holds `days` (`venue=XNYS`); the
     first `snapshot` rows of each day are `is_snapshot` rows. With `split`, the rows from that
@@ -51,7 +52,7 @@ def judge(
         parts = [table.slice(split), table.slice(0, split)] if split else [table]
         for n, part in enumerate(parts):
             rel = f"book_deltas/venue=XNYS/date={day}/part-{len(parts) - 1 - n:05}.parquet"
-            files[rel] = build.parquet(part, "book_deltas")
+            files[rel] = b"not parquet" if broken else build.parquet(part, "book_deltas")
             entries.append({"path": rel, "rows": part.num_rows, "bytes": len(files[rel])})
     params = {"depth_kind": kind} | ({"continuity": "carry"} if carry else {})
     m["datasets"].append({"name": "book_deltas", "kind": "book_deltas", "schema_version": "1.0",
@@ -59,7 +60,7 @@ def judge(
     blind: set[str] = set()
     notes: list[str] = []
     found = check_books(read_manifest(build.write(tmp_path, m, files)), None, blind, notes)
-    assert blind == ({"TDS-V031"} if kind not in ("mbp", "mbo") else set())
+    assert blind == ({"TDS-V031"} if broken or kind not in ("mbp", "mbo") else set())
     return found, notes
 
 
@@ -181,6 +182,11 @@ def test_an_unknown_depth_kind_leaves_V031_unchecked(tmp_path: Path) -> None:
     found, notes = judge(tmp_path, {"2024-01-02": rows}, "l2")
     assert found == []
     assert notes == ["TDS-V031 not checked on book_deltas: depth_kind 'l2' is not mbp or mbo"]
+
+
+def test_an_unreadable_file_leaves_V031_unchecked(tmp_path: Path) -> None:
+    rows = [("add", "bid", 101, 1, False), ("add", "ask", 100, 1, True)]
+    assert judge(tmp_path, {"2024-01-02": rows}, broken=True) == ([], [])
 
 
 @pytest.mark.parametrize("carry", [True, False])
