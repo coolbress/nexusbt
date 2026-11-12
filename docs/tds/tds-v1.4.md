@@ -640,6 +640,21 @@ Columns: `instrument_id`, `session_date`, `ts_event`, `ts_recv`, `sequence`, `bi
 
 - Reconstruction rule: the start of a file (or date) is either a batch of `is_snapshot = true` rows after a `clear`, or declares with `params.continuity = "carry"` that it carries over the last state of the previous date.
 - The engine reads the book only after rows with `is_last = true`. V031: warning if a crossed book appears after reconstruction; V032: warning on `sequence` gaps (when the vendor promised consecutive sequence numbers).
+- How each row changes the book (decision 2026-11-12, #347); `is_snapshot` rows apply by the same table:
+
+| `action` | `mbp` (book of price levels) | `mbo` (book of orders) |
+|---|---|---|
+| `add` | Set the level (`side`, `price`) to `size`, the new total; `size` 0 or null removes the level | Insert order `order_id` with `side`, `price`, `size` |
+| `modify` | Same as `add` | Replace the order's `price` and `size`; an unknown `order_id` is inserted as by `add` |
+| `cancel` | Same as `add`: `size` is the new total, and only `size` 0 or null removes the level | Reduce the order by `size`; remove it when `size` is null or at least the remaining size; an unknown `order_id` is ignored |
+| `clear` | Empty both sides, at the start of a file or in the middle of a day | Empty both sides, at the start of a file or in the middle of a day |
+| `trade`, `fill`, `none` | No change (the row's `size` is the traded size, not a level total) | No change |
+
+- How V031 is judged (#347):
+  - **When**: right after each row with `is_last = true`, whatever its `action`, `none` included; never in the middle of a batch.
+  - **Crossed**: best bid `>` best ask, strictly. A locked book (equal prices) is not V031. A side with no level is not judged.
+  - **Start of a date with `params.continuity = "carry"`**: the state of each instrument after its last `is_last = true` row in the previous date's partition of the same `venue` in the same package. When the package has no previous partition, the book starts empty and the output carries one line per (`venue`, `session_date`) saying the date was judged from a partial book.
+  - **Output**: one warning line per (`venue`, `session_date`, `instrument_id`) with the `ts_event` of the first crossed judgement point and the number of judgement points at which the book was crossed.
 
 `book_snapshots` — depth-N state at fixed intervals or per event. Long shape: key (`instrument_id`, `ts_event`, `side`, `level`). Columns `ts_event`, `ts_recv`, `side`, `level` (0 = best), `price`, `size`, `order_count`. Databento MBP-10 and Nautilus OrderBookDepth unrolled into rows. The columns named here without a type are typed when the schema leaves `experimental`.
 
