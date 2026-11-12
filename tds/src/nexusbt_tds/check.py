@@ -29,7 +29,14 @@ from typing import Any, Literal
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from .manifest import MANIFEST, Manifest, ManifestError, read_manifest, schema_violations
+from .manifest import (
+    MANIFEST,
+    MANIFEST_SCHEMA,
+    Manifest,
+    ManifestError,
+    read_manifest,
+    schema_violations,
+)
 from .profiles import PROFILES, Need, describe, meets, profile_id
 
 Level = Literal["manifest", "schema", "full"]
@@ -56,6 +63,8 @@ T006, D002 = "TDS-T006", "TDS-D002"
 SCHEMA_CODES = tuple(f"TDS-S{n:03}" for n in (1, 2, 3, 4, 5, 6, 7, 8, 10))
 UNCHECKED_AT_SCHEMA = tuple(c for c in UNCHECKED_AT_MANIFEST if c not in (*SCHEMA_CODES, T006))
 
+#: The manifest schema's date pattern (4.2), which a `YYYY-MM-DD` that is no date also matches.
+DATE: str = MANIFEST_SCHEMA["$defs"]["date"]["pattern"]
 #: TDS 4.2: the fields marked ○ that are required unconditionally.
 REQUIRED: tuple[str, ...] = ("tds_version", "name", "created", "snapshot_id", "producer")
 REQUIRED += ("profiles", "id_namespaces", "markets", "datasets", "hashes", "writer")
@@ -363,10 +372,14 @@ def _processed(
     present, is neither before its `last` there nor after the market's watermark session (3.8).
     A value that is not a date is M001's (the manifest schema)."""
     said = said if isinstance(said, dict) else {}
-    through = _day(said.get("processed_through_session"))
+    value = said.get("processed_through_session")
+    through = _day(value)
     last = _day(said.get("last"))
     watermark = _day(market.get("complete_through_session")) if isinstance(market, dict) else None
     at = f"coverage.by_market.{code}.processed_through_session {through}"
+    if isinstance(value, str) and through is None and re.search(DATE, value):  # 2024-02-30
+        msg = f"coverage.by_market.{code}.processed_through_session {value!r} is not a date"
+        yield Finding("TDS-M001", "error", msg, dataset=name)  # what the pattern lets through
     if through and last and through < last:
         yield Finding("TDS-M016", "error", f"{at}, before its last {last}", dataset=name)
     if through and watermark and through > watermark:
@@ -375,8 +388,9 @@ def _processed(
 
 
 def _day(value: object) -> dt.date | None:
+    """A `YYYY-MM-DD` calendar date; None for anything else (`20240102` included)."""
     try:
-        return dt.date.fromisoformat(value) if isinstance(value, str) else None
+        return dt.date.fromisoformat(value) if isinstance(value, str) and len(value) == 10 else None
     except ValueError:
         return None
 

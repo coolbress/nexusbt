@@ -1366,6 +1366,7 @@ def test_behind_cuts_one_datasets_processed_through_session(tmp_path: Path) -> N
     {"bars_1d": 1}, {"calendar_sessions": 1},  # a row per session: cut with its rows, not here
     {"fundamentals_state": 1},  # not written by this generator yet
     {"corporate_actions": -1}, {"corporate_actions": 10_000}, {"corporate_actions": 1.5},
+    {"corporate_actions": True},
 ])  # fmt: skip
 def test_behind_refuses_what_it_cannot_cut(behind: dict[str, Any], tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="behind"):

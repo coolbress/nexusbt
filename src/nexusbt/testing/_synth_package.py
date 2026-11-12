@@ -151,7 +151,7 @@ def processed(
         if name in SESSIONAL or name not in names:
             cut = sorted(set(names) - set(SESSIONAL))
             raise ValueError(f"behind {name!r}: of this package, cut one of {cut}")
-        if not isinstance(n, int) or not 0 <= n < shortest:
+        if type(n) is not int or not 0 <= n < shortest:  # True is no count
             raise ValueError(f"behind {name!r}: {n!r} is not a count of sessions under {shortest}")
     return lambda name: {m: d[-1 - behind.get(name, 0)].isoformat() for m, d in days.items()}
 

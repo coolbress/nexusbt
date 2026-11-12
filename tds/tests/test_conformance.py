@@ -202,6 +202,8 @@ def _processed(day: object, watermark: str | None, dataset: int = 1) -> Any:
     (_processed("2024-01-03", "2024-01-02", dataset=0), ["TDS-M016"]),
     (_processed("2 Jan 2024", "2024-01-02"), ["TDS-M001"]),  # not a date: the schema's
     (_processed(20240101, "2024-01-02"), ["TDS-M001"]),
+    (_processed("2024-02-30", "2024-01-02"), ["TDS-M001"]),  # the pattern's shape, no date
+    (_processed("2024-01-02\n", "2024-01-02"), ["TDS-M001"]),
 ])  # fmt: skip
 def test_M016_bounds(change: Any, found: list[str], tmp_path: Path) -> None:
     assert codes(write(tmp_path / "pkg", change)) == found
