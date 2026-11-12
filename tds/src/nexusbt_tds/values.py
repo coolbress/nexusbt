@@ -4,7 +4,7 @@
 Rules chosen with the maintainer (#227, 2026-11-10): V001 compares a bar whose open, high, low
 and close are all present; V002 reads bars, and an instrument with `asset_class` `index` or
 `category` `spread` may have negative prices, never a negative `volume` or `value_traded`; V010
-reads the bars of `equity` instruments. V031 and V032 are not judged (follow-up issues).
+reads the bars of `equity` instruments. V031 is `books`'s (#430); V032 is not judged (#348).
 
 V011 (TDS 3.4; #229, 2026-11-10) reads the bars declared raw, of every instrument but an `index`:
 R = value_traded / (volume * multiplier * (high + low + close) / 3) of each bar that has the five
