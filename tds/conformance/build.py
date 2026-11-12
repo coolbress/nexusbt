@@ -268,8 +268,9 @@ def _crypto(declared: bool) -> Change:
 
 
 def _exits(
-    *, delisted: bool, ret_lo: float = 0.0, includes: bool | None = None, **times: dt.datetime
-) -> Change:
+    *, delisted: bool, ret_lo: float = 0.0, includes: bool | None = None,
+    **times: dt.datetime | None,
+) -> Change:  # fmt: skip
     """US:AAA's delisting on 2024-01-02 (5.13), `ret_hi` 0; `delisted` sets
     `instruments.delisted_on` too; `includes`: `ret_observed_includes_distributions`, if any."""
     flag = {"ret_observed_includes_distributions": [includes]} if includes is not None else {}
@@ -281,6 +282,23 @@ def _exits(
         **{k: pa.array([v], TS_UTC) for k, v in times.items()},
     })  # fmt: skip
     return _both(exit_, _instruments(delisted_on=DAY)) if delisted else exit_
+
+
+EXITS = {"exit": "ts_exit_known", "value": "ts_value_available"}  # 6.2's two-instant form
+
+
+def _exited(known: dt.datetime | None, through: str = "2024-01-02", rule: Any = EXITS) -> Change:
+    """US:AAA's exit known at `known`, in `delistings` (no `market=` partitions, availability
+    `rule`) processed through `through` in US; XNYS sessions on the 2nd and 3rd closing at
+    21:00 UTC (TDS 4.3, D003)."""
+
+    def change(m: dict[str, Any], files: Files) -> None:
+        _sessions(0)(m, files)
+        _exits(delisted=True, ts_exit_known=known, ts_value_available=known)(m, files)
+        coverage = {"by_market": {"US": {"processed_through_session": through}}}
+        m["datasets"][-1] |= {"availability": rule, "coverage": coverage}
+
+    return change
 
 
 def _facts(selected: str, state_item: str = "revenue", **fact: list[Any]) -> Change:
@@ -692,6 +710,7 @@ CASES: dict[str, tuple[Change, Change]] = {
     ),
     "TDS-D002": (_keep, _bars(session_date=pa.array([dt.date(2024, 1, 1)]))),  # before listed_on
     "TDS-D001": (_dense(2, 3), _dense(2)),  # the 3rd missing
+    "TDS-D003": (_exited(_at(2, 21, 0)), _exited(_at(3))),  # known after the 2nd's close (#425)
     "TDS-D004": (_covered(), _covered(instruments=2)),
     "TDS-K001": (  # GICS sector and industry on one day (5.19), a key in two editions: no K001
         lambda m, f: (_gics(1, 3)(m, f), _panels("strict", "compare")(m, f)),
@@ -820,6 +839,7 @@ FAILS: dict[str, tuple[str | None, ...]] = {
     "TDS-T008": ("quotes",),
     "TDS-T010": ("instruments",),
     "TDS-T011": ("delistings",),
+    "TDS-D003": ("delistings",),
     "TDS-T003": ("fundamentals_state",),
     "TDS-T004": ("universe_membership",),
     "TDS-T012": ("classifications",),

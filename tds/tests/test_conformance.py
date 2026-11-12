@@ -2016,7 +2016,7 @@ def test_instant_rules_edges(
 
 
 #: D002's package is the schema level's (`test_S_codes`); its rows: `test_density_rules_edges`.
-D_CODES = ["TDS-D001", "TDS-D004"]
+D_CODES = ["TDS-D001", "TDS-D003", "TDS-D004"]
 
 
 @pytest.mark.usefixtures("refs_batches")
@@ -2070,7 +2070,7 @@ _DENSE_2 = build._both(build._sessions(0), build._set("params", build.DENSE, in_
         (_days(JAN[4], delisted_on=pa.array([JAN[4]])), [], []),  # on delisted_on: listed
         (build.CASES["TDS-D002"][1], ["TDS-D002"], []),  # the statistics found it: once
         (build._instruments(listed_on=pa.array(["2024-01-02"])), ["TDS-S002"],
-         ["TDS-D001", "TDS-D002", "TDS-D004"]),  # a text listed_on: none judged
+         ["TDS-D001", "TDS-D002", "TDS-D003", "TDS-D004"]),  # a text listed_on: none judged
         (_DENSE_2, [], ["TDS-D001"]),  # no last_session, no complete_through: not judged
         (build._both(_DENSE_2, _through), ["TDS-D001"], []),  # the 3rd, to the watermark
         (_three(2, 4), ["TDS-D001"], []),  # a row after the watermark hides no gap
@@ -2085,6 +2085,11 @@ _DENSE_2 = build._both(build._sessions(0), build._set("params", build.DENSE, in_
          ["TDS-D004"], []),
         (build._covered(ts_max="2024-01-03"), ["TDS-D004"], []),
         (build._covered(note="free text"), [], []),  # a key 4.2's example does not show
+        # D003 (#425): an exit known on the 3rd, processed through the 3rd: inside its close
+        (build._exited(build._at(3), through="2024-01-03"), [], []),
+        (build._exited(None), [], ["TDS-D003"]),  # every US row null: not judged
+        (build._exited(build._at(3), through="2024-01-04"), [], ["TDS-D003"]),  # no such session
+        (build._exited(build._at(3), rule="session_close"), [], ["TDS-D003"]),  # no instant column
     ],
 )  # fmt: skip
 def test_density_rules_edges(
@@ -2093,3 +2098,29 @@ def test_density_rules_edges(
     result = check(write(tmp_path, change), level="full")
     assert [f.code for f in (*result.errors, *result.warnings)] == found
     assert [c for c in result.unchecked if c.startswith("TDS-D")] == unchecked
+
+
+def _actions_through(**times: Any) -> Any:
+    """SPLIT (effective the 3rd) with `times`, processed through the 2nd in US (#425)."""
+
+    def change(m: dict[str, Any], f: Any) -> None:
+        build._actions(times)(m, f)
+        (ds,) = (d for d in m["datasets"] if d["name"] == "corporate_actions")
+        ds["availability"] = {"effect": "ts_effective", "terms": "ts_terms_available"}
+        ds["coverage"] = {"by_market": {"US": {"processed_through_session": "2024-01-02"}}}
+
+    return change
+
+
+@pytest.mark.parametrize(("times", "late"), [  # TDS 5.11's existence instant, #425 (3)
+    ({"ts_terms_available": build._at(3)}, False),  # announced the 1st, terms later: it exists
+    ({"ts_announced": build._at(3), "ts_terms_available": build._at(2)}, False),  # the earlier
+    ({"ts_announced": None}, True),  # neither: its ts_effective, the 3rd
+    ({"ts_announced": build._at(3)}, True),
+])  # fmt: skip
+def test_D003_reads_an_actions_existence_instant(
+    times: dict[str, Any], late: bool, tmp_path: Path
+) -> None:
+    result = check(write(tmp_path / "pkg", _actions_through(**times)), level="full")
+    assert ("TDS-D003" in [f.code for f in result.errors]) == late
+    assert "TDS-D003" not in result.unchecked
