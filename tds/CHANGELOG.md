@@ -7,6 +7,9 @@ package version follows the `tds_version` it checks (`1.0.x`), tagged
 ## [Unreleased]
 
 ### Added
+- `dictionary/items` has an optional `freq` column (TDS 4.4, an item's own cadence): the value
+  hash takes it where a file writes it, so two dictionaries that differ only in an item's `freq`
+  no longer hash the same; a dictionary without the column keeps its value hash
 - `tds check --level schema` checks a column the schema file leaves untyped, and an `x_` column,
   against the type `tds.json` `columns[]` declares for it: TDS-S002 when the file's column is
   another type, TDS-S004 when a declared `ts_us` or `ts_ns` column is in another unit or not UTC
