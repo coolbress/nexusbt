@@ -647,6 +647,21 @@
 
 - 재구성 규칙: 파일(또는 날짜) 첫머리는 `clear` 뒤 `is_snapshot = true` 행 묶음이거나, 이전 날짜 마지막 상태를 이어받는다고 `params.continuity = "carry"`로 선언.
 - 엔진은 `is_last = true`인 행 뒤에서만 호가를 읽는다. V031: 재구성 뒤 교차 호가 발생 시 경고. V032(`sequence` 빈칸)는 세 데이터셋에 함께 5.6의 표 앞에 적는다.
+- 행마다 호가가 바뀌는 방식(결정 2026-11-12, #347). `is_snapshot` 행도 같은 표대로 적용한다:
+
+| `action` | `mbp`(가격 수준별 호가) | `mbo`(주문별 호가) |
+|---|---|---|
+| `add` | 수준 (`side`, `price`)을 새 총 수량 `size`로 둔다. `size`가 0이나 null이면 그 수준을 지운다 | 주문 `order_id`를 `side`, `price`, `size`로 넣는다 |
+| `modify` | `add`와 같다 | 그 주문의 `price`와 `size`를 바꾼다. 모르는 `order_id`는 `add`처럼 넣는다 |
+| `cancel` | `add`와 같다: `size`는 새 총 수량이고, `size`가 0이나 null일 때만 수준을 지운다 | 그 주문을 `size`만큼 줄인다. `size`가 null이거나 남은 수량 이상이면 지운다. 모르는 `order_id`는 무시한다 |
+| `clear` | 파일 첫머리든 하루 중간이든 양쪽을 비운다 | 파일 첫머리든 하루 중간이든 양쪽을 비운다 |
+| `trade`, `fill`, `none` | 바꾸지 않는다(그 행의 `size`는 체결 수량이지 수준의 총 수량이 아니다) | 바꾸지 않는다 |
+
+- V031을 판정하는 방식(#347):
+  - **언제**: `is_last = true`인 행마다 그 바로 뒤에, 그 행의 `action`이 무엇이든(`none` 포함). 묶음 중간에서는 판정하지 않는다.
+  - **교차**: 최우선 매수 `>` 최우선 매도, 엄격히. 잠긴 호가(같은 가격)는 V031이 아니다. 수준이 없는 쪽이 있으면 판정하지 않는다.
+  - **`params.continuity = "carry"`인 날짜의 시작**: 같은 패키지에서 같은 `venue`의 이전 날짜 파티션에서, 종목마다 그 종목의 마지막 `is_last = true` 행 뒤 상태. 패키지에 이전 파티션이 없으면 빈 호가에서 시작하고, 출력에 (`venue`, `session_date`)마다 그 날짜를 부분 호가로 판정했다는 줄을 하나 넣는다.
+  - **출력**: (`venue`, `session_date`, `instrument_id`)마다 경고 한 줄. 처음 교차한 판정 시점의 `ts_event`와, 호가가 교차한 판정 시점의 수를 담는다.
 
 `book_snapshots` — 일정 간격 또는 사건마다의 깊이 N 상태. 긴 모양: 열쇠 (`instrument_id`, `ts_event`, `side`, `level`). 칼럼 `ts_event`, `ts_recv`, `side`, `level`(0 = 최우선), `price`, `size`, `order_count`. Databento MBP-10·Nautilus OrderBookDepth를 행으로 편 모양. 여기서 형 없이 적은 칼럼은 스키마가 `experimental`을 벗어날 때 형을 정한다.
 
