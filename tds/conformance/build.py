@@ -391,6 +391,19 @@ def _covered(rows: int = 1, **coverage: Any) -> Change:
     return lambda m, f: bars(m).update(rows=rows, coverage=COVERAGE | coverage)
 
 
+def _processed(through: str) -> Change:
+    """The bars processed through `through` in US (TDS 4.3), whose watermark session is the
+    bar's day, 2024-01-02 (3.8)."""
+
+    def change(m: dict[str, Any], files: Files) -> None:
+        m["markets"]["US"]["complete_through_session"] = "2024-01-02"
+        said = {"instruments": 1, "first": "2024-01-02", "last": "2024-01-02", "rows": 1,
+                "processed_through_session": through}  # COVERAGE's US, and the field  # fmt: skip
+        _covered(by_market={"US": said})(m, files)
+
+    return change
+
+
 WRONG = "0" * 64
 
 
@@ -623,6 +636,7 @@ CASES: dict[str, tuple[Change, Change]] = {
             lambda m, f: m["datasets"][0].update(availability={"known": "ts_known_from"}),
         ),
     ),
+    "TDS-M016": (_processed("2024-01-02"), _processed("2024-01-01")),  # rows after it (#192)
     "TDS-S001": (_bars(ts_end=TS), _bars(session_date=None)),
     "TDS-S002": (_keep, _bars(close=pa.array(["10.0"]))),
     "TDS-S003": (
@@ -797,6 +811,7 @@ FAILS: dict[str, tuple[str | None, ...]] = {
         "TDS-S003", "TDS-S006", "TDS-S007", "TDS-R002", "TDS-R004", "TDS-R005", "TDS-R006",
     ], ("instruments",)),
     "TDS-M014": ("bars_1d", "instruments"),  # the unknown rule, the unknown object
+    "TDS-M016": ("bars_1d",),
     "TDS-T002": ("delistings", "instrument_symbols"),  # the two-instant form, the one-column
     **dict.fromkeys(["TDS-D001", "TDS-D004"], ("bars_1d",)),
     "TDS-T001": ("events",),

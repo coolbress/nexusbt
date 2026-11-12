@@ -1,6 +1,6 @@
 """`check(path, *, level, ...) -> CheckResult`: the levels manifest, schema and full (TDS 8.2).
 
-The `manifest` level reads `tds.json`, file sizes and the schema files' `status` (M001~M015);
+The `manifest` level reads `tds.json`, file sizes and the schema files' `status` (M001~M016);
 the `schema` level adds the
 Parquet footers and statistics and the `dictionary/` tables, no data rows (S001~S010, T006, part
 of D002, and of M008 the columns a profile names); the `full` level adds, so far, S006, S007
@@ -343,15 +343,42 @@ def _check_manifest(m: Manifest, only: Sequence[str] | None) -> Iterable[Finding
             yield Finding("TDS-M015", "warning", msg, dataset=name)
         coverage = ds.get("coverage")
         by_market = coverage.get("by_market") if isinstance(coverage, dict) else None
-        for market in sorted(by_market) if isinstance(by_market, dict) else []:
+        for market, said in sorted(by_market.items()) if isinstance(by_market, dict) else []:
             if market not in declared["market"]:
                 msg = f"coverage.by_market names market {market!r}, not declared in tds.json"
                 yield Finding("TDS-M010", "error", msg, dataset=name)
+            watermark = markets.get(market) if isinstance(markets, dict) else None
+            yield from _processed(said, watermark, market, name)
         yield from _check_dataset(root, ds, name, listed, declared)
     if only is None:
         for rel in _walk(root):
             if rel not in listed and rel != MANIFEST:
                 yield Finding("TDS-M005", "warning", "file is not listed in tds.json", file=rel)
+
+
+def _processed(
+    said: object, market: object, code: str, name: str | None
+) -> Iterable[Finding]:  # fmt: skip
+    """M016 (TDS 4.3, #192): a dataset's `processed_through_session` in market `code`, when
+    present, is neither before its `last` there nor after the market's watermark session (3.8).
+    A value that is not a date is M001's (the manifest schema)."""
+    said = said if isinstance(said, dict) else {}
+    through = _day(said.get("processed_through_session"))
+    last = _day(said.get("last"))
+    watermark = _day(market.get("complete_through_session")) if isinstance(market, dict) else None
+    at = f"coverage.by_market.{code}.processed_through_session {through}"
+    if through and last and through < last:
+        yield Finding("TDS-M016", "error", f"{at}, before its last {last}", dataset=name)
+    if through and watermark and through > watermark:
+        msg = f"{at}, after the market's complete_through_session {watermark}"
+        yield Finding("TDS-M016", "error", msg, dataset=name)
+
+
+def _day(value: object) -> dt.date | None:
+    try:
+        return dt.date.fromisoformat(value) if isinstance(value, str) else None
+    except ValueError:
+        return None
 
 
 def _check_dataset(

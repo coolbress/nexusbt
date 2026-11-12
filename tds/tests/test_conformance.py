@@ -171,6 +171,42 @@ def test_M015_warns_of_an_experimental_dataset_and_otherwise_passes(tmp_path: Pa
     assert check(trades, level="manifest").warnings[0].severity == "warning"
 
 
+def test_M016_rows_after_the_processed_through_session(tmp_path: Path) -> None:
+    # #192, TDS 4.3: bars whose `last` is after the session they say they are processed through
+    fail = build.write(tmp_path / "fail", *build.package("TDS-M016", "fail"))
+    passing = build.write(tmp_path / "pass", *build.package("TDS-M016", "pass"))
+    for level in ("manifest", "schema"):
+        assert pairs(fail, level) == stated("TDS-M016")
+        assert codes(passing, level) == []
+        assert "TDS-M016" not in check(passing, level=level).unchecked
+
+
+def _processed(day: object, watermark: str | None, dataset: int = 1) -> Any:
+    """`processed_through_session` `day` in US for dataset `dataset` (1: the bars, with a
+    `last`; 0: the instruments, without), and US's watermark session `watermark`."""
+
+    def change(m: dict[str, Any], files: Any) -> None:
+        if watermark:
+            m["markets"]["US"]["complete_through_session"] = watermark
+        said = build.COVERAGE["by_market"]["US"] if dataset else {}
+        coverage = {"by_market": {"US": said | {"processed_through_session": day}}}
+        m["datasets"][dataset]["coverage"] = coverage
+
+    return change
+
+
+@pytest.mark.parametrize(("change", "found"), [
+    (_processed("2024-01-03", "2024-01-02"), ["TDS-M016"]),  # after the watermark (3.8)
+    (_processed("2024-01-03", None), []),  # no watermark session: only `last` bounds it
+    (_processed("2023-12-29", "2024-01-02", dataset=0), []),  # no `last`: an event dataset
+    (_processed("2024-01-03", "2024-01-02", dataset=0), ["TDS-M016"]),
+    (_processed("2 Jan 2024", "2024-01-02"), ["TDS-M001"]),  # not a date: the schema's
+    (_processed(20240101, "2024-01-02"), ["TDS-M001"]),
+])  # fmt: skip
+def test_M016_bounds(change: Any, found: list[str], tmp_path: Path) -> None:
+    assert codes(write(tmp_path / "pkg", change)) == found
+
+
 K_CODES = ["TDS-K001", "TDS-K002", "TDS-K003", "TDS-K004", "TDS-K010", "TDS-K011"]
 
 

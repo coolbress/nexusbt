@@ -25,6 +25,7 @@
 > 판 이력(이어서): **v1.4, 2026-11-11 명확화**: 7장의 `tds:bitemporal@1.0` 줄은 스키마 파일에 `ts_recorded`가 있는 데이터셋, 곧 `events`와 `fundamentals_events`(5.17)를 이름 붙인다. `classifications`와 `fundamentals_state`는 기록 시각을 이미 `ts_known_from`으로 지니므로 프로필이 두 번째 칼럼을 더하지 않는다. 이 줄은 "events·classifications·state"라고 적었고, 스키마 파일대로 쓴 패키지는 TDS-M008이나 TDS-S005 없이 그것을 맞출 수 없었다(사용자 결정 2026-11-11, #397). 스키마 파일은 바뀌지 않으므로 `tds_version`은 `"1.0"` 그대로.
 > 판 이력(이어서): **v1.4, 제자리 추가, 2026-11-12**: 선택 칼럼 `dictionary/items.freq`(4.4). 그 항목 자신의 주기로, 값과 뜻은 `dictionary/columns.freq`와 같다. `quarterly` 열 아래의 연간 전용 항목이 낡았다고 읽히지 않게 한다(엔진 명세서 5.9.1; 사용자 결정 2026-11-12, #406). 값 해시(4.5)는 파일이 이 칼럼을 쓰면 그것을 담고, 이 칼럼이 없는 사전은 해시가 그대로다. 성격상 MINOR(10.2)이고 표준이 초안이므로 `tds_version`은 `"1.0"` 그대로.
 > 판 이력(이어서): **v1.4, 2026-11-12 명확화**: 6.4가 7장 `tds:bitemporal@1.0` 줄이 이름 붙인 네 데이터셋에서 시스템 이력(`history_mode = system`)을 무엇이 제한하는지 말한다: `events`와 `fundamentals_events`는 `ts_recorded <= t`, `ts_recorded`가 없는 `classifications`와 `fundamentals_state`는 `ts_known_from <= t`. 6.1에 한 문장을 더한다: 이 두 데이터셋의 `native` 행에서 `ts_known_from`은 쓸 수 있는 기간의 시작이면서 만든 쪽의 기록 시각이고, 위 2026-11-11 줄의 "기록 시각"이 이것이라 그 줄은 정정 없이 그대로 둔다. `backfilled` 행(K6)에서는 기간의 시작일 뿐 기록 시각은 남지 않으며, 6.4는 그런 행이 시스템 이력 재생에서 `ts_known_from`부터 보이고 `pit_quality = backfilled`가 그 경고라고 말한다(사용자 결정 2026-11-12, 2026-11-12 (2), #405). 엔진은 v1에서 `tds:bitemporal`을 읽지 않는다(엔진 명세 4.3, 3.11). 문구만 바꿨으므로 `tds_version`은 `"1.0"` 그대로.
+> 판 이력(이어서): **v1.4, 2026-11-12 추가**: 선택 필드 `coverage.by_market.<m>.processed_through_session`(4.3). 생산자가 한 시장에서 그 데이터셋을 처리한 마지막 세션이며, 그 세션에 새 행이 있었든 없었든 같다. 다음 마이너 판부터 사건·구간 데이터셋에는 필수다. 3.8은 시장 워터마크가 이 값을 묶는다고 말하고, 검사 TDS-M016(8.3)은 이 값이 그 시장에서 데이터셋의 `last`보다 이르거나 시장의 `complete_through_session`보다 늦으면 거부한다. 날짜가 아닌 값은 TDS-M001이다(결정 2026-11-04, #192). 선택 필드는 10.2에 따라 MINOR이고 표준은 초안이므로 `tds_version`은 `"1.0"` 그대로.
 > 관계: 이 문서는 엔진 명세서 v3.4(`engine-spec-v3.4-2026-10-28.md`) **4장이 참조하는 입력 정본**이다. 둘이 다르면 입력 형식은 이 문서가 맞다(차이 목록은 12장). 사용자 결정(설계 문서 9.0)은 이 문서보다 우선한다.
 > 공개: 이 표준과 검사기(`nexusbt-tds`, import `nexusbt_tds`, 명령 `tds`)는 공개(Apache-2.0)다. 작업판 11장(생산자별 대응)은 표준의 규범이 아니라서 이 공개판에 넣지 않았다.
 > 예시: 엔진이 읽는 모든 데이터셋(사건·거시 계열 포함)의 예시 행은 `tds-examples.md`(같은 폴더)에 있다.
@@ -278,6 +279,7 @@
 - 시장 = 달력 하나, 기본 통화 하나, 기본 시간대 하나를 가진 묶음. 매니페스트 `markets`에 선언한다(예 `KR`: XKRX, KRW, Asia/Seoul; `US`: XNYS, USD, America/New_York; `CRYPTO`: `CRYPTO-UTC`, USD, UTC).
 - 시장 코드는 파티션(`market=`)과 엔진 슬리브(명세서 1.2)의 단위다. 한 종목은 한 시장에 속한다(`instruments.market`).
 - 시장의 **완결 워터마크**(`complete_through`): 그 시각까지의 자료는 다 들어 있다는 약속. 엔진 `live`는 이 뒤 세션을 체결에 쓰지 않는다(명세서 4.3).
+- 워터마크가 그 시장에서 각 데이터셋의 **처리 완료 세션**(4.3 `coverage.by_market.<m>.processed_through_session`)을 묶는다. 거꾸로는 아니다: 그 세션은 `complete_through_session`보다 늦지 않다. 처리 완료 세션이 더 이른 데이터셋은 그 세션까지만 완결이고, 워터마크의 약속도 그 데이터셋에는 거기까지만 성립한다. 그 세션 뒤에 있었을 행은 빠진 것이 아니라 아직 만들어지지 않은 것이다 [v1.4, 2026-11-12, #192].
 
 ---
 
@@ -377,12 +379,14 @@
      "pit_quality": "native",
      "rows": 60700000, "value_sha256": "…",
      "coverage": {"instruments": 27627, "ts_min": "1995-05-02", "ts_max": "2026-10-27",
-                  "by_market": {"KR": {"instruments": 5495, "first": "1995-05-02", "last": "2026-10-27", "rows": 15700000}}},
+                  "by_market": {"KR": {"instruments": 5495, "first": "1995-05-02", "last": "2026-10-27", "rows": 15700000,
+                                       "processed_through_session": "2026-10-27"}}},
      "columns": [{"name": "instrument_id", "type": "id", "nullable": false}, "…"],
      "files": [{"path": "bars/freq=1d/market=KR/year=1995/part-00000.parquet", "rows": 123456, "bytes": 4567890,
                 "sha256": "…", "stats": {"session_date": ["1995-05-02", "1995-12-28"]}}]},
     {"name": "fundamentals_state", "kind": "fundamentals_state", "schema_version": "1.0", "path": "fundamentals_state",
-     "availability": {"column": "ts_known_from"}, "files": ["…"]},
+     "availability": {"column": "ts_known_from"},
+     "coverage": {"by_market": {"KR": {"processed_through_session": "2026-10-23"}}}, "files": ["…"]},
     {"name": "delistings", "kind": "delistings", "schema_version": "1.0", "path": "delistings",
      "availability": {"exit": "ts_exit_known", "value": "ts_value_available"}, "files": ["…"]}
   ],
@@ -408,7 +412,7 @@
 | `hashes` | ○ | 4.5(`physical_sha256`, `value_sha256`, `semantic_sha256`, `hash_spec`) |
 | `writer` | ○ | 쓰기 도구, row group 행 수 |
 
-`tds.json`의 JSON 스키마는 `tds/schemas/manifest/1.0.json`이다 [2026-11-12]: 위의 필수 필드, `datasets[]`·`columns[]`·`partitioning[]`·`markets`·`profiles`·`hashes`의 모양, 3.2 형 이름이나 `string`(5장 스키마 파일이 글자 칼럼에 주는 형)인 `columns[].type`·`partitioning[].type`(`ts_us/ns`는 아니다. 4.5가 3.2 형 이름이 아니라고 한다), 데이터셋 안에서 겹치지 않는 `columns[].name`. `manifest` 단계는 다른 무엇보다 먼저 `tds.json`을 이 스키마로 검사한다: 위반은 TDS-M001, 필수 필드가 없으면 TDS-M003(8.3).
+`tds.json`의 JSON 스키마는 `tds/schemas/manifest/1.0.json`이다 [2026-11-12]: 위의 필수 필드, `datasets[]`·`columns[]`·`partitioning[]`·`markets`·`profiles`·`hashes`의 모양, 3.2 형 이름이나 `string`(5장 스키마 파일이 글자 칼럼에 주는 형)인 `columns[].type`·`partitioning[].type`(`ts_us/ns`는 아니다. 4.5가 3.2 형 이름이 아니라고 한다), 데이터셋 안에서 겹치지 않는 `columns[].name`, `YYYY-MM-DD` 날짜인 `coverage.by_market.<m>.processed_through_session`(4.3). `manifest` 단계는 다른 무엇보다 먼저 `tds.json`을 이 스키마로 검사한다: 위반은 TDS-M001, 필수 필드가 없으면 TDS-M003(8.3).
 
 ### 4.3 적용 범위(coverage) 블록
 
@@ -417,6 +421,7 @@
 - `instruments`: 서로 다른 `instrument_id` 수.
 - `ts_min`, `ts_max`(또는 날짜): 자료가 덮는 범위.
 - `by_market`: 시장별 같은 값과 행 수.
+- 선택 `by_market.<m>.processed_through_session` [v1.4, 2026-11-12, #192]: 생산자가 시장 `<m>`에서 이 데이터셋을 처리한 마지막 세션. 그 세션에 행이 생겼든 아니든 같다. 세션마다 행이 있는 데이터셋(종목이나 달력과 세션마다 한 행: 일봉 `bars`, `calendar_sessions`, `tradability_daily`, `eligibility_daily`)에서는 보통 그 `last`다. 사건·구간 데이터셋(`corporate_actions`, `delistings`, `fundamentals_state` 등)은 마지막 행이 마지막 사건이라 평범한 날에도 몇 주 전일 수 있는데, 이 필드는 그래도 데이터셋이 최신이라고 말한다. 어느 종류의 데이터셋이든 줄 수 있고, `market=` 파티션이 없는 데이터셋도 그렇다. 그때 `<m>`은 행의 종목이 속한 시장이고 `by_market.<m>`에는 이 필드만 있어도 된다. 이 값은 그 시장에서 데이터셋의 `last`보다 이르지 않고(처리했다는 세션 뒤의 행), 시장의 워터마크 세션 `complete_through_session`(3.8)보다 늦지 않다. 어느 쪽을 어겨도 TDS-M016이다. 값이 없으면 세션마다 행이 있는 데이터셋은 그 `last`까지, 다른 데이터셋은 시장의 `complete_through_session`까지 처리한 것으로 본다. 그래서 이 필드 이전에 쓴 패키지도 전처럼 읽힌다. 다음 마이너 판부터 사건·구간 데이터셋에는 필수다.
 - 선택 `by_item`: 재무·패널 칼럼별 첫 해·채움 비율(분자/분모로).
 
 ### 4.4 칼럼 사전 (`dictionary/`)
@@ -1069,6 +1074,7 @@ tds export {zipline-bundle|nautilus-catalog|wide-parquet} ... # 9.8
 | TDS-M013 | E | 같은 파일 경로가 두 번 나옴 [v1.1] |
 | TDS-M014 | E | 모르는 **필수 해석 규칙**(공개 규칙 이름, 실행에 영향이 있는 닫힌 열거의 새 값, 모르는 `hash_spec`) — 무시하면 뜻이 달라지므로 거절 [v1.1] |
 | TDS-M015 | W | `experimental` 스키마 데이터셋이 있음(1.x 호환 약속 밖) [v1.1] |
+| TDS-M016 | E | 데이터셋의 `coverage.by_market.<m>.processed_through_session`(4.3)이 그 시장에서 그 `last`보다 이르거나(처리했다는 세션 뒤의 행) 시장의 `complete_through_session`(3.8)보다 늦음 [v1.4, 2026-11-12] |
 | TDS-S001 | E | 필수 칼럼 없음 |
 | TDS-S002 | E | 칼럼 형 다름: 파일의 칼럼이 제 형과 다르거나, 매니페스트 `columns[].type`이 스키마 파일이 그 칼럼에 적은 형과 다름(`ts_us/ns` 칼럼에 `ts_us`나 `ts_ns`를 적는 것은 다른 것이 아니다) [2026-11-11]. 스키마 파일이 형을 적지 않은 칼럼(`"type": null`, `experimental` 종류)과 `x_` 칼럼은 매니페스트 `columns[].type`이 파일의 칼럼을 견줄 형이고, 그런 칼럼에 선언이 없으면 검사하지 않는다 [2026-11-12]. 파티션 칼럼이 아닌 칼럼은 값 해시의 형 태그(4.5 3단계)가 이 행이 그 칼럼을 견주는 형이다 [2026-11-12] |
 | TDS-S003 | E | null 금지 칼럼에 null |
@@ -1541,3 +1547,4 @@ datasets:
 - 2026-11-11: **v1.4** 안에서. 5.3 `instrument_xref`와 5.14 `share_counts`는 열쇠 순서로 정렬하고, 5.20 `eligibility_daily`는 일봉처럼 세션 날짜를 먼저 두어 (`session_date`, `instrument_id`, `rule_id`)로 정렬한다(3.5). 5장이 셋에 열쇠만 적고 정렬을 적지 않아 K002가 판정하지 못했다. 10.2: 표준이 초안인 동안 적지 않았던 정렬을 적는 것은 문장 고침이다(결정 2026-11-11, #412). `tds_version` `"1.0"` 그대로(문장 고침; 초안).
 - 2026-11-12: **v1.4** 안에서. 4.2와 8.3 TDS-M001: 8.3이 말하는 JSON 스키마는 파일 `tds/schemas/manifest/1.0.json`이고, `manifest` 단계가 `tds.json`을 이 스키마로 검사한다. 위반은 모두 TDS-M001, 필수 필드가 없는 것은 그대로 TDS-M003. 3.2 형 이름도 `string`도 아닌 `columns[].type`·`partitioning[].type`(`ts_us/ns`, `""`, `null` 포함)과 한 데이터셋에 두 번 적힌 칼럼 이름은 이제 TDS-M001이다. 지금까지 검사기는 모르는 선언을 선언이 없는 것처럼 다뤘다(결정 2026-11-12, #417). `tds_version` `"1.0"` 그대로(표준이 이미 이름 붙인 검사; 초안).
 - 2026-11-12: **v1.4** 안에서. 4.5 3단계와 8.3 TDS-S002: 스키마 파일이 형을 적은 칼럼은 값 해시도 형 태그를 스키마 파일에서, 곧 `schema` 단계가 검사하는 형에서 가져온다. 매니페스트 `columns[].type`은 `ts_us/ns` 칼럼, 스키마 파일이 형을 적지 않았거나 갖지 않은 칼럼, `x_` 칼럼에만 형을 주고, 파티션 칼럼은 `partitioning[].type` 그대로다. 지금까지는 스키마 파일과 다른 선언이 그 형을 대신해서, S002에 걸리는 패키지가 스키마 파일대로 선언한 같은 파일과 다른 `value_sha256`을 얻었다. 선언이 스키마 파일과 맞는 패키지는 값 해시가 그대로이고 시험 벡터도 바뀌지 않는다. 다른 형을 선언한 패키지도 스키마 파일의 태그로 값 해시를 얻는다(결정 2026-11-12, #404). 스키마 파일이 3.2 형을 주지 않는 `ts_us/ns` 칼럼을 `ts_us`나 `ts_ns`가 아닌 형으로 선언하면, 선언이 없을 때처럼 값 해시가 없다. `tds_version` `"1.0"` 그대로(문장 고침; 초안).
+- 2026-11-12: **v1.4** 안에서. 3.8, 4.2, 4.3과 8.3 TDS-M016: 선택 필드 `coverage.by_market.<m>.processed_through_session`. 생산자가 한 시장에서 그 데이터셋을 처리한 마지막 세션이고, 아래로는 데이터셋의 `last`, 위로는 시장의 `complete_through_session`이 묶는다. 값이 없으면 세션마다 행이 있는 데이터셋은 그 `last`까지, 다른 데이터셋은 워터마크 세션까지 처리한 것으로 본다. 다음 마이너 판부터 사건·구간 데이터셋에는 필수다(결정 2026-11-04, #192). `tds_version` `"1.0"` 그대로(선택 필드; 초안).
