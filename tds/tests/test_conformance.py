@@ -132,6 +132,22 @@ def test_S009_rows(change: Any, found: list[str], at_schema: list[str], tmp_path
     assert codes(package, "schema") == at_schema
 
 
+def test_dictionary_items_freq_is_optional_and_in_the_value_hash(tmp_path: Path) -> None:
+    """TDS 4.4 `dictionary/items.freq` (#406): an item's own cadence, null or absent when it
+    takes its column's; a dictionary without the column keeps the value hash it had."""
+
+    def items(name: str, **freq: list[Any]) -> tuple[list[str], str]:
+        package = write(tmp_path / name, build._add("dictionary/items", {"item": ["eps"]} | freq))
+        return codes(package, "full"), value_hash(package, "dictionary/items")
+
+    annual, quarterly = items("a", freq=["annual"]), items("q", freq=["quarterly"])
+    without, null = items("none"), items("null", freq=pa.array([None], pa.string()))
+    assert [annual[0], quarterly[0], without[0], null[0]] == [[], [], [], []]
+    assert annual[1] != quarterly[1]  # was ignored: two cadences hashed as the same data
+    assert without[1] == "c5d11590a1f690ff333d2f8969ce535da85a1dc8a7cd25c02f6f24c089b60935"
+    assert null[1] != without[1]  # written all null is not absent (4.5 step 1)
+
+
 def test_an_unreadable_file_leaves_the_row_S_codes_unchecked(tmp_path: Path) -> None:
     def broken(m: dict[str, Any], f: Any) -> None:
         f[build.BARS] = b"not parquet"
