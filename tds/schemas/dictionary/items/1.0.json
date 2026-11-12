@@ -8,6 +8,7 @@
     {"name": "flow_or_stock", "type": "string", "null": null},
     {"name": "unit", "type": "string", "null": null},
     {"name": "description", "type": "string", "null": null},
-    {"name": "source_concepts", "type": "string", "null": null}
+    {"name": "source_concepts", "type": "string", "null": null},
+    {"name": "freq", "type": "string", "null": true}
   ]
 }

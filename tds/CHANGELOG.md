@@ -7,6 +7,9 @@ package version follows the `tds_version` it checks (`1.0.x`), tagged
 ## [Unreleased]
 
 ### Added
+- `dictionary/items` has an optional `freq` column (TDS 4.4, an item's own cadence): the value
+  hash takes it where a file writes it, so two dictionaries that differ only in an item's `freq`
+  no longer hash the same; a dictionary without the column keeps its value hash
 - `tds check --level schema` checks a column the schema file leaves untyped, and an `x_` column,
   against the type `tds.json` `columns[]` declares for it: TDS-S002 when the file's column is
   another type, TDS-S004 when a declared `ts_us` or `ts_ns` column is in another unit or not UTC
@@ -20,3 +23,8 @@ package version follows the `tds_version` it checks (`1.0.x`), tagged
   `bars/freq=1d`; so too when the name they state is the kind), and any other mix of partition
   keys, or of files in the folder itself with partition folders, is named in `TODO`
 - Package skeleton with the `tds` entry point
+
+### Changed
+- `tds hash` takes a column's type tag from the schema file wherever the schema file types the
+  column, as `tds check --level schema` does; a `tds.json` `columns[].type` that differs from it
+  (TDS-S002) no longer changes the dataset's `value_sha256` (TDS 4.5 step 3)
