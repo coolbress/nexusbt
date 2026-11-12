@@ -30,6 +30,16 @@
             "type": "array",
             "items": {"type": "object", "required": ["path", "bytes"]}
           },
+          "params": {
+            "$comment": "Only this key's shape (TDS 5.6~5.8, #348); the other params keys stay open.",
+            "properties": {
+              "sequence_consecutive_within": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {"type": "string", "pattern": "^(?!sequence$)"}
+              }
+            }
+          },
           "coverage": {
             "type": "object",
             "properties": {

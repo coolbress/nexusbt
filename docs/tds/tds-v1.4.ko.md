@@ -26,6 +26,7 @@
 > 판 이력(이어서): **v1.4, 제자리 추가, 2026-11-12**: 선택 칼럼 `dictionary/items.freq`(4.4). 그 항목 자신의 주기로, 값과 뜻은 `dictionary/columns.freq`와 같다. `quarterly` 열 아래의 연간 전용 항목이 낡았다고 읽히지 않게 한다(엔진 명세서 5.9.1; 사용자 결정 2026-11-12, #406). 값 해시(4.5)는 파일이 이 칼럼을 쓰면 그것을 담고, 이 칼럼이 없는 사전은 해시가 그대로다. 성격상 MINOR(10.2)이고 표준이 초안이므로 `tds_version`은 `"1.0"` 그대로.
 > 판 이력(이어서): **v1.4, 2026-11-12 명확화**: 6.4가 7장 `tds:bitemporal@1.0` 줄이 이름 붙인 네 데이터셋에서 시스템 이력(`history_mode = system`)을 무엇이 제한하는지 말한다: `events`와 `fundamentals_events`는 `ts_recorded <= t`, `ts_recorded`가 없는 `classifications`와 `fundamentals_state`는 `ts_known_from <= t`. 6.1에 한 문장을 더한다: 이 두 데이터셋의 `native` 행에서 `ts_known_from`은 쓸 수 있는 기간의 시작이면서 만든 쪽의 기록 시각이고, 위 2026-11-11 줄의 "기록 시각"이 이것이라 그 줄은 정정 없이 그대로 둔다. `backfilled` 행(K6)에서는 기간의 시작일 뿐 기록 시각은 남지 않으며, 6.4는 그런 행이 시스템 이력 재생에서 `ts_known_from`부터 보이고 `pit_quality = backfilled`가 그 경고라고 말한다(사용자 결정 2026-11-12, 2026-11-12 (2), #405). 엔진은 v1에서 `tds:bitemporal`을 읽지 않는다(엔진 명세 4.3, 3.11). 문구만 바꿨으므로 `tds_version`은 `"1.0"` 그대로.
 > 판 이력(이어서): **v1.4, 2026-11-12 추가**: 선택 필드 `coverage.by_market.<m>.processed_through_session`(4.3). 생산자가 한 시장에서 그 데이터셋을 처리한 마지막 세션이며, 그 세션에 새 행이 있었든 없었든 같다. 다음 마이너 판부터 사건·구간 데이터셋에는 필수다. 3.8은 시장 워터마크가 이 값을 묶는다고 말하고, 검사 TDS-M016(8.3)은 이 값이 그 시장에서 데이터셋의 `last`보다 이르거나 시장의 `complete_through_session`보다 늦으면 거부한다. 날짜가 아닌 값은 TDS-M001이다(결정 2026-11-04, #192). 선택 필드는 10.2에 따라 MINOR이고 표준은 초안이므로 `tds_version`은 `"1.0"` 그대로.
+> 판 이력(이어서): **v1.4, 2026-11-13 추가**: `trades`, `quotes`, `book_deltas`의 선택 `params.sequence_consecutive_within`(5.6~5.8). 데이터셋이 각 파티션 안에서 목록의 칼럼이 만드는 그룹마다 공급사가 연속 `sequence` 순번을 약속했다고 선언한다. 검사 V032(8.3)는 5.8에서 세 데이터셋이 함께 쓰는 문장으로 옮긴다(결정 2026-11-13, #348). 선택 필드는 10.2에 따라 MINOR이고 표준은 초안이므로 `tds_version`은 `"1.0"` 그대로.
 > 관계: 이 문서는 엔진 명세서 v3.4(`engine-spec-v3.4-2026-10-28.md`) **4장이 참조하는 입력 정본**이다. 둘이 다르면 입력 형식은 이 문서가 맞다(차이 목록은 12장). 사용자 결정(설계 문서 9.0)은 이 문서보다 우선한다.
 > 공개: 이 표준과 검사기(`nexusbt-tds`, import `nexusbt_tds`, 명령 `tds`)는 공개(Apache-2.0)다. 작업판 11장(생산자별 대응)은 표준의 규범이 아니라서 이 공개판에 넣지 않았다.
 > 예시: 엔진이 읽는 모든 데이터셋(사건·거시 계열 포함)의 예시 행은 `tds-examples.md`(같은 폴더)에 있다.
@@ -591,6 +592,12 @@
 
 > 5.6~5.9, 5.22~5.24의 스키마는 **실험 판**이다: 무손실 가져오기와 재생 고정 사례가 생길 때까지 1.x 호환 약속(10.2) 밖이고 다음 MINOR에서 바뀔 수 있다. 스키마 파일은 `status: experimental`, 검사기는 이 데이터셋을 담은 패키지에 W(M015)를 낸다. 일봉 주식 데이터셋(5.1~5.5, 5.10~5.21, 5.25~5.26)만 `stable`이다 [RV-I07].
 
+**연속 `sequence` 순번, V032 (`trades` 5.6, `quotes` 5.7, `book_deltas` 5.8)** [2026-11-13, #348]: 이 세 종류의 데이터셋은 `params.sequence_consecutive_within`으로 공급사가 연속 `sequence` 순번을 약속했다고 선언한다. 값은 칼럼 이름의 목록이다. 있으면 약속한 것이고 없으면 약속이 없다. `true`/`false` 형태는 없다. 그룹은 파티션(`venue`, `date`)을 목록의 칼럼으로 더 나눈 것이므로 `[]`이면 파티션 전체가 한 그룹이다(예: `["instrument_id"]`, Databento 채널 피드라면 `["x_dbn_channel_id"]`, 9.4). 이 선언은 그룹이 그 순번의 모든 메시지를 담는다는 뜻이며, 메시지의 일부만 담는 `trades`와 `quotes`에서는 보통 참이 아니다. 다른 종류의 데이터셋에 있는 이 키는 무시한다.
+- 목록의 각 칼럼은 필수다: 파일 꼬리말(footer)에 없으면 `schema` 단계의 TDS-S001이다. 목록에 적힌 파티션 칼럼은 오류가 아니다.
+- V032(경고): 그룹 안에서 행을 `sequence` 순으로 놓는다. 이웃한 두 값의 차이가 0이면 빈칸이 아니고(한 메시지의 여러 행), 1보다 크면 빈칸이다. 그룹의 첫 번호는 무엇이든 된다. 키 중복은 K 코드에 맡긴다. `book_deltas`에서 `is_snapshot = true`인 행은 빼고 본다: 거래소의 실시간 메시지 흐름에 속하지 않는다.
+- 출력: 빈칸이 있는 그룹마다 경고 한 줄. `key`에 그룹의 값(파티션 값이 먼저, 그다음 목록의 칼럼을 선언한 순서대로), `count`에 빠진 번호의 수, 메시지에 첫 빈칸(빈칸 앞의 번호와 뒤의 번호)을 담는다.
+- 선언이 없는 데이터셋은 약속한 것이 없으므로 V032를 내지 않고, `full` 단계에서 V032를 `unchecked`에 넣지 않는다. `manifest`와 `schema` 단계는 행을 읽지 않으므로 V032를 `unchecked`로 둔다.
+
 파티션 `venue=/date=`(date = `session_date`). 열쇠 (`instrument_id`, `ts_event`, `sequence`, `trade_id`)(trade_id null 허용이면 열쇠에서 빠지고 `sequence`가 유일해야 함). 정렬 (`instrument_id`, `ts_event`, `sequence`). 시각 단위 ns. 매개변수 `price_exponent`, `size_exponent`.
 
 | 칼럼 | 형 | null | 뜻 |
@@ -639,7 +646,7 @@
 | flags | i32 | 예 | 원 비트 |
 
 - 재구성 규칙: 파일(또는 날짜) 첫머리는 `clear` 뒤 `is_snapshot = true` 행 묶음이거나, 이전 날짜 마지막 상태를 이어받는다고 `params.continuity = "carry"`로 선언.
-- 엔진은 `is_last = true`인 행 뒤에서만 호가를 읽는다. V031: 재구성 뒤 교차 호가 발생 시 경고, V032: `sequence` 빈칸(공급사가 연속 순번을 약속한 경우) 경고.
+- 엔진은 `is_last = true`인 행 뒤에서만 호가를 읽는다. V031: 재구성 뒤 교차 호가 발생 시 경고. V032(`sequence` 빈칸)는 세 데이터셋에 함께 5.6의 표 앞에 적는다.
 
 `book_snapshots` — 일정 간격 또는 사건마다의 깊이 N 상태. 긴 모양: 열쇠 (`instrument_id`, `ts_event`, `side`, `level`). 칼럼 `ts_event`, `ts_recv`, `side`, `level`(0 = 최우선), `price`, `size`, `order_count`. Databento MBP-10·Nautilus OrderBookDepth를 행으로 편 모양. 여기서 형 없이 적은 칼럼은 스키마가 `experimental`을 벗어날 때 형을 정한다.
 
@@ -1059,7 +1066,7 @@ tds export {zipline-bundle|nautilus-catalog|wide-parquet} ... # 9.8
 
 | 코드 | 심각도 | 뜻 |
 |---|---|---|
-| TDS-M001 | E | `tds.json` 없음·읽을 수 없음·JSON 스키마(4.2, `tds/schemas/manifest/1.0.json`) 위반. 스키마가 허용하지 않는 `columns[].type`·`partitioning[].type`, 한 데이터셋에 두 번 적힌 칼럼 이름도 여기 [2026-11-12] |
+| TDS-M001 | E | `tds.json` 없음·읽을 수 없음·JSON 스키마(4.2, `tds/schemas/manifest/1.0.json`) 위반. 스키마가 허용하지 않는 `columns[].type`·`partitioning[].type`, 한 데이터셋에 두 번 적힌 칼럼 이름도 여기 [2026-11-12]. 문자열 배열이 아니거나, 한 칼럼을 두 번 적거나, `sequence`를 적은 `params.sequence_consecutive_within`(5.6)도 여기 [2026-11-13] |
 | TDS-M002 | E | `tds_version` MAJOR를 지원하지 않음 |
 | TDS-M003 | E | 필수 매니페스트 칼럼 없음 |
 | TDS-M004 | E | 목록에 있는 파일이 없음 |
@@ -1136,7 +1143,7 @@ tds export {zipline-bundle|nautilus-catalog|wide-parquet} ... # 9.8
 | TDS-V020 | E | 자산 종류별 필수 칼럼 없음 |
 | TDS-V030 | W | 교차·잠긴 BBO |
 | TDS-V031 | W | 호가 재구성 뒤 교차 |
-| TDS-V032 | W | 순번 빈칸 |
+| TDS-V032 | W | `params.sequence_consecutive_within`을 선언한 데이터셋의 그룹 안 순번 빈칸(5.6) |
 | TDS-V040 | E | `ret_lo > ret_hi` |
 | TDS-V041 | W | `events` 행에 `instrument_id`·`issuer_id`·`series_id`가 모두 null [v1.4, R4F-EV-02] |
 | TDS-V050 | E | 라벨 칼럼 이름이 특징 표에도 있음 |
@@ -1550,3 +1557,4 @@ datasets:
 - 2026-11-12: **v1.4** 안에서. 4.5 3단계와 8.3 TDS-S002: 스키마 파일이 형을 적은 칼럼은 값 해시도 형 태그를 스키마 파일에서, 곧 `schema` 단계가 검사하는 형에서 가져온다. 매니페스트 `columns[].type`은 `ts_us/ns` 칼럼, 스키마 파일이 형을 적지 않았거나 갖지 않은 칼럼, `x_` 칼럼에만 형을 주고, 파티션 칼럼은 `partitioning[].type` 그대로다. 지금까지는 스키마 파일과 다른 선언이 그 형을 대신해서, S002에 걸리는 패키지가 스키마 파일대로 선언한 같은 파일과 다른 `value_sha256`을 얻었다. 선언이 스키마 파일과 맞는 패키지는 값 해시가 그대로이고 시험 벡터도 바뀌지 않는다. 다른 형을 선언한 패키지도 스키마 파일의 태그로 값 해시를 얻는다(결정 2026-11-12, #404). 스키마 파일이 3.2 형을 주지 않는 `ts_us/ns` 칼럼을 `ts_us`나 `ts_ns`가 아닌 형으로 선언하면, 선언이 없을 때처럼 값 해시가 없다. `tds_version` `"1.0"` 그대로(문장 고침; 초안).
 - 2026-11-12: **v1.4** 안에서. 3.8, 4.2, 4.3과 8.3 TDS-M016: 선택 필드 `coverage.by_market.<m>.processed_through_session`. 생산자가 한 시장에서 그 데이터셋을 처리한 마지막 세션이고, 아래로는 데이터셋의 `last`, 위로는 시장의 `complete_through_session`이 묶는다. 값이 없으면 세션마다 행이 있는 데이터셋은 그 `last`까지, 다른 데이터셋은 워터마크 세션까지 처리한 것으로 본다. 다음 마이너 판부터 사건·구간 데이터셋에는 필수다(결정 2026-11-04, #192). `tds_version` `"1.0"` 그대로(선택 필드; 초안).
 - 2026-11-12: **v1.4** 안에서. 4.3과 8.3 TDS-D003: 한 시장에 `last`가 없는 데이터셋은 행이 아래 경계를 정한다. 이용 가능 시각(`corporate_actions`는 5.11 존재 시각)이 `processed_through_session`의 마감보다 뒤인 행은 `full` 단계의 D003이다(결정 2026-11-12, #425). `tds_version` `"1.0"` 그대로(검사기 동작, 형식 변경 없음).
+- 2026-11-13: **v1.4** 안에서. 5.6~5.8, 4.2의 JSON 스키마, 8.3 TDS-M001·TDS-S001·TDS-V032: `trades`, `quotes`, `book_deltas`의 선택 `params.sequence_consecutive_within`. 공급사가 연속 `sequence` 순번을 약속한 그룹으로 파티션을 나누는 칼럼 목록이다. V032는 5.8에서 세 데이터셋이 함께 쓰는 문장으로 옮기고, 차이가 1보다 큰 빈칸을 `book_deltas` 스냅숏 행 없이 그룹마다 판정해 그룹당 한 줄을 낸다. 목록의 칼럼이 파일에 없으면 S001, 서로 다른 문자열의 목록이 아니거나 `sequence`를 적으면 M001이다(결정 2026-11-13, #348). 선택 필드는 10.2에 따라 MINOR이고 표준은 초안이므로 `tds_version`은 `"1.0"` 그대로.
