@@ -187,7 +187,7 @@ def load_schemas(root: Traversable = SCHEMA_DIR) -> dict[str, Schema]:
     schemas: dict[str, Schema] = {}
     for folder in sorted(root.iterdir(), key=lambda p: p.name) if root.is_dir() else []:
         path = folder / f"{VERSION}.json"
-        if not path.is_file():
+        if not path.is_file() or folder.name == "manifest":  # tds.json's schema, not a kind's
             continue
         data = json.loads(path.read_text(encoding="utf-8"))
         columns = tuple(

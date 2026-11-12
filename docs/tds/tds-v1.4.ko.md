@@ -334,7 +334,7 @@
 
 ```json
 {
-  "$schema": "tds/schemas/1.0/tds.schema.json",
+  "$schema": "tds/schemas/manifest/1.0.json",
   "tds_version": "1.0",
   "name": "example-kr-us-equity",
   "id": "urn:uuid:6f1c…",
@@ -407,6 +407,8 @@
 | `datasets[]` | ○ | 데이터셋마다: `name`(필수), `kind`(필수), `schema_version`(필수), `path`(필수), `partitioning`, `key`, `sort`, `params`(종류별 매개변수), `availability`(6.2 규칙, 또는 가용 시각을 담은 칼럼을 지목하는 6.2 형식: `{"column": "<이름>"}`, `corporate_actions`의 `{"effect": …, "terms": …}`, `delistings`의 `{"exit": …, "value": …}`. 그 밖의 것은 TDS-M014), `pit_quality`(`native` / `backfilled` / `mixed`), `rows`, `value_sha256`, `coverage`, `columns`(이름·형·null·단위·설명), `files[]`(필수)(`path`(필수)·행·`bytes`(필수)·sha256·주요 칼럼 최소/최대·**선택 `value_sha256`** — 그 파일 행만으로 4.5 정규 값 직렬화를 한 값 해시, 파티션 칼럼 포함; 소비자 쪽 조언용 — 이 값은 H004 경고 수준이라 틀려도 패키지가 막히지 않으므로 소비자는 검증하지 않은 `value_sha256`을 캐시 신원으로 쓰지 않는다; 파티션 단위 캐시 신원은 파일 `sha256`이 정한다 [v1.2, V31-12; v1.3, R3-04]). **필수 필드**: (필수) 표시가 있는 필드가 없으면 TDS-M003이고, 나머지 데이터셋·파일 필드는 매니페스트 수준에서 선택이며 스키마·전체 수준이 읽는 것을 검사한다(`columns`는 스키마와 대조, `rows`·`coverage`는 D004, `sha256`은 H001) [사용자 결정 2026-11-02]. **경로 안전**: 모든 `path`는 패키지 폴더 기준 상대 경로이고 `..`·절대 경로·밖으로 나가는 심볼릭 링크 금지(M012), 같은 파일 경로가 두 번 나오면 안 됨(M013) [v1.1] |
 | `hashes` | ○ | 4.5(`physical_sha256`, `value_sha256`, `semantic_sha256`, `hash_spec`) |
 | `writer` | ○ | 쓰기 도구, row group 행 수 |
+
+`tds.json`의 JSON 스키마는 `tds/schemas/manifest/1.0.json`이다 [2026-11-12]: 위의 필수 필드, `datasets[]`·`columns[]`·`partitioning[]`·`markets`·`profiles`·`hashes`의 모양, 3.2 형 이름이나 `string`(5장 스키마 파일이 글자 칼럼에 주는 형)인 `columns[].type`·`partitioning[].type`(`ts_us/ns`는 아니다. 4.5가 3.2 형 이름이 아니라고 한다), 데이터셋 안에서 겹치지 않는 `columns[].name`. `manifest` 단계는 다른 무엇보다 먼저 `tds.json`을 이 스키마로 검사한다: 위반은 TDS-M001, 필수 필드가 없으면 TDS-M003(8.3).
 
 ### 4.3 적용 범위(coverage) 블록
 
@@ -1052,7 +1054,7 @@ tds export {zipline-bundle|nautilus-catalog|wide-parquet} ... # 9.8
 
 | 코드 | 심각도 | 뜻 |
 |---|---|---|
-| TDS-M001 | E | `tds.json` 없음·읽을 수 없음·JSON 스키마 위반 |
+| TDS-M001 | E | `tds.json` 없음·읽을 수 없음·JSON 스키마(4.2, `tds/schemas/manifest/1.0.json`) 위반. 스키마가 허용하지 않는 `columns[].type`·`partitioning[].type`, 한 데이터셋에 두 번 적힌 칼럼 이름도 여기 [2026-11-12] |
 | TDS-M002 | E | `tds_version` MAJOR를 지원하지 않음 |
 | TDS-M003 | E | 필수 매니페스트 칼럼 없음 |
 | TDS-M004 | E | 목록에 있는 파일이 없음 |
@@ -1380,7 +1382,7 @@ datasets:
 | Q3 | 재무 공개 시각을 SEC 접수 순간으로 정밀하게 쓸까, `known_on` 다음 세션 개장으로 보수적으로 둘까? | v1은 보수적 규칙(명세서와 같음). 접수 순간은 `fundamentals_events.x_ex_ts_accepted`로 함께 내고 정책 판을 올릴 때 바꿈 |
 | Q4 | `shares_out`을 봉에서 빼면 엔진 `weight=value`가 `share_counts` 조회를 새로 해야 함 | 뺀다(시점이 다름). 엔진은 `share_counts`(listed) 시점 조회 × 종가. 생산자 패널의 시가총액과 대조 시험 |
 | Q5 | 표준 문서 공개와 생산자 자료 비공개의 관계 | **닫힘**: 비공개일 수 있는 것은 **자료**뿐이고, 형식 명세와 검사기 코드는 공개(Apache-2.0) |
-| Q6 | 표준 이름과 스키마 URL(`nx.dev`는 자리표시) | 엔진 이름 확정(N1) 뒤(공개 저장소를 만들기 전 — 3자 검토 권고). 그때까지 `$schema`는 상대 경로 `tds/schemas/1.0/tds.schema.json`. 검사기 import 이름은 `nexusbt_tds`(`tds`는 너무 흔함) |
+| Q6 | 표준 이름과 스키마 URL(`nx.dev`는 자리표시) | 엔진 이름 확정(N1) 뒤(공개 저장소를 만들기 전 — 3자 검토 권고). 그때까지 `$schema`는 상대 경로 `tds/schemas/manifest/1.0.json`. 검사기 import 이름은 `nexusbt_tds`(`tds`는 너무 흔함) |
 | Q7 | 논리 해시를 Arrow IPC 바이트로 정의하면 Arrow 판에 따라 달라질 수 있음 | **닫힘(v1.1)**: 4.5의 정규 값 직렬화(값 해시) + 해석 메타(의미 해시) + 시험 벡터로 1.0 전에 확정(3자 검토 만장일치) |
 | Q8 | float64로 충분한가(미국 센트 단위 가격의 이진 오차, 한국 재무 2e15원) | 일봉·재무 float64(2^53 ≈ 9e15 > 2e15). 정확한 금액이 필요한 계좌 계산은 엔진이 통화 최소 단위 정수로 바꿈(명세서 INV-06) |
 | Q9 | 파티션 칼럼을 파일에 넣지 않으면 파일 하나만 떼어 읽을 때 값이 없음 | 넣지 않는다(도구 기본과 충돌 적음). 대신 Parquet 키-값 메타 `tds.partition`에 경로 값 기록(선택) |
@@ -1537,4 +1539,5 @@ datasets:
 - 2026-11-11: **v1.4** 안에서. 8.3: D001·D002·D004 행에 `full` 단계가 읽는 것을 적는다. D001의 대상 종목과 끝점, 상장 기간 밖의 행인 D002(세션이 아닌 날은 R003), D004의 `rows`와 4.2 예시의 `coverage` 키(관리자 결정 2026-11-11, #225). `tds_version` `"1.0"` 그대로(검사기 동작, 형식 변경 없음).
 - 2026-11-11: **v1.4** 안에서. 8.3: 스키마 파일이 형을 적은 칼럼은 스키마 파일이 형과 시각 단위를 정한다. 그와 다른 매니페스트 `columns[].type`은 S002이고 파일마다가 아니라 데이터셋에 그런 칼럼마다 한 번 보고하며, S004는 파일을 스키마 파일의 단위와 비교한다. 지금까지는 선언된 `ts_us`나 `ts_ns`가 그 단위를 대신해서, 단위가 틀린 파일이 통과했다. 선언은 여전히 `ts_us/ns` 칼럼의 단위를 정한다. 값 해시의 형 태그(4.5 3단계)는 그대로다(관리자 결정 2026-11-11, #373). `tds_version` `"1.0"` 그대로(검사기 동작, 형식 변경 없음).
 - 2026-11-11: **v1.4** 안에서. 5.3 `instrument_xref`와 5.14 `share_counts`는 열쇠 순서로 정렬하고, 5.20 `eligibility_daily`는 일봉처럼 세션 날짜를 먼저 두어 (`session_date`, `instrument_id`, `rule_id`)로 정렬한다(3.5). 5장이 셋에 열쇠만 적고 정렬을 적지 않아 K002가 판정하지 못했다. 10.2: 표준이 초안인 동안 적지 않았던 정렬을 적는 것은 문장 고침이다(결정 2026-11-11, #412). `tds_version` `"1.0"` 그대로(문장 고침; 초안).
+- 2026-11-12: **v1.4** 안에서. 4.2와 8.3 TDS-M001: 8.3이 말하는 JSON 스키마는 파일 `tds/schemas/manifest/1.0.json`이고, `manifest` 단계가 `tds.json`을 이 스키마로 검사한다. 위반은 모두 TDS-M001, 필수 필드가 없는 것은 그대로 TDS-M003. 3.2 형 이름도 `string`도 아닌 `columns[].type`·`partitioning[].type`(`ts_us/ns`, `""`, `null` 포함)과 한 데이터셋에 두 번 적힌 칼럼 이름은 이제 TDS-M001이다. 지금까지 검사기는 모르는 선언을 선언이 없는 것처럼 다뤘다(결정 2026-11-12, #417). `tds_version` `"1.0"` 그대로(표준이 이미 이름 붙인 검사; 초안).
 - 2026-11-12: **v1.4** 안에서. 4.5 3단계와 8.3 TDS-S002: 스키마 파일이 형을 적은 칼럼은 값 해시도 형 태그를 스키마 파일에서, 곧 `schema` 단계가 검사하는 형에서 가져온다. 매니페스트 `columns[].type`은 `ts_us/ns` 칼럼, 스키마 파일이 형을 적지 않았거나 갖지 않은 칼럼, `x_` 칼럼에만 형을 주고, 파티션 칼럼은 `partitioning[].type` 그대로다. 지금까지는 스키마 파일과 다른 선언이 그 형을 대신해서, S002에 걸리는 패키지가 스키마 파일대로 선언한 같은 파일과 다른 `value_sha256`을 얻었다. 선언이 스키마 파일과 맞는 패키지는 값 해시가 그대로이고 시험 벡터도 바뀌지 않는다. 다른 형을 선언한 패키지도 스키마 파일의 태그로 값 해시를 얻는다(결정 2026-11-12, #404). 스키마 파일이 3.2 형을 주지 않는 `ts_us/ns` 칼럼을 `ts_us`나 `ts_ns`가 아닌 형으로 선언하면, 선언이 없을 때처럼 값 해시가 없다. `tds_version` `"1.0"` 그대로(문장 고침; 초안).
