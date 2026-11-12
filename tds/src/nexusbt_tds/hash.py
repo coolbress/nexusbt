@@ -219,6 +219,8 @@ def _columns(names: Sequence[str], dataset: Mapping[str, Any], schema: list[Any]
     fixed = {c.name: c.type for c in schema if c.type not in (None, "ts_us/ns")}
     fixed |= {p["name"]: p["type"] for p in dataset.get("partitioning", [])}
     declared = {c["name"]: c.get("type") for c in dataset.get("columns", []) if "name" in c}
+    units = {c.name for c in schema if c.type == "ts_us/ns"}  # S002 for any other declaration
+    declared = {n: t for n, t in declared.items() if n not in units or t in ("ts_us", "ts_ns")}
     declared |= fixed
     resolved = resolved_columns(dataset, schema)
     resolved_types = {c.name: c.type for c in resolved}

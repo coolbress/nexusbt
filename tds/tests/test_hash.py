@@ -150,6 +150,8 @@ def with_ts_start(unit: str) -> dict[str, pa.Table]:
     ({"partitioning": [MARKET, YEAR, {"name": "venue", "type": "code"}]}, "no value"),
     ({"partitioning": [MARKET, {"name": "year", "type": "bool"}]}, "no path rule"),
     ({"columns": [{"name": "ts_start", "type": "ts_us/ns"}]}, "no declared type"),
+    ({"columns": [{"name": "ts_start", "type": "i64"}]}, "no declared type"),
+    ({"columns": [{"name": "ts_start", "type": "string"}]}, "no declared type"),
     ({"key": ["instrument_id", "nope"], "columns": [{"name": "ts_start", "type": "ts_us"}]},
      "not in the data"),
 ])  # fmt: skip
