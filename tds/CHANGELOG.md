@@ -7,6 +7,9 @@ package version follows the `tds_version` it checks (`1.0.x`), tagged
 ## [Unreleased]
 
 ### Added
+- `tds check --level schema` checks a column the schema file leaves untyped, and an `x_` column,
+  against the type `tds.json` `columns[]` declares for it: TDS-S002 when the file's column is
+  another type, TDS-S004 when a declared `ts_us` or `ts_ns` column is in another unit or not UTC
 - `tds check --level full` judges S006, S007 and S009 from the rows: a value outside an enum that
   lies between a row group's minimum and maximum, and a NaN in a float column, are found there
   and no longer `unchecked`; TDS-M015 warns of a dataset with an `experimental` schema at every

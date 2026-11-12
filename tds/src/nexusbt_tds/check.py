@@ -582,6 +582,11 @@ def _check_file(
         required = _required(column.null, params)
         yield from _check_column(meta, arrow, column, required, declared.get(column.name), blind)
         yield from _check_values(meta, arrow, column, codes, blind)
+    from .schemas.verify import Column
+
+    for name in [n for n in arrow.names if n.startswith("x_") and n not in parts]:  # #403
+        if isinstance(tag := declared.get(name), str) and tag:
+            yield from _check_column(meta, arrow, Column(name, None, None), False, tag, blind)
     newer = int(str(ds["schema_version"]).split(".")[1]) > KNOWN_MINOR  # M011: ignore unknown
     for name in [] if newer else arrow.names:
         if name not in known and name not in parts and not name.startswith("x_"):
@@ -591,8 +596,10 @@ def _check_file(
 def _check_column(
     meta: Any, arrow: pa.Schema, column: Any, required: bool, unit: Any, blind: set[str]
 ) -> Iterable[Finding]:
-    """S002, S003, S004, S009 of one column; `unit`: its tds.json `columns[].type`."""
-    name, tag, kind = column.name, column.type, arrow.types[arrow.names.index(column.name)]
+    """S002, S003, S004, S009 of one column; `unit`: its tds.json `columns[].type`, the type
+    S002 and S004 check a column the schema file leaves untyped against (#403)."""
+    name, kind = column.name, arrow.types[arrow.names.index(column.name)]
+    tag = column.type or (unit if isinstance(unit, str) else None)
     paths = [meta.schema.column(i).path for i in range(meta.num_columns)]
     index = paths.index(name) if name in paths else None  # None: a nested column
     if index is not None and meta.schema.column(index).physical_type == "INT96":
@@ -615,7 +622,7 @@ def _check_column(
     elif required and (nulls := sum(s.null_count for s in stats)):
         yield Finding("TDS-S003", "error", f"{name} may not be null", count=nulls)
     # an f64's only: without pandas pyarrow gives no nanosecond instant's as a Python value (#382)
-    seen = [s for s in stats if tag == "f64" and s is not None and s.has_min_max]
+    seen = [s for s in stats if column.type == "f64" and s is not None and s.has_min_max]
     if any(math.isinf(v) for s in seen for v in (s.min, s.max)):
         yield Finding("TDS-S009", "error", f"{name} holds ±Inf (statistics; NaN is not visible)")
 
