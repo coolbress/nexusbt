@@ -1064,9 +1064,9 @@ Severity: E = error (profile fails), W = warning.
 | TDS-M014 | E | Unknown **mandatory interpretation rule** (availability rule name, a new value of a closed enum that affects execution, unknown `hash_spec`) — rejected because ignoring it changes the meaning [v1.1] |
 | TDS-M015 | W | A dataset with an `experimental` schema is present (outside the 1.x compatibility promise) [v1.1] |
 | TDS-S001 | E | Required column missing |
-| TDS-S002 | E | Column type differs: a file's column from its type, or a manifest `columns[].type` from the type the schema file states for that column (naming `ts_us` or `ts_ns` for a `ts_us/ns` column is not a difference) [2026-11-11] |
+| TDS-S002 | E | Column type differs: a file's column from its type, or a manifest `columns[].type` from the type the schema file states for that column (naming `ts_us` or `ts_ns` for a `ts_us/ns` column is not a difference) [2026-11-11]. For a column the schema file leaves untyped (`"type": null`, the `experimental` kinds) and for an `x_` column, the manifest `columns[].type` is the type the file's column is checked against; such a column with no declaration is not checked [2026-11-12] |
 | TDS-S003 | E | Null in a non-nullable column |
-| TDS-S004 | E | An instant column without UTC tz or with a unit different from the dataset rule, INT96. The unit is the schema file's; a manifest `columns[].type` names it only for a `ts_us/ns` column [2026-11-11] |
+| TDS-S004 | E | An instant column without UTC tz or with a unit different from the dataset rule, INT96. The unit is the schema file's; a manifest `columns[].type` names it only for a `ts_us/ns` column [2026-11-11], and for a column the schema file leaves untyped or an `x_` column, which it declares `ts_us` or `ts_ns` [2026-11-12] |
 | TDS-S005 | W | Unknown column (without `x_` prefix) |
 | TDS-S006 | E | Value not in a closed enum |
 | TDS-S007 | W | Value not in an open enum (and not in `dictionary/codes`) |

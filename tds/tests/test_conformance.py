@@ -764,6 +764,44 @@ def test_a_column_typed_by_105_is_checked_for_S002_and_S004(
     assert [c for c in ("TDS-S002", "TDS-S004") if c in found] == ([code] if code else [])
 
 
+_NS = pa.timestamp("ns", "UTC")
+_FUNDING = {
+    "instrument_id": ["US:AAA"], "ts_event": pa.array([build.NEW_YEAR], _NS), "rate": [1e-4],
+    "ts_available": pa.array([build.NEW_YEAR], _NS), "source": ["synthetic"], "x_note": ["n"],
+}  # fmt: skip
+
+
+def _funding(row: dict[str, Any] = _FUNDING, **declared: str) -> Any:
+    """One `funding_rates` row (5.24, experimental: its schema file leaves `ts_available` and
+    `source` untyped) with tds.json `columns` declaring `declared`."""
+    columns = [{"name": k, "type": v} for k, v in declared.items()]
+    return build._both(build._add("funding_rates", row),
+                       lambda m, f: m["datasets"][-1].update(columns=columns))  # fmt: skip
+
+
+@pytest.mark.parametrize(
+    ("change", "found"),
+    [  # #403: a declaration on an untyped or `x_` column is the type the file is checked against
+        (_funding(), []),  # untyped and undeclared: not checked, as before
+        (_funding(ts_available="ts_ns", source="string", x_note="string"), []),
+        (_funding(ts_available="ts_us/ns"), []),
+        (_funding(ts_available="ts_us", source="i64"),  # the Decision's conformance case
+         [("TDS-S004", "ts_available"), ("TDS-S002", "source")]),
+        (_funding(ts_available="f64"), [("TDS-S002", "ts_available")]),
+        (_funding(_FUNDING | {"ts_available": pa.array([0], pa.timestamp("ns"))},
+                  ts_available="ts_ns"), [("TDS-S004", "ts_available")]),  # no time zone
+        (_funding(x_note="i64"), [("TDS-S002", "x_note")]),
+        (_funding(rate="f64", source=""), []),  # typed by the schema; "" declares nothing
+    ],
+)  # fmt: skip
+def test_a_declared_type_on_an_untyped_column_is_checked(
+    change: Any, found: list[tuple[str, str]], tmp_path: Path
+) -> None:
+    result = check(write(tmp_path, change), level="schema")
+    assert [(f.code, f.message.split()[0]) for f in result.errors] == found
+    assert [(w.code, w.dataset) for w in result.warnings] == [("TDS-M015", "funding_rates")]
+
+
 def test_a_dataset_typed_by_105_has_a_value_hash_with_no_columns_in_tds_json(
     tmp_path: Path,
 ) -> None:
