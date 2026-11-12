@@ -150,6 +150,8 @@ def with_ts_start(unit: str) -> dict[str, pa.Table]:
     ({"partitioning": [MARKET, YEAR, {"name": "venue", "type": "code"}]}, "no value"),
     ({"partitioning": [MARKET, {"name": "year", "type": "bool"}]}, "no path rule"),
     ({"columns": [{"name": "ts_start", "type": "ts_us/ns"}]}, "no declared type"),
+    ({"columns": [{"name": "ts_start", "type": "i64"}]}, "no declared type"),
+    ({"columns": [{"name": "ts_start", "type": "string"}]}, "no declared type"),
     ({"key": ["instrument_id", "nope"], "columns": [{"name": "ts_start", "type": "ts_us"}]},
      "not in the data"),
 ])  # fmt: skip
@@ -185,6 +187,18 @@ def test_declared_column_vector(tmp_path: Path) -> None:
     (vector,) = (v for v in VECTORS["vectors"] if v["name"] == "declared_non_schema_column")
     parts = {"features/p.parquet": arrow_table(vector)}
     assert value_hash(package(tmp_path, FEATURES, parts), "features") == vector["sha256"]
+
+
+@pytest.mark.parametrize("said", ["ts_ns", "i64", None])
+def test_a_typed_column_takes_the_schema_type(tmp_path: Path, said: str | None) -> None:
+    # `ts_available` is `ts_us` in the schema file: another declaration is S002 at the schema
+    # level, and the hash still takes the schema's tag (TDS 4.5 step 3, #404).
+    kept = [{"name": "instrument_id", "type": "id"}, {"name": "momentum", "type": "f64"}]
+    declared = [*kept, {"name": "ts_available", "type": said}] if said else kept
+    parts = {"features/p.parquet": features(1.0)}
+    other = package(tmp_path / "other", {**FEATURES, "columns": declared}, parts)
+    same = package(tmp_path / "same", FEATURES, parts)
+    assert value_hash(other, "features") == value_hash(same, "features")
 
 
 def test_a_declared_unit_sets_the_bytes(tmp_path: Path) -> None:
