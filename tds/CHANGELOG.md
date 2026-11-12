@@ -9,7 +9,7 @@ package version follows the `tds_version` it checks (`1.0.x`), tagged
 ### Added
 - `tds check` checks `tds.json` against its JSON schema, `tds/schemas/manifest/1.0.json`, at every
   level: TDS-M001 for a field of another shape, a `columns[].type` or `partitioning[].type` that is
-  not a TDS type name (`ts_us/ns` and `""` included; until now a declaration the checker did not
+  not a TDS type name (`ts_us/ns`, `""` and `null` included; until now a declaration the checker did not
   know counted as none), and a column name listed twice in a dataset, each with its JSON path
 - `tds check --level schema` checks a column the schema file leaves untyped, and an `x_` column,
   against the type `tds.json` `columns[]` declares for it: TDS-S002 when the file's column is

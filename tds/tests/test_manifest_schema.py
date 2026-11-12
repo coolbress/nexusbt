@@ -77,7 +77,8 @@ def test_a_column_name_twice_in_a_dataset_is_M001(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     "change",
     [lambda m: m.update(producer="x"), lambda m: m["markets"].update(US="x"),
-     lambda m: m.update(datasets=[*m["datasets"], "x"])],
+     lambda m: m.update(datasets=[*m["datasets"], "x"]),
+     columns({"name": ["close"]}, {"name": "close"})],  # a list name: no crash
 )  # fmt: skip
 def test_a_field_of_another_shape_is_M001(change: Any, tmp_path: Path) -> None:
     assert [code for code, _ in findings(tmp_path, change)] == ["TDS-M001"]
