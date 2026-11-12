@@ -210,11 +210,18 @@ def _columns(names: Sequence[str], dataset: Mapping[str, Any], schema: list[Any]
     """The resolved columns present in the data, then partition columns they lack, then `x_`
     columns (TDS 4.5 step 1).
 
-    The tag is the type declared in `tds.json` (`columns`, `partitioning`), else the schema's.
-    A column in none of these groups is an unknown column, ignored (TDS 10.3, M011).
+    The tag is a partition column's `partitioning[].type`, else the type the schema file states,
+    as the schema level reads it (#373, #404); a `tds.json` `columns[].type` gives it only where
+    the schema file does not: a `ts_us/ns` column (the declaration names the unit), an untyped
+    column, one the schema file lacks, an `x_` column. A column in none of these groups is an
+    unknown column, ignored (TDS 10.3, M011).
     """
+    fixed = {c.name: c.type for c in schema if c.type not in (None, "ts_us/ns")}
+    fixed |= {p["name"]: p["type"] for p in dataset.get("partitioning", [])}
     declared = {c["name"]: c.get("type") for c in dataset.get("columns", []) if "name" in c}
-    declared |= {p["name"]: p["type"] for p in dataset.get("partitioning", [])}
+    units = {c.name for c in schema if c.type == "ts_us/ns"}  # S002 for any other declaration
+    declared = {n: t for n, t in declared.items() if n not in units or t in ("ts_us", "ts_ns")}
+    declared |= fixed
     resolved = resolved_columns(dataset, schema)
     resolved_types = {c.name: c.type for c in resolved}
     order = [c.name for c in resolved if c.name in names]

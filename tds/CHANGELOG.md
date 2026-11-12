@@ -23,3 +23,8 @@ package version follows the `tds_version` it checks (`1.0.x`), tagged
   `bars/freq=1d`; so too when the name they state is the kind), and any other mix of partition
   keys, or of files in the folder itself with partition folders, is named in `TODO`
 - Package skeleton with the `tds` entry point
+
+### Changed
+- `tds hash` takes a column's type tag from the schema file wherever the schema file types the
+  column, as `tds check --level schema` does; a `tds.json` `columns[].type` that differs from it
+  (TDS-S002) no longer changes the dataset's `value_sha256` (TDS 4.5 step 3)
