@@ -9,6 +9,10 @@ on those sessions are counted (a duplicate is K001's), and an instrument with ne
 found is not reported twice. D004 compares a dataset's and each file's `rows` with the rows,
 and the `coverage` keys of 4.2's example that are present: `instruments`, `ts_min`, `ts_max`,
 `by_market` (`instruments`, `first`, `last`, `rows` per `market=` partition).
+D003 (#425, 2026-11-12) reads a dataset with no `last` in a market whose
+`processed_through_session` it gives: a row whose 6.2 availability instant (`_known`) is after
+that session's close in the market's calendar; the row's market is its `market` column or
+partition, else its instrument's. A null instant, or an instrument not found, is not judged.
 Memory holds the calendar, the instruments' listings and, per dataset, a count and the
 instrument ids seen per market.
 """
@@ -26,38 +30,44 @@ from zoneinfo import ZoneInfo
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from .check import DENSITY_CODES, Finding, _instant
+from .check import DENSITY_CODES, TIMELESS, Finding, _day, _instant
 from .keys import PANELS, batches, listed, time_columns
 from .manifest import Manifest
 from .refs import _rows
 
-D001, D002, D004 = DENSITY_CODES
+D001, D002, D003, D004 = DENSITY_CODES
 LISTING = ("instrument_id", "calendar_id", "market", "listed_on", "last_session", "delisted_on")
 
 
 def check_densities(
-    m: Manifest, only: Sequence[str] | None, blind: set[str], reported: Collection[object]
-) -> list[Finding]:
-    """The three codes on the checked datasets; `reported`: datasets with a D002 already."""
+    m: Manifest, only: Sequence[str] | None, blind: set[str], reported: Collection[object],
+    notes: list[str],
+) -> list[Finding]:  # fmt: skip
+    """The four codes on the checked datasets; `reported`: datasets with a D002 already;
+    `notes`: why D003 was not judged on a dataset."""
     try:
-        return _check(m, only, blind, reported)
+        return _check(m, only, blind, reported, notes)
     except (OSError, pa.ArrowException, TypeError, ValueError):
         blind.update(DENSITY_CODES)  # unreadable, or a column of the wrong type: not compared
         return []
 
 
 def _check(
-    m: Manifest, only: Sequence[str] | None, blind: set[str], reported: Collection[object]
-) -> list[Finding]:
+    m: Manifest, only: Sequence[str] | None, blind: set[str], reported: Collection[object],
+    notes: list[str],
+) -> list[Finding]:  # fmt: skip
     root = m.root.resolve()
     listings = {r[0]: r for d in m.datasets if d.get("kind") == "instruments"
                 for r in _rows(root, d, LISTING)}  # fmt: skip
     days: defaultdict[Any, list[Any]] = defaultdict(list)
+    closes = {}  # (calendar, session) → its close
     for d in (d for d in m.datasets if d.get("kind") == "calendar_sessions"):
-        for calendar, day in _rows(root, d, ("calendar_id", "session_date")):
+        for calendar, day, close in _rows(root, d, ("calendar_id", "session_date", "ts_close")):
             days[calendar].append(day)
+            closes[calendar, day] = close
     sessions = {c: sorted(set(v)) for c, v in days.items()}
     markets = m.data["markets"] if isinstance(m.data.get("markets"), dict) else {}
+    market_of = {i: r[2] for i, r in listings.items()}
     out = []
     for ds in (d for d in m.datasets if only is None or d.get("name") in only):
         name, params = str(ds.get("name")), ds.get("params")
@@ -67,7 +77,64 @@ def _check(
             dense = params.get("density") == "dense"
             out += _listed(root, ds, name, listings, sessions, markets, dense, blind, reported)
         out += _counts(root, ds, name)
+        out += _after(root, ds, name, markets, closes, market_of, blind, notes)
     return out
+
+
+def _after(
+    root: Path, ds: Mapping[str, Any], name: str, markets: Mapping[str, Any],
+    closes: Mapping[tuple[Any, Any], Any], market_of: Mapping[Any, Any], blind: set[str],
+    notes: list[str],
+) -> list[Finding]:  # fmt: skip
+    """D003 of one dataset (TDS 4.3)."""
+    coverage = ds.get("coverage")
+    by = coverage.get("by_market") if isinstance(coverage, dict) else None
+    through = {m: day for m, said in (by.items() if isinstance(by, dict) else ())
+               if isinstance(said, dict) and "last" not in said
+               and (day := _day(said.get("processed_through_session")))}  # fmt: skip
+    if not through or ds.get("kind") in TIMELESS:
+        return []
+    columns, limit, why = _known(ds.get("availability")), {}, []
+    for m, day in sorted(through.items()):
+        entry = markets.get(m)
+        close = closes.get((entry.get("calendar_id") if isinstance(entry, dict) else None, day))
+        if close is None:
+            why.append(f"no close of {m}'s session {day}")
+        limit[m] = close
+    seen: set[Any] = set()  # markets with a row, and with an instant
+    known, late, first = set(), 0, None
+    read = ("instrument_id", "market", *columns)
+    for i, market, *times in _rows(root, ds, read) if columns else ():
+        m = market if market is not None else market_of.get(i)
+        if limit.get(m) is None:
+            continue  # a market without the field or its close; an instrument not found (R001)
+        seen.add(m)
+        at = min((t for t in times[:2] if t is not None), default=times[-1])
+        if at is not None:
+            known.add(m)
+            if at > limit[m]:
+                late, first = late + 1, first or {"instrument_id": str(i)}
+    why += [f"every {'/'.join(columns)} of {m} is null" for m in sorted(seen - known)]
+    if not columns or why:
+        blind.add(D003)
+        notes.append(f"{D003} not checked on {name}: {'; '.join(why) or 'no instant column'}")
+    if not late:
+        return []
+    msg = f"{late} row(s) available after the close of their market's processed_through_session"
+    return [Finding(D003, "error", msg, name, key=first, count=late)]
+
+
+def _known(availability: object) -> tuple[str, ...]:
+    """The columns of a row's instant: the earlier of the first two not null, else the last
+    (5.11's existence instant `ts_known`, of `corporate_actions`), or the one; a `delistings`'
+    `exit`, a column form's column, rule `column`'s `ts_available`; none for another rule."""
+    a = availability if isinstance(availability, dict) else {"rule": availability}
+    if {"terms", "effect"} <= a.keys():
+        named: tuple[object, ...] = ("ts_announced", a["terms"], a["effect"])
+    else:
+        rule = "ts_available" if a.get("rule") == "column" else None
+        named = (a.get("exit") or a.get("column") or rule,)
+    return tuple(str(c) for c in named) if all(isinstance(c, str) for c in named) else ()
 
 
 def _listed(
