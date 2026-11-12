@@ -157,6 +157,8 @@ def _add(kind: str, columns: dict[str, Any], *paths: str) -> Change:
 
 #: TDS 4.4 `dictionary/codes`, listing `category` `ordinary`.
 _codes = _add("dictionary/codes", {"field": ["category"], "code": ["ordinary"]})
+#: TDS 4.4 `dictionary/items` with an `annual` item and one whose null `freq` is its column's.
+_items_freq = _add("dictionary/items", {"item": ["eps", "revenue"], "freq": ["annual", None]})
 TS_UTC = pa.timestamp("us", "UTC")
 NEW_YEAR = dt.datetime(2024, 1, 1, tzinfo=dt.UTC)
 
@@ -630,7 +632,10 @@ CASES: dict[str, tuple[Change, Change]] = {
         ),
     ),
     "TDS-S004": (_bars(ts_end=TS), _bars(ts_end=TS.cast(pa.timestamp("us")))),
-    "TDS-S005": (_bars(x_cf_note=pa.array(["a"])), _bars(note=pa.array(["a"]))),
+    "TDS-S005": (  # pass: also an item with its own `freq` and one taking its column's (#406)
+        _both(_bars(x_cf_note=pa.array(["a"])), _items_freq),
+        _bars(note=pa.array(["a"])),
+    ),
     "TDS-S006": (
         _instruments(asset_class=pa.array(["etf"])),
         _instruments(asset_class=pa.array(["stock"])),

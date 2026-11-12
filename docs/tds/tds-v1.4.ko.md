@@ -23,6 +23,7 @@
 > 판 이력(이어서): **v1.4, 2026-11-10 변경**: 검사 V011(3.4, 8.3)이 분모에 `instruments.multiplier`를 곱하고, `price_basis`가 `raw`인 bars만 읽고, `index` 종목을 뺀다: 적힌 식대로면 계약 수가 맞는 선물·옵션에 경고가 났다. 5.27은 검사기가 V012를 어느 단위로 비교하는지 말한다: 격자 자체의 가장 작은 호가 단위(사용자 결정 2026-11-10, #229). 검사기 동작이고 형식 변경이 없으므로 `tds_version`은 `"1.0"` 그대로.
 > 판 이력(이어서): **v1.4, 2026-11-11 명확화**: 8.3의 TDS-M008 줄은 프로필의 데이터셋에 그 프로필의 7장 줄이 이름 붙인 칼럼이 없는 경우도 포함한다(`tds:equity-daily-core`는 bars의 OHLCV와 `obs_status`; `tds:bitemporal`은 패키지에 있는 events·classifications·state의 `ts_recorded`; 칼럼 이름을 적은 그 밖의 모든 줄). `schema` 수준에서 보인다: 그 칼럼이 데이터셋의 어느 파일에도 없거나, 행이 있는 데이터셋의 모든 행에서 null이다. 값 옆의 null 하나는 행의 문제이고(5.5), 빈 표는 아무것도 빠뜨리지 않는다. 7장이 이미 `@1.0`에 이 칼럼들을 요구했고 검사기가 읽지 않았을 뿐이므로 새 검사가 아니다(사용자 결정 2026-11-11, #352). 문구만 바꿨으므로 `tds_version`은 `"1.0"` 그대로.
 > 판 이력(이어서): **v1.4, 2026-11-11 명확화**: 7장의 `tds:bitemporal@1.0` 줄은 스키마 파일에 `ts_recorded`가 있는 데이터셋, 곧 `events`와 `fundamentals_events`(5.17)를 이름 붙인다. `classifications`와 `fundamentals_state`는 기록 시각을 이미 `ts_known_from`으로 지니므로 프로필이 두 번째 칼럼을 더하지 않는다. 이 줄은 "events·classifications·state"라고 적었고, 스키마 파일대로 쓴 패키지는 TDS-M008이나 TDS-S005 없이 그것을 맞출 수 없었다(사용자 결정 2026-11-11, #397). 스키마 파일은 바뀌지 않으므로 `tds_version`은 `"1.0"` 그대로.
+> 판 이력(이어서): **v1.4, 제자리 추가, 2026-11-12**: 선택 칼럼 `dictionary/items.freq`(4.4). 그 항목 자신의 주기로, 값과 뜻은 `dictionary/columns.freq`와 같다. `quarterly` 열 아래의 연간 전용 항목이 낡았다고 읽히지 않게 한다(엔진 명세서 5.9.1; 사용자 결정 2026-11-12, #406). 값 해시(4.5)는 파일이 이 칼럼을 쓰면 그것을 담고, 이 칼럼이 없는 사전은 해시가 그대로다. 성격상 MINOR(10.2)이고 표준이 초안이므로 `tds_version`은 `"1.0"` 그대로.
 > 관계: 이 문서는 엔진 명세서 v3.4(`engine-spec-v3.4-2026-10-28.md`) **4장이 참조하는 입력 정본**이다. 둘이 다르면 입력 형식은 이 문서가 맞다(차이 목록은 12장). 사용자 결정(설계 문서 9.0)은 이 문서보다 우선한다.
 > 공개: 이 표준과 검사기(`nexusbt-tds`, import `nexusbt_tds`, 명령 `tds`)는 공개(Apache-2.0)다. 작업판 11장(생산자별 대응)은 표준의 규범이 아니라서 이 공개판에 넣지 않았다.
 > 예시: 엔진이 읽는 모든 데이터셋(사건·거시 계열 포함)의 예시 행은 `tds-examples.md`(같은 폴더)에 있다.
@@ -420,7 +421,7 @@
 | 데이터셋 | 열쇠 | 칼럼 |
 |---|---|---|
 | `dictionary/columns` | (`dataset`, `column`) | `dataset` string, `column` string, `type` string, `unit` string, `currency_source` string(`column:<이름>` / `instrument` / `fixed:<코드>` / null), `scale` i8, `freq` string(daily/monthly/event/…), `edition_class` string(strict 자격 규칙 이름), `start_by_market` string(JSON 텍스트), `description` string, `alias_of` string, `std_name` string(TDS 표준 항목과 같으면 그 이름), `is_label` bool(참이면 판단 입력 금지) |
-| `dictionary/items` | `item` | `item` string, `std_item` string(5.17 핵심 항목 이름 또는 null), `statement` string(IS/BS/CF/other), `flow_or_stock` string(flow/stock), `unit` string, `description` string, `source_concepts` string(JSON 텍스트: XBRL 개념 등) |
+| `dictionary/items` | `item` | `item` string, `std_item` string(5.17 핵심 항목 이름 또는 null), `statement` string(IS/BS/CF/other), `flow_or_stock` string(flow/stock), `unit` string, `description` string, `source_concepts` string(JSON 텍스트: XBRL 개념 등), `freq` string(선택; 그 항목 자신의 주기로, 값과 뜻은 `dictionary/columns.freq`와 같다. null이거나 없으면 그 항목은 값을 담은 열의 `freq`를 따르며, 소비자는 그렇게 읽는다, 엔진 명세서 5.9.1) [v1.4, 2026-11-12] |
 | `dictionary/codes` | (`field`, `code`) | `field` string, `code` string, `label` string, `description` string, `maps_to` string(닫힌 TDS 열거로 읽을 때의 값) |
 
 칼럼 이름 뒤에 그 3.2 타입을 적으며, 4.5의 값 해시가 이 타입을 쓴다. JSON 값 칼럼은 `string`이고 저장된 텍스트 그대로다[2026-11-04].
