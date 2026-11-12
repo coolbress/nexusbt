@@ -784,14 +784,15 @@ def _funding(row: dict[str, Any] = _FUNDING, **declared: str) -> Any:
     [  # #403: a declaration on an untyped or `x_` column is the type the file is checked against
         (_funding(), []),  # untyped and undeclared: not checked, as before
         (_funding(ts_available="ts_ns", source="string", x_note="string"), []),
-        (_funding(ts_available="ts_us/ns"), []),
+        (_funding(ts_available="ts_us/ns"), [("TDS-M001", "$.datasets[2].columns[0].type:")]),
         (_funding(ts_available="ts_us", source="i64"),  # the Decision's conformance case
          [("TDS-S004", "ts_available"), ("TDS-S002", "source")]),
         (_funding(ts_available="f64"), [("TDS-S002", "ts_available")]),
         (_funding(_FUNDING | {"ts_available": pa.array([0], pa.timestamp("ns"))},
                   ts_available="ts_ns"), [("TDS-S004", "ts_available")]),  # no time zone
         (_funding(x_note="i64"), [("TDS-S002", "x_note")]),
-        (_funding(rate="f64", source=""), []),  # typed by the schema; "" declares nothing
+        (_funding(rate="f64"), []),  # typed by the schema, declared the same
+        (_funding(source=""), [("TDS-M001", "$.datasets[2].columns[0].type:")]),  # #417
     ],
 )  # fmt: skip
 def test_a_declared_type_on_an_untyped_column_is_checked(

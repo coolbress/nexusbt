@@ -29,7 +29,7 @@ from typing import Any, Literal
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from .manifest import MANIFEST, Manifest, ManifestError, read_manifest
+from .manifest import MANIFEST, Manifest, ManifestError, read_manifest, schema_violations
 from .profiles import PROFILES, Need, describe, meets, profile_id
 
 Level = Literal["manifest", "schema", "full"]
@@ -63,7 +63,6 @@ REQUIRED += ("profiles", "id_namespaces", "markets", "datasets", "hashes", "writ
 #: manifest-level checks need (#51, Decisions 2026-11-02). A file needs `path` and `bytes`.
 DATASET_REQUIRED = ("name", "kind", "schema_version", "path", "files")
 FILE_REQUIRED = ("path", "bytes")  # TDS 4.2; checked one by one in _check_dataset
-_OBJECTS = ("producer", "id_namespaces", "markets", "hashes", "writer")
 HASH_SPECS = frozenset({"tds-hash-1"})  # 4.5
 SUPPORTED_MAJOR = 1  # 10.3
 #: The newest dataset `schema_version` MINOR this checker knows; per kind with T0.13b's files.
@@ -311,17 +310,11 @@ def _check_hashes(
 
 def _check_manifest(m: Manifest, only: Sequence[str] | None) -> Iterable[Finding]:
     data = m.data
+    for message in schema_violations(data):  # TDS 4.2's fields, shapes and type names (#417)
+        yield Finding("TDS-M001", "error", message)
     for key in REQUIRED:
         if key not in data:
             yield Finding("TDS-M003", "error", f"required manifest field {key!r} is missing")
-    for key in _OBJECTS:
-        if key in data and not isinstance(data[key], dict):
-            yield Finding("TDS-M001", "error", f"{key!r} is not a JSON object")
-    for key in ("profiles", "datasets"):
-        if key in data and not isinstance(data[key], list):
-            yield Finding("TDS-M001", "error", f"{key!r} is not a JSON array")
-    if isinstance(data.get("profiles"), list) and len(m.profiles) != len(data["profiles"]):
-        yield Finding("TDS-M001", "error", "'profiles' holds a value that is not a string")
     if "tds_version" in data and _major(data["tds_version"]) != SUPPORTED_MAJOR:
         msg = f"tds_version {data['tds_version']!r} is not supported (MAJOR {SUPPORTED_MAJOR})"
         yield Finding("TDS-M002", "error", msg)
