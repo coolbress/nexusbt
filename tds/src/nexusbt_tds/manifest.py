@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -74,6 +75,8 @@ def schema_violations(value: Any, schema: Mapping[str, Any] = MANIFEST_SCHEMA, a
         return
     if "enum" in schema and value not in schema["enum"]:
         yield f"{at}: {json.dumps(value)} is not one of {', '.join(schema['enum'])}"
+    if "pattern" in schema and not re.search(schema["pattern"], value):
+        yield f"{at}: {json.dumps(value)} does not match {schema['pattern']}"
     if isinstance(value, dict):
         named = schema.get("properties", {})
         for key, item in value.items():

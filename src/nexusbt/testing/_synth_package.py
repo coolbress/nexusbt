@@ -7,10 +7,11 @@ number, so moving it out of `synth` changed no byte of any preset.
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 import subprocess
 import sysconfig
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -135,6 +136,26 @@ def _watermark(sessions: Table) -> dict[str, str]:
             "complete_through": f"{last['ts_close']:%Y-%m-%dT%H:%M:%SZ}"}  # fmt: skip
 
 
+#: The datasets with a row per session (TDS 4.3): `behind` cannot cut them without their rows.
+SESSIONAL = ("bars_1d", "tradability_daily", "eligibility_daily", "calendar_sessions")
+
+
+def processed(
+    behind: Mapping[str, int], names: Collection[str], days: Mapping[str, Sequence[dt.date]]
+) -> Callable[[str], dict[str, str]]:  # fmt: skip
+    """Each dataset's `processed_through_session` per market of `days` (TDS 4.3, #192): the
+    market's last session, `behind[name]` sessions earlier for the dataset `name` of `names`
+    (spec 4.8 `behind`), which has no row per session."""
+    shortest = min(len(d) for d in days.values())
+    for name, n in behind.items():
+        if name in SESSIONAL or name not in names:
+            cut = sorted(set(names) - set(SESSIONAL))
+            raise ValueError(f"behind {name!r}: of this package, cut one of {cut}")
+        if type(n) is not int or not 0 <= n < shortest:  # True is no count
+            raise ValueError(f"behind {name!r}: {n!r} is not a count of sessions under {shortest}")
+    return lambda name: {m: d[-1 - behind.get(name, 0)].isoformat() for m, d in days.items()}
+
+
 def _daily(
     root: Path, tables: Mapping[str, Mapping[str, Any]], files: dict[str, list[Any]],
     cover: dict[str, Any],
@@ -194,10 +215,12 @@ def datasets(
 def write(
     root: Path, made: Mapping[str, Callable[[], pa.Table]],
     tables: Mapping[str, Mapping[str, Any]], about: Mapping[str, Any], degrade: Sequence[str],
+    through: Callable[[str], Mapping[str, str]],
 ) -> Path:  # fmt: skip
     """Writes the package to `root`: `made`'s datasets but those `degrade` leaves out, the
     daily ones of `tables`, and a tds.json from `about` (its name, created, snapshot id and
-    each market's entry), whose hashes the `tds` command then writes."""
+    each market's entry) with each dataset processed through `through(name)` per market,
+    whose hashes the `tds` command then writes."""
     files: dict[str, list[Any]] = {}
     cover: dict[str, Any] = {}  # dataset → its `coverage` field, or nothing (TDS 4.3)
     for name, make in made.items():
@@ -206,6 +229,10 @@ def write(
             files[name] = [_write(root, f"{name}/part-00000.parquet", name, table)]
             cover[name] = _coverage({None: table})
     _daily(root, tables, files, cover)
+    for name in files:  # every dataset, in every market (#192)
+        by_market = cover[name].setdefault("coverage", {}).setdefault("by_market", {})
+        for market, day in through(name).items():
+            by_market.setdefault(market, {})["processed_through_session"] = day
     manifest = {
         "tds_version": "1.0", "name": about["name"], "created": about["created"],
         "snapshot_id": about["snapshot_id"], "producer": {"name": PRODUCER, "hints": HINTS},

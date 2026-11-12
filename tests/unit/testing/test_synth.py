@@ -33,6 +33,7 @@ from nexusbt.testing import synth
 from nexusbt.testing.synth import a001, main, make_snapshot, read
 
 UTC = dt.UTC
+PT = "processed_through_session"  # TDS 4.3 (#192)
 
 
 @pytest.fixture(scope="module")
@@ -1254,7 +1255,8 @@ def test_small_watermark_is_each_markets_last_session(small: Path) -> None:
 
 def test_small_coverage_matches_the_rows(small: Path) -> None:
     # #390, TDS 4.3: the keys of 4.2's example, counted here from the rows
-    _, datasets = manifest_of(small)
+    markets, datasets = manifest_of(small)
+    through = {m: {PT: e["complete_through_session"]} for m, e in markets.items()}  # #192
     for name in ("bars_1d", "tradability_daily", "eligibility_daily"):
         table, coverage = read(small, name), datasets[name]["coverage"]
         low, high = pc.min_max(table["session_date"]).as_py().values()
@@ -1266,12 +1268,14 @@ def test_small_coverage_matches_the_rows(small: Path) -> None:
             first, last = pc.min_max(part["session_date"]).as_py().values()
             assert said == {"instruments": pc.count_distinct(part[ID]).as_py(),
                             "first": first.isoformat(), "last": last.isoformat(),
-                            "rows": part.num_rows}, (name, market)  # fmt: skip
-    # a dataset without `market=` partitions has no `by_market`; a key needs its column
-    assert datasets["instruments"]["coverage"] == {"instruments": 420}
+                            "rows": part.num_rows} | through[market], (name, market)  # fmt: skip
+    # a dataset without `market=` partitions has a `by_market` of the processed-through session
+    # alone (#192); a key needs its column
+    assert datasets["instruments"]["coverage"] == {"instruments": 420, "by_market": through}
     assert datasets["calendar_sessions"]["coverage"] == {"ts_min": "2015-01-02",
-                                                         "ts_max": "2019-12-31"}  # fmt: skip
-    assert "coverage" not in datasets["market_rules"]
+                                                         "ts_max": "2019-12-31",
+                                                         "by_market": through}  # fmt: skip
+    assert datasets["market_rules"]["coverage"] == {"by_market": through}
 
 
 def test_full_check_judges_d001_on_small(small: Path) -> None:
@@ -1315,7 +1319,8 @@ def test_tiny_has_the_watermark_and_coverage_too(tiny: Path) -> None:
     assert markets["US"] == synth.MARKETS["US"] | through
     kr = [r for r in rows(tiny, "bars") if r[ID].startswith("KR:")]
     assert datasets["bars_1d"]["coverage"]["by_market"]["KR"] == {
-        "instruments": 6, "first": "2020-01-02", "last": "2020-03-31", "rows": len(kr)}  # fmt: skip
+        "instruments": 6, "first": "2020-01-02", "last": "2020-03-31", "rows": len(kr),
+        PT: "2020-03-31"}  # fmt: skip
     assert "TDS-D001" not in unchecked(tiny)
 
 
@@ -1330,3 +1335,39 @@ def test_coverage_of_a_wrong_count_fails_d004(tiny: Path, tmp_path: Path) -> Non
     done = pkg._tds("check", str(package), "--level", "full")
     assert done.returncode != 0
     assert "TDS-D004" in done.stdout
+
+
+def test_every_dataset_is_processed_through_its_markets_watermark(small: Path) -> None:
+    # #192, TDS 4.3: every dataset in every market, at the watermark session (3.8) by default,
+    # and M016 judges them all
+    markets, datasets = manifest_of(small)
+    for name, dataset in datasets.items():
+        said = {m: v[PT] for m, v in dataset["coverage"]["by_market"].items()}
+        assert said == {m: e["complete_through_session"] for m, e in markets.items()}, name
+    assert "TDS-M016" not in unchecked(small)
+
+
+def test_behind_cuts_one_datasets_processed_through_session(tmp_path: Path) -> None:
+    # #192, spec 4.8 `behind`: corporate_actions two sessions before each market's watermark;
+    # the other datasets stay at it and the package still passes
+    package = make_snapshot(tmp_path / "behind", preset="tiny", behind={"corporate_actions": 2})
+    markets, datasets = manifest_of(package)
+    sessions = rows(package, "calendar_sessions")
+    for market, entry in markets.items():
+        days = sorted(r["session_date"] for r in sessions
+                      if r["calendar_id"] == entry["calendar_id"])  # fmt: skip
+        by_market = {n: d["coverage"]["by_market"][market][PT] for n, d in datasets.items()}
+        assert by_market.pop("corporate_actions") == days[-3].isoformat(), market
+        assert set(by_market.values()) == {days[-1].isoformat()}, market
+    assert "TDS-M016" not in unchecked(package)
+
+
+@pytest.mark.parametrize("behind", [
+    {"bars_1d": 1}, {"calendar_sessions": 1},  # a row per session: cut with its rows, not here
+    {"fundamentals_state": 1},  # not written by this generator yet
+    {"corporate_actions": -1}, {"corporate_actions": 10_000}, {"corporate_actions": 1.5},
+    {"corporate_actions": True},
+])  # fmt: skip
+def test_behind_refuses_what_it_cannot_cut(behind: dict[str, Any], tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="behind"):
+        make_snapshot(tmp_path / "refused", preset="tiny", behind=behind)

@@ -387,6 +387,7 @@ def make_snapshot(
     events: Sequence[Mapping[str, Any]] = (),
     overrides: Mapping[str, Any] | None = None,
     degrade: Sequence[str] = (),
+    behind: Mapping[str, int] | None = None,
 ) -> Path:
     """Write the synthetic TDS package `preset` to `root` and its hashes into `tds.json`.
 
@@ -399,7 +400,9 @@ def make_snapshot(
     `small`'s rules over full's period, counts and lives, the M1 datasets only;
     its M2 datasets, `full_ci` and `overrides` come with later tickets (spec 10.1: T0.8c).
     `degrade` takes 4.8's core values (T0.16a, T0.16c; `_synth_degrade`) and `late_bars`
-    (#354), the others with T0.16b.
+    (#354), the others with T0.16b. Each dataset is processed through the watermark session in
+    every market (TDS 4.3, #192), but `behind[name]` sessions earlier for each dataset `name`
+    without a row per session (4.8 `behind`).
     """
     root, chosen = _arguments(root, preset, markets, events, overrides, degrade,
                               (start, end, n_kr, n_us))  # fmt: skip
@@ -425,7 +428,10 @@ def make_snapshot(
     made = pk.datasets(tables, calendars, preset != "tiny" and "KR" in chosen)
     about = {"name": f"synth-{preset}", "created": f"{final}T00:00:00Z",
              "snapshot_id": snapshot_id, "markets": entries}  # fmt: skip
-    return pk.write(root, made, tables, about, degrade)
+    days = {m: pk._arrow(calendars[MARKETS[m]["calendar_id"]])["session_date"].to_pylist()
+            for m in chosen}  # fmt: skip
+    through = pk.processed(behind or {}, set(made) - set(dg.absent(degrade)), days)
+    return pk.write(root, made, tables, about, degrade, through)
 
 
 def read(root: Path, name: str) -> pa.Table:

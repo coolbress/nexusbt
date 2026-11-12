@@ -29,12 +29,25 @@
           "files": {
             "type": "array",
             "items": {"type": "object", "required": ["path", "bytes"]}
+          },
+          "coverage": {
+            "type": "object",
+            "properties": {
+              "by_market": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "object",
+                  "properties": {"processed_through_session": {"$ref": "#/$defs/date"}}
+                }
+              }
+            }
           }
         }
       }
     }
   },
   "$defs": {
+    "date": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
     "type": {
       "$comment": "TDS 3.2's type names and `string` (chapter 5's schema files, 4.4); never `ts_us/ns`, which a schema file may use and a declaration may not (4.5).",
       "enum": ["id", "code", "string", "date", "ts_us", "ts_ns", "f64", "fixed", "i8", "i16", "i32", "i64", "bool", "json", "list<code>"]

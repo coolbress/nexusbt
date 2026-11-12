@@ -1,6 +1,6 @@
 """`check(path, *, level, ...) -> CheckResult`: the levels manifest, schema and full (TDS 8.2).
 
-The `manifest` level reads `tds.json`, file sizes and the schema files' `status` (M001~M015);
+The `manifest` level reads `tds.json`, file sizes and the schema files' `status` (M001~M016);
 the `schema` level adds the
 Parquet footers and statistics and the `dictionary/` tables, no data rows (S001~S010, T006, part
 of D002, and of M008 the columns a profile names); the `full` level adds, so far, S006, S007
@@ -29,7 +29,14 @@ from typing import Any, Literal
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from .manifest import MANIFEST, Manifest, ManifestError, read_manifest, schema_violations
+from .manifest import (
+    MANIFEST,
+    MANIFEST_SCHEMA,
+    Manifest,
+    ManifestError,
+    read_manifest,
+    schema_violations,
+)
 from .profiles import PROFILES, Need, describe, meets, profile_id
 
 Level = Literal["manifest", "schema", "full"]
@@ -56,6 +63,8 @@ T006, D002 = "TDS-T006", "TDS-D002"
 SCHEMA_CODES = tuple(f"TDS-S{n:03}" for n in (1, 2, 3, 4, 5, 6, 7, 8, 10))
 UNCHECKED_AT_SCHEMA = tuple(c for c in UNCHECKED_AT_MANIFEST if c not in (*SCHEMA_CODES, T006))
 
+#: The manifest schema's date pattern (4.2), which a `YYYY-MM-DD` that is no date also matches.
+DATE: str = MANIFEST_SCHEMA["$defs"]["date"]["pattern"]
 #: TDS 4.2: the fields marked ○ that are required unconditionally.
 REQUIRED: tuple[str, ...] = ("tds_version", "name", "created", "snapshot_id", "producer")
 REQUIRED += ("profiles", "id_namespaces", "markets", "datasets", "hashes", "writer")
@@ -343,15 +352,47 @@ def _check_manifest(m: Manifest, only: Sequence[str] | None) -> Iterable[Finding
             yield Finding("TDS-M015", "warning", msg, dataset=name)
         coverage = ds.get("coverage")
         by_market = coverage.get("by_market") if isinstance(coverage, dict) else None
-        for market in sorted(by_market) if isinstance(by_market, dict) else []:
+        for market, said in sorted(by_market.items()) if isinstance(by_market, dict) else []:
             if market not in declared["market"]:
                 msg = f"coverage.by_market names market {market!r}, not declared in tds.json"
                 yield Finding("TDS-M010", "error", msg, dataset=name)
+            watermark = markets.get(market) if isinstance(markets, dict) else None
+            yield from _processed(said, watermark, market, name)
         yield from _check_dataset(root, ds, name, listed, declared)
     if only is None:
         for rel in _walk(root):
             if rel not in listed and rel != MANIFEST:
                 yield Finding("TDS-M005", "warning", "file is not listed in tds.json", file=rel)
+
+
+def _processed(
+    said: object, market: object, code: str, name: str | None
+) -> Iterable[Finding]:  # fmt: skip
+    """M016 (TDS 4.3, #192): a dataset's `processed_through_session` in market `code`, when
+    present, is neither before its `last` there nor after the market's watermark session (3.8).
+    A value that is not a date is M001's (the manifest schema)."""
+    said = said if isinstance(said, dict) else {}
+    value = said.get("processed_through_session")
+    through = _day(value)
+    last = _day(said.get("last"))
+    watermark = _day(market.get("complete_through_session")) if isinstance(market, dict) else None
+    at = f"coverage.by_market.{code}.processed_through_session {through}"
+    if isinstance(value, str) and through is None and re.search(DATE, value):  # 2024-02-30
+        msg = f"coverage.by_market.{code}.processed_through_session {value!r} is not a date"
+        yield Finding("TDS-M001", "error", msg, dataset=name)  # what the pattern lets through
+    if through and last and through < last:
+        yield Finding("TDS-M016", "error", f"{at}, before its last {last}", dataset=name)
+    if through and watermark and through > watermark:
+        msg = f"{at}, after the market's complete_through_session {watermark}"
+        yield Finding("TDS-M016", "error", msg, dataset=name)
+
+
+def _day(value: object) -> dt.date | None:
+    """A `YYYY-MM-DD` calendar date; None for anything else (`20240102` included)."""
+    try:
+        return dt.date.fromisoformat(value) if isinstance(value, str) and len(value) == 10 else None
+    except ValueError:
+        return None
 
 
 def _check_dataset(
