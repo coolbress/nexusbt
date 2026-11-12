@@ -1378,6 +1378,12 @@ def test_behind_cuts_the_rows_known_after_the_session(small: Path, tmp_path: Pat
         assert f"TDS-D003 not checked on {name}:" not in done.stdout
 
 
+def test_behind_cuts_nothing_from_a_dataset_without_an_instant(tmp_path: Path) -> None:
+    # #425 review: instrument_xref (written whole, not per market) has no instant to cut by
+    package = make_snapshot(tmp_path / "xref", preset="tiny", behind={"instrument_xref": 1})
+    assert "TDS-M016" not in unchecked(package)
+
+
 @pytest.mark.parametrize("behind", [
     {"bars_1d": 1}, {"calendar_sessions": 1},  # a row per session: cut with its rows, not here
     {"fundamentals_state": 1},  # not written by this generator yet

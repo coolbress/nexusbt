@@ -503,16 +503,17 @@ def _cut(table: Mapping[str, Any], name: str, day: str, sessions: Table) -> dict
     instrument's `delisted_on` null. The instant is TDS 4.3's: an action's existence instant
     (5.11), an exit's `ts_exit_known`, a column form's column; a null one stays."""
     known = pk.FIELDS.get(name, {}).get("availability", {})
-    rows, out = pk._arrow(table[name]), dict(table)
+    out = dict(table)
+    if not known.keys() & {"terms", "exit", "column"}:
+        return out  # no instant: nothing to cut (instruments, instrument_xref, market_rules)
+    rows = pk._arrow(table[name])
     if "terms" in known:
         told, terms, effect = (rows[c].to_pylist() for c in ("ts_announced", known["terms"],
                                                               known["effect"]))  # fmt: skip
         at = [min((t for t in pair if t is not None), default=e)
               for *pair, e in zip(told, terms, effect, strict=True)]  # fmt: skip
-    elif known.get("exit") or known.get("column"):
-        at = rows[known.get("exit") or known["column"]].to_pylist()
     else:
-        return out  # no instant: nothing to cut (instruments, instrument_xref, market_rules)
+        at = rows[known.get("exit") or known["column"]].to_pylist()
     calendar = pk._arrow(sessions)
     close = calendar["ts_close"].to_pylist()[
         calendar["session_date"].to_pylist().index(dt.date.fromisoformat(day))
