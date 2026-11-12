@@ -1378,6 +1378,13 @@ def test_behind_cuts_the_rows_known_after_the_session(small: Path, tmp_path: Pat
         assert f"TDS-D003 not checked on {name}:" not in done.stdout
 
 
+def test_behind_cuts_actions_from_bars_without_factors(tmp_path: Path) -> None:
+    # #425: with no_cum_factors (F-04) the bars carry no factor to follow a cut action
+    package = make_snapshot(tmp_path / "bare", preset="tiny", behind={"corporate_actions": 2},
+                            degrade=["no_cum_factors"])  # fmt: skip
+    check_full(package)
+
+
 def test_behind_cuts_nothing_from_a_dataset_without_an_instant(tmp_path: Path) -> None:
     # #425 review: instrument_xref (written whole, not per market) has no instant to cut by
     package = make_snapshot(tmp_path / "xref", preset="tiny", behind={"instrument_xref": 1})
