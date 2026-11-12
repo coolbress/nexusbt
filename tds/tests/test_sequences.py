@@ -181,3 +181,19 @@ def test_an_unreadable_file_leaves_V032_unchecked(tmp_path: Path) -> None:
     blind: set[str] = set()
     assert check_sequences(read_manifest(build.write(tmp_path, m, files)), None, blind) == []
     assert blind == {"TDS-V032"}
+
+
+def test_a_file_without_a_listed_column_leaves_V032_unchecked(tmp_path: Path) -> None:
+    # review: its rows would otherwise fall into one group of null channel and show false gaps
+    m, files = build.base()
+    entries = []
+    for n, columns in enumerate([seq(1, 9), seq(2, 10, x_dbn_channel_id=[1, 2])]):
+        rel = f"trades/venue=XNYS/date={DAY}/part-{n:05}.parquet"
+        files[rel] = build.parquet(pa.table(columns), "trades")
+        entries.append({"path": rel, "bytes": len(files[rel])})
+    within = {"sequence_consecutive_within": ["x_dbn_channel_id"]}
+    m["datasets"].append({"name": "trades", "kind": "trades", "schema_version": "1.0",
+                          "path": "trades", "files": entries, "params": within})  # fmt: skip
+    blind: set[str] = set()
+    assert check_sequences(read_manifest(build.write(tmp_path, m, files)), None, blind) == []
+    assert blind == {"TDS-V032"}

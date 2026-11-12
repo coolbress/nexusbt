@@ -18,6 +18,7 @@ from itertools import pairwise
 from typing import Any
 
 import pyarrow as pa
+import pyarrow.parquet as pq
 
 from .check import SEQUENCED, WITHIN, Finding
 from .keys import _shown, listed
@@ -56,6 +57,9 @@ def _dataset(m: Manifest, ds: Mapping[str, Any], within: list[str]) -> list[Find
     for part in sorted(parts):
         groups: defaultdict[tuple[Any, ...], list[int]] = defaultdict(list)
         files = {**ds, "files": [{"path": rel} for rel in sorted(parts[part])]}
+        for rel in parts[part]:  # a listed column a file lacks is S001's; its groups are unknown
+            if not set(split) <= set(pq.read_schema(root / rel).names):
+                raise ValueError(f"{rel} lacks a column of params.{WITHIN}")
         for number, snapshot, *split_by in _rows(root, files, columns):
             if number is not None and not (snapshots and snapshot):
                 groups[tuple(split_by)].append(number)
