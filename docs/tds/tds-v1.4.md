@@ -645,7 +645,7 @@ Columns: `instrument_id`, `session_date`, `ts_event`, `ts_recv`, `sequence`, `bi
 | is_last | bool | no | Last row of the same event batch (F_LAST; the book is consistent only after this row) |
 | flags | i32 | yes | Original bits |
 
-- Reconstruction rule: the start of a file (or date) is either a batch of `is_snapshot = true` rows after a `clear`, or declares with `params.continuity = "carry"` that it carries over the last state of the previous date.
+- Reconstruction rule: the start of a file (or date) is either a batch of `is_snapshot = true` rows after a `clear`, or declares with `params.continuity = "carry"` that it carries over the last state of the nearest earlier partition of the same `venue` in the package.
 - The engine reads the book only after rows with `is_last = true`. V031: warning if a crossed book appears after reconstruction. V032 (`sequence` gaps) is stated before 5.6's table, for the three datasets.
 - How each row changes the book (decision 2026-11-12, #347); `is_snapshot` rows apply by the same table:
 

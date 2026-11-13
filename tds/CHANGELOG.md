@@ -7,6 +7,10 @@ package version follows the `tds_version` it checks (`1.0.x`), tagged
 ## [Unreleased]
 
 ### Added
+- `tds check --level full` judges TDS-V032: a gap in `sequence` within each group a `trades`,
+  `quotes` or `book_deltas` dataset declares with `params.sequence_consecutive_within`, one
+  warning per group; a dataset with no declaration has nothing to judge, so V032 is no longer
+  `unchecked` at `full`
 - `params.sequence_consecutive_within` of `trades`, `quotes` and `book_deltas` (TDS 5.6~5.8):
   TDS-M001 when it is not an array of distinct strings or names `sequence`, and TDS-S001 at the
   `schema` level for a listed column absent from a file (a partition column excepted)

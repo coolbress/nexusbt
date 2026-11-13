@@ -14,18 +14,18 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
-from itertools import pairwise
+from pathlib import Path
 from typing import Any
 
 import pyarrow as pa
+import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
-from .check import SEQUENCED, WITHIN, Finding
+from .check import SEQUENCE_CODES, SEQUENCED, WITHIN, Finding
 from .keys import _shown, listed
 from .manifest import Manifest
-from .refs import _rows
 
-V032 = "TDS-V032"
+(V032,) = SEQUENCE_CODES
 
 
 def check_sequences(m: Manifest, only: Sequence[str] | None, blind: set[str]) -> list[Finding]:
@@ -53,23 +53,58 @@ def _dataset(m: Manifest, ds: Mapping[str, Any], within: list[str]) -> list[Find
         parts[tuple(values.items())].append(rel)
     snapshots = ds.get("kind") == "book_deltas"
     split = [c for c in within if c not in dict(next(iter(parts), ()))]  # partition: already one
-    columns = ("sequence", "is_snapshot", *split)  # `is_snapshot` is read on book_deltas only
-    for part in sorted(parts):
-        groups: defaultdict[tuple[Any, ...], list[int]] = defaultdict(list)
-        files = {**ds, "files": [{"path": rel} for rel in sorted(parts[part])]}
-        for rel in parts[part]:  # a listed column a file lacks is S001's; its groups are unknown
-            if not set(split) <= set(pq.read_schema(root / rel).names):
-                raise ValueError(f"{rel} lacks a column of params.{WITHIN}")
-        for number, snapshot, *split_by in _rows(root, files, columns):
-            if number is not None and not (snapshots and snapshot):
-                groups[tuple(split_by)].append(number)
-        for group, numbers in sorted(groups.items(), key=lambda g: str(g[0])):
-            steps = [(a, b) for a, b in pairwise(sorted(numbers)) if b - a > 1]
-            if not steps:
+    for part in sorted(parts):  # one partition in memory at a time (#432 Decisions (3))
+        files = [_read(root, rel, split, snapshots) for rel in sorted(parts[part])]
+        table = pa.concat_tables(files, promote_options="permissive")  # int widths, nullability
+        del files
+        if split:
+            lists = table.group_by(split, use_threads=False).aggregate([("sequence", "list")])
+            groups = [(tuple(r[c] for c in split), lists["sequence_list"][n].values)
+                      for n, r in enumerate(lists.select(split).to_pylist())]  # fmt: skip
+        else:
+            groups = [((), table["sequence"].combine_chunks())]
+        del table
+        for group, numbers in sorted(groups, key=lambda g: str(g[0])):
+            if (gap := _gaps(numbers)) is None:
                 continue
-            missing = sum(b - a - 1 for a, b in steps)
-            msg = f"{missing} missing sequence number(s); first gap {steps[0][0]} -> {steps[0][1]}"
+            missing, before, after = gap
+            msg = f"{missing} missing sequence number(s); first gap {before} -> {after}"
             shown = _shown(split, dict(zip(split, group, strict=True)))
             key = {**dict(part), **shown}  # the partition's values first (#432, 2026-11-13)
             out.append(Finding(V032, "warning", msg, name, key=key, count=missing))
     return out
+
+
+def _read(root: Path, rel: str, split: list[str], snapshots: bool) -> pa.Table:
+    """One file's `sequence` (int64, no null) and `split` columns, without `book_deltas`
+    snapshot rows."""
+    names = pq.read_schema(root / rel).names
+    if len(set(names)) < len(names) or not set(split) <= set(names):  # S001's: groups unknown
+        raise ValueError(f"{rel}: a column name twice, or a column of params.{WITHIN} missing")
+    flag = ["is_snapshot"] if snapshots and "is_snapshot" in names else []
+    table = pq.read_table(root / rel, columns=["sequence", *split, *flag])
+    if not pa.types.is_integer(table.schema.field("sequence").type):
+        raise TypeError(f"{rel}: sequence is {table.schema.field('sequence').type}")
+    keep = pc.is_valid(table["sequence"])
+    if flag:
+        keep = pc.and_(keep, pc.invert(pc.fill_null(table["is_snapshot"], False)))
+    table = table.filter(keep).select(["sequence", *split])
+    for n, field in enumerate(table.schema):  # a dictionary column groups by its values
+        if pa.types.is_dictionary(field.type):
+            table = table.set_column(n, field.name, table[n].cast(field.type.value_type))
+    return table.set_column(0, "sequence", table["sequence"].cast(pa.int64()))
+
+
+def _gaps(numbers: pa.Array) -> tuple[int, int, int] | None:
+    """(missing count, number before, number after the first gap) of one group, or None; the
+    sort and the neighbour differences run in Arrow's C code, 8 bytes a number."""
+    ordered = numbers.take(pc.sort_indices(numbers))
+    if len(ordered) > 1:  # a span past int64 raises (unchecked), never wraps into a pass
+        pc.subtract_checked(ordered[-1], ordered[0])
+    steps = pc.subtract(ordered.slice(1), ordered.slice(0, max(len(ordered) - 1, 0)))
+    over = pc.greater(steps, 1)
+    if not pc.any(over).as_py():
+        return None
+    first = pc.index(over, True).as_py()
+    missing = pc.sum(pc.subtract(steps.filter(over), 1)).as_py()
+    return missing, ordered[first].as_py(), ordered[first + 1].as_py()

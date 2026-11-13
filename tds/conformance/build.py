@@ -575,11 +575,12 @@ def _traded(volume: float) -> Change:
     return _bars(high=ten, low=ten, volume=pa.array([volume]), value_traded=pa.array([1000.0]))
 
 
-def _book(last_bid: int) -> Change:
+def _book(last_bid: int, sequence: tuple[int, ...] = tuple(range(9))) -> Change:
     """US:AAA's `mbo` book (5.8, experimental) on 2024-01-02, rebuilt by #347's rules: a
     snapshot, bid 99 and ask 100; a batch crossed in its middle (bid 101) and not after its
     `is_last` row; then a batch whose `is_last` is on a separate `none` row, after an order at
-    `last_bid` (101: crossed when judged)."""
+    `last_bid` (101: crossed when judged). Other `sequence` numbers than 0..8 come with
+    `params.sequence_consecutive_within` `[]` (5.6, #348)."""
     rows = [  # action, side, price, size, order_id, is_snapshot, is_last
         ("clear", "none", None, None, None, True, False),
         ("add", "bid", 99, 5, 1, True, False),
@@ -597,7 +598,7 @@ def _book(last_bid: int) -> Change:
         "instrument_id": ["US:AAA"] * len(rows), "session_date": DAY.take([0] * len(rows)),
         "ts_event": pa.array([NEW_YEAR + dt.timedelta(seconds=n) for n in range(len(rows))],
                              pa.timestamp("ns", "UTC")),
-        "sequence": list(range(len(rows))), "action": action, "side": side,
+        "sequence": list(sequence), "action": action, "side": side,
         "price": pa.array(price, pa.int64()), "size": pa.array(size, pa.int64()),
         "order_id": pa.array(order_id, pa.int64()), "is_snapshot": snapshot, "is_last": last,
     }, rel)  # fmt: skip
@@ -605,8 +606,15 @@ def _book(last_bid: int) -> Change:
     def change(m: dict[str, Any], files: Files) -> None:
         add(m, files)
         m["datasets"][-1]["params"] = {"depth_kind": "mbo"}
+        if sequence != tuple(range(9)):
+            m["datasets"][-1]["params"]["sequence_consecutive_within"] = []
 
     return change
+
+
+#: The snapshot rows keep the venue's numbers, out of order (#348's Databento example), and are
+#: left out; the live rows run from 1000, and the fail package skips 1003.
+_SNAPSHOT = (0, 761, 757)
 
 
 def _quote(bid: int, ask: int, **recv: list[dt.datetime]) -> Change:
@@ -837,6 +845,10 @@ CASES: dict[str, tuple[Change, Change]] = {
     "TDS-V020": (_future(**_FUTURE), _future(**_FUTURE | {"root": None})),
     "TDS-V030": (_quote(99, 100), _quote(100, 100)),  # locked
     "TDS-V031": (_book(98), _book(101)),
+    "TDS-V032": (
+        _book(98, (*_SNAPSHOT, *range(1000, 1006))),
+        _book(98, (*_SNAPSHOT, 1000, 1001, 1002, 1004, 1005, 1006)),
+    ),
     "TDS-V040": (_exits(delisted=True, ret_lo=-0.5), _exits(delisted=True, ret_lo=0.5)),
     "TDS-V041": (_event(series_id=["US:CPI"]), _event()),
     "TDS-V050": (_labels("fwd_ret"), _labels("mom")),
@@ -896,6 +908,7 @@ FAILS: dict[str, tuple[str | None, ...]] = {
     "TDS-V020": ("instruments",),
     "TDS-V030": ("quotes",),
     "TDS-V031": ("book_deltas",),
+    "TDS-V032": ("book_deltas",),
     "TDS-V040": ("delistings",),
     "TDS-V041": ("events",),
     "TDS-V050": ("label_panels",),
