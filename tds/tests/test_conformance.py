@@ -231,8 +231,8 @@ def test_K_codes(code: str, tmp_path: Path) -> None:
     assert (passed.errors, warned, code in passed.unchecked) == ((), [], False)
 
 
-#: The M015 warning a package with an experimental dataset also gets (TDS 5.7: `quotes`).
-EXPERIMENTAL = [("TDS-M015", "quotes")]
+#: The M015 warning a package with an experimental dataset also gets (TDS 5.7, 5.8).
+EXPERIMENTAL = [("TDS-M015", "quotes"), ("TDS-M015", "book_deltas")]
 
 
 def _custom_in_year(m: dict[str, Any], f: Any) -> None:  # no schema: no key, sort, date column
@@ -746,7 +746,7 @@ def test_A011_on_a_timestamp_last_trading_date_is_S002_and_unchecked(tmp_path: P
     assert "TDS-A011" in result.unchecked
 
 
-#: V011 and V012 have tests of their own; V031 and V032 are not judged yet (#227, 2026-11-10).
+#: V011, V012 and V031 have tests of their own; V032 is not judged yet (#227, 2026-11-10).
 V_CODES = [f"TDS-V{n:03}" for n in (1, 2, 4, 5, 10, 20, 30, 40, 41, 50)]
 
 
@@ -865,10 +865,15 @@ def test_a_dataset_typed_by_105_has_a_value_hash_with_no_columns_in_tds_json(
     assert len(value_hash(root, "share_counts")) == 64
 
 
-def test_book_codes_stay_unchecked(tmp_path: Path) -> None:
-    result = check(write(tmp_path, build.CASES["TDS-V030"][0]), level="full")
-    assert {"TDS-V031", "TDS-V032"} <= set(result.unchecked)
-    assert not {*V_CODES, "TDS-V012"} & set(result.unchecked)
+def test_V031(tmp_path: Path) -> None:
+    """The pass package's books cross only inside a batch; the fail package's after one (#430)."""
+    test_K_codes("TDS-V031", tmp_path)
+
+
+def test_V032_stays_unchecked(tmp_path: Path) -> None:
+    result = check(write(tmp_path, build.CASES["TDS-V031"][0]), level="full")
+    assert "TDS-V032" in result.unchecked
+    assert not {*V_CODES, "TDS-V012", "TDS-V031"} & set(result.unchecked)
 
 
 @pytest.mark.usefixtures("refs_batches")
@@ -1188,9 +1193,9 @@ def test_full_level_checks_only_the_keys_references_and_hashes_so_far(tmp_path: 
     assert result.profiles == {
         "tds:minimal-daily@1.0": ProfileStatus(True, "schema", "not_checked")
     }
-    assert {"TDS-V031", "TDS-V032"} <= set(result.unchecked)
+    assert "TDS-V032" in set(result.unchecked)
     hashes = {"TDS-H001", "TDS-H002", "TDS-H003", "TDS-H004"}
-    judged = {*K_CODES, *R_CODES, *hashes, "TDS-V012", *T_CODES, *D_CODES, "TDS-D002"}
+    judged = {*K_CODES, *R_CODES, *hashes, "TDS-V012", "TDS-V031", *T_CODES, *D_CODES, "TDS-D002"}
     judged -= {*_NO_CAL, *_NO_EXITS}
     assert not judged & set(result.unchecked)
     assert {*_NO_CAL, *_NO_EXITS} <= set(result.unchecked)  # no calendar_sessions, delistings

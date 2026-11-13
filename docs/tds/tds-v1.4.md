@@ -660,7 +660,7 @@ Columns: `instrument_id`, `session_date`, `ts_event`, `ts_recv`, `sequence`, `bi
 - How V031 is judged (#347):
   - **When**: right after each row with `is_last = true`, whatever its `action`, `none` included; never in the middle of a batch.
   - **Crossed**: best bid `>` best ask, strictly. A locked book (equal prices) is not V031. A side with no level is not judged.
-  - **Start of a date with `params.continuity = "carry"`**: the state of each instrument after its last `is_last = true` row in the previous date's partition of the same `venue` in the same package. When the package has no previous partition, the book starts empty and the output carries one line per (`venue`, `session_date`) saying the date was judged from a partial book.
+  - **Start of a date with `params.continuity = "carry"`**: the state of each instrument after its last `is_last = true` row in the nearest earlier partition of the same `venue` in the package (decision 2026-11-13, #430). When the package has no previous partition, the book starts empty and the output carries one line per (`venue`, `session_date`) saying the date was judged from a partial book.
   - **Output**: one warning line per (`venue`, `session_date`, `instrument_id`) with the `ts_event` of the first crossed judgement point and the number of judgement points at which the book was crossed.
 
 `book_snapshots` — depth-N state at fixed intervals or per event. Long shape: key (`instrument_id`, `ts_event`, `side`, `level`). Columns `ts_event`, `ts_recv`, `side`, `level` (0 = best), `price`, `size`, `order_count`. Databento MBP-10 and Nautilus OrderBookDepth unrolled into rows. The columns named here without a type are typed when the schema leaves `experimental`.

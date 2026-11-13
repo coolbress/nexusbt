@@ -17,12 +17,12 @@ from typing import Any
 
 import pyarrow as pa
 
-from .check import Finding
+from .check import BOOK_CODES, Finding
 from .keys import listed
 from .manifest import Manifest
 from .refs import _rows
 
-V031 = "TDS-V031"
+(V031,) = BOOK_CODES
 COLUMNS = ("instrument_id", "ts_event", "action", "side", "price", "size", "order_id", "is_last")
 SIDES = ("bid", "ask")
 Book = dict[Any, Any]  # mbp: (side, price) → size; mbo: order_id → (side, price, size)

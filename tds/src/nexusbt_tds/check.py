@@ -7,8 +7,8 @@ of D002, and of M008 the columns a profile names); the `full` level adds, so far
 and S009 from the rows (`cells`), the key
 checks (K001~K004, K010, K011; `keys`), the
 reference checks (R001~R009; `refs`), the adjustment and value checks (`adjustments`,
-`values`), the interval checks (T003, T004, T012; `times`), the instant checks (T001, T002,
-T005, T007, T008, T010, T011; `instants`), the density checks (D001~D004;
+`values`, V031 in `books`), the interval checks (T003, T004, T012; `times`), the instant
+checks (T001, T002, T005, T007, T008, T010, T011; `instants`), the density checks (D001~D004;
 `densities`) and the hashes (H001~H004, TDS 4.5); no profile is verified beyond `schema`.
 None reports a profile as `pass`: the rules a level cannot see are listed in `unchecked`, and
 the profile is `not_checked`.
@@ -177,6 +177,7 @@ def check(
             found += _check_ranges(manifest, datasets, blind)
         if level == "full":
             from .adjustments import check_actions
+            from .books import check_books
             from .cells import check_cells
             from .densities import check_densities
             from .hash import spilled_note
@@ -195,6 +196,7 @@ def check(
             found += check_refs(manifest, datasets, blind)
             found += check_actions(manifest, datasets, blind, notes)
             found += check_values(manifest, datasets, blind, notes)
+            found += check_books(manifest, datasets, blind, notes)
             found += check_times(manifest, datasets, blind)
             found += check_instants(manifest, datasets, blind, notes)
             seen = {f.dataset for f in found if f.code == D002}  # by the statistics
@@ -242,14 +244,15 @@ HASH_CODES = ("TDS-H001", "TDS-H002", "TDS-H003", "TDS-H004")
 KEY_CODES = ("TDS-K001", "TDS-K002", "TDS-K003", "TDS-K004", "TDS-K010", "TDS-K011")  # `keys`
 REF_CODES = tuple(f"TDS-R{n:03}" for n in range(1, 10))  # `refs` checks them
 ACTION_CODES = tuple(f"TDS-A{n:03}" for n in range(1, 12))  # `adjustments` checks them
-#: `values` checks them; V031 and V032 (#227) are not judged yet.
+#: `values` checks them; `books` V031 (#430); V032 (#348) is not judged yet.
 VALUE_CODES = tuple(f"TDS-V{n:03}" for n in (1, 2, 4, 5, 10, 11, 12, 20, 30, 40, 41, 50))
+BOOK_CODES = ("TDS-V031",)
 TIME_CODES = ("TDS-T003", "TDS-T004", "TDS-T012")  # `times` checks them (#225)
 INSTANT_CODES = tuple(f"TDS-T{n:03}" for n in (1, 2, 5, 7, 8, 10, 11))  # `instants` (#225)
 DENSITY_CODES = ("TDS-D001", D002, "TDS-D003", "TDS-D004")  # `densities` (#225, #425)
 CELL_CODES = ("TDS-S006", "TDS-S007", "TDS-S009")  # `cells`, from the rows (#391)
 FULL_CODES = (*KEY_CODES, *REF_CODES, *ACTION_CODES, *VALUE_CODES, *TIME_CODES, *INSTANT_CODES,
-              *DENSITY_CODES, *HASH_CODES, *CELL_CODES)  # fmt: skip
+              *DENSITY_CODES, *HASH_CODES, *CELL_CODES, *BOOK_CODES)  # fmt: skip
 
 
 def _check_hashes(

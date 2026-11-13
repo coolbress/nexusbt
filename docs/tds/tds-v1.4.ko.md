@@ -660,7 +660,7 @@
 - V031을 판정하는 방식(#347):
   - **언제**: `is_last = true`인 행마다 그 바로 뒤에, 그 행의 `action`이 무엇이든(`none` 포함). 묶음 중간에서는 판정하지 않는다.
   - **교차**: 최우선 매수 `>` 최우선 매도, 엄격히. 잠긴 호가(같은 가격)는 V031이 아니다. 수준이 없는 쪽이 있으면 판정하지 않는다.
-  - **`params.continuity = "carry"`인 날짜의 시작**: 같은 패키지에서 같은 `venue`의 이전 날짜 파티션에서, 종목마다 그 종목의 마지막 `is_last = true` 행 뒤 상태. 패키지에 이전 파티션이 없으면 빈 호가에서 시작하고, 출력에 (`venue`, `session_date`)마다 그 날짜를 부분 호가로 판정했다는 줄을 하나 넣는다.
+  - **`params.continuity = "carry"`인 날짜의 시작**: 패키지에서 같은 `venue`의 가장 가까운 이전 파티션에서(결정 2026-11-13, #430), 종목마다 그 종목의 마지막 `is_last = true` 행 뒤 상태. 패키지에 이전 파티션이 없으면 빈 호가에서 시작하고, 출력에 (`venue`, `session_date`)마다 그 날짜를 부분 호가로 판정했다는 줄을 하나 넣는다.
   - **출력**: (`venue`, `session_date`, `instrument_id`)마다 경고 한 줄. 처음 교차한 판정 시점의 `ts_event`와, 호가가 교차한 판정 시점의 수를 담는다.
 
 `book_snapshots` — 일정 간격 또는 사건마다의 깊이 N 상태. 긴 모양: 열쇠 (`instrument_id`, `ts_event`, `side`, `level`). 칼럼 `ts_event`, `ts_recv`, `side`, `level`(0 = 최우선), `price`, `size`, `order_count`. Databento MBP-10·Nautilus OrderBookDepth를 행으로 편 모양. 여기서 형 없이 적은 칼럼은 스키마가 `experimental`을 벗어날 때 형을 정한다.
