@@ -645,7 +645,7 @@
 | is_last | bool | 아니오 | 같은 사건 묶음의 마지막 행(F_LAST; 이 행 뒤에만 호가가 일관됨) |
 | flags | i32 | 예 | 원 비트 |
 
-- 재구성 규칙: 파일(또는 날짜) 첫머리는 `clear` 뒤 `is_snapshot = true` 행 묶음이거나, 이전 날짜 마지막 상태를 이어받는다고 `params.continuity = "carry"`로 선언.
+- 재구성 규칙: 파일(또는 날짜) 첫머리는 `clear` 뒤 `is_snapshot = true` 행 묶음이거나, 패키지 안 같은 `venue`의 가장 가까운 이전 파티션의 마지막 상태를 이어받는다고 `params.continuity = "carry"`로 선언.
 - 엔진은 `is_last = true`인 행 뒤에서만 호가를 읽는다. V031: 재구성 뒤 교차 호가 발생 시 경고. V032(`sequence` 빈칸)는 세 데이터셋에 함께 5.6의 표 앞에 적는다.
 - 행마다 호가가 바뀌는 방식(결정 2026-11-12, #347). `is_snapshot` 행도 같은 표대로 적용한다:
 

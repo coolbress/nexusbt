@@ -21,11 +21,11 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
-from .check import SEQUENCED, WITHIN, Finding
+from .check import SEQUENCE_CODES, SEQUENCED, WITHIN, Finding
 from .keys import _shown, listed
 from .manifest import Manifest
 
-V032 = "TDS-V032"
+(V032,) = SEQUENCE_CODES
 
 
 def check_sequences(m: Manifest, only: Sequence[str] | None, blind: set[str]) -> list[Finding]:
