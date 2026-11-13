@@ -32,9 +32,11 @@ def judge(
     days: dict[str, dict[str, list[Any]]],
     within: object = (),
     kind: str = "book_deltas",
+    only: list[str] | None = None,
 ) -> list[Finding]:
     """V032's lines on a package whose dataset of `kind` holds, per partition `date`
-    (`venue=XNYS`), the given columns; `within` is the declared list, or `ABSENT`."""
+    (`venue=XNYS`), the given columns; `within` is the declared list, or `ABSENT`; `only`, the
+    datasets checked (TDS 8.1 `--datasets`)."""
     m, files = build.base()
     entries = []
     for day, columns in days.items():
@@ -47,7 +49,7 @@ def judge(
     m["datasets"].append({"name": kind, "kind": kind, "schema_version": "1.0", "path": kind,
                           "params": params, "files": entries})  # fmt: skip
     blind: set[str] = set()
-    found = check_sequences(read_manifest(build.write(tmp_path, m, files)), None, blind)
+    found = check_sequences(read_manifest(build.write(tmp_path, m, files)), only, blind)
     assert blind == set()
     assert {(f.code, f.severity, f.dataset) for f in found} <= {("TDS-V032", "warning", kind)}
     return found
@@ -169,6 +171,12 @@ def test_a_listed_column_missing_from_a_footer_is_S001(tmp_path: Path) -> None:
         m["datasets"][1]["params"]["sequence_consecutive_within"] = ["x_y"]
 
     assert check(write(tmp_path / "bars", bars), level="schema").errors == ()
+
+
+def test_only_the_datasets_checked_are_judged(tmp_path: Path) -> None:
+    # TDS 8.1 `--datasets`: a declaring dataset not named is not read
+    assert judge(tmp_path / "other", {DAY: seq(1, 5)}, [], only=["bars_1d"]) == []
+    assert len(judge(tmp_path / "named", {DAY: seq(1, 5)}, [], only=["book_deltas"])) == 1
 
 
 def test_an_unreadable_file_leaves_V032_unchecked(tmp_path: Path) -> None:
