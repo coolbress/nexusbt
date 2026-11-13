@@ -236,6 +236,6 @@ def test_a_span_past_int64_leaves_V032_unchecked(tmp_path: Path) -> None:
 
 def test_the_manifest_and_schema_levels_leave_V032_unchecked() -> None:
     # #432 criterion 5: they read no rows; `full` judges it (test_conformance::test_V032)
-    fail = Path(build.__file__).parent / "TDS-V032" / "fail"
+    fail = Path(__file__).parents[1] / "conformance" / "TDS-V032" / "fail"
     for level in ("manifest", "schema"):
         assert "TDS-V032" in check(fail, level=level).unchecked
