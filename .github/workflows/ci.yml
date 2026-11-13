@@ -45,7 +45,7 @@ permissions:
 
 jobs:
   ci:
-    uses: coolbress/plinth/.github/workflows/python-ci.yml@cecffe1f52c2911558ece2b978c759c9203e1f63
+    uses: coolbress/plinth/.github/workflows/python-ci.yml@aef12a4d25ea75a3b8d0b26ade61e41539ce1c95
     with:
       # pyproject declares `requires-python = ">=3.13"` and `.python-version` is
       # 3.13, so there is no other version to test: a value here would run the
