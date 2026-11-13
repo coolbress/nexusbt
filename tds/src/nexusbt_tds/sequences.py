@@ -54,7 +54,9 @@ def _dataset(m: Manifest, ds: Mapping[str, Any], within: list[str]) -> list[Find
     snapshots = ds.get("kind") == "book_deltas"
     split = [c for c in within if c not in dict(next(iter(parts), ()))]  # partition: already one
     for part in sorted(parts):  # one partition in memory at a time (#432 Decisions (3))
-        table = pa.concat_tables(_read(root, rel, split, snapshots) for rel in sorted(parts[part]))
+        files = [_read(root, rel, split, snapshots) for rel in sorted(parts[part])]
+        table = pa.concat_tables(files, promote_options="permissive")  # int widths, nullability
+        del files
         if split:
             lists = table.group_by(split, use_threads=False).aggregate([("sequence", "list")])
             groups = [(tuple(r[c] for c in split), lists["sequence_list"][n].values)
@@ -87,6 +89,9 @@ def _read(root: Path, rel: str, split: list[str], snapshots: bool) -> pa.Table:
     if flag:
         keep = pc.and_(keep, pc.invert(pc.fill_null(table["is_snapshot"], False)))
     table = table.filter(keep).select(["sequence", *split])
+    for n, field in enumerate(table.schema):  # a dictionary column groups by its values
+        if pa.types.is_dictionary(field.type):
+            table = table.set_column(n, field.name, table[n].cast(field.type.value_type))
     return table.set_column(0, "sequence", table["sequence"].cast(pa.int64()))
 
 
@@ -94,6 +99,8 @@ def _gaps(numbers: pa.Array) -> tuple[int, int, int] | None:
     """(missing count, number before, number after the first gap) of one group, or None; the
     sort and the neighbour differences run in Arrow's C code, 8 bytes a number."""
     ordered = numbers.take(pc.sort_indices(numbers))
+    if len(ordered) > 1:  # a span past int64 raises (unchecked), never wraps into a pass
+        pc.subtract_checked(ordered[-1], ordered[0])
     steps = pc.subtract(ordered.slice(1), ordered.slice(0, max(len(ordered) - 1, 0)))
     over = pc.greater(steps, 1)
     if not pc.any(over).as_py():

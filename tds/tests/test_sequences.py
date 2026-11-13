@@ -191,17 +191,51 @@ def test_an_unreadable_file_leaves_V032_unchecked(tmp_path: Path) -> None:
     assert blind == {"TDS-V032"}
 
 
-def test_a_file_without_a_listed_column_leaves_V032_unchecked(tmp_path: Path) -> None:
-    # review: its rows would otherwise fall into one group of null channel and show false gaps
+def files_of(tmp_path: Path, *tables: pa.Table) -> tuple[list[tuple[Any, ...]], set[str]]:
+    """V032's lines and the codes left unchecked on one `trades` partition of these files,
+    declaring `["x_dbn_channel_id"]`."""
     m, files = build.base()
     entries = []
-    for n, columns in enumerate([seq(1, 9), seq(2, 10, x_dbn_channel_id=[1, 2])]):
+    for n, table in enumerate(tables):
         rel = f"trades/venue=XNYS/date={DAY}/part-{n:05}.parquet"
-        files[rel] = build.parquet(pa.table(columns), "trades")
+        files[rel] = build.parquet(table, "trades")
         entries.append({"path": rel, "bytes": len(files[rel])})
     within = {"sequence_consecutive_within": ["x_dbn_channel_id"]}
     m["datasets"].append({"name": "trades", "kind": "trades", "schema_version": "1.0",
                           "path": "trades", "files": entries, "params": within})  # fmt: skip
     blind: set[str] = set()
-    assert check_sequences(read_manifest(build.write(tmp_path, m, files)), None, blind) == []
-    assert blind == {"TDS-V032"}
+    found = check_sequences(read_manifest(build.write(tmp_path, m, files)), None, blind)
+    return gaps(found), blind
+
+
+def test_a_file_without_a_listed_column_leaves_V032_unchecked(tmp_path: Path) -> None:
+    # review: its rows would otherwise fall into one group of null channel and show false gaps
+    tables = pa.table(seq(1, 9)), pa.table(seq(2, 10, x_dbn_channel_id=[1, 2]))
+    assert files_of(tmp_path, *tables) == ([], {"TDS-V032"})
+
+
+def test_files_whose_listed_column_differs_in_storage_are_one_partition(tmp_path: Path) -> None:
+    # review on #432's second pull request: int32 and int64, a dictionary and a plain string
+    key = {"venue": "XNYS", "date": DAY, "x_dbn_channel_id": "a"}
+    for n, (left, right) in enumerate([
+        (pa.array([1], pa.int32()), pa.array([1, 1], pa.int64())),
+        (pa.array(["a"]).dictionary_encode(), pa.array(["a", "a"])),
+    ]):  # fmt: skip
+        found, blind = files_of(tmp_path / str(n), pa.table(seq(1, x_dbn_channel_id=left)),
+                                pa.table(seq(2, 4, x_dbn_channel_id=right)))  # fmt: skip
+        assert blind == set()
+        assert found == [({**key, "x_dbn_channel_id": 1} if n == 0 else key, 1,
+                          "1 missing sequence number(s); first gap 2 -> 4")]  # fmt: skip
+
+
+def test_a_span_past_int64_leaves_V032_unchecked(tmp_path: Path) -> None:
+    # review: the difference would wrap around and hide the gap
+    table = pa.table(seq(-(2**63), 2**63 - 1, x_dbn_channel_id=[1, 1]))
+    assert files_of(tmp_path, table) == ([], {"TDS-V032"})
+
+
+def test_the_manifest_and_schema_levels_leave_V032_unchecked() -> None:
+    # #432 criterion 5: they read no rows; `full` judges it (test_conformance::test_V032)
+    fail = Path(build.__file__).parent / "TDS-V032" / "fail"
+    for level in ("manifest", "schema"):
+        assert "TDS-V032" in check(fail, level=level).unchecked
