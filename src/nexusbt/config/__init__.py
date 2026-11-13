@@ -253,6 +253,8 @@ META = rule(  # "<scheme>@<level>": 3.11 gives the form; a level of digits is th
 )  # fmt: skip
 POS, COUNT, UNIT, ANY = num(1, int_=True), num(0, int_=True), num(0, 1, gt=True), num()
 BPS, GE0, PER_META = num(0, 2000), num(0), per_market(META, scalar=True)
+_FILLED = rule(lambda v: isinstance(v, str) and v != "", "not a non-empty string",
+               "write a path or a series name")  # fmt: skip
 ROUNDING = named(fields(mode=choice(RoundingModePolicy), unit=num(0, gt=True)))
 _GROUP = fields(markets=list_of(_market), gains_rate=num(0, 0.6), annual_exemption=COUNT,
                 basis=choice(TaxesBasisPolicy))  # fmt: skip
@@ -305,6 +307,7 @@ SCHEMA: dict[str, dict[str, tuple[Any, Check]]] = {
     },
     "account": {
         "cash_rate_bps": (0, per_market(BPS, scalar=True)),
+        "cash_rate": (None, named(_FILLED, CCY)),  # #313; the shape only, nothing reads it yet
         "type": policy(AccountTypePolicy.CASH),
         "initial_margin": (PACK, per_market(UNIT)), "maintenance_margin": (PACK, per_market(UNIT)),
         "debit_rate_bps": (0, per_market(num(0, 5000), scalar=True)),
