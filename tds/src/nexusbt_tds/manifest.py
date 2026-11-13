@@ -92,3 +92,5 @@ def schema_violations(value: Any, schema: Mapping[str, Any] = MANIFEST_SCHEMA, a
                 yield f"{at}[{n}].{key}: {name!r} is listed twice"
             if isinstance(name, str):
                 seen.add(name)
+            if schema.get("uniqueItems") and isinstance(item, str) and item in value[:n]:
+                yield f"{at}[{n}]: {item!r} is listed twice"

@@ -7,6 +7,9 @@ package version follows the `tds_version` it checks (`1.0.x`), tagged
 ## [Unreleased]
 
 ### Added
+- `params.sequence_consecutive_within` of `trades`, `quotes` and `book_deltas` (TDS 5.6~5.8):
+  TDS-M001 when it is not an array of distinct strings or names `sequence`, and TDS-S001 at the
+  `schema` level for a listed column absent from a file (a partition column excepted)
 - `tds check` checks `tds.json` against its JSON schema, `tds/schemas/manifest/1.0.json`, at every
   level: TDS-M001 for a field of another shape, a `columns[].type` or `partitioning[].type` that is
   not a TDS type name (`ts_us/ns`, `""` and `null` included; until now a declaration the checker did not

@@ -76,6 +76,9 @@ HASH_SPECS = frozenset({"tds-hash-1"})  # 4.5
 SUPPORTED_MAJOR = 1  # 10.3
 #: The newest dataset `schema_version` MINOR this checker knows; per kind with T0.13b's files.
 KNOWN_MINOR = 0
+#: TDS 5.6~5.8 (#348): the kinds whose `params` may promise consecutive `sequence` numbers
+#: within the groups the listed columns make; the columns must be in every file (S001).
+SEQUENCED, WITHIN = frozenset({"trades", "quotes", "book_deltas"}), "sequence_consecutive_within"
 
 # TDS 6.2: the availability rule names. An unknown one is M014, never ignored.
 _DUR = r"P(?=\d|T\d)(\d+Y)?(\d+M)?(\d+W)?(\d+D)?(T(?=\d)(\d+H)?(\d+M)?(\d+(\.\d+)?S)?)?"
@@ -610,15 +613,20 @@ def _check_file(
     from .hash import resolved_columns
 
     columns = resolved_columns(ds, schema.columns)  # the value hash's set too (#144)
-    known = {c.name for c in columns}
+    known, absent = {c.name for c in columns}, set[str]()
     for column in columns:
         if column.name not in arrow.names:
             if column.name not in parts and _required(column.null, params):
+                absent.add(column.name)
                 yield Finding("TDS-S001", "error", f"required column {column.name} is missing")
             continue
         required = _required(column.null, params)
         yield from _check_column(meta, arrow, column, required, declared.get(column.name), blind)
         yield from _check_values(meta, arrow, column, codes, blind)
+    within = params.get(WITHIN) if ds.get("kind") in SEQUENCED else None  # #348: it requires them
+    for name in within if isinstance(within, list) else []:
+        if isinstance(name, str) and name not in {*arrow.names, *parts, *absent}:
+            yield Finding("TDS-S001", "error", f"column {name} in params.{WITHIN} is missing")
     from .schemas.verify import Column
 
     for name in [n for n in arrow.names if n.startswith("x_") and n not in parts]:  # #403
