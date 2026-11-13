@@ -1848,7 +1848,7 @@ v1은 이 절의 정의를 규범으로 고정하고(INV-08 문구, `DecisionCon
 - `status_known = false`(미국 2019-08-23 전)는 기본 `assume_tradable`이고 그런 체결 수를 `tradability_unknown_fills`로 보고한다 [11.4.2].
 
 #### 5.6.6 거래량 상한과 부분 체결 [11.4.2, C4]
-- `ADV_t` = 세션 t−20..t−1 중 `obs_status = traded`인 세션의 t 기준 조정 거래량 평균(`adv_window` 20). 관측이 `adv_min_obs`(10) 미만이면 모름 → 그 세션 체결 0, 사건 `blocked(capacity_unknown)`.
+- `ADV_t` = 세션 t−20..t−1 중 `obs_status`가 `traded` 또는 `no_trade`인 봉이 있는 세션의 t 기준 조정 거래량 평균이고, `no_trade` 세션은 거래량 0으로 센다(열렸지만 거래가 없던 세션); `halted`·`missing` 세션은 빠진다(`adv_window` 20) (#311, 결정 2026-11-10). 이런 세션이 `adv_min_obs`(10) 미만이면 모름 → 그 세션 체결 0, 사건 `blocked(capacity_unknown)`. 아래 상한과 5.6.8의 충격이 이 `ADV_t`를 쓴다.
 - 상한 `q_max,t = floor_lot(min(η · ADV_t, ψ · volume_t))`, `η = max_participation`(기본 0.05), `ψ = max_bar_participation`(기본 0.10), `volume_t` = 그 세션 실제 원 거래량(t 기준 조정 단위) [V31-03]. 앞 항은 **지난 날 유동성 근사이고 시가 유동성의 측정이 아니다**(매니페스트 가정 문구). 뒤 항은 "그날 시장 전체 거래량보다 많이 체결될 수 없다"는 물리적 상한이다: 평소 ADV는 크지만 그날 거래가 아주 적은 종목(정지 해제 직후, 띄엄띄엄 거래되는 초소형주 — 기본 포함)에서 일어날 수 없는 체결을 막는다(Qlib `_clip_amount_by_volume`, zipline 프리셋의 같은 봉 10%). 그날 거래량은 **판단 입력이 아니라 체결 수량의 사후 실행 가능성 상한**이다(INV-01): 미래 정보를 판단에 넣지는 않지만 결과를 어느 방향으로도 바꿀 수 있는 근사이고(거래가 적은 날의 체결을 줄여 나쁜 체결을 피하게 할 수도 있음), 시가 체결에도 하루 전체 거래량을 쓴다(시가 단일가 거래량이 아님). 매니페스트 가정 문장 "fill quantity capped by realized session volume (ex-post bound); full-session volume used for open fills", 보고서 orders 줄에 ψ가 묶은 체결 건수/전체 [R3-03]. 묶인 이유는 체결 사건의 `capacity_bound_reason ∈ {adv, bar_volume}`이고 용량 시나리오(5.7)도 같은 규칙. 손계산 G-56(ADV 1,000,000 · 그날 거래량 2,000 · 주문 50,000 → 200주 체결, 이월 49,800).
 - 상한은 (슬리브, 종목, **물리 방향**, 세션)마다 모든 주문이 나눠 쓴다 — 매수 방향 = 롱 매수 + 환매, 매도 방향 = 롱 매도 + 공매도 [R3-10](각각 같은 ADV 기준; 용량 시나리오의 ×10·×100에서도 같음). 처리 순서(5.6.3)대로 먼저 온 주문이 먼저 쓴다.
 - 상한 때문에 남은 몫은 주문에 남아 다음 세션으로 이월된다(PARTIALLY_FILLED).
@@ -1862,7 +1862,7 @@ v1은 이 절의 정의를 규범으로 고정하고(INV-08 문구, `DecisionCon
 - **매도 가능 수량**: 롱 매도 주문 체결은 `sellable_qty`를 넘지 않는다(주식배당 신주가 지급일 전이면 잠김). 공매도는 보유와 무관하다(대차 가능 수량 자료 없음, 팩 `borrow_availability = "assume_all"` 가정 문장) [V31-LS-07]. 환매 체결은 숏 크기 `|q|`를 넘지 않는다(넘는 몫 `qty_cancelled(over_cover)`; 반대쪽 롱을 몰래 열지 않음) [R3-10].
 - **숏 담보** [V31-LS-04]: `reserved = Σ_{숏} |q_i|·mark_i·(1 + collateral_ratio[m])`(평가 시점: 시가 단계 = 그 세션 O, 장중 단계 = 단계 시작 값, 종가 단계 = C [R3-10]). 쓸 수 있는 현금 `buying_power = cash − reserved`. 공매도 체결은 대금 `|q|·P`를 현금에 더하고 `reserved`를 `|q|·P·(1 + c)` 늘리므로 순 `buying_power`가 `|q|·P·c + 비용`만큼 준다 — 그래서 공매도도 매수와 같은 배분 규칙(실제 비용 함수, 비례 축소)으로 `buying_power` 안에서만 체결된다: 공매도 후보의 `need_i(q) = round_minor(c·q·P_i) + Σ round_minor(비용 구성요소_i(q))`(체결 뒤 `buying_power` 변화 그대로) [R3-09]. 롱에는 증거금 대출이 없어 책의 가능 영역은 `long_weight + c·short_weight ≤ 1`(3.7, 실행 전 E16) [R3-08] — 현금 계좌(기본)의 규칙이고, `[account] type = "margin"`이면 이 절 대신 5.6.7a [R4G-MG-02]. 환매는 담보를 풀어 `buying_power`를 늘린다(비용 제외). 롱 매수는 `buying_power` 안에서만. 가격이 움직여 `buying_power < 0`이 되면(숏 가격 상승) 강제 청산하지 않고(모형 없음, 가정 문장) 새 공매도·롱 매수를 막으며(`blocked(collateral)`) 그 세션 수와 최대 부족액을 `CollateralWarning`(E38)으로 보고한다. 새 위험이 막혀 있어도 그 자체로 파산은 아니다(파산은 `decision_value ≤ 0`) [R3-09]. 숏이 없으면 `reserved = 0`이라 v3와 같다(INV-22).
 - **탈출 주문과 현금** [R4F-06] (판단점 C; 파산 슬리브 포함): 롱 탈출(매도)은 현금을 늘리므로 그대로 체결하고, 같은 단계에서 **환매보다 먼저** 체결되어 그 대금이 환매에 쓰인다(기존 순서). 환매(숏 탈출 포함)는 쓸 수 있는 현금 `max(cash, 0)` 안에서만 체결하고(INV-06 그대로: 주문 체결은 음수 현금을 만들거나 키우지 않음), 현금 때문에 못 산 탈출 수량은 **지우지 않고** `blocked(cash)`로 다음 단계·세션에 이월한다(탈출 주문의 "만료 없음" 유지, 5.6.2a; 리밸런싱 매수만 `qty_cancelled(insufficient_cash)`). 배당·이자·롱 매도 대금이 들어오면 다음 단계에 같은 규칙으로 체결된다. 보고서 orders 줄에 `blocked(cash)` 탈출 건수·세션 수. 시험 G-94.
-- **매수 현금 배분**(세 체결 단계 모두 같은 규칙, 단계 시작 상태는 5.6.3 [R3-10]) [RV-C06]: 매도(롱 매도 → 환매)를 먼저 체결하고 현금을 갱신한다(환매는 현금을 쓰지만 담보를 푼다; 환매끼리는 아래 규칙으로 `max(cash, 0)` 안에서 배분, 탈출 환매의 못 산 몫은 위 `blocked(cash)` [R4F-06]). 그다음 공매도·롱 매수를 `buying_power` 안에서 같은 규칙으로 배분한다 [V31-LS-04]. 매수 후보마다 체결 가능 수량 `f_i = min(remaining_i, 상한 남은 몫)`. **실제 비용 함수**로 금액을 계산한다: `need_i(q) = round_minor(q·O_i) + Σ round_minor(비용 구성요소_i(q))`(5.6.8의 식 그대로 — 최소 수수료, 비선형 충격 `(q/ADV)^a2`, 반올림 포함). (1) `k = min(1, cash / Σ need_i(f_i))`, `q_i = floor_lot(k·f_i)`. (2) `Σ need_i(q_i) > cash`이면 **체결 비율 `q_i/f_i`가 가장 높은 후보부터**(같으면 `instrument_id` 오름차순) 한 단위씩 줄여 `need_i`를 다시 계산하기를 맞을 때까지 되풀이한다(`need`가 q에 단조라 끝남; 특정 id가 늘 손해 보던 v2의 `instrument_id` 내림차순 규칙 대신). 현금 때문에 못 산 몫(`f_i − q_i`)은 수량 사건 `qty_cancelled(insufficient_cash)`로 주문에서 뺀다(`cancelled_qty` 증가). 남는 현금을 다른 종목에 다시 나누지 않는다 [설계 3.6 "비례 축소", 11.4.2, A-09 고침]. 보고서 orders 줄에 `insufficient_cash` 건수·금액.
+- **매수 현금 배분**(세 체결 단계 모두 같은 규칙, 단계 시작 상태는 5.6.3 [R3-10]) [RV-C06]: 매도(롱 매도 → 환매)를 먼저 체결하고 현금을 갱신한다(환매는 현금을 쓰지만 담보를 푼다; 환매끼리는 아래 규칙으로 `max(cash, 0)` 안에서 배분, 탈출 환매의 못 산 몫은 위 `blocked(cash)` [R4F-06]). 그다음 공매도·롱 매수를 `buying_power` 안에서 같은 규칙으로 배분한다 [V31-LS-04]. 매수 후보마다 체결 가능 수량 `f_i = min(remaining_i, 상한 남은 몫)`. **실제 비용 함수**로 금액을 계산한다: `need_i(q) = round_minor(q·O_i) + Σ round_minor(비용 구성요소_i(q))`(5.6.8의 식 그대로 — 최소 수수료, 비선형 충격, 반올림 포함; 충격은 그 세션에 같은 종목·같은 쪽으로 이미 체결된 수량 `Q_before`로 계산하므로 크기 정하기와 기입되는 비용이 맞는다; #311, 결정 2026-11-10). (1) `k = min(1, cash / Σ need_i(f_i))`, `q_i = floor_lot(k·f_i)`. (2) `Σ need_i(q_i) > cash`이면 **체결 비율 `q_i/f_i`가 가장 높은 후보부터**(같으면 `instrument_id` 오름차순) 한 단위씩 줄여 `need_i`를 다시 계산하기를 맞을 때까지 되풀이한다(`need`가 q에 단조라 끝남; 특정 id가 늘 손해 보던 v2의 `instrument_id` 내림차순 규칙 대신). 현금 때문에 못 산 몫(`f_i − q_i`)은 수량 사건 `qty_cancelled(insufficient_cash)`로 주문에서 뺀다(`cancelled_qty` 증가). 남는 현금을 다른 종목에 다시 나누지 않는다 [설계 3.6 "비례 축소", 11.4.2, A-09 고침]. 보고서 orders 줄에 `insufficient_cash` 건수·금액.
 - 장중 단계의 매수는 **그 단계 시작 현금**(장중 매도 대금 제외) 안에서, 종가 단계 매수는 그 시점 현금 안에서 같은 규칙.
 - **주문 체결로는** 현금(`cash_minor`)이 0 밑으로 가지 않는다(현금 계좌; 프리셋 `zipline` 제외, 5.6.15; 시험 G-41; 증거금 계좌는 5.6.7a). **꼭 내야 하는 의무**(대차 비용, 숏 배당, 합병·분할의 숏 현금, 종료 의무, `[taxes] pay = "cash"` 납부)는 현금이 모자라도 그대로 기입해 음수 현금이 될 수 있다(사건 칼럼 `shortfall = true`, E38에 세션 수·최대 부족액; 사용자 결정 2026-10-28) — 의무를 버리거나 숨은 미지급금으로 두지 않는다. 현금 계좌의 음수 현금에는 이자가 없다(가정 문장 "no margin interest on debit balances"; 증거금 계좌는 `debit_rate_bps`, 5.6.7a). 음수 현금이면 `buying_power < 0`이라 새 공매도·롱 매수가 막힌다 [R3-09]. v1 결제는 **즉시 결제 연구 모형**이다(매도 대금은 그 세션에 바로 쓸 수 있음; 증권사 현금 회계와 같다고 하지 않음) [11.4.1]. 이 가정은 예약 키 `[settlement] model = "immediate"`로 설정에서도 보이고 매니페스트 `policies.settlement`에 남는다. 미국 T+1·한국 T+2 모형은 일간 회전 전략을 쓸 때 다시 본다 [SC-18, OQ-13].
 
@@ -1887,10 +1887,11 @@ v1은 이 절의 정의를 규범으로 고정하고(INV-08 문구, `DecisionCon
 | `provisional` (기본) | `provisional = κ·N·b_side/1e4`, `b` = toml `provisional_bps`[시장][쪽] |
 | `bps(buy, sell)` | `other = κ·N·b/1e4` |
 | `per_share(c, min)` | `commission = κ·max(min, q·c)` |
-| `realistic` | `commission = κ·max(min_amount, N·b_comm/1e4)` (표, 그 날짜·시장·쪽), `tax = κ·N·b_tax/1e4`(매도), `other = κ·N·b_other/1e4`, `spread = κ·N·hs/1e4`, `impact = κ·N·Y·σ_t^a3·(q/ADV_t)^a2` (기본 a2 = 0.5, a3 = 1 → 제곱근 충격 `Y·σ·√(q/ADV)`) |
+| `realistic` | `commission = κ·max(min_amount, N·b_comm/1e4)` (표, 그 날짜·시장·쪽), `tax = κ·N·b_tax/1e4`(매도), `other = κ·N·b_other/1e4`, `spread = κ·N·hs/1e4`, `impact = κ·P·Y·σ_t^a3·(Q_after·(Q_after/ADV_t)^a2 − Q_before·(Q_before/ADV_t)^a2)` (아래; 기본 a2 = 0.5, a3 = 1 → 체결 하나면 제곱근 충격 `Y·σ·√(q/ADV)`) |
 | `none` | 0 |
 
 - `hs`(½스프레드, bp) = `clip(½·S_t·1e4, min_half_spread_bps[시장], max_half_spread_bps)`. `S_t` = Abdi–Ranaldo(2017) 추정: t−21..t−1 연속 세션 쌍 j마다 `η_j = (ln H_j + ln L_j)/2`, `c_j = ln C_j`, `s²_j = 4(c_j − η_j)(c_j − η_{j+1})`; `S_t = sqrt(max(mean(s²), 0))` — 논문의 식 10, 월 보정형(이틀 항을 창 안에서 먼저 평균하고 제곱근은 한 번)이며, `test_abdi_ranaldo_known_value`(T3.8)와 `bench/` 비교가 이 식에 맞춰 쓰여 있어 유지한다; 논문이 권하는 이틀 보정형 식 11(각 `max(s²_j, 0)`의 제곱근을 낸 뒤 평균)은 `bench/`의 진단 대안이다(12.1 RS-06; 결정 2026-11-06, #310); 쌍이 10개 미만이거나 H·L이 없으면(4.5 F-01) `hs = min_half_spread_bps`이고 그 체결 수를 `spread_floor_fills`로 센다. Corwin–Schultz·Roll 추정은 엔진 비용에 쓰지 않고 `bench/`의 진단 비교에만 쓴다 [청사진 8장 4번].
+- **세션 누적 수량에 대한 충격** (#311, 결정 2026-11-10): 체결 하나는 그 종목·그 쪽의 세션 충격 가운데 한계 몫을 낸다. `Q_before` = 그 세션에 같은 종목·같은 쪽으로 이미 체결된 수량, `Q_after = Q_before + q`, `P`는 그 체결 자체의 가격이다(모든 비용은 체결 가격에서 따로 빼는 현금, 첫 문단). 체결이 하나면(`Q_before = 0`) 예전 `κ·N·Y·σ_t^a3·(q/ADV_t)^a2`와 그대로 같고, 주문을 나눠도 합계가 줄지 않는다: 같은 `P`·`σ_t`·`ADV_t`에서 500주 체결 두 번은 1,000주 체결 한 번과 같은 충격을 낸다(아래 체결마다의 최소 단위 반올림 전).
 - `σ_t` = t−20..t−1 일간 로그수익의 표준편차(ddof=1), `Y = impact_y`(0.5), `a2 = impact_a2`, `a3 = impact_a3`. 이 손잡이를 바꾸면 `settings_hash`가 바뀌어 새 후보(시도 수 +1, 6.2)다. 충격식은 Kissell I-Star의 특수형이고, 나중에 실거래 기록(`decision_price`·`arrival_price`)으로 보정하는 길을 남긴다 [SC-11].
 - 금액 반올림: 체결 대금과 비용 구성요소 한 건마다 통화 최소 단위 정수(`minor_unit`, KRW 1, USD 0.01)로 한 번, 시장 규칙 팩 `[rounding]`의 그 구성요소 규칙으로(기본 half-up, 5.6.1) [V31-05]. 반올림 전 값도 사건에 남긴다. 현금 기입은 정수 합이라 순서와 무관하다 [11.4.4, RV-C07]. Nautilus는 "청산소·거래소마다 끝수 규칙이 다르다"를 문서화했고(CME·Eurex), 한국 세금·수수료의 절사 관례 [미확인]는 사용자가 덮어쓴다.
 - **실효가 진단** [V31-14]: 체결마다 `effective_price = P ± (½스프레드 + 충격)/q`(매수 +, 매도 −)를 사건에 남기고, 그 세션 [L, H] 밖인 건수·비율을 보고서 비용 줄에 낸다(가격은 바꾸지 않음; 주문 크기가 비현실적이라는 신호. backtrader는 슬리피지를 봉 범위 안으로 자름).
@@ -2625,7 +2626,7 @@ P11 (a)는 M3a가 구조를 굳히기 전에 잰다(결정 2026-11-04, #175): M2
 | G-08 | 시가 진입 + 같은 봉 손절 | G-23 | 긴 정지 뒤 폐지(묵은 평가, exit_date 세션 종료) |
 | G-09 | 장중 지정가 진입 + 같은 봉 이익실현 없음 | G-24 | 주식 합병 전환 + 단주 현금 |
 | G-10 | 거래량 상한 부분 체결 3세션 이월 | G-25 | 보유 종목 지원 안 하는 사건 → E12 |
-| G-11 | 신규 상장 ADV 모름 → 막힘 | G-26 | 유상증자 권리 소멸 기록 |
+| G-11 | 신규 상장 ADV 모름 → 막힘(`traded`·`no_trade` 세션의 `ADV_t`, 5.6.6; #311, 결정 2026-11-10) | G-26 | 유상증자 권리 소멸 기록 |
 | G-12 | 현금 부족 비례 축소 + 부분 취소 | G-27 | 슬리브 자금 대기(환율 공개 시각), `KR_close`에서 미국 슬리브가 d−1 자료·d 시가 체결 |
 | G-13 | 한국 상한가 시가 매수 막힘, 하한가 묶임 매도 막힘 | G-28 | 미국 서머타임 주, 한국 휴장·미국 개장 날 |
 | G-14 | 정지 이월, 20세션 만료 | G-29 | 환율 묵음: 자금 E20, `.to()` NaN |
@@ -2635,7 +2636,7 @@ P11 (a)는 M3a가 구조를 굳히기 전에 잰다(결정 2026-11-04, #175): M2
 | G-35 | 자본 반환(`return_of_capital`) 원천징수 없음, `gross_or_net = net` 배당 | G-36 | 통화 귀속: 미국 슬리브 현지 +2%, 환율 +1% → 현지·환율·교차 = 2%·1%·0.02% |
 | G-37 | 부분 체결된 손절(상한)이 다음 날 가격이 손절가 위로 돌아와도 발동 유지 → 다음 시가 체결 [v3] | G-38 | 손절·이익실현 OCO에서 이익실현 일부 체결 → 손절 수량이 남은 보유로 줄고 유지 [v3] |
 | G-39 | 손절이 25세션 뒤에도 살아 있음(리밸런싱 주문은 20세션에 만료) [v3] | G-40 | 오후 매도(장중 지정가)가 같은 봉 장중 지정가 매수를 사 주지 못함, 종가 단계 매수는 가능 [v3] |
-| G-41 | 최소 수수료 + 비선형 충격에서 살 수 있는 수량을 줄여 현금이 음수가 되지 않음 [v3] | G-42 | 10월 폐지, 회수액 12월 공개: 10·11월 `decision_value`에 없음, 12월 공개 뒤 첫 세션에 미수금 [v3] |
+| G-41 | 최소 수수료 + 비선형 충격(세션 누적 수량에 대한 충격, 5.6.8; #311, 결정 2026-11-10)에서 살 수 있는 수량을 줄여 현금이 음수가 되지 않음 [v3] | G-42 | 10월 폐지, 회수액 12월 공개: 10·11월 `decision_value`에 없음, 12월 공개 뒤 첫 세션에 미수금 [v3] |
 | G-43 | 지급 뒤 배당 금액 정정 → 정정 기입(현금) [v3] | G-44 | 발표 뒤 취소된 배당 → 미수금 반대 기입 [v3] |
 | G-45 | 효력 전 정정된 분할 비율 → 정정판으로 수량·주문 조정 [v3] | G-46 | 같은 날 분할 + 현금배당(해석기 순서) [v3] |
 | G-47 | 권리 소멸: 수량 불변, `rights_lapsed` 추정 가치 [v3] | G-48 | 거래 없는 평가 이익: 다리 = `price_pnl`만, NAV 맞춤 [v3] |
@@ -3603,7 +3604,7 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 - Acceptance: `tests/unit/execution/test_orders.py::test_allowed_transitions_only`, `::test_quantity_conservation`, `::test_partial_cancel_is_qty_event_not_status`, `::test_frozen_shares_from_decision_value`, `::test_decision_price_recorded`, `tests/unit/execution/test_simconfig.py::test_knobs_match_appendix_C`, `tests/unit/execution/test_loop.py::test_phase_order_skeleton`, `tests/golden/test_execution.py::test_G15`, `tests/unit/test_import_rules.py::test_step_seam_signatures_arrow_only`(v3.2 `nx.execution._step` 이음새 [R3-26]), `tests/golden/test_time.py::test_G_TIME_LATE_order_intents`(G-TIME-LATE: 8.4 표의 주문 의도, 그 목표에서, 각 행이 전제하는 보유는 계좌 상태에 넣어서; 결정 2026-11-10, #356).
 
 **T3.8 `feat(execution): cost models, general impact form and cost table coverage`** · `M3a` `execution` · M · Blocked by: T3.4 · §5.6.8, §4.7 [SC-11] *(v3: 정수 최소 단위 기입, 시장 규칙 팩 bp; T3.5b보다 먼저)*
-- Done means: `nx.costs.realistic()`를 미검증 표로 고르면 E23이 빈 (시장, 기간, 구성요소)를 나열; provisional은 E22; a2=0.5·a3=1에서 제곱근 식과 같은 값; 비용 구성요소가 최소 단위 정수로 기입.
+- Done means: `nx.costs.realistic()`를 미검증 표로 고르면 E23이 빈 (시장, 기간, 구성요소)를 나열; provisional은 E22; a2=0.5·a3=1에서 제곱근 식과 같은 값; 충격은 세션 누적 수량에 대해 매겨 여러 체결로 나뉜 주문이 주문 하나와 최소 단위 반올림 전에 같은 충격을 냄(5.6.8; #311, 결정 2026-11-10); 비용 구성요소가 최소 단위 정수로 기입.
 - Acceptance: `tests/unit/execution/test_costs.py::test_provisional_bps_from_pack`, `::test_per_share_min`, `::test_abdi_ranaldo_known_value`, `::test_general_impact_equals_sqrt_default`, `::test_spread_floor_without_high_low`, `::test_coverage_E23`, `::test_components_rounded_to_minor_units`.
 
 **T3.5a `feat(execution): market fills at open with tradability rules`** **[v3]** · `M3a` `execution` · M · Blocked by: T3.4, T3.Ga · §5.6.3–5.6.5 *(v3: T3.5를 나눔; 가격제한은 규칙 팩에 있을 때만)*
@@ -3611,7 +3612,7 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 - Acceptance: `test_execution.py::test_G01`, `::test_G11`, `::test_G13`, `::test_G14`, `::test_G31`, `tests/unit/execution/test_tradability.py::test_price_limits_only_with_pack`.
 
 **T3.5b `feat(execution): volume cap and affordable cash allocation with the actual cost function`** **[v3]** · `M3a` `execution` · M · Blocked by: T3.5a, T3.8, T3.Gd · §5.6.6, §5.6.7 [RV-C06, RV-Q07] *(v3: T3.5를 나눔; 실제 비용 함수, 치우침 없는 축소 순서, `cost_reserve_bps`)*
-- Done means: G-10, G-12, G-41, G-113(#310) 사례와 같은 표; 현금이 음수가 되는 경우가 없음; orders 줄에 `insufficient_cash` 건수·금액.
+- Done means: G-10, G-12, G-41, G-113(#310) 사례와 같은 표; 현금이 음수가 되는 경우가 없음; 배분은 충격을 그 세션의 `Q_before`로 계산(5.6.7, 5.6.8; #311, 결정 2026-11-10); orders 줄에 `insufficient_cash` 건수·금액.
 - Acceptance: `test_execution.py::test_G10`, `::test_G12`, `tests/unit/execution/test_costs.py::test_G41_affordable_lots_never_negative_cash`, `::test_trim_order_highest_fill_ratio_first`, `::test_cost_reserve_default_zero_recorded`, `test_execution.py::test_G56_bar_volume_cap`(v3.1 [V31-03]), `tests/unit/execution/test_capacity.py::test_bar_volume_bound_counted`(v3.2 ψ 묶음 비율 [R3-03]), `tests/unit/execution/test_sizing.py::test_floor_shares_no_lost_share`(G-53 (d) [V31-01]).
 
 **T3.9 `feat(accounting): splits, reverse splits, stock dividends, bonus issues and capital reductions via the resolver`** · `M3a` `accounting` · M · Blocked by: T3.4, T0.15a, T3.Gc, T3.Gd · §5.6.10, §5.3.3a, §4.6 종류 표 *(v3: 해석기 수량 계수, `order_rebased`, 정정된 분할 비율)*
@@ -4420,6 +4421,7 @@ v1 명세의 O1~O11, 청사진 OQ-1~OQ-15, TDS Q1~Q16을 하나로 모았고, v3
 | RS-04 | 교란 MDA 특징 중요도(`ml.importance`) | 중요도 도구 가운데 v1.x 첫째(#197): 각 분할의 허용 범위 안, OOS 예측 위, 귀무를 밝힘(5.3.11) | v1.x |
 | RS-05 | 묶음 MDA, 표본 고유도 가중, MI/VI, denoising·detoning, NCO, 메타 라벨링, 생성 모형 | RS-04 뒤(#197); v1 아님 | later |
 | RS-06 | 엔진이 쓰는 식 10 옆에 `bench/` 진단으로 두는 이틀 보정 Abdi–Ranaldo 추정(식 11)(5.6.8) | v1.x(결정 2026-11-06, #310): 진단만; 엔진 비용 추정은 T3.8의 알려진 값이 고정한 식 10에 남는다 | v1.x |
+| RS-07 | 일봉의 선택 칼럼 `bid_close`/`ask_close` | 정하지 않음(#311, 결정 2026-11-10): 기록이 열어 둔 TDS MINOR 질문; 5.6.8은 지금 추정을 유지 | TDS 다음 MINOR |
 | R4F-42 | ERC `fallback="fail"` 옵션 | v1.x(Opus·Sol 다수 — 대체 + E43 + 건수로 충분, Fable은 v1 제안). 옵션 하나라 다시 열기 쉬움 | v1.x |
 | R4F-43 | ML 양쪽 훈련 `ml_two_sided=True`(AFML식 CPCV 훈련) | v1.x, E44류 경고와 함께. v1은 사용자 결정으로 앞쪽만(5.3.11) | v1.x |
 | R4F-44 | `Macro`·`Events` 확장: 컨센서스 분포(표준화 서프라이즈), 사건 창 이벤트 스터디 보고(CAR), 장중 발표 시각 정밀 체결 | v1.x. v1은 `value − consensus`와 세션 단위 트리거뿐 | v1.x |
