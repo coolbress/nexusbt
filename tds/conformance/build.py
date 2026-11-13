@@ -575,6 +575,40 @@ def _traded(volume: float) -> Change:
     return _bars(high=ten, low=ten, volume=pa.array([volume]), value_traded=pa.array([1000.0]))
 
 
+def _book(last_bid: int) -> Change:
+    """US:AAA's `mbo` book (5.8, experimental) on 2024-01-02, rebuilt by #347's rules: a
+    snapshot, bid 99 and ask 100; a batch crossed in its middle (bid 101) and not after its
+    `is_last` row; then a batch whose `is_last` is on a separate `none` row, after an order at
+    `last_bid` (101: crossed when judged)."""
+    rows = [  # action, side, price, size, order_id, is_snapshot, is_last
+        ("clear", "none", None, None, None, True, False),
+        ("add", "bid", 99, 5, 1, True, False),
+        ("add", "ask", 100, 5, 2, True, True),
+        ("add", "bid", 101, 2, 3, False, False),  # crossed inside the batch
+        ("fill", "ask", 100, 2, 2, False, False),
+        ("cancel", "ask", 100, 2, 2, False, False),
+        ("cancel", "bid", 101, 2, 3, False, True),  # filled: bid 99, ask 100 left
+        ("add", "bid", last_bid, 1, 4, False, False),
+        ("none", "none", None, None, None, False, True),
+    ]
+    action, side, price, size, order_id, snapshot, last = map(list, zip(*rows, strict=True))
+    rel = "book_deltas/venue=XNYS/date=2024-01-02/part-00000.parquet"
+    add = _add("book_deltas", {
+        "instrument_id": ["US:AAA"] * len(rows), "session_date": DAY.take([0] * len(rows)),
+        "ts_event": pa.array([NEW_YEAR + dt.timedelta(seconds=n) for n in range(len(rows))],
+                             pa.timestamp("ns", "UTC")),
+        "sequence": list(range(len(rows))), "action": action, "side": side,
+        "price": pa.array(price, pa.int64()), "size": pa.array(size, pa.int64()),
+        "order_id": pa.array(order_id, pa.int64()), "is_snapshot": snapshot, "is_last": last,
+    }, rel)  # fmt: skip
+
+    def change(m: dict[str, Any], files: Files) -> None:
+        add(m, files)
+        m["datasets"][-1]["params"] = {"depth_kind": "mbo"}
+
+    return change
+
+
 def _quote(bid: int, ask: int, **recv: list[dt.datetime]) -> Change:
     """One US:AAA quote (5.7, experimental) on 2024-01-02; prices are `fixed` integers."""
     rel = "quotes/venue=XNYS/date=2024-01-02/part-00000.parquet"
@@ -802,6 +836,7 @@ CASES: dict[str, tuple[Change, Change]] = {
     ),
     "TDS-V020": (_future(**_FUTURE), _future(**_FUTURE | {"root": None})),
     "TDS-V030": (_quote(99, 100), _quote(100, 100)),  # locked
+    "TDS-V031": (_book(98), _book(101)),
     "TDS-V040": (_exits(delisted=True, ret_lo=-0.5), _exits(delisted=True, ret_lo=0.5)),
     "TDS-V041": (_event(series_id=["US:CPI"]), _event()),
     "TDS-V050": (_labels("fwd_ret"), _labels("mom")),
@@ -860,6 +895,7 @@ FAILS: dict[str, tuple[str | None, ...]] = {
     "TDS-V005": ("fx_rates",),
     "TDS-V020": ("instruments",),
     "TDS-V030": ("quotes",),
+    "TDS-V031": ("book_deltas",),
     "TDS-V040": ("delistings",),
     "TDS-V041": ("events",),
     "TDS-V050": ("label_panels",),
