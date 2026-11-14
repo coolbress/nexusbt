@@ -25,6 +25,7 @@ from nexusbt.data._capabilities import FallbackRecord as FallbackRecord
 from nexusbt.data._capabilities import decide
 from nexusbt.data._ratios import RatioExclusion as RatioExclusion
 from nexusbt.data._ratios import check_ratios
+from nexusbt.data._stamp import check_files
 from nexusbt_tds.hash import package_hashes
 from nexusbt_tds.manifest import Manifest, ManifestError
 
@@ -48,7 +49,8 @@ class DataConfig:
     """What `open_snapshot` needs of `nexusbt.toml` (3.11 `[data]`, `[markets]`).
 
     `path` is a package folder or a folder with `LATEST` (4.2, V31-PUB-03); `markets` are the
-    markets the run needs, each of which must have a rules pack (4.4-4)."""
+    markets the run needs, each of which must have a rules pack (4.4-4); `stamps` is the folder
+    of the verification stamps, `<runs.dir>/.cache/verified` (4.2), None for no stamp."""
 
     path: Path
     verify: VerifyPolicy = VerifyPolicy.MANIFEST
@@ -56,6 +58,7 @@ class DataConfig:
     allow_untested: bool = False
     decimal_ratio: DecimalRatioPolicy = DecimalRatioPolicy.EXCLUDE_INSTRUMENT
     fallbacks: FallbacksPolicy = FallbacksPolicy.WARN
+    stamps: Path | None = None
 
     @classmethod
     def from_config(cls, config: Config) -> DataConfig:
@@ -74,8 +77,9 @@ class DataConfig:
             )  # fmt: skip
         allow = bool(config.values["markets"]["allow_untested"])
         ratio = DecimalRatioPolicy(config.values["corporate_actions"]["decimal_ratio"])
+        stamps = Path(config.values["runs"]["dir"]) / ".cache" / "verified"
         return cls(path, VerifyPolicy(data["verify"]), allow_untested=allow, decimal_ratio=ratio,
-                   fallbacks=FallbacksPolicy(data["fallbacks"]))  # fmt: skip
+                   fallbacks=FallbacksPolicy(data["fallbacks"]), stamps=stamps)  # fmt: skip
 
 
 @dataclass(frozen=True, slots=True)
@@ -214,16 +218,24 @@ def _package(path: Path) -> Path:
     return path / name
 
 
-def open_snapshot(cfg: DataConfig, *, required: CapabilityRequest | None = None) -> Snapshot:
+def open_snapshot(
+    cfg: DataConfig, *, required: CapabilityRequest | None = None, sha256: bool = False
+) -> Snapshot:
     """Open one TDS package: the checker at `cfg.verify`, its errors as E14 (4.4-1, 2), and
     a rules pack for each market `cfg.markets` names (4.4-4), then the features `required` names
-    with their fallbacks (4.4-3; with no request, every feature the package can give)."""
+    with their fallbacks (4.4-3; with no request, every feature the package can give).
+
+    `sha256` is for `rerun`, `reconcile`, `live` and `fill`: at least `schema`, and each file's
+    sha256, skipped for a file whose identity `cfg.stamps` holds (4.4-1, R3-16)."""
     try:
         folder = _package(Path(cfg.path))
     except (OSError, ValueError) as unread:
         raise _unread(str(cfg.path), str(unread)) from None
-    result = tds.check(folder, level=cfg.verify.value)
+    level = VerifyPolicy.SCHEMA if sha256 and cfg.verify is VerifyPolicy.MANIFEST else cfg.verify
+    result = tds.check(folder, level=level.value)
     errors = [f for f in result.errors if f.code not in _NOT_E14]
+    if sha256 and not errors and level is not VerifyPolicy.FULL:  # `full` hashed every file
+        errors = check_files(folder, tds.read_manifest(folder), cfg.stamps)
     if errors:
         try:
             data = tds.read_manifest(folder).data
