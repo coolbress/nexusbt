@@ -7,6 +7,7 @@ import json
 import os
 import re
 import shutil
+from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -200,21 +201,33 @@ def split(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return make_snapshot(tmp_path_factory.mktemp("split") / "snap", preset="tiny", events=SPLITS)
 
 
-def with_ratios(split: Path, at: Path, **ratios: tuple[int | None, int | None, float]) -> Path:
-    """A copy of `split` whose event rows of the instruments named (`KR_T00001=...`) take
-    (ratio_num, ratio_den, share_factor), rehashed so that only the rows differ."""
+Rows = list[dict[str, Any]]
+
+
+def with_rows(split: Path, at: Path, change: Callable[[Rows], Rows]) -> Path:
+    """A copy of `split` whose `corporate_actions` rows are `change(rows)`, rehashed so that
+    only the rows differ."""
     shutil.copytree(split, at)
     part = at / "corporate_actions" / "part-00000.parquet"
     table = pq.read_table(part)
-    rows = table.to_pylist()
-    for row in rows:
-        if (given := ratios.get(row["instrument_id"].replace(":", "_"))) is not None:
-            row.update(zip(("ratio_num", "ratio_den", "share_factor"), given, strict=True))
-    pq.write_table(pa.Table.from_pylist(rows, schema=table.schema), part)
+    pq.write_table(pa.Table.from_pylist(change(table.to_pylist()), schema=table.schema), part)
     edit_manifest(at, lambda d: dataset(d, "corporate_actions")["files"][0].update(
         bytes=part.stat().st_size))  # fmt: skip
     write_hashes(at)
     return at
+
+
+def with_ratios(split: Path, at: Path, **ratios: tuple[int | None, int | None, float]) -> Path:
+    """A copy of `split` whose event rows of the instruments named (`KR_T00001=...`) take
+    (ratio_num, ratio_den, share_factor)."""
+
+    def change(rows: Rows) -> Rows:
+        for row in rows:
+            if (given := ratios.get(row["instrument_id"].replace(":", "_"))) is not None:
+                row.update(zip(("ratio_num", "ratio_den", "share_factor"), given, strict=True))
+        return rows
+
+    return with_rows(split, at, change)
 
 
 def test_malformed_exact_ratio_E13(split: Path, tmp_path: Path) -> None:  # noqa: N802 - the ticket's test name
@@ -381,3 +394,85 @@ def test_fallback_F15_grid_minor_unit(tmp_path: Path) -> None:  # noqa: N802 - t
         s = open_snapshot(DataConfig(path=path, allow_untested=True), required=grid)
     assert s.fallbacks == [FallbackRecord("F-15", "market_rules", "ZZ", 6)]
     assert open_snapshot(DataConfig(path=path), required=grid).fallbacks == []  # ZZ: no pack
+
+
+NO_RATIO = {"ratio_num": None, "ratio_den": None}
+
+
+def kr(**columns: Any) -> Callable[[Rows], Rows]:
+    """Set `columns` on KR:T00001's event row."""
+    return lambda rows: [r | columns if r["instrument_id"] == "KR:T00001" else r for r in rows]
+
+
+def excluded(root: Path, **config: Any) -> list[tuple[str, str]]:
+    return [(e.event_id, e.cause)
+            for e in open_snapshot(DataConfig(path=root, **config)).ca_exclusions]  # fmt: skip
+
+
+def test_paid_capital_reduction_without_ratio_not_excluded(split: Path, tmp_path: Path) -> None:
+    """#446 (a): a `capital_reduction` or `rights_issue` needs an exact ratio only with a
+    `ratio_new_per_old`, as A010 reads TDS 5.11, whatever its `share_factor`."""
+    paid = kr(kind="capital_reduction", share_factor=1.0, cash_per_share=100.0,
+              ratio_new_per_old=None, **NO_RATIO)  # fmt: skip
+    assert excluded(with_rows(split, tmp_path / "paid", paid)) == []
+    rights = kr(kind="rights_issue", share_factor=None, ratio_new_per_old=None, **NO_RATIO)
+    assert excluded(with_rows(split, tmp_path / "rights", rights)) == []
+    merged = kr(kind="capital_reduction", share_factor=None, ratio_new_per_old=0.5, **NO_RATIO)
+    found = excluded(with_rows(split, tmp_path / "merged", merged))
+    assert found == [("KR:E000001", "ca_ratio_missing")]
+
+
+def test_literal_without_decimal_is_e13(split: Path, tmp_path: Path) -> None:
+    """#446 (b): under `literal`, a share event with no exact ratio and no f64 to read is E13
+    at open naming it, not an event read literally; the default still excludes it."""
+    empty = kr(share_factor=None, ratio_new_per_old=None, **NO_RATIO)
+    both = with_rows(split, tmp_path / "both", lambda rows: [
+        r | NO_RATIO for r in empty(rows)])  # fmt: skip
+    with pytest.raises(AccountingDataError, match="KR:E000001") as raised:
+        open_snapshot(DataConfig(path=both, decimal_ratio=DecimalRatioPolicy.LITERAL))
+    assert "US:E000001" not in str(raised.value)  # its share_factor can be read
+    assert "exclude_instrument" in str(raised.value)
+    assert excluded(both) == [("KR:E000001", "ca_ratio_missing"),
+                              ("US:E000001", "ca_ratio_missing")]  # fmt: skip
+
+
+def test_visible_time_falls_back(split: Path, tmp_path: Path) -> None:
+    """5.6.1 (1): v(e) is `ts_announced`, else `ts_terms_available`, else `ts_effective`."""
+    terms, effective = (dt.datetime(2020, 1, d, 0, 0, tzinfo=dt.UTC) for d in (3, 7))
+    cases: list[tuple[str, dt.datetime, dict[str, Any]]] = [
+        ("terms", terms, {"ts_terms_available": terms}),
+        ("effective", effective, {"ts_terms_available": None, "ts_effective": effective}),
+    ]
+    for name, shown, columns in cases:
+        root = with_rows(split, tmp_path / name, kr(ts_announced=None, **columns, **NO_RATIO))
+        assert [e.visible for e in open_snapshot(DataConfig(path=root)).ca_exclusions] == [shown]
+
+
+def test_revised_and_cancelled_events_are_not_checked(split: Path, tmp_path: Path) -> None:
+    """Only an event's latest version that is not cancelled is checked: a version without a
+    ratio that a later one revises excludes nothing, nor does a cancelled one."""
+
+    def revised(by: dict[str, Any]) -> Callable[[Rows], Rows]:
+        return lambda rows: [*kr(**NO_RATIO)(rows), rows[0] | {
+            "event_id": "KR:E000009", "revision_of": "KR:E000001"} | by]  # fmt: skip
+
+    assert excluded(with_rows(split, tmp_path / "fixed", revised({}))) == []
+    broken = excluded(with_rows(split, tmp_path / "broken", revised(NO_RATIO)))
+    assert broken == [("KR:E000009", "ca_ratio_missing")]
+    cancelled = kr(status="cancelled", **NO_RATIO)
+    assert excluded(with_rows(split, tmp_path / "cancelled", cancelled)) == []
+
+
+@pytest.mark.parametrize(("kind", "ratio", "f64"), [
+    ("bonus_issue", (3, 2), 0.5), ("stock_dividend", (11, 10), 0.1), ("stock_merger", (1, 2), 0.5),
+])  # fmt: skip
+def test_ratio_compared_with_its_f64_column(
+    split: Path, tmp_path: Path, kind: str, ratio: tuple[int, int], f64: float
+) -> None:
+    """A010's f64 column for kinds other than a split with a `share_factor`: 1 +
+    `ratio_new_per_old` for a bonus issue or stock dividend, `ratio_new_per_old` for the rest."""
+    for name, given in (("agrees", f64), ("disagrees", f64 * 1.01)):
+        row = kr(kind=kind, ratio_num=ratio[0], ratio_den=ratio[1], share_factor=None,
+                 ratio_new_per_old=given)  # fmt: skip
+        found = excluded(with_rows(split, tmp_path / name, row))
+        assert found == ([] if name == "agrees" else [("KR:E000001", "ca_ratio_disagrees")])
