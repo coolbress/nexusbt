@@ -33,6 +33,7 @@ def check_files(folder: Path, manifest: Manifest, stamps: Path | None) -> list[F
         held = json.loads(stamp.read_text(encoding="utf-8"))["files"] if stamp else {}
     except (OSError, ValueError, KeyError, TypeError):  # none yet, or unreadable: hash all
         held = {}
+    held = held if isinstance(held, dict) else {}  # a stamp of another shape holds nothing
     now = {path: _identity(folder / path) for path in declared}
     found = [
         Finding("TDS-H001", "error", f"sha256 {actual}, declared {sha}", name, path)

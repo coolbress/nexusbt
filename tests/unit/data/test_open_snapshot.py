@@ -514,6 +514,9 @@ def test_verified_stamp_detects_later_tamper(tiny: Path, tmp_path: Path) -> None
     held = json.loads(stamp.read_text(encoding="utf-8"))["files"]
     assert str(BARS) in held
     assert not any(Path(p).is_absolute() for p in held)
+    stamp.write_text('{"files": []}', encoding="utf-8")  # a stamp of another shape: hash all
+    stamped(copy, stamps)
+    assert json.loads(stamp.read_text(encoding="utf-8"))["files"] == held
     kept = os.stat(copy / BARS)
     flip_byte(copy / BARS)
     os.utime(copy / BARS, ns=(kept.st_atime_ns, kept.st_mtime_ns))
