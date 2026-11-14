@@ -11,15 +11,11 @@ On the merged pull request's page, press **Revert**, or run this in a
 terminal in this repository, with the pull request's number for `<n>`:
 
 ```bash
-gh pr revert <n> --title 'revert: <what the change did>'
+gh pr revert <n>
 ```
 
 (gh 2.83.0 or newer; `gh --version` says which you have.) Either opens a new
 pull request, on a new branch, that undoes the change.
-
-Give it a title such as `revert: <what the change did>`. The title GitHub
-writes, `Revert "…"`, fails `ci / pr-title`, which takes one of the eleven
-standard types; after the button, edit the title on the pull request's page.
 
 ## 2. Merge it
 
@@ -46,8 +42,16 @@ the pull request:
 
 ```bash
 git push origin revert/<n>
-gh pr create --title 'revert: <what the change did>' --body 'Reverts #<n>.'
+gh pr create --title 'revert: <what the change did>'
 ```
+
+The title is passed because the one git writes, `Revert "<title> (#<n>)"`,
+fails `ci / pr-title`, which refuses a quoted title that ends in `(#N)`.
+`gh pr create` asks which form to start from: choose the pull request form
+(`CONTRIBUTING.md` step 5 says which one applies). Write `Reverts #<n>.` under
+`What and why`, fill `What I checked myself` and the `Review:` line, and delete
+the comment lines. An agent has no terminal for that question, and gh refuses
+without one: it writes the form's fields into the description itself.
 
 ## What a revert does not undo
 
