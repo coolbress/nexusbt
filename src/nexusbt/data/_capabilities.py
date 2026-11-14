@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
+import pyarrow as pa
+import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
 from nexusbt.config.packs import load_pack
@@ -165,13 +167,19 @@ def _off_calendar(
 ) -> None:  # fmt: skip
     """4.5 F-02: a bar of a synthesized market on a day that is not one of its sessions is E14
     `TDS-R003`, the check the checker leaves blind without `calendar_sessions`."""
-    rows = _values(folder, bars, ID_COLUMN, "session_date")
-    off = [(i, d) for i, d in rows if market_of.get(i) in dates and d not in dates[market_of[i]]]
+    off: list[dict[str, Any]] = []
+    for f in bars["files"]:  # filtered in Arrow: only the off rows reach Python
+        t = pq.read_table(folder / f["path"], columns=[ID_COLUMN, "session_date"])
+        for m, days in dates.items():
+            ids = pa.array([i for i, x in market_of.items() if x == m], t[ID_COLUMN].type)
+            held = pa.array(sorted(days), pa.date32()).cast(t["session_date"].type)
+            outside = pc.invert(pc.is_in(t["session_date"], held))
+            off += t.filter(pc.and_(pc.is_in(t[ID_COLUMN], ids), outside)).to_pylist()
     if off:
         producer = data.get("producer")
         raise SnapshotError.from_check(
             path=str(folder), counts={"TDS-R003": len(off)}, dataset=bars["name"], file="-",
-            key=str({ID_COLUMN: off[0][0], "session_date": str(off[0][1])}),
+            key=str({ID_COLUMN: off[0][ID_COLUMN], "session_date": str(off[0]["session_date"])}),
             hint=f"{len(off)} row(s) on a day not a session of the synthesized calendar (F-02)",
             snapshot_id=str(data["snapshot_id"]),
             producer=str(producer.get("name", "-")) if isinstance(producer, dict) else "-",
