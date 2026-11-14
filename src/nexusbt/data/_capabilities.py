@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import warnings
 from collections import Counter
 from collections.abc import Mapping, Sequence
@@ -92,28 +93,34 @@ def decide(
     by_market = bars["coverage"]["by_market"] if bars else {}
     lacking = {f: [k for k in needs if k not in kinds] for f, needs in NEEDS.items()}
     taken: dict[str, list[FallbackRecord]] = {f: [] for f in NEEDS}
-    sessions = bars is not None and "calendar_sessions" not in kinds
-    f02 = _sessions(data["markets"], by_market) if sessions else None
-    for f in ("adjusted", "backtest"):
-        if f02 is not None:
-            lacking[f].remove("calendar_sessions")
-            taken[f] += f02
-        if bars is not None and bars["params"].get("price_basis") != "raw":
-            lacking[f].append("raw bars (price_basis = raw)")
+    market_of = _market_of(folder, kinds.get("instruments"))  # TDS K1: ids are opaque
+    f02: Sessions | None = None
+    if bars is not None:
+        f02 = _sessions(folder, data["markets"], kinds, by_market)
+        for f in ("adjusted", "backtest"):
+            if f02 is None and "calendar_sessions" not in lacking[f]:  # 4.4-4: one market's
+                lacking[f].append("calendar_sessions")
+            elif f02 is not None:
+                lacking[f] = [k for k in lacking[f] if k != "calendar_sessions"]
+                taken[f] += f02[0]
+            if bars["params"].get("price_basis") != "raw":
+                lacking[f].append("raw bars (price_basis = raw)")
     columns = _columns(folder, bars)
     if bars is not None and (bars["params"].get("density") == "sparse"
                              or "obs_status" not in columns):  # fmt: skip
         taken["backtest"] += [FallbackRecord("F-03", bars["name"], m, int(e.get("rows", 0)))
                               for m, e in by_market.items()]  # fmt: skip
-    years = Counter((f.dataset, str((f.key or {}).get(ID_COLUMN)).split(":")[0])
+    years = Counter((f.dataset, market_of.get(str((f.key or {}).get(ID_COLUMN)), "-"))
                     for f in found if f.code == "TDS-V011")  # fmt: skip
     taken["backtest"] += [FallbackRecord("F-16", str(d), m, n) for (d, m), n in years.items()]
-    taken["grid"] += _no_grid(folder, kinds, rules, by_market)
+    taken["grid"] += _no_grid(folder, kinds, rules, by_market, market_of)
     on = frozenset(f for f in NEEDS if not lacking[f])
     if required is not None and (refused := [f for f in sorted(required.features) if lacking[f]]):
         raise _not_in_snapshot(data, {f: lacking[f] for f in refused})
     wanted = NEEDS.keys() if required is None else required.features
     used = list(dict.fromkeys(r for f in sorted(wanted) if f in on for r in taken[f]))
+    if bars is not None and f02 is not None and any(r.id == "F-02" for r in used):
+        _off_calendar(folder, data, bars, f02[1], market_of)
     if used and policy is FallbacksPolicy.FAIL:
         raise _refused(data, used)
     for id_ in dict.fromkeys(r.id for r in used):
@@ -125,22 +132,50 @@ def decide(
     return DataCapabilities(on, supported, cum), used, assumptions
 
 
+Sessions = tuple[list[FallbackRecord], dict[str, set[dt.date]]]
+
+
 def _sessions(
-    markets: Mapping[str, Mapping[str, Any]], by_market: Mapping[str, Mapping[str, Any]]
-) -> list[FallbackRecord] | None:
-    """F-02: each market's sessions from the first to the last day of its bars, or None when
-    exchange_calendars does not know a market's calendar (then E18 for what needs them)."""
+    folder: Path, markets: Mapping[str, Mapping[str, Any]],
+    kinds: Mapping[str, Mapping[str, Any]], by_market: Mapping[str, Mapping[str, Any]],
+) -> Sessions | None:  # fmt: skip
+    """F-02 for each market of the bars whose `calendar_id` `calendar_sessions` lacks (4.4-4):
+    its sessions from the first to the last day of its bars, as records and as dates; None
+    when exchange_calendars does not know such a calendar (then E18 for what needs them)."""
+    held = {str(c) for c in _values(folder, kinds.get("calendar_sessions"), "calendar_id")}
+    gap = {m: e for m, e in by_market.items() if markets[m]["calendar_id"] not in held}
+    if not gap:
+        return [], {}
     import exchange_calendars as xcals  # only a package without sessions pays its import
 
-    known = set(xcals.get_calendar_names())
-    if any(markets[m]["calendar_id"] not in known for m in by_market):
+    if any(markets[m]["calendar_id"] not in xcals.get_calendar_names() for m in gap):
         return None
-    out = []
-    for m, e in by_market.items():
+    out, dates = [], {}
+    for m, e in gap.items():
         # bounded by the bars, not by the library's default of 20 years before today
         cal = xcals.get_calendar(markets[m]["calendar_id"], start=e["first"], end=e["last"])
         out.append(FallbackRecord("F-02", "calendar_sessions", m, len(cal.sessions)))
-    return out
+        dates[m] = {d.date() for d in cal.sessions}
+    return out, dates
+
+
+def _off_calendar(
+    folder: Path, data: Mapping[str, Any], bars: Mapping[str, Any],
+    dates: Mapping[str, set[dt.date]], market_of: Mapping[str, str],
+) -> None:  # fmt: skip
+    """4.5 F-02: a bar of a synthesized market on a day that is not one of its sessions is E14
+    `TDS-R003`, the check the checker leaves blind without `calendar_sessions`."""
+    rows = _values(folder, bars, ID_COLUMN, "session_date")
+    off = [(i, d) for i, d in rows if market_of.get(i) in dates and d not in dates[market_of[i]]]
+    if off:
+        producer = data.get("producer")
+        raise SnapshotError.from_check(
+            path=str(folder), counts={"TDS-R003": len(off)}, dataset=bars["name"], file="-",
+            key=str({ID_COLUMN: off[0][0], "session_date": str(off[0][1])}),
+            hint=f"{len(off)} row(s) on a day not a session of the synthesized calendar (F-02)",
+            snapshot_id=str(data["snapshot_id"]),
+            producer=str(producer.get("name", "-")) if isinstance(producer, dict) else "-",
+        )  # fmt: skip
 
 
 def _columns(folder: Path, dataset: Mapping[str, Any] | None) -> set[str]:
@@ -150,23 +185,41 @@ def _columns(folder: Path, dataset: Mapping[str, Any] | None) -> set[str]:
     return set(pq.read_schema(folder / dataset["files"][0]["path"]).names)
 
 
+def _values(folder: Path, dataset: Mapping[str, Any] | None, *columns: str) -> list[Any]:
+    """The rows of `columns` in every file of a dataset, as tuples (one column: its values)."""
+    out: list[Any] = []
+    for f in dataset["files"] if dataset is not None else ():
+        table = pq.read_table(folder / f["path"], columns=list(columns))
+        rows = zip(*(table[c].to_pylist() for c in columns), strict=True)
+        out += [r[0] if len(columns) == 1 else r for r in rows]
+    return out
+
+
+def _market_of(folder: Path, instruments: Mapping[str, Any] | None) -> dict[str, str]:
+    """instrument_id → its `market` from the declared `instruments` files (TDS K1)."""
+    return dict(_values(folder, instruments, ID_COLUMN, "market"))
+
+
 def _no_grid(
     folder: Path, kinds: Mapping[str, Mapping[str, Any]], rules: Mapping[str, str | None],
-    by_market: Mapping[str, Mapping[str, Any]],
+    by_market: Mapping[str, Mapping[str, Any]], market_of: Mapping[str, str],
 ) -> list[FallbackRecord]:  # fmt: skip
-    """F-15: a market with a pack and no grid anywhere: no instrument tick column, no
+    """F-15: a market with a pack and no grid anywhere in 4.3's chain: no `classifications`
+    scheme `tick_rule_id` row of its instruments, no instrument tick column, no
     `market_rules` rows of the market and no `tick_table` or `base_unit` in its pack."""
     ticks = {"tick_size", "tick_rule_id"} & _columns(folder, kinds.get("instruments"))
     ruled = kinds.get("market_rules", {}).get("coverage", {}).get("by_market", {})
-    out = []
-    for m, pack in rules.items():
-        if pack is None:  # a market without a pack runs nothing (4.4-4)
-            continue
-        grid = load_pack(pack.split("@")[0])["grid"]
-        if not ({"tick_table", "base_unit"} & grid.keys() or ticks or m in ruled):
-            count = int(by_market.get(m, {}).get("instruments", 0))
-            out.append(FallbackRecord("F-15", "market_rules", m, count))
-    return out
+    bare = [m for m, pack in rules.items() if pack is not None  # no pack: nothing runs (4.4-4)
+            and not ({"tick_table", "base_unit"} & load_pack(pack.split("@")[0])["grid"].keys()
+                     or ticks or m in ruled)]  # fmt: skip
+    classified: set[str | None] = set()
+    for f in kinds.get("classifications", {}).get("files", []) if bare else ():  # only then
+        table = pq.read_table(folder / f["path"], columns=[ID_COLUMN, "code"],
+                              filters=[("scheme", "=", "tick_rule_id")])  # fmt: skip
+        ids, codes = table[ID_COLUMN].to_pylist(), table["code"].to_pylist()
+        classified |= {market_of.get(i) for i, c in zip(ids, codes, strict=True) if c}
+    return [FallbackRecord("F-15", "market_rules", m, int(by_market.get(m, {}).get(
+        "instruments", 0))) for m in bare if m not in classified]  # fmt: skip
 
 
 def _layer(data: Mapping[str, Any], dataset: str) -> str:

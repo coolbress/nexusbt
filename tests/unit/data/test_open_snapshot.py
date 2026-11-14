@@ -8,7 +8,6 @@ import os
 import re
 import shutil
 from collections.abc import Callable
-from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -37,6 +36,7 @@ from nexusbt.data import (
     RatioExclusion,
     open_snapshot,
 )
+from nexusbt.data._capabilities import _columns
 from nexusbt.testing.synth import make_snapshot
 from nexusbt_tds import ProfileStatus
 from nexusbt_tds.hash import package_hashes, write_hashes
@@ -207,17 +207,25 @@ def split(tmp_path_factory: pytest.TempPathFactory) -> Path:
 Rows = list[dict[str, Any]]
 
 
-def with_rows(split: Path, at: Path, change: Callable[[Rows], Rows]) -> Path:
-    """A copy of `split` whose `corporate_actions` rows are `change(rows)`, rehashed so that
-    only the rows differ."""
-    shutil.copytree(split, at)
-    part = at / "corporate_actions" / "part-00000.parquet"
-    table = pq.read_table(part)
-    pq.write_table(pa.Table.from_pylist(change(table.to_pylist()), schema=table.schema), part)
-    edit_manifest(at, lambda d: dataset(d, "corporate_actions")["files"][0].update(
-        bytes=part.stat().st_size))  # fmt: skip
+def rewrite(source: Path, at: Path, **changes: Callable[[Rows], Rows]) -> Path:
+    """A copy of `source` whose rows of each dataset named (`bars_1d=...`) are `change(rows)`,
+    file by file, rehashed so that only the rows differ."""
+    shutil.copytree(source, at)
+    data = json.loads((at / "tds.json").read_text(encoding="utf-8"))
+    for name, change in changes.items():
+        for f in dataset(data, name)["files"]:
+            table = pq.read_table(part := at / f["path"])
+            rows = pa.Table.from_pylist(change(table.to_pylist()), schema=table.schema)
+            pq.write_table(rows, part)
+            f.update(bytes=part.stat().st_size, rows=len(rows))
+    (at / "tds.json").write_text(json.dumps(data), encoding="utf-8")
     write_hashes(at)
     return at
+
+
+def with_rows(split: Path, at: Path, change: Callable[[Rows], Rows]) -> Path:
+    """A copy of `split` whose `corporate_actions` rows are `change(rows)`."""
+    return rewrite(split, at, corporate_actions=change)
 
 
 def with_ratios(split: Path, at: Path, **ratios: tuple[int | None, int | None, float]) -> Path:
@@ -336,10 +344,10 @@ def test_fallback_F02_sessions(tmp_path: Path) -> None:  # noqa: N802 - the tick
     assert s.fallbacks == [FallbackRecord("F-02", "calendar_sessions", "KR", 62),  # tiny's own
                            FallbackRecord("F-02", "calendar_sessions", "US", 62)]  # fmt: skip
     assert s.assumptions == ("sessions synthesized from exchange_calendars 4.13.2",)
-    old = s.fallbacks  # bars from 2001: before exchange_calendars' default 20 years back
-    edit_manifest(tmp_path / "a", lambda d: dataset(d, "bars_1d")["coverage"]["by_market"][
-        "US"].update(first="2001-01-02", last="2001-01-31"))  # fmt: skip
-    assert opened_warned(tmp_path / "a")[0].fallbacks == [old[0], replace(old[1], count=21)]
+    old = make_snapshot(tmp_path / "o", preset="small", n_kr=2, n_us=2, start=dt.date(2001, 1, 2),
+                        end=dt.date(2001, 1, 31), degrade=["no_sessions"])  # fmt: skip
+    # bars from 2001: before exchange_calendars' default 20 years back
+    assert [r.count for r in opened_warned(old)[0].fallbacks] == [19, 21]
     zz =make_snapshot(tmp_path / "zz", preset="tiny", markets=("KR", "ZZ"),
                        degrade=["no_sessions"])  # fmt: skip
     with pytest.raises(CapabilityError, match="backtest needs calendar_sessions"):
@@ -397,6 +405,91 @@ def test_fallback_F15_grid_minor_unit(tmp_path: Path) -> None:  # noqa: N802 - t
         s = open_snapshot(DataConfig(path=path, allow_untested=True), required=grid)
     assert s.fallbacks == [FallbackRecord("F-15", "market_rules", "ZZ", 6)]
     assert open_snapshot(DataConfig(path=path), required=grid).fallbacks == []  # ZZ: no pack
+
+
+def renamed(rows: Rows) -> Rows:
+    """`rows` with every `KR:` id written `SYN:`: TDS K1 ids that do not start with a market."""
+    return [{k: f"SYN:{v[3:]}" if isinstance(v, str) and v.startswith("KR:") else v
+             for k, v in r.items()} for r in rows]  # fmt: skip
+
+
+def test_volume_unit_market_from_instruments(tmp_path: Path) -> None:
+    """F-16's market is the instrument's `market` in `instruments`, not its id's namespace."""
+    lots = make_snapshot(tmp_path / "v", preset="small", n_kr=6, n_us=6, degrade=["volume_in_lots"])
+    names = [d["name"] for d in json.loads((lots / "tds.json").read_text("utf-8"))["datasets"]]
+    syn = rewrite(lots, tmp_path / "syn", **dict.fromkeys(names, renamed))
+    edit_manifest(syn, lambda d: d["id_namespaces"].update(SYN="synthetic, any market"))
+    write_hashes(syn)
+    s, _ = opened_warned(syn, verify=VerifyPolicy.FULL)
+    assert s.fallbacks == [FallbackRecord("F-16", "bars_1d", "KR", 16)]
+
+
+def test_grid_from_classifications_is_no_fallback(tmp_path: Path) -> None:
+    """4.3's grid chain starts at `classifications` scheme `tick_rule_id`: a ZZ instrument
+    with one has a grid, so the generic pack's ZZ takes no F-15."""
+    path = make_snapshot(tmp_path / "t", preset="tiny", markets=("KR", "ZZ"),
+                         degrade=["no_tick_info"])  # fmt: skip
+    (path / "classifications").mkdir()
+    row = {"instrument_id": "ZZ:T00001", "scheme": "tick_rule_id", "level": 0, "code": "zz-tick",
+           "label": None, "effective_from": dt.date(2020, 1, 2), "effective_to": None,
+           "ts_known_from": dt.datetime(2020, 1, 1, tzinfo=dt.UTC), "ts_known_to": None,
+           "edition": "economic", "pit_quality": "pit", "source": "test"}  # fmt: skip
+    pq.write_table(pa.Table.from_pylist([row]), part := path / "classifications" / "p.parquet")
+    edit_manifest(path, lambda d: d["datasets"].append({
+        "name": "classifications", "kind": "classifications", "path": "classifications",
+        "schema_version": "1.0", "coverage": {},
+        "files": [{"path": "classifications/p.parquet", "rows": 1,
+                   "bytes": part.stat().st_size}]}))  # fmt: skip
+    write_hashes(path)
+    grid = CapabilityRequest(frozenset({"grid"}))
+    s = open_snapshot(DataConfig(path=path, allow_untested=True), required=grid)  # no E30
+    assert s.fallbacks == []
+
+
+def test_bar_outside_synthesized_calendar_is_r003(tmp_path: Path) -> None:
+    """4.5 F-02: a bar on a day the synthesized calendar does not have is E14 `TDS-R003`."""
+    gap = make_snapshot(tmp_path / "g", preset="tiny", degrade=["no_sessions"])
+    saturday = dt.date(2020, 1, 4)
+    moved = rewrite(gap, tmp_path / "m", bars_1d=lambda rows: [
+        r | {"session_date": saturday} if r["session_date"] == dt.date(2020, 1, 3)
+        and r["instrument_id"] == "KR:T00001" else r for r in rows])  # fmt: skip
+    with pytest.raises(SnapshotError, match="TDS-R003") as raised:
+        open_snapshot(DataConfig(path=moved), required=BACKTEST)
+    assert "2020-01-04" in str(raised.value)
+    price = CapabilityRequest()  # `Price` alone: no F-02, so no synthesized calendar to hold
+    assert open_snapshot(DataConfig(path=moved), required=price).fallbacks == []
+
+
+def test_one_market_without_sessions_takes_f02_alone(
+    tiny: Path, kr_zz: Path, tmp_path: Path
+) -> None:
+    """4.4-4: `calendar_sessions` without XNYS gives F-02 for US only; KR keeps its own. A
+    missing calendar exchange_calendars does not know (ZZ's) is E18."""
+
+    def kr_only(rows: Rows) -> Rows:
+        return [r for r in rows if r["calendar_id"] == "XKRX"]
+
+    s, said = opened_warned(rewrite(tiny, tmp_path / "k", calendar_sessions=kr_only))
+    assert s.fallbacks == [FallbackRecord("F-02", "calendar_sessions", "US", 62)]
+    assert "F-02" in said[0]
+    zz = rewrite(kr_zz, tmp_path / "z", calendar_sessions=kr_only)
+    with pytest.raises(CapabilityError, match="backtest needs calendar_sessions"):
+        open_snapshot(DataConfig(path=zz, allow_untested=True), required=BACKTEST)
+
+
+def test_backtest_on_adjusted_bars_names_raw_bars(tiny: Path, tmp_path: Path) -> None:
+    """4.3: a backtest or adjusted prices need `price_basis = raw` bars; otherwise E18."""
+    adjusted = shutil.copytree(tiny, tmp_path / "a")
+    edit_manifest(adjusted, lambda d: (dataset(d, "bars_1d")["params"].update(
+        price_basis="total_adjusted"), d.update(profiles=[MINIMAL])))  # fmt: skip
+    for feature in ("backtest", "adjusted"):
+        wanted = CapabilityRequest(frozenset({feature}))
+        with pytest.raises(CapabilityError, match=r"raw bars \(price_basis = raw\)"):
+            open_snapshot(DataConfig(path=adjusted), required=wanted)
+
+
+def test_columns_of_a_dataset_without_files(tmp_path: Path) -> None:
+    assert _columns(tmp_path, {"files": []}) == set()
 
 
 NO_RATIO = {"ratio_num": None, "ratio_den": None}
