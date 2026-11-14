@@ -7,6 +7,7 @@ import json
 import os
 import re
 import shutil
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -319,7 +320,11 @@ def test_fallback_F02_sessions(tmp_path: Path) -> None:  # noqa: N802 - the tick
     assert s.fallbacks == [FallbackRecord("F-02", "calendar_sessions", "KR", 62),  # tiny's own
                            FallbackRecord("F-02", "calendar_sessions", "US", 62)]  # fmt: skip
     assert s.assumptions == ("sessions synthesized from exchange_calendars 4.13.2",)
-    zz = make_snapshot(tmp_path / "zz", preset="tiny", markets=("KR", "ZZ"),
+    old = s.fallbacks  # bars from 2001: before exchange_calendars' default 20 years back
+    edit_manifest(tmp_path / "a", lambda d: dataset(d, "bars_1d")["coverage"]["by_market"][
+        "US"].update(first="2001-01-02", last="2001-01-31"))  # fmt: skip
+    assert opened_warned(tmp_path / "a")[0].fallbacks == [old[0], replace(old[1], count=21)]
+    zz =make_snapshot(tmp_path / "zz", preset="tiny", markets=("KR", "ZZ"),
                        degrade=["no_sessions"])  # fmt: skip
     with pytest.raises(CapabilityError, match="backtest needs calendar_sessions"):
         open_snapshot(DataConfig(path=zz, allow_untested=True), required=BACKTEST)

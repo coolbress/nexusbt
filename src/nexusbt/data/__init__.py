@@ -128,8 +128,8 @@ class Snapshot:
         markets: Mapping[str, MarketInfo],
         warnings: Mapping[str, int],
         assumptions: tuple[str, ...],
-        ca_exclusions: tuple[RatioExclusion, ...] = (),
-        decided: Decided | None = None,
+        ca_exclusions: tuple[RatioExclusion, ...],
+        decided: Decided,
     ) -> None:
         self._manifest, self._hashes, self._markets = manifest, hashes, markets
         self.warnings, self.assumptions = dict(warnings), assumptions
@@ -154,21 +154,15 @@ class Snapshot:
     @property
     def profiles(self) -> dict[str, ProfileStatus]:
         """Per profile, declared and checked to which level (4.3); supported: `capabilities`."""
-        return dict(self._opened[0])
+        return dict(self._decided[0])
 
     @property
     def capabilities(self) -> DataCapabilities:
-        return self._opened[1]
+        return self._decided[1]
 
     @property
     def fallbacks(self) -> list[FallbackRecord]:
-        return list(self._opened[2])
-
-    @property
-    def _opened(self) -> Decided:
-        if self._decided is None:
-            raise NotImplementedError("decided by open_snapshot")
-        return self._decided
+        return list(self._decided[2])
 
     @property
     def markets(self) -> Mapping[str, MarketInfo]:

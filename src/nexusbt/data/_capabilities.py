@@ -137,9 +137,9 @@ def _sessions(
         return None
     out = []
     for m, e in by_market.items():
-        sessions = xcals.get_calendar(markets[m]["calendar_id"]).sessions_in_range(
-            e["first"], e["last"])  # fmt: skip
-        out.append(FallbackRecord("F-02", "calendar_sessions", m, len(sessions)))
+        # bounded by the bars, not by the library's default of 20 years before today
+        cal = xcals.get_calendar(markets[m]["calendar_id"], start=e["first"], end=e["last"])
+        out.append(FallbackRecord("F-02", "calendar_sessions", m, len(cal.sessions)))
     return out
 
 
