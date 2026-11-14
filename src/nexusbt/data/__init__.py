@@ -11,7 +11,15 @@ from typing import TYPE_CHECKING, Any
 
 import nexusbt_tds as tds
 from nexusbt.config.packs import PACKS, load_pack
-from nexusbt.contracts import CapabilityError, ConfigError, SnapshotError, VerifyPolicy
+from nexusbt.contracts import (
+    CapabilityError,
+    ConfigError,
+    DecimalRatioPolicy,
+    SnapshotError,
+    VerifyPolicy,
+)
+from nexusbt.data._ratios import RatioExclusion as RatioExclusion
+from nexusbt.data._ratios import check_ratios
 from nexusbt_tds.hash import package_hashes
 from nexusbt_tds.manifest import Manifest, ManifestError
 
@@ -38,6 +46,7 @@ class DataConfig:
     verify: VerifyPolicy = VerifyPolicy.MANIFEST
     markets: tuple[str, ...] = ()
     allow_untested: bool = False
+    decimal_ratio: DecimalRatioPolicy = DecimalRatioPolicy.EXCLUDE_INSTRUMENT
 
     @classmethod
     def from_config(cls, config: Config) -> DataConfig:
@@ -55,7 +64,8 @@ class DataConfig:
                 layer="config — nexusbt.toml [data] path = none",
             )  # fmt: skip
         allow = bool(config.values["markets"]["allow_untested"])
-        return cls(path, VerifyPolicy(data["verify"]), allow_untested=allow)
+        ratio = DecimalRatioPolicy(config.values["corporate_actions"]["decimal_ratio"])
+        return cls(path, VerifyPolicy(data["verify"]), allow_untested=allow, decimal_ratio=ratio)
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,7 +120,8 @@ class Snapshot:
     """An opened TDS package (2.4 `data.Snapshot`); a member that raises waits for its ticket.
 
     `warnings` counts the checker's warnings per TDS code (4.4-2); `assumptions` are the
-    sentences a run manifest records, such as an untested market's (4.7)."""
+    sentences a run manifest records, such as an untested market's (4.7); `ca_exclusions`
+    are the instruments 5.6.1 excludes for an event without a usable exact ratio (4.4-4)."""
 
     def __init__(
         self,
@@ -119,9 +130,11 @@ class Snapshot:
         markets: Mapping[str, MarketInfo],
         warnings: Mapping[str, int],
         assumptions: tuple[str, ...],
+        ca_exclusions: tuple[RatioExclusion, ...] = (),
     ) -> None:
         self._manifest, self._hashes, self._markets = manifest, hashes, markets
         self.warnings, self.assumptions = dict(warnings), assumptions
+        self.ca_exclusions = ca_exclusions
 
     @property
     def id(self) -> str:
@@ -231,10 +244,13 @@ def open_snapshot(cfg: DataConfig, *, required: CapabilityRequest | None = None)
     for m in cfg.markets:
         if markets.get(m) is None or markets[m].rules is None:
             raise _no_pack(m, manifest, m in markets)
+    excluded, literal = check_ratios(manifest, cfg.markets, cfg.decimal_ratio)
     generic = [m for m, info in markets.items() if str(info.rules).startswith(GENERIC)]
     untested = tuple(f"untested market rules: {m}" for m in generic)
+    if literal:  # 5.6.1's report header line for `decimal_ratio = "literal"`
+        untested += (f"decimal ratios used literally: {literal} events",)
     warnings = Counter(f.code for f in result.warnings)
-    return Snapshot(manifest, hashes, markets, warnings, untested)
+    return Snapshot(manifest, hashes, markets, warnings, untested, excluded)
 
 
 def _market(name: str, entry: Mapping[str, Any], allow_untested: bool) -> MarketInfo:

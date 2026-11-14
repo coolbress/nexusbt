@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 import os
 import re
@@ -9,14 +10,23 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
 import nexusbt as nx
 from nexusbt.config import load_config
-from nexusbt.contracts import CapabilityError, ConfigError, SnapshotError, VerifyPolicy
-from nexusbt.data import DataConfig, open_snapshot
+from nexusbt.contracts import (
+    AccountingDataError,
+    CapabilityError,
+    ConfigError,
+    DecimalRatioPolicy,
+    SnapshotError,
+    VerifyPolicy,
+)
+from nexusbt.data import DataConfig, RatioExclusion, open_snapshot
 from nexusbt.testing.synth import make_snapshot
-from nexusbt_tds.hash import package_hashes
+from nexusbt_tds.hash import package_hashes, write_hashes
 
 
 def edit_manifest(root: Path, change: Any) -> None:
@@ -165,3 +175,69 @@ def test_cloned_and_hardlinked_partitions_ok(tiny: Path, tmp_path: Path) -> None
     finally:
         for path in [*folders, *(p for f in folders for p in f.rglob("*"))]:
             path.chmod(0o755 if path.is_dir() else 0o644)
+
+
+#: Two splits on tiny's first KR and US names, announced 2020-01-02 and effective 2020-01-07.
+SPLITS = [{"dataset": "corporate_actions", "instrument_id": i, "kind": "split",
+           "ex_date": "2020-01-07", "ratio_new_per_old": 2.0}
+          for i in ("KR:T00001", "US:T00001")]  # fmt: skip
+
+
+@pytest.fixture(scope="module")
+def split(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    return make_snapshot(tmp_path_factory.mktemp("split") / "snap", preset="tiny", events=SPLITS)
+
+
+def with_ratios(split: Path, at: Path, **ratios: tuple[int | None, int | None, float]) -> Path:
+    """A copy of `split` whose event rows of the instruments named (`KR_T00001=...`) take
+    (ratio_num, ratio_den, share_factor), rehashed so that only the rows differ."""
+    shutil.copytree(split, at)
+    part = at / "corporate_actions" / "part-00000.parquet"
+    table = pq.read_table(part)
+    rows = table.to_pylist()
+    for row in rows:
+        if (given := ratios.get(row["instrument_id"].replace(":", "_"))) is not None:
+            row.update(zip(("ratio_num", "ratio_den", "share_factor"), given, strict=True))
+    pq.write_table(pa.Table.from_pylist(rows, schema=table.schema), part)
+    edit_manifest(at, lambda d: dataset(d, "corporate_actions")["files"][0].update(
+        bytes=part.stat().st_size))  # fmt: skip
+    write_hashes(at)
+    return at
+
+
+def test_malformed_exact_ratio_E13(split: Path, tmp_path: Path) -> None:  # noqa: N802 - the ticket's test name
+    """4.4-4: one of ratio_num/ratio_den only, or either <= 0, stops the open with E13 under
+    every `decimal_ratio`, at every check level, naming the event (R3-06)."""
+    for n, given in enumerate([(2, None, 2.0), (0, 1, 0.0), (-2, -1, 2.0)]):
+        bad = with_ratios(split, tmp_path / f"bad{n}", KR_T00001=given)
+        for policy in DecimalRatioPolicy:
+            with pytest.raises(AccountingDataError, match="KR:E000001") as raised:
+                open_snapshot(DataConfig(path=bad, decimal_ratio=policy))
+            assert "US:E000001" not in str(raised.value)
+        with pytest.raises(AccountingDataError):  # full: A010 is not E14 (4.4-2)
+            open_snapshot(DataConfig(path=bad, verify=VerifyPolicy.FULL))
+    us_only = with_ratios(split, tmp_path / "us", US_T00001=(2, None, 2.0))
+    assert open_snapshot(DataConfig(path=us_only, markets=("KR",))).id == "synth-0001"
+
+
+def test_missing_exact_ratio_excludes_instrument_from_event(split: Path, tmp_path: Path) -> None:
+    """5.6.1 (R7-01): the default `exclude_instrument` opens the snapshot and excludes only
+    that instrument, from v(e) = ts_announced on; a ratio off its f64 column by more than
+    1e-12 relative is handled the same way (4.4-4, #188); `require_exact` is E13."""
+    assert open_snapshot(DataConfig(path=split)).ca_exclusions == ()
+    missing = with_ratios(split, tmp_path / "missing", KR_T00001=(None, None, 2.0))
+    s = open_snapshot(DataConfig(path=missing))
+    kr = RatioExclusion("KR:T00001", "KR:E000001", "ca_ratio_missing",
+                        dt.datetime(2020, 1, 2, 6, 30, tzinfo=dt.UTC))  # fmt: skip
+    assert (s.id, s.ca_exclusions) == ("synth-0001", (kr,))
+    off = with_ratios(split, tmp_path / "off", US_T00001=(2, 1, 2.0 * (1 + 1e-9)))
+    us = open_snapshot(DataConfig(path=off, verify=VerifyPolicy.FULL)).ca_exclusions
+    assert [(e.instrument_id, e.cause) for e in us] == [("US:T00001", "ca_ratio_disagrees")]
+    near = with_ratios(split, tmp_path / "near", US_T00001=(2, 1, 2.0 * (1 + 1e-13)))
+    assert open_snapshot(DataConfig(path=near)).ca_exclusions == ()
+    assert open_snapshot(DataConfig(path=missing, markets=("US",))).ca_exclusions == ()
+    with pytest.raises(AccountingDataError, match="KR:E000001"):
+        open_snapshot(DataConfig(path=missing, decimal_ratio=DecimalRatioPolicy.REQUIRE_EXACT))
+    literal = open_snapshot(DataConfig(path=missing, decimal_ratio=DecimalRatioPolicy.LITERAL))
+    assert literal.ca_exclusions == ()
+    assert literal.assumptions == ("decimal ratios used literally: 1 events",)
