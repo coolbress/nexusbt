@@ -15,9 +15,14 @@ from nexusbt.contracts import (
     CapabilityError,
     ConfigError,
     DecimalRatioPolicy,
+    FallbacksPolicy,
     SnapshotError,
     VerifyPolicy,
 )
+from nexusbt.data._capabilities import CapabilityRequest as CapabilityRequest
+from nexusbt.data._capabilities import DataCapabilities as DataCapabilities
+from nexusbt.data._capabilities import FallbackRecord as FallbackRecord
+from nexusbt.data._capabilities import decide
 from nexusbt.data._ratios import RatioExclusion as RatioExclusion
 from nexusbt.data._ratios import check_ratios
 from nexusbt_tds.hash import package_hashes
@@ -29,6 +34,9 @@ if TYPE_CHECKING:
     from nexusbt.config import Config
     from nexusbt.contracts import ResolvedActions
     from nexusbt_tds import ProfileStatus
+
+    #: What `open_snapshot` decided (4.4-5): the profiles' results, the capabilities, the fallbacks.
+    Decided = tuple[dict[str, ProfileStatus], DataCapabilities, list[FallbackRecord]]
 
 GENERIC = "_generic"  # the pack `[markets] allow_untested` runs a market without one under (4.7)
 #: A010 (exact ratios) never raises E14: the engine's own check at open decides (4.4-2, 4-4).
@@ -47,6 +55,7 @@ class DataConfig:
     markets: tuple[str, ...] = ()
     allow_untested: bool = False
     decimal_ratio: DecimalRatioPolicy = DecimalRatioPolicy.EXCLUDE_INSTRUMENT
+    fallbacks: FallbacksPolicy = FallbacksPolicy.WARN
 
     @classmethod
     def from_config(cls, config: Config) -> DataConfig:
@@ -65,19 +74,8 @@ class DataConfig:
             )  # fmt: skip
         allow = bool(config.values["markets"]["allow_untested"])
         ratio = DecimalRatioPolicy(config.values["corporate_actions"]["decimal_ratio"])
-        return cls(path, VerifyPolicy(data["verify"]), allow_untested=allow, decimal_ratio=ratio)
-
-
-@dataclass(frozen=True, slots=True)
-class CapabilityRequest: ...
-
-
-@dataclass(frozen=True, slots=True)
-class DataCapabilities: ...
-
-
-@dataclass(frozen=True, slots=True)
-class FallbackRecord: ...
+        return cls(path, VerifyPolicy(data["verify"]), allow_untested=allow, decimal_ratio=ratio,
+                   fallbacks=FallbacksPolicy(data["fallbacks"]))  # fmt: skip
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,11 +128,12 @@ class Snapshot:
         markets: Mapping[str, MarketInfo],
         warnings: Mapping[str, int],
         assumptions: tuple[str, ...],
-        ca_exclusions: tuple[RatioExclusion, ...] = (),
+        ca_exclusions: tuple[RatioExclusion, ...],
+        decided: Decided,
     ) -> None:
         self._manifest, self._hashes, self._markets = manifest, hashes, markets
         self.warnings, self.assumptions = dict(warnings), assumptions
-        self.ca_exclusions = ca_exclusions
+        self.ca_exclusions, self._decided = ca_exclusions, decided
 
     @property
     def id(self) -> str:
@@ -154,15 +153,16 @@ class Snapshot:
 
     @property
     def profiles(self) -> dict[str, ProfileStatus]:
-        raise NotImplementedError
+        """Per profile, declared and checked to which level (4.3); supported: `capabilities`."""
+        return dict(self._decided[0])
 
     @property
     def capabilities(self) -> DataCapabilities:
-        raise NotImplementedError
+        return self._decided[1]
 
     @property
     def fallbacks(self) -> list[FallbackRecord]:
-        raise NotImplementedError
+        return list(self._decided[2])
 
     @property
     def markets(self) -> Mapping[str, MarketInfo]:
@@ -216,7 +216,8 @@ def _package(path: Path) -> Path:
 
 def open_snapshot(cfg: DataConfig, *, required: CapabilityRequest | None = None) -> Snapshot:
     """Open one TDS package: the checker at `cfg.verify`, its errors as E14 (4.4-1, 2), and
-    a rules pack for each market `cfg.markets` names (4.4-4). Capabilities: T1.1b."""
+    a rules pack for each market `cfg.markets` names (4.4-4), then the features `required` names
+    with their fallbacks (4.4-3; with no request, every feature the package can give)."""
     try:
         folder = _package(Path(cfg.path))
     except (OSError, ValueError) as unread:
@@ -249,8 +250,11 @@ def open_snapshot(cfg: DataConfig, *, required: CapabilityRequest | None = None)
     untested = tuple(f"untested market rules: {m}" for m in generic)
     if literal:  # 5.6.1's report header line for `decimal_ratio = "literal"`
         untested += (f"decimal ratios used literally: {literal} events",)
+    rules = {m: info.rules for m, info in markets.items()}
+    caps, used, assumed = decide(folder, manifest, rules, result.warnings, required, cfg.fallbacks)
     warnings = Counter(f.code for f in result.warnings)
-    return Snapshot(manifest, hashes, markets, warnings, untested, excluded)
+    decided = (result.profiles, caps, used)
+    return Snapshot(manifest, hashes, markets, warnings, untested + assumed, excluded, decided)
 
 
 def _market(name: str, entry: Mapping[str, Any], allow_untested: bool) -> MarketInfo:
