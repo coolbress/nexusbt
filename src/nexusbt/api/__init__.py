@@ -7,6 +7,7 @@ live here.
 from __future__ import annotations
 
 import datetime as dt
+import warnings
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,9 +15,11 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from nexusbt import pipeline
 from nexusbt.config import Config, load_config
-from nexusbt.data import DataConfig, _snapshot_markets, open_snapshot
+from nexusbt.contracts import DataProfileWarning, PinsPolicy
+from nexusbt.data import DataConfig, _data_root, _snapshot_markets, open_snapshot
 
 if TYPE_CHECKING:
+    from nexusbt.artifacts import RunStore, RunTxn
     from nexusbt.data import Explanation, Snapshot
     from nexusbt.pipeline import BoundColumn, Factor, Filter, Pipeline, Term
 
@@ -255,6 +258,47 @@ def config() -> Config:
     path = Path("nexusbt.toml") if Path("nexusbt.toml").is_file() else None
     markets = _snapshot_markets(load_config(path))
     return load_config(path, markets=markets) if markets else load_config(path)
+
+
+def _begin_run(
+    store: RunStore, snapshot: Snapshot, cfg: DataConfig, kind: str, name: str,
+    study: str | None = None, **begin: Any,
+) -> RunTxn:  # fmt: skip
+    """4.4 step 6: a run starts with its pin. (snapshot_id, run_id) goes into the index `pins`
+    in the run row's transaction (`RunStore.begin`, the `insert_pin` of `Index.pin`); with
+    `[data] pins = "index+root"` also an empty `PINS/<snapshot_id>/<run_id>` under the data
+    root, whose failure is E30. `retention` is `managed` only when that root pin was written:
+    only then can the producer's clean-up see it (4.2, R3-17)."""
+    txn = store.begin(kind, name, study, snapshot_id=snapshot.id,
+                      snapshot_semantic_hash=snapshot.semantic_hash, **begin)  # fmt: skip
+    retention = "unmanaged"
+    if cfg.pins is PinsPolicy.INDEX_ROOT:
+        root = _data_root(Path(cfg.path))
+        try:
+            if root is None:
+                raise FileNotFoundError("no data root: no LATEST beside the package")
+            if snapshot.id in {"", ".", ".."} or Path(snapshot.id).name != snapshot.id:
+                raise ValueError(f"snapshot id {snapshot.id!r} is not one folder name")
+            pin = root / "PINS" / snapshot.id / txn.run_id
+            pin.parent.mkdir(parents=True, exist_ok=True)
+            pin.touch()
+            retention = "managed"
+        except (OSError, ValueError) as failed:
+            reason = getattr(failed, "strerror", None) or str(failed)  # no local path (2.7)
+            warnings.warn(str(_unmanaged(snapshot.id, txn.run_id, reason)), stacklevel=2)
+    txn.set_manifest({"retention": retention})
+    return txn
+
+
+def _unmanaged(snapshot_id: str, run_id: str, reason: str) -> DataProfileWarning:
+    return DataProfileWarning(
+        what=f"root pin not written ({reason}); retention: unmanaged",
+        where=f"PINS/{snapshot_id}/{run_id} under the data root",
+        why="the producer's clean-up sees only the root PINS/, not the index (4.2, R3-17)",
+        fix="make the data root writable, or set [data] pins = 'index'",
+        more="spec 4.2 and 4.4 step 6; the index pin was written",
+        layer=f"data — snapshot {snapshot_id} / PINS / column - / producer -", subject="pins",
+    )  # fmt: skip
 
 
 def open(path: str | Path) -> Snapshot:  # noqa: A001 - the 3.1 name `nx.open`

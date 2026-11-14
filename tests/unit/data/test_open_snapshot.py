@@ -17,6 +17,8 @@ import pyarrow.parquet as pq
 import pytest
 
 import nexusbt as nx
+from nexusbt.api import _begin_run
+from nexusbt.artifacts import Index, RunStore
 from nexusbt.config import load_config
 from nexusbt.contracts import (
     AccountingDataError,
@@ -24,6 +26,7 @@ from nexusbt.contracts import (
     ConfigError,
     DecimalRatioPolicy,
     FallbacksPolicy,
+    PinsPolicy,
     SnapshotError,
     VerifyPolicy,
 )
@@ -599,3 +602,92 @@ def test_bars_keep_ts_available(tmp_path: Path) -> None:
                 assert (market, bar["ts_available"] in closes[i + 1 : i + 4]) == ("KR", True)
                 late += 1
     assert late > 0
+
+
+def publish(root: Path, tiny: Path, name: str) -> Path:
+    """A producer's publication under `root` (4.2): unchanged partitions hard-linked (R3-16),
+    a `tds.json` of its own naming snapshot `name`, then `LATEST` swapped to it."""
+    shutil.copytree(tiny, root / name, copy_function=os.link)
+    os.unlink(root / name / "tds.json")  # written anew, never through the shared inode
+    shutil.copy2(tiny / "tds.json", root / name / "tds.json")
+    edit_manifest(root / name, lambda d: d.update(snapshot_id=name))
+    (root / "LATEST").write_text(f"{name}\n", encoding="utf-8")
+    return root / name
+
+
+def begun(cfg: DataConfig, runs: Path) -> tuple[str, dict[str, Any]]:
+    """A run started through `api` on the snapshot `cfg` opens (4.4 step 6), sealed at once:
+    its run id and its manifest."""
+    record = _begin_run(RunStore(runs), open_snapshot(cfg), cfg, "backtest", "pin").seal()
+    return record.run_id, json.loads((record.path / "manifest.json").read_text(encoding="utf-8"))
+
+
+def test_pin_in_index(tiny: Path, tmp_path: Path) -> None:
+    """The run's pin is in the index `pins` (the canonical record, 4.2), with the run row."""
+    publish(tmp_path / "data", tiny, "s1")
+    run_id, manifest = begun(DataConfig(path=tmp_path / "data"), tmp_path / "runs")
+    assert Index(tmp_path / "runs").pinned() == {"s1"}
+    assert manifest["retention"] == "managed"
+    assert (tmp_path / "data" / "PINS" / "s1" / run_id).is_file()
+
+
+def test_readonly_root_runs(tiny: Path, tmp_path: Path) -> None:
+    """On a read-only data root the run starts, its pin is in the index, the root pin is an
+    E30 warning and the manifest says `retention: unmanaged` (4.2, R3-17)."""
+    data = tmp_path / "data"
+    folders = [data, publish(data, tiny, "s1"), *(p for p in data.rglob("*") if p.is_dir())]
+    for folder in folders:
+        folder.chmod(0o555)
+    try:
+        with pytest.warns(UserWarning, match=r"(?s)E30.*root pin not written") as said:
+            _, manifest = begun(DataConfig(path=data), tmp_path / "runs")
+    finally:
+        for folder in folders:
+            folder.chmod(0o755)
+    assert Index(tmp_path / "runs").pinned() == {"s1"}
+    assert manifest["retention"] == "unmanaged"
+    assert not (data / "PINS").exists()
+    assert str(tmp_path) not in str(said[0].message)  # no local path in the warning (2.7)
+
+
+def test_default_pins_written_to_root_or_warn(tiny: Path, tmp_path: Path) -> None:
+    """The default `index+root` writes an empty `PINS/<snapshot_id>/<run_id>`; `index` writes
+    none and says `unmanaged` without a warning; a package with no data root warns."""
+    data, runs = tmp_path / "data", tmp_path / "runs"
+    publish(data, tiny, "s1")
+    assert PinsPolicy(load_config(None).values["data"]["pins"]) is PinsPolicy.INDEX_ROOT
+    run_id, manifest = begun(DataConfig(path=data / "s1"), runs)  # the package, root beside it
+    assert ((data / "PINS" / "s1" / run_id).read_bytes(), manifest["retention"]) == (b"", "managed")
+    other, manifest = begun(DataConfig(path=data, pins=PinsPolicy.INDEX), runs)
+    assert not (data / "PINS" / "s1" / other).exists()
+    assert manifest["retention"] == "unmanaged"
+    with pytest.warns(UserWarning, match=r"(?s)E30.*no data root"):
+        _, manifest = begun(DataConfig(path=tiny), runs)  # a package alone: no LATEST, no PINS
+    assert manifest["retention"] == "unmanaged"
+    for name, bad in (("s2", "../s1"), ("s3", "")):  # never outside PINS/<snapshot_id>/
+        edit_manifest(publish(data, tiny, name), lambda d, bad=bad: d.update(snapshot_id=bad))
+        with pytest.warns(UserWarning, match=r"(?s)E30.*not one folder name"):
+            _, manifest = begun(DataConfig(path=data), runs)
+        assert manifest["retention"] == "unmanaged"
+    assert sorted(p.name for p in data.rglob("*") if p.parent.name == "PINS") == ["s1"]
+    assert Index(runs).pinned() == {"s1", "synth-0001", "../s1", ""}
+    toml = tmp_path / "nexusbt.toml"  # `[data] pins` reaches the open through the config
+    toml.write_text(f'[data]\npath = "{data.as_posix()}"\npins = "index"\n', encoding="utf-8")
+    assert DataConfig.from_config(load_config(toml)).pins is PinsPolicy.INDEX
+
+
+def test_default_pin_survives_three_publications(tiny: Path, tmp_path: Path) -> None:
+    """A run pins s1; the producer then publishes s2, s3 and s4 with s1's partitions hard-linked,
+    and a run starts on each. s1's index pin and root pin stay, and s1 still opens on its
+    verification stamp, as the shared files keep their identity (R3-16, R3-17)."""
+    data, runs, stamps = tmp_path / "data", tmp_path / "runs", tmp_path / "runs/.cache/verified"
+    publish(data, tiny, "s1")
+    first, _ = begun(DataConfig(path=data), runs)
+    open_snapshot(DataConfig(path=data / "s1", stamps=stamps), sha256=True)
+    for name in ("s2", "s3", "s4"):
+        publish(data, tiny, name)
+        begun(DataConfig(path=data), runs)
+    assert Index(runs).pinned() == {"s1", "s2", "s3", "s4"}
+    assert (data / "PINS" / "s1" / first).is_file()
+    assert open_snapshot(DataConfig(path=data)).id == "s4"
+    assert open_snapshot(DataConfig(path=data / "s1", stamps=stamps), sha256=True).id == "s1"
