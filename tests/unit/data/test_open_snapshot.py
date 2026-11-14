@@ -160,6 +160,8 @@ def test_edited_markets_change_the_semantic_hash_at_open(tiny: Path, tmp_path: P
     assert (s.value_hash, s.physical_hash) == (
         declared["value_sha256"], declared["physical_sha256"])  # fmt: skip
     assert open_snapshot(DataConfig(path=tiny)).semantic_hash == declared["semantic_sha256"]
+    edit_manifest(edited, lambda d: dataset(d, "bars_1d").pop("value_sha256"))  # none: computed
+    assert open_snapshot(DataConfig(path=edited)).semantic_hash == s.semantic_hash
 
 
 def test_open_path_and_latest_parent(root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
