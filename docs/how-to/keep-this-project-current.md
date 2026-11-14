@@ -24,6 +24,12 @@ When the [release note](https://github.com/coolbress/plinth/releases) names
 another command, such as `claude plugin update <name>@plinth`, run it too. Then
 type `/reload-plugins` in Claude Code, or start a new session.
 
+Do not turn on automatic updates from inside this project. In Claude Code,
+`/plugin`, then Marketplaces, plinth, Enable auto-update, chosen in a session
+in this repository, rewrites this project's committed `.claude/settings.json`.
+To have new versions of plinth arrive by themselves, make that choice in a
+session started outside any project.
+
 **Done when:** `claude plugin list` shows `plinth@plinth` at the version on top
 of <https://github.com/coolbress/plinth/releases>.
 
@@ -49,8 +55,8 @@ version, and `/plinth:template-update` says there is nothing to update.
 ## 3. Merge the plinth pin pull request
 
 **What it brings:** changes to plinth's checks.
-`.github/workflows/ci.yml` and `label.yml` call plinth at one fixed commit, the
-pin. Dependabot raises the pin by opening a pull request, which may also raise
+`.github/workflows/ci.yml` and `label.yml` call plinth
+at one fixed commit, the pin. Dependabot raises the pin by opening a pull request, which may also raise
 other actions. It is merged on green like any other.
 
 **What to run:** in a terminal in this repository:
