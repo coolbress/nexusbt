@@ -16,6 +16,7 @@ from nexusbt.contracts import (
     ConfigError,
     DecimalRatioPolicy,
     FallbacksPolicy,
+    PinsPolicy,
     SnapshotError,
     VerifyPolicy,
 )
@@ -50,7 +51,8 @@ class DataConfig:
 
     `path` is a package folder or a folder with `LATEST` (4.2, V31-PUB-03); `markets` are the
     markets the run needs, each of which must have a rules pack (4.4-4); `stamps` is the folder
-    of the verification stamps, `<runs.dir>/.cache/verified` (4.2), None for no stamp."""
+    of the verification stamps, `<runs.dir>/.cache/verified` (4.2), None for no stamp; `pins`
+    is where a run's pin goes besides the index (4.2, 4.4-6)."""
 
     path: Path
     verify: VerifyPolicy = VerifyPolicy.MANIFEST
@@ -59,6 +61,7 @@ class DataConfig:
     decimal_ratio: DecimalRatioPolicy = DecimalRatioPolicy.EXCLUDE_INSTRUMENT
     fallbacks: FallbacksPolicy = FallbacksPolicy.WARN
     stamps: Path | None = None
+    pins: PinsPolicy = PinsPolicy.INDEX_ROOT
 
     @classmethod
     def from_config(cls, config: Config) -> DataConfig:
@@ -79,7 +82,8 @@ class DataConfig:
         ratio = DecimalRatioPolicy(config.values["corporate_actions"]["decimal_ratio"])
         stamps = Path(config.values["runs"]["dir"]) / ".cache" / "verified"
         return cls(path, VerifyPolicy(data["verify"]), allow_untested=allow, decimal_ratio=ratio,
-                   fallbacks=FallbacksPolicy(data["fallbacks"]), stamps=stamps)  # fmt: skip
+                   fallbacks=FallbacksPolicy(data["fallbacks"]), stamps=stamps,
+                   pins=PinsPolicy(data["pins"]))  # fmt: skip
 
 
 @dataclass(frozen=True, slots=True)
@@ -206,6 +210,15 @@ class Snapshot:
 
     def explain(self, instrument_id: str, field: str, ts: object) -> Explanation:
         raise NotImplementedError
+
+
+def _data_root(path: Path) -> Path | None:
+    """The data root: the folder holding `LATEST`, given or the package's parent (4.2); None
+    for a package alone, which another producer may give (no `LATEST`, no `PINS/`)."""
+    for folder in (path, path.parent):
+        if (folder / "LATEST").is_file():
+            return folder
+    return None
 
 
 def _package(path: Path) -> Path:
