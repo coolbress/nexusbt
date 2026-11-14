@@ -277,7 +277,7 @@ def _begin_run(
         try:
             if root is None:
                 raise FileNotFoundError("no data root: no LATEST beside the package")
-            if snapshot.id in {".", ".."} or Path(snapshot.id).name != snapshot.id:
+            if snapshot.id in {"", ".", ".."} or Path(snapshot.id).name != snapshot.id:
                 raise ValueError(f"snapshot id {snapshot.id!r} is not one folder name")
             pin = root / "PINS" / snapshot.id / txn.run_id
             pin.parent.mkdir(parents=True, exist_ok=True)

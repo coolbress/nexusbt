@@ -664,11 +664,16 @@ def test_default_pins_written_to_root_or_warn(tiny: Path, tmp_path: Path) -> Non
     with pytest.warns(UserWarning, match=r"(?s)E30.*no data root"):
         _, manifest = begun(DataConfig(path=tiny), runs)  # a package alone: no LATEST, no PINS
     assert manifest["retention"] == "unmanaged"
-    edit_manifest(publish(data, tiny, "s2"), lambda d: d.update(snapshot_id="../s1"))
-    with pytest.warns(UserWarning, match=r"(?s)E30.*not one folder name"):  # never outside PINS/
-        begun(DataConfig(path=data), runs)
+    for name, bad in (("s2", "../s1"), ("s3", "")):  # never outside PINS/<snapshot_id>/
+        edit_manifest(publish(data, tiny, name), lambda d, bad=bad: d.update(snapshot_id=bad))
+        with pytest.warns(UserWarning, match=r"(?s)E30.*not one folder name"):
+            _, manifest = begun(DataConfig(path=data), runs)
+        assert manifest["retention"] == "unmanaged"
     assert sorted(p.name for p in data.rglob("*") if p.parent.name == "PINS") == ["s1"]
-    assert Index(runs).pinned() == {"s1", "synth-0001", "../s1"}
+    assert Index(runs).pinned() == {"s1", "synth-0001", "../s1", ""}
+    toml = tmp_path / "nexusbt.toml"  # `[data] pins` reaches the open through the config
+    toml.write_text(f'[data]\npath = "{data.as_posix()}"\npins = "index"\n', encoding="utf-8")
+    assert DataConfig.from_config(load_config(toml)).pins is PinsPolicy.INDEX
 
 
 def test_default_pin_survives_three_publications(tiny: Path, tmp_path: Path) -> None:
