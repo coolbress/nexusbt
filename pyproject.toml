@@ -9,12 +9,12 @@ license-files = ["LICENSE"]
 authors = [{ name = "coolbress" }]
 # The package ships `py.typed`: a type checker reads its annotations.
 classifiers = ["Typing :: Typed"]
-# `nexusbt-tds>=1.0,<2` (spec 9.1) joins this list with the first module that imports it at
-# run time (T1.1a); until then `data` imports it under `TYPE_CHECKING` and inside a call (#53).
+# `nexusbt-tds>=1.0,<2` (spec 9.1): `data` calls the checker when it opens a snapshot (T1.1a).
 # pyarrow, for the `pa.Table` of 2.4: 2.2's lock version; the range leaves patch releases
 # to uv.lock. numpy: 2.2's 2.5.3, below 2.6 for numba 0.68. exchange-calendars: 2.2's 4.13.2,
 # exact; it brings pandas with it (#58 Decisions).
-dependencies = ["pyarrow>=26.0.0,<27", "numpy>=2.5.3,<2.6", "exchange-calendars==4.13.2"]
+dependencies = ["nexusbt-tds>=1.0,<2", "pyarrow>=26.0.0,<27", "numpy>=2.5.3,<2.6",
+                "exchange-calendars==4.13.2"]
 
 [project.scripts]
 nexusbt = "nexusbt.cli.main:main"

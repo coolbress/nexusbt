@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from nexusbt import pipeline
 from nexusbt.config import Config, load_config
-from nexusbt.data import _snapshot_markets
+from nexusbt.data import DataConfig, _snapshot_markets, open_snapshot
 
 if TYPE_CHECKING:
     from nexusbt.data import Explanation, Snapshot
@@ -258,4 +258,5 @@ def config() -> Config:
 
 
 def open(path: str | Path) -> Snapshot:  # noqa: A001 - the 3.1 name `nx.open`
-    raise NotImplementedError
+    """One package folder, or a parent folder whose `LATEST` names one (4.2, V31-PUB-03)."""
+    return open_snapshot(DataConfig(Path(path)))

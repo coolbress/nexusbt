@@ -12,6 +12,9 @@ from nexusbt.api import config as config
 # `describe` of a term, T1.5 (#237); the Terms row (3.1) of T1.5 is bound after the errors.
 from nexusbt.api import describe as describe
 
+# `open` [V31-PUB-03], T1.1a (#232): one package path, or a parent folder with `LATEST`.
+from nexusbt.api import open as open  # noqa: A004 - the 3.1 name; `builtins.open` is untouched
+
 # Errors (3.1): `NexusBTError` and the 6.6 classes E1~E39, T0.4 (#49); E40~E49, T0.4b (#52).
 from nexusbt.contracts import AccountingDataError as AccountingDataError
 from nexusbt.contracts import AccountNotEvaluatedNotice as AccountNotEvaluatedNotice
