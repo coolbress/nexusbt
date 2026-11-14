@@ -5,12 +5,17 @@ The package's `nexusbt_tds/schemas/data` links to `tds/schemas`, where the files
 
 from __future__ import annotations
 
+import datetime as dt
 import re
 import shutil
 from pathlib import Path
+from typing import Any
 
+import pyarrow as pa
 import pytest
 
+from nexusbt_tds import check
+from nexusbt_tds.profiles import PROFILES
 from nexusbt_tds.schemas.verify import (
     CHAPTER_5,
     SCHEMA_DIR,
@@ -25,6 +30,8 @@ from nexusbt_tds.schemas.verify import (
     section_status,
 )
 from nexusbt_tds.schemas.verify import DOC as TDS_DOC
+
+from .conformance_build import build
 
 SAMPLE_DOC = """\
 ## 5. Dataset kinds
@@ -185,6 +192,60 @@ def test_schema_files_cover_stable_datasets() -> None:
     assert len(stable) == 23  # 5.1-5.5, 5.10-5.21, 5.25 and 5.27 (5.12 and 5.26 name none)
     schemas = load_schemas()
     assert [k for k in stable if k not in schemas or schemas[k].status != "stable"] == []
+
+
+def test_every_stable_schema_column_has_a_type() -> None:
+    """#105: chapter 5 types every stable column; an experimental one may wait for its schema."""
+    schemas = load_schemas()
+    stable = {k: s for k, s in schemas.items() if s.status == "stable"}
+    assert [(k, c.name) for k, s in stable.items() for c in s.columns if c.type is None] == []
+    assert any(c.type is None for c in schemas["quotes"].columns)
+    known_to = {c.name: c.null for c in schemas["universe_membership"].columns}["ts_known_to"]
+    assert known_to is True  # 5.20, 6.3: an open known interval
+
+
+_RULE = {"rule_id": "us-tick", "market": "US", "rule_kind": "tick_band", "venue_group": "*",
+         "valid_from": dt.date(2024, 1, 2), "price_from": 0.0, "tick_size": 0.01,
+         "source": "https://example.test/r", "verified": False}  # fmt: skip
+_LIMIT = _RULE | {"rule_kind": "price_limit", "tick_size": None, "limit_ratio": 0.3}
+
+
+def _without(column: str, *rows: dict[str, Any]) -> list[dict[str, Any]]:
+    return [{k: v for k, v in row.items() if k != column} for row in rows]
+
+
+@pytest.mark.parametrize(
+    ("rows", "found", "keyed"),
+    [
+        ([_RULE], [], True),  # an unverified rule is data: `verified` is the release's to read
+        ([_LIMIT, _RULE], [], True),  # one rule set, its two kinds
+        (_without("verified", _RULE), ["TDS-S001"], True),
+        ([_LIMIT | {"verified": None}, _RULE], ["TDS-S003"], True),
+        ([_RULE | {"verified": "no"}], ["TDS-S002"], True),
+        ([_RULE, _RULE], ["TDS-K001", "TDS-T003"], True),  # the 5.27 key twice: one band twice
+        # `price_from` may be null, and a file without the column has no key to compare: the
+        # same rule twice is then not found, and K001 is listed as not checked; its bands, both
+        # from 0, still overlap (T003, #225)
+        (_without("price_from", _RULE, _RULE), ["TDS-T003"], False),
+    ],
+)
+def test_market_rules_schema_stable_optional(
+    rows: list[dict[str, Any]], found: list[str], keyed: bool, tmp_path: Path
+) -> None:
+    """TDS 5.27: stable, in no profile's required datasets, checked by its schema file and key."""
+    schema = load_schemas()["market_rules"]
+    key = ["rule_id", "rule_kind", "venue_group", "valid_from", "price_from"]
+    assert (schema.status, schema.key, schema.sort) == ("stable", key, key)
+    needed = {kind for p in PROFILES.values() for group in (*p.requires, *p.requires_multi_market)
+              for alt in group for kind, _ in alt}  # fmt: skip
+    assert "market_rules" not in needed
+    manifest, files = build.base()
+    build._add("market_rules", pa.Table.from_pylist(rows).to_pydict())(manifest, files)
+    result = check(build.write(tmp_path, manifest, files), level="full")
+    assert [(f.code, f.dataset) for f in (*result.errors, *result.warnings)] == [
+        (code, "market_rules") for code in found
+    ]
+    assert ("TDS-K001" not in result.unchecked) == keyed
 
 
 def test_each_chapter_5_kind_is_named_in_its_section() -> None:

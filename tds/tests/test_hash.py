@@ -5,7 +5,9 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import json
+import os
 import shutil
+import tracemalloc
 from pathlib import Path
 from typing import Any
 
@@ -14,14 +16,17 @@ import pyarrow.parquet as pq
 import pytest
 
 from nexusbt_tds import cli
+from nexusbt_tds import hash as tds_hashes
 from nexusbt_tds.hash import (
     HashError,
     canonical_json,
     encode_table,
+    package_hashes,
     semantic_hash,
     semantic_json,
     value_hash,
 )
+from nexusbt_tds.manifest import read_manifest
 
 from . import ref_encoder
 
@@ -32,6 +37,15 @@ ARROW = {
     "id": pa.string(), "code": pa.string(), "ts_us": pa.timestamp("us", "UTC"),
     "ts_ns": pa.timestamp("ns", "UTC"), "list<code>": pa.list_(pa.string()), "json": pa.string(),
 }  # fmt: skip
+
+
+@pytest.fixture(autouse=True, params=["in memory", "in sorted runs"])
+def sorted_in(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> str:
+    """Every hash here twice: a dataset sorted whole, and one row per run (#309's external sort,
+    a run per batch written to a temporary file and merged): the same bytes either way."""
+    if request.param == "in sorted runs":
+        monkeypatch.setattr(tds_hashes, "BATCH_ROWS", 1)
+    return str(request.param)
 
 
 def arrow_table(vector: dict[str, Any]) -> pa.Table:
@@ -136,6 +150,8 @@ def with_ts_start(unit: str) -> dict[str, pa.Table]:
     ({"partitioning": [MARKET, YEAR, {"name": "venue", "type": "code"}]}, "no value"),
     ({"partitioning": [MARKET, {"name": "year", "type": "bool"}]}, "no path rule"),
     ({"columns": [{"name": "ts_start", "type": "ts_us/ns"}]}, "no declared type"),
+    ({"columns": [{"name": "ts_start", "type": "i64"}]}, "no declared type"),
+    ({"columns": [{"name": "ts_start", "type": "string"}]}, "no declared type"),
     ({"key": ["instrument_id", "nope"], "columns": [{"name": "ts_start", "type": "ts_us"}]},
      "not in the data"),
 ])  # fmt: skip
@@ -171,6 +187,18 @@ def test_declared_column_vector(tmp_path: Path) -> None:
     (vector,) = (v for v in VECTORS["vectors"] if v["name"] == "declared_non_schema_column")
     parts = {"features/p.parquet": arrow_table(vector)}
     assert value_hash(package(tmp_path, FEATURES, parts), "features") == vector["sha256"]
+
+
+@pytest.mark.parametrize("said", ["ts_ns", "i64", None])
+def test_a_typed_column_takes_the_schema_type(tmp_path: Path, said: str | None) -> None:
+    # `ts_available` is `ts_us` in the schema file: another declaration is S002 at the schema
+    # level, and the hash still takes the schema's tag (TDS 4.5 step 3, #404).
+    kept = [{"name": "instrument_id", "type": "id"}, {"name": "momentum", "type": "f64"}]
+    declared = [*kept, {"name": "ts_available", "type": said}] if said else kept
+    parts = {"features/p.parquet": features(1.0)}
+    other = package(tmp_path / "other", {**FEATURES, "columns": declared}, parts)
+    same = package(tmp_path / "same", FEATURES, parts)
+    assert value_hash(other, "features") == value_hash(same, "features")
 
 
 def test_a_declared_unit_sets_the_bytes(tmp_path: Path) -> None:
@@ -340,3 +368,90 @@ def test_file_value_hash_written(tmp_path: Path, capsys: pytest.CaptureFixture[s
         assert entry["value_sha256"] == value_hash(alone, "bars_1d")  # that file's rows only
         assert printed[entry["path"]] == f"{entry['sha256']} {entry['value_sha256']}"
     assert tds_hash(pkg, capsys) == printed  # writing the hashes does not change them
+
+
+def test_sorted_runs_go_beside_the_package_and_are_removed(tmp_path: Path, sorted_in: str) -> None:
+    pkg = package(tmp_path / "pkg", BARS_TWO, PARTS)
+    spilled: list[Path] = []
+    assert package_hashes(pkg, spilled=spilled)["value_sha256"]
+    assert [p.parent for p in spilled] == ([tmp_path] if sorted_in == "in sorted runs" else [])
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["pkg"]  # nothing left beside it
+
+
+def test_sorted_runs_are_removed_when_the_hash_fails(tmp_path: Path, sorted_in: str) -> None:
+    # `x_note` declared i64: the first file's nulls encode, the second file's text does not
+    note = {**BARS_TWO, "columns": [{"name": "x_note", "type": "i64"}]}
+    first, second = PARTS.values()
+    notes = [pa.nulls(2, pa.int64()), pa.array(["text"])]
+    tables = [t.append_column("x_note", n) for t, n in zip((first, second), notes, strict=True)]
+    pkg = package(tmp_path / "pkg", note, dict(zip(PARTS, tables, strict=True)))
+    spilled: list[Path] = []
+    with pytest.raises(HashError, match="bars_1d"):
+        package_hashes(pkg, spilled=spilled)
+    assert len(spilled) == (sorted_in == "in sorted runs")  # written, then the hash failed
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["pkg"]
+
+
+@pytest.mark.parametrize(("files", "message"), [
+    (lambda fs: [*fs, fs[0]], r"bars_1d: a file is listed twice \(TDS-M013\)"),
+    (lambda fs: [], "bars_1d: no files, no rows to hash"),
+])  # fmt: skip
+def test_a_dataset_hash_refuses_files_it_cannot_hash(
+    tmp_path: Path, files: Any, message: str
+) -> None:
+    pkg = package(tmp_path / "pkg", BARS_TWO, PARTS)  # `tds hash` stops a file listed twice
+    (entry,) = read_manifest(pkg).datasets  # earlier, in the inventory: here, a caller of its own
+    with pytest.raises(HashError, match=message):
+        tds_hashes.dataset_hashes(pkg, {**entry, "files": files(entry["files"])}, tmp_path, [])
+
+
+def test_a_sorted_run_that_ends_early_fails_the_hash(tmp_path: Path) -> None:
+    run = tmp_path / "run.tmp"  # a record that says its key is 10 bytes, then 5 bytes
+    run.write_bytes(tds_hashes._RECORD.pack(10, 0, 0, 0) + b"short")
+    fd = os.open(run, os.O_RDONLY)
+    try:
+        with pytest.raises(HashError, match="a temporary sort file ended early"):
+            list(tds_hashes._run(fd, 0, run.stat().st_size))
+    finally:
+        os.close(fd)
+
+
+def test_short_reads_of_a_sorted_run_still_give_the_hash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A network file system may return fewer bytes than asked before the end (#309's review of
+    #325): the merge reads again rather than failing the hash."""
+    pread = os.pread
+    monkeypatch.setattr(os, "pread", lambda fd, n, at: pread(fd, min(n, 7), at))
+    assert value_hash(package(tmp_path / "pkg", BARS_TWO, PARTS), "bars_1d") == PUBLISHED
+
+
+def test_the_merge_buffers_share_one_budget_however_many_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#309: each run's read buffer was 32 KiB, so 927 runs (`bars_1d`) held 30 MB. The runs now
+    share `_MERGE_BYTES`; here 200 runs of 40 KB merge in a 1 MiB budget."""
+    monkeypatch.setattr(tds_hashes, "_MERGE_BYTES", 1 << 20)
+    records = [(f"{n:08}".encode(), b"x" * 92, 0, b"") for n in range(80_000)]
+    with tds_hashes.SortedRuns(tmp_path, []) as runs:
+        for start in range(0, len(records), 400):
+            runs.add(records[start : start + 400])
+        del records
+        tracemalloc.start()
+        merged = sum(1 for _ in runs.merged())
+        peak = tracemalloc.get_traced_memory()[1]
+        tracemalloc.stop()
+    assert merged == 80_000
+    assert peak < 2 << 20, peak  # the 1 MiB of buffers, a record per run and the heap
+
+
+def test_tds_hash_writes_sorted_runs_to_the_folder_named(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], sorted_in: str
+) -> None:
+    pkg, scratch = package(tmp_path / "pkg", BARS_TWO, PARTS), tmp_path / "scratch"
+    scratch.mkdir()
+    assert cli.main(["hash", str(pkg), "--tmp-dir", str(scratch)]) == 0
+    out, err = capsys.readouterr()
+    assert f"bars_1d {PUBLISHED}" in out.splitlines()
+    assert (str(scratch) in err) == (sorted_in == "in sorted runs")  # where, on stderr
+    assert list(scratch.iterdir()) == []

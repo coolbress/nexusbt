@@ -8,12 +8,15 @@ leaves K003 unchecked; a file's time range is its `<ts_min>_<ts_max>` name (3.6)
 
 from __future__ import annotations
 
+import ast
 import datetime as dt
 import re
-from collections import Counter, defaultdict
-from collections.abc import Iterable, Mapping, Sequence
+from collections import defaultdict
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import replace
-from itertools import combinations, pairwise
+from functools import cache
+from itertools import combinations, groupby
+from operator import itemgetter
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -21,6 +24,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from .check import KEY_CODES, Finding, _unsafe
+from .hash import TIME_TYPES, HashError, Record, SortedRuns, resolved_columns, spill_folder
 from .manifest import Manifest
 from .profiles import meets
 
@@ -30,51 +34,222 @@ PANELS = frozenset({"feature_panels", "label_panels"})
 _STAMP = r"(\d{4}-\d\d-\d\dT\d\d)-(\d\d)-(\d\d)(?:-(\d{1,9}))?(Z|[+-]\d\d-\d\d)"
 _RANGE = re.compile(rf"{_STAMP}_{_STAMP}\.parquet")  # 3.6, `:` and `.` written as `-`
 
+#: The columns K010 and K011 keep as rows, of the two small tables they judge.
+KEPT = {
+    "instrument_symbols": ("symbol_type", "symbol", "venue_mic", "instrument_id", "valid_from",
+                           "valid_to", "ts_known_from", "ts_known_to"),
+    "calendar_sessions": ("calendar_id", "session_date", "session_ord"),
+}  # fmt: skip
+BATCH_ROWS = 65_536
 Row = dict[str, Any]
-File = tuple[str, dict[str, str], list[Row]]  # path, partition values, rows
+Batch = dict[str, list[Any]]
+_EPOCH = dt.datetime(1970, 1, 1)
+_NS = {"s": 10**9, "ms": 10**6, "us": 10**3, "ns": 1}
 
 
-def check_keys(m: Manifest, only: Sequence[str] | None, blind: set[str]) -> list[Finding]:
+class Instant(int):
+    """An instant as nanoseconds since the epoch, which is how `batches` gives a timestamp of any
+    unit: pyarrow makes a `timestamp[ns]` value a `datetime` only when pandas is there or the
+    value is a whole microsecond (#382). It compares and adds as an integer; its text is the
+    instant in UTC, as a `datetime`'s is."""
+
+    __slots__ = ()
+
+    def __str__(self) -> str:
+        seconds, ns = divmod(int(self), 10**9)
+        try:
+            when = (_EPOCH + dt.timedelta(seconds=seconds)).isoformat(" ")
+        except OverflowError:  # outside years 1 to 9999: no calendar date to write
+            return f"{int(self)} ns"
+        return f"{when}{f'.{ns:09}' if ns % 1000 else f'.{ns // 1000:06}' if ns else ''}+00:00"
+
+    def iso(self) -> str:
+        """The text with ISO 8601's `T`, as a `datetime`'s `isoformat()`."""
+        text = str(self)
+        return text if text.endswith(" ns") else text.replace(" ", "T")
+
+
+def check_keys(
+    m: Manifest, only: Sequence[str] | None, blind: set[str],
+    tmp_dir: Path | None = None, spilled: list[Path] | None = None,
+    notes: list[str] | None = None,
+) -> list[Finding]:  # fmt: skip
+    """K001~K011 reading, of the datasets checked, the key, sort and date columns in batches
+    (#309). Memory holds a batch, the last row of each folder (K002) and, of `KEPT`'s tables,
+    their columns as rows; K001's keys go in sorted runs to a temporary file (in `tmp_dir`, else
+    beside the package; listed in `spilled`, removed), and when none can be made K001 alone is
+    unchecked, why in `notes`. A file the codes cannot read, or one with a column name twice,
+    leaves them unchecked."""
     from .schemas.verify import load_schemas
 
     schemas, root, out = load_schemas(), m.root.resolve(), []
+    folder, spilled = spill_folder(m.root, tmp_dir), [] if spilled is None else spilled
+    notes = [] if notes is None else notes
     for ds in (d for d in m.datasets if only is None or d.get("name") in only):
         kind, schema = ds.get("kind"), schemas.get(str(ds.get("kind")))
-        files = _read(root, ds)
-        if files is None:  # a file Parquet cannot read: S010's, its rows unseen
-            blind.update(KEY_CODES)
-            continue
         params = ds["params"] if isinstance(ds.get("params"), dict) else {}
         key = _variant(ds.get("key", schema.key if schema else None), params)
         sort = _variant(ds.get("sort", schema.sort if schema else None), params)
-        found = [*_duplicates(files, key, blind), *_unsorted(files, sort, blind)]
-        found += [*_off_partition(files, "period" if kind in PANELS else "session_date", blind)]
-        found += [*_overlaps(files)]
-        rows = [r for _, _, rs in files for r in rs]
-        found += _reused(rows, blind) if kind == "instrument_symbols" else []
-        found += _numbering(rows) if kind == "calendar_sessions" else []
+        try:
+            with SortedRuns(folder, spilled) as runs:
+                found = _scan(root, ds, str(kind), key, sort, blind, runs, notes)
+        except (OSError, pa.ArrowException):  # a file Parquet cannot read: S010's, rows unseen
+            blind.update(KEY_CODES)
+            continue
         out += [replace(f, dataset=ds.get("name")) for f in found]
     return out
 
 
-def _read(root: Path, ds: Mapping[str, Any]) -> list[File] | None:
-    """Each listed file once (a second listing is M013's), partition values from the path."""
-    out, seen = [], set()
-    listed = ds.get("files")
-    for entry in listed if isinstance(listed, list) else []:
+@cache
+def _schemas() -> Mapping[str, Any]:
+    from .schemas.verify import load_schemas
+
+    return load_schemas()
+
+
+class Untyped(pa.ArrowTypeError):  # type: ignore[misc]  # pyarrow ships no type hints
+    """A time column stored as another Arrow type (S002's): its values are not read, so the
+    codes that compare them are unchecked, the same with pandas and without (#389)."""
+
+
+def time_columns(ds: Mapping[str, Any]) -> dict[str, str]:
+    """The dataset's columns of a time type, by name, as its schema file and `tds.json` resolve
+    them (`hash.resolved_columns`); a kind with no schema file, its declared ones only."""
+    schema = _schemas().get(str(ds.get("kind")))
+    columns = resolved_columns(ds, schema.columns if schema else ())
+    return {c.name: c.type for c in columns if c.type in TIME_TYPES}
+
+
+def batches(
+    root: Path, rel: str, parts: Mapping[str, str], columns: Sequence[str], size: int,
+    times: Mapping[str, str],
+) -> Iterator[tuple[int, Batch]]:  # fmt: skip
+    """`columns` of the file `rel`, `size` rows at a time, as (rows, Python lists); a column the
+    file does not store takes its partition value from the path, and one in neither is left out.
+    A timestamp column comes as `Instant`s, with or without a time zone (S004's to tell); a
+    column of `times` (`time_columns`) stored as another type raises `Untyped` before a row is
+    read."""
+    source = pq.ParquetFile(root / rel)
+    arrow = source.schema_arrow
+    names = arrow.names
+    if len(set(names)) < len(names):  # which of two `instrument_id`s? its rows unseen
+        raise pa.ArrowInvalid(f"{rel}: a column name twice")
+    stored = [c for c in columns if c in names]
+    for c in (c for c in stored if c in times and not TIME_TYPES[times[c]](arrow.field(c).type)):
+        raise Untyped(f"{rel}: {c} is {arrow.field(c).type}, TDS type {times[c]}")
+    for batch in source.iter_batches(batch_size=size, columns=stored):
+        given = {c: [parts[c]] * batch.num_rows for c in columns if c in parts}
+        yield batch.num_rows, given | {c: _values(batch.column(c)) for c in stored}
+
+
+def _values(column: pa.Array) -> list[Any]:
+    """A column as Python values; a timestamp of any unit as `Instant`s, nothing lost."""
+    if not pa.types.is_timestamp(column.type):
+        return list(column.to_pylist())
+    scale = _NS[column.type.unit]  # in Python integers: a far `timestamp[s]` does not overflow
+    return [None if v is None else Instant(v * scale) for v in column.cast(pa.int64()).to_pylist()]
+
+
+def ranked(rows: Sequence[Row]) -> tuple[list[Row], dict[Any, int]]:
+    """`rows` with each `Instant` replaced by its rank among theirs, and the ranks: the same
+    order, in numbers an Arrow table holds, which the nanoseconds of a year past 2262 are not."""
+    seen = {v for r in rows for v in r.values() if isinstance(v, Instant)}
+    rank = {v: i for i, v in enumerate(sorted(seen))}
+    return [{c: rank[v] if isinstance(v, Instant) else v for c, v in r.items()} for r in rows], rank
+
+
+def _scan(
+    root: Path, ds: Mapping[str, Any], kind: str, key: list[str] | None,
+    sort: list[str] | None, blind: set[str], runs: SortedRuns, notes: list[str],
+) -> list[Finding]:  # fmt: skip
+    """One pass over the files in path order, so each folder's files come in name order (3.5)."""
+    date, kept = "period" if kind in PANELS else "session_date", KEPT.get(kind, ())
+    files, typed = sorted(listed(root, ds)), time_columns(ds)
+    unseen = {c for c, cols in ((K001, key), (K002, sort)) if cols is None}  # not judged
+    pending: list[Record] = []  # K001: keys not yet in a sorted run
+    last: dict[str, list[Any]] = {}  # K002, per folder: the last row's sort values
+    unsorted: dict[str, tuple[int, str, Row]] = {}  # per folder: count, first file and row
+    off: list[Finding] = []
+    rows: list[Row] = []
+    for rel, parts in files:
+        folder = rel.rpartition("/")[0]
+        own = tuple(sorted((p, v) for p, v in parts.items() if p not in TIME_PARTS))
+        times = [(p, parts[p]) for p in TIME_PARTS if p in parts]
+        wanted = dict.fromkeys([*(key or []), *(sort or []), *([date] if times else []), *kept])
+        days: list[Any] = []  # K003: this file's dates outside one of its folders
+        dateless = False  # a row without the date column: K003 unchecked for this file
+        for n, b in batches(root, rel, parts, list(wanted), BATCH_ROWS, typed):
+            if not n:  # pragma: no cover - a row group of no rows, which pyarrow does not write
+                continue
+            if key is None or any(c not in b for c in key):
+                unseen.add(K001)
+            elif K001 not in unseen:
+                columns = (_literals(b[c]) for c in key)
+                pending += ((repr((*k, own)).encode(), b"", 0, b"")
+                            for k in zip(*columns, strict=True))  # fmt: skip
+                if len(pending) >= BATCH_ROWS:
+                    _add(runs, pending, unseen, notes)
+                    pending = []
+            if sort is None or any(c not in b for c in sort):
+                unseen.add(K002)
+            else:
+                ordered = zip(*([(v is None, v) for v in b[c]] for c in sort), strict=True)
+                for i, now in enumerate(map(list, ordered)):  # a null sorts last
+                    if folder in last and now < last[folder]:
+                        seen = unsorted.get(folder) or (0, rel, {c: b[c][i] for c in sort})
+                        unsorted[folder] = (seen[0] + 1, *seen[1:])
+                    last[folder] = now
+            dateless = dateless or (bool(times) and date not in b)
+            if times and not dateless:
+                days += [d for d in b[date] if isinstance(d, dt.date)
+                         and any(_folder(p, d) != value for p, value in times)]  # fmt: skip
+            have = [c for c in kept if c in b]  # none: n rows without them, for K010 to see
+            rows += [{c: b[c][i] for c in have} for i in range(n)] if kept else []
+        if dateless:
+            unseen.add(K003)
+            continue
+        for part, value in times:
+            if bad := [d for d in days if _folder(part, d) != value]:
+                msg = f"{len(bad)} row(s) with {date} outside {part}={value}, e.g. {bad[0]}"
+                off.append(Finding(K003, "error", msg, file=rel, count=len(bad)))
+    _add(runs, pending, unseen, notes)
+    blind.update(unseen)
+    found = [] if K001 in unseen else list(_duplicates(runs.merged(), key or []))
+    for count, rel, row in [] if K002 in unseen else unsorted.values():
+        msg = f"{count} row(s) sort before the row above them by {', '.join(sort or [])}"
+        found.append(Finding(K002, "error", msg, file=rel, key=_shown(list(row), row), count=count))
+    found += [*off, *_overlaps([rel for rel, _ in files])]
+    found += _reused(rows, blind) if kind == "instrument_symbols" else []
+    found += _numbering(rows) if kind == "calendar_sessions" else []
+    return found
+
+
+def _add(runs: SortedRuns, pending: list[Record], unseen: set[str], notes: list[str]) -> None:
+    """K001's keys as one more sorted run; with no temporary file for it, K001 is unchecked."""
+    try:
+        runs.add(sorted(pending, key=itemgetter(0)))
+    except HashError as exc:
+        unseen.add(K001)
+        notes.append(f"{K001} not checked: {exc}")
+
+
+def _folder(part: str, day: dt.date) -> str:
+    """The `year=` or `date=` folder a day belongs in."""
+    return str(day.year) if part == "year" else day.isoformat()
+
+
+def listed(root: Path, ds: Mapping[str, Any]) -> Iterator[tuple[str, dict[str, str]]]:
+    """Each listed file once (a second listing is M013's) that is inside the package and there
+    (M012, M004), with its partition values from the path."""
+    seen = set()
+    files = ds.get("files")
+    for entry in files if isinstance(files, list) else []:
         rel = entry.get("path") if isinstance(entry, dict) else None
         if not isinstance(rel, str) or (rel := str(PurePosixPath(rel))) in seen:
             continue
         seen.add(rel)
-        if _unsafe(root, rel) or not (root / rel).is_file():
-            continue  # M012, M004
-        try:
-            rows = pq.read_table(root / rel).to_pylist()
-        except (OSError, pa.ArrowException):
-            return None
-        parts = dict(p.split("=", 1) for p in PurePosixPath(rel).parent.parts if "=" in p)
-        out.append((rel, parts, [parts | row for row in rows]))
-    return out
+        if not _unsafe(root, rel) and (root / rel).is_file():
+            yield rel, dict(p.split("=", 1) for p in PurePosixPath(rel).parent.parts if "=" in p)
 
 
 def _variant(value: object, params: Mapping[str, Any]) -> list[str] | None:
@@ -86,25 +261,32 @@ def _variant(value: object, params: Mapping[str, Any]) -> list[str] | None:
 
 def _shown(columns: Sequence[str], row: Row) -> dict[str, object]:
     """A row's `columns` as TDS 8.4's JSON `key`."""
-    plain = (str, int, float, bool, type(None))
-    return {c: row[c] if isinstance(row[c], plain) else str(row[c]) for c in columns}
+    return {c: row[c] if row[c].__class__ in _LITERAL else str(row[c]) for c in columns}
 
 
-def _duplicates(files: list[File], key: list[str] | None, blind: set[str]) -> Iterable[Finding]:
+_LITERAL = frozenset({str, int, float, bool, type(None)})
+
+
+def _literals(values: list[Any]) -> list[Any]:
+    """A column's values as Python literals, so a key's `repr` is equal for equal keys and reads
+    back with `ast.literal_eval`: a date or an `Instant` as (type name, text)."""
+    return [v if v.__class__ in _LITERAL else (type(v).__name__, str(v)) for v in values]
+
+
+def _duplicates(records: Iterable[Record], key: list[str]) -> Iterable[Finding]:
     """K001: a key on two rows anywhere in the dataset, with the row's partition values other
-    than `year=` and `date=` (TDS 3.5; #224, 2026-11-05)."""
-    own = [(rs, {p: v for p, v in parts.items() if p not in TIME_PARTS}) for _, parts, rs in files]
-    rows = [(r, folder) for rs, folder in own for r in rs]
-    if key is None or any(c not in r for r, _ in rows for c in key):
-        blind.add(K001)
-        return
-    counts = Counter(
-        (tuple(r[c] for c in key), tuple(sorted(folder.items()))) for r, folder in rows
-    )
-    if twice := [k for k, n in counts.items() if n > 1]:
-        first = dict(zip(key, twice[0][0], strict=True)) | dict(twice[0][1])
-        msg, n = f"{len(twice)} key value(s) on more than one row", sum(counts[k] for k in twice)
-        yield Finding(K001, "error", msg, key=_shown(list(first), first), count=n)
+    than `year=` and `date=` (TDS 3.5; #224, 2026-11-05). `records` come in the order of their
+    `repr` bytes, so a key's rows are next to each other; the example is the first of them."""
+    twice, rows, first = 0, 0, b""
+    for encoded, same in groupby(records, key=itemgetter(0)):
+        if (n := sum(1 for _ in same)) > 1:
+            twice, rows, first = twice + 1, rows + n, first or encoded
+    if twice:
+        *values, own = ast.literal_eval(first.decode())
+        shown = dict(zip(key, values, strict=True)) | dict(own)
+        shown = {c: v[1] if isinstance(v, tuple) else v for c, v in shown.items()}
+        yield Finding(K001, "error", f"{twice} key value(s) on more than one row", key=shown,
+                      count=rows)  # fmt: skip
 
 
 def _group(items: Iterable[Any], by: Any) -> dict[Any, list[Any]]:
@@ -112,39 +294,6 @@ def _group(items: Iterable[Any], by: Any) -> dict[Any, list[Any]]:
     for item in items:
         out[by(item)].append(item)
     return out
-
-
-def _folders(files: list[File]) -> dict[str, list[File]]:
-    """The files of each partition folder, in file-name order (3.5)."""
-    return _group(sorted(files, key=lambda f: f[0]), lambda f: f[0].rpartition("/")[0])
-
-
-def _unsorted(files: list[File], sort: list[str] | None, blind: set[str]) -> Iterable[Finding]:
-    """K002: rows out of `sort` order in a file, or across a folder's files in name order."""
-    if sort is None or any(c not in r for _, _, rows in files for r in rows for c in sort):
-        blind.add(K002)
-        return
-    for group in _folders(files).values():
-        rows = [(rel, [(r[c] is None, r[c]) for c in sort], r) for rel, _, rs in group for r in rs]
-        bad = [b for a, b in pairwise(rows) if b[1] < a[1]]
-        if bad:
-            rel, _, row = bad[0]
-            msg = f"{len(bad)} row(s) sort before the row above them by {', '.join(sort)}"
-            yield Finding(K002, "error", msg, file=rel, key=_shown(sort, row), count=len(bad))
-
-
-def _off_partition(files: list[File], column: str, blind: set[str]) -> Iterable[Finding]:
-    """K003: a row whose `column` lies outside its `year=` or `date=` folder."""
-    for rel, parts, rows in files:
-        for part, value in ((p, parts[p]) for p in TIME_PARTS if p in parts):
-            if any(column not in r for r in rows):
-                blind.add(K003)
-                continue
-            days = [r[column] for r in rows if isinstance(r[column], dt.date)]
-            bad = [d for d in days if (str(d.year) if part == "year" else d.isoformat()) != value]
-            if bad:
-                msg = f"{len(bad)} row(s) with {column} outside {part}={value}, e.g. {bad[0]}"
-                yield Finding(K003, "error", msg, file=rel, count=len(bad))
 
 
 def _instant(match: Sequence[str | None]) -> tuple[dt.datetime, int]:
@@ -155,11 +304,11 @@ def _instant(match: Sequence[str | None]) -> tuple[dt.datetime, int]:
     return when, int((fraction or "").ljust(9, "0"))
 
 
-def _overlaps(files: list[File]) -> Iterable[Finding]:
+def _overlaps(files: list[str]) -> Iterable[Finding]:
     """K004: two `<ts_min>_<ts_max>` files of one folder whose ranges share an instant."""
-    for group in _folders(files).values():
+    for group in _group(sorted(files), lambda rel: rel.rpartition("/")[0]).values():
         spans = []
-        for rel, _, _ in group:
+        for rel in group:
             if match := _RANGE.fullmatch(PurePosixPath(rel).name):
                 try:
                     spans.append((_instant(match.groups()[:5]), _instant(match.groups()[5:]), rel))

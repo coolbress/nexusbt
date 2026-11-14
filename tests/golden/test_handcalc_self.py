@@ -124,6 +124,22 @@ def test_cases_v31_M1_expected_present(case_id: str) -> None:  # noqa: N802 - sp
     assert nan_as_text(rows) == nan_as_text(case["expected"])
 
 
+#: The M1 time and pipeline cases (T1.G, spec 8.2): T-07 windows across a split and a reverse
+#: split, T-09 symbol reuse, T-10 a start date on a holiday, T-11 ties under `tiebreak = "id"`,
+#: T-12 the three forms of 12-1 momentum, T-15 a `price_factor` null event, T-20 a late bar under
+#: `ready_delay`, T-23 the `every(n)` calendar anchor. G-TIME-LATE is the table of spec 8.4: a bar
+#: two sessions late with no `ready_delay` (#353).
+TIME_M1 = ("T-07", "T-09", "T-10", "T-11", "T-12", "T-15", "T-20", "T-23", "G-TIME-LATE")
+
+
+@pytest.mark.parametrize("case_id", TIME_M1)
+def test_time_cases_M1_expected_present(case_id: str) -> None:  # noqa: N802 - spec 10.1's name
+    case, rows = _case(case_id)
+    assert case["id"] == case_id
+    assert case["expected"], f"{case_id} has no expected rows"
+    assert nan_as_text(rows) == nan_as_text(case["expected"])
+
+
 def test_nan_as_text_tells_nan_apart() -> None:
     assert nan_as_text([{"v": (1.0, math.nan)}]) == [{"v": [1.0, "NaN"]}]
     assert nan_as_text([math.nan]) != nan_as_text([0.0])

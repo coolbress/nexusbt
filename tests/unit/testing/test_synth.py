@@ -23,12 +23,17 @@ import pyarrow.compute as pc
 import pyarrow.parquet as pq
 import pytest
 
+from nexusbt.testing import _synth_actions as acts
 from nexusbt.testing import _synth_daily as daily
 from nexusbt.testing import _synth_events as events
+from nexusbt.testing import _synth_exits as delist
+from nexusbt.testing import _synth_package as pkg
+from nexusbt.testing import _synth_trade as trade
 from nexusbt.testing import synth
 from nexusbt.testing.synth import a001, main, make_snapshot, read
 
 UTC = dt.UTC
+PT = "processed_through_session"  # TDS 4.3 (#192)
 
 
 @pytest.fixture(scope="module")
@@ -151,9 +156,10 @@ def test_zz_market_generated(tiny: Path, tmp_path: Path) -> None:
                for f in d["files"])  # fmt: skip
 
 
-@pytest.mark.parametrize(("preset", "markets"), [("full", ("KR",)), ("tiny", ()), ("tiny", "XX")])
+@pytest.mark.parametrize(("preset", "markets"),
+                         [("full_ci", ("KR",)), ("tiny", ()), ("tiny", "XX")])  # fmt: skip
 def test_refuses_unbuilt_preset_and_bad_markets(preset: Any, markets: Any, tmp_path: Path) -> None:
-    with pytest.raises(NotImplementedError if preset == "full" else ValueError):
+    with pytest.raises(NotImplementedError if preset == "full_ci" else ValueError):
         make_snapshot(tmp_path / "p", preset=preset, markets=markets)
 
 
@@ -172,13 +178,30 @@ def test_command_prints_counts_and_hashes_then_checks(
         "bars_1d 682 rows", "corporate_actions revisions 0, cancellations 0",
     ]  # fmt: skip
     hashes = json.loads((out / "tds.json").read_text(encoding="utf-8"))["hashes"]
-    assert lines[8:11] == [
+    assert lines[8:10] == [
         f"value_sha256 {hashes['value_sha256']}",
         f"semantic_sha256 {hashes['semantic_sha256']}",
-        "TDS-A001: 0",
     ]
+    assert re.fullmatch(r"time \d+\.\d s, size \d+ bytes", lines[10])
+    assert lines[11:13] == ["profiles tds:minimal-daily@1.0, tds:equity-daily-core@1.0",
+                            "TDS-A001: 0"]  # fmt: skip
     assert "0 errors, 0 warnings at level full" in printed.out
     assert "tds:equity-daily-core@1.0: declared" in printed.out  # with empty events (TDS 7)
+
+
+def test_command_degrade_prints_declared_profiles_and_results(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # T0.16a's done line, on tiny: the declared profiles without core, and the three results
+    out = tmp_path / "cli"
+    args = ["--out", str(out), "--degrade", "no_ohlc,kr_ex_is_record", "--validate"]
+    assert main(["--preset", "tiny", *args]) == 0
+    printed = capsys.readouterr().out
+    assert "profiles tds:minimal-daily@1.0\n" in printed
+    assert re.search(r"^tds:minimal-daily@1\.0: declared, verified to \w+, \w+$", printed, re.M)
+    assert "tds:equity-daily-core@1.0" not in printed.replace("profiles tds:minimal", "")
+    assert main(["--preset", "tiny", *args[:2], "--degrade", "no_cum_factors", "--validate"]) == 0
+    assert "TDS-A001: no cum_factor_* columns\n" in capsys.readouterr().out
 
 
 def test_command_without_validate_prints_and_does_not_check(
@@ -284,8 +307,8 @@ def test_small_hashes_match_on_macos_and_linux(tmp_path: Path) -> None:
     package = make_snapshot(tmp_path / "d", preset="small")  # default markets KR, US; seed 0
     hashes = json.loads((package / "tds.json").read_text())["hashes"]
     assert (hashes["value_sha256"], hashes["semantic_sha256"]) == (
-        "d31700ab2272c95bec9d69eff687760df314e154471c984acb307930bf8e2e5e",
-        "8fdd001d1ec856f2f40af568ff5ad38902443f0a1a5518b0338b4a589b981afc",  # #287: limit prices
+        "be5d9625deac39764d994d74558799a48cd1227c77a6b9c85f2645a2577e8f9f",
+        "e86cb0abf4d73c2c8650133171561e93557e7710d2db9adae7dd688b47d4775f",  # #231: value_traded
     )
 
 
@@ -306,11 +329,12 @@ def called_names(source: str) -> set[str]:
 
 
 def test_small_value_path_uses_no_platform_math() -> None:
-    for step in (synth._small, synth._actions, synth._terms, synth._dividend, synth._revise,
-                 synth._move, synth._delistings, events.exit_value, daily._snap, daily._ratios,
-                 daily._kr_rows, synth._tradability, synth._sample, synth._halts, synth._limits,
-                 synth._wobble, synth._status, synth._last_traded, daily._share_counts,
-                 daily._eligibility, daily._venues):  # fmt: skip
+    for step in (synth._listings, synth._small, acts._actions, acts._terms, acts._dividend,
+                 acts._revise, acts._move, delist._delistings, events.exit_value, daily._snap,
+                 daily._ratios, daily._kr_rows, trade._tradability, trade._sample, trade._halts,
+                 trade._limits, trade._wobble, trade._status, trade._last_traded,
+                 daily._share_counts, daily._eligibility, daily._venues, daily._value_traded,
+                 daily._market_rules):  # fmt: skip
         assert not called_names(inspect.getsource(step)) & PLATFORM_MATH, step.__name__
     # the check refuses what it is for, so the pass above is not vacuous
     bad = "def f(rng, p):\n    return np.exp(rng.normal(0, 1)) * p.sqrt() + math.log(2) ** 2\n"
@@ -321,8 +345,115 @@ def test_small_takes_a_short_period(tmp_path: Path) -> None:
     week = make_snapshot(tmp_path / "w", preset="small", start=dt.date(2019, 12, 26),
                          end=dt.date(2019, 12, 31), n_kr=3, n_us=3)  # fmt: skip
     assert len(rows(week, "instruments")) == 6
-    with pytest.raises(ValueError, match="small only"):
+    with pytest.raises(ValueError, match="small and full only"):
         make_snapshot(tmp_path / "t", preset="tiny", n_kr=0)
+
+
+def test_full_preset_parameters_match_table(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """4.8's table and T0.8d: KR 5,500 + US 22,100 instruments ever listed, 1995-01-02 to
+    2024-12-31, snapshot `synth-full-m1-0001`; the command asks for it without CI making it."""
+    full = synth.PRESETS["full"]
+    assert (full.start, full.end) == (dt.date(1995, 1, 2), dt.date(2024, 12, 31))
+    assert (full.counts["KR"], full.counts["US"]) == (5_500, 22_100)
+    assert full.snapshot_id == "synth-full-m1-0001"
+    asked: dict[str, Any] = {}
+
+    def record(root: Path, **kwargs: Any) -> Path:  # makes tiny in full's place
+        asked.update(kwargs)
+        return make_snapshot(root, preset="tiny")
+
+    monkeypatch.setattr(synth, "make_snapshot", record)
+    assert main(["--preset", "full", "--out", str(tmp_path / "f")]) == 0
+    assert (asked["preset"], asked["snapshot_id"]) == ("full", "synth-full-m1-0001")
+    assert re.search(r"^time \d+\.\d s, size \d+ bytes$", capsys.readouterr().out, re.M)
+
+
+def open_sessions(spans: tuple[list[int], list[int]]) -> int:
+    """The sessions the listings of `_listings` are open on, summed: their daily bar rows."""
+    return sum(j - i + 1 for i, j in zip(*spans, strict=True))
+
+
+def test_full_holds_the_tables_instruments_alive_on_a_day() -> None:
+    """#334: 4.8's table gives `full` about KR 2,300 and US 5,700 instruments alive on a day.
+    At a tenth of its instruments the mean count of listings open on a session, drawn from
+    `make_snapshot`'s streams of seed 0, is within 10 % of a tenth of those in each market,
+    and `small` keeps 4.8 (2)'s mean life of 8 years."""
+    full = synth.PRESETS["full"]
+    spawned = np.random.Generator(np.random.PCG64(0)).spawn(3)
+    streams = dict(zip(synth.MARKETS, spawned, strict=True))
+    for market, table in (("KR", 2_300), ("US", 5_700)):
+        calendar = synth._small_calendar(synth.MARKETS[market]["calendar_id"], full.start, full.end)
+        n, sessions = full.counts[market] // 10, len(calendar["session_date"])
+        spans = synth._listings(n, sessions, full.life[market], streams[market])
+        assert open_sessions(spans) / sessions == pytest.approx(table / 10, rel=0.1), market
+    assert set(synth.PRESETS["small"].life.values()) == {8}
+
+
+def test_full_is_small_rules_at_full_scale(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """`full` with fewer instruments writes the same data as `small` over full's period with
+    full's listing lives (#334), its bars are those listings' sessions, and that period (from
+    1995, before KR price limits) passes `tds check --level full` (INV-17)."""
+    few: dict[str, Any] = {"n_kr": 6, "n_us": 6}
+    full = make_snapshot(tmp_path / "full", preset="full", **few)
+    kr = np.random.Generator(np.random.PCG64(0)).spawn(3)[0]  # make_snapshot's KR stream, seed 0
+    days = sum(r["calendar_id"] == "XKRX" for r in rows(full, "calendar_sessions"))
+    drawn = open_sessions(synth._listings(6, days, synth.PRESETS["full"].life["KR"], kr))
+    assert sum(r["instrument_id"].startswith("KR:") for r in rows(full, "bars")) == drawn
+    lives = synth.PRESETS["small"]._replace(life=synth.PRESETS["full"].life)
+    monkeypatch.setitem(synth.PRESETS, "small", lives)
+    small = make_snapshot(tmp_path / "small", preset="small", start=dt.date(1995, 1, 2),
+                          end=dt.date(2024, 12, 31), **few)  # fmt: skip
+    data, same = files_of(full), files_of(small)
+    assert data.pop("tds.json") != same.pop("tds.json")  # the name synth-full, the hashes alike
+    assert data == same
+    manifest = json.loads((full / "tds.json").read_text(encoding="utf-8"))
+    assert manifest["name"] == "synth-full"
+    paths = {f["path"] for d in manifest["datasets"] for f in d["files"]}
+    assert {f"bars/freq=1d/market={m}/year={y}/part-00000.parquet"
+            for m in ("KR", "US") for y in (1995, 2024)} <= paths  # fmt: skip
+    done = pkg._tds("check", str(full), "--level", "full")
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert "0 errors, 0 warnings at level full" in done.stdout
+
+
+@pytest.mark.parametrize(("term", "ref", "unit", "cash"), [
+    (20, 0.0075, 100, 0.01),  # a close under one cent: the one-cent floor is above it (#357)
+    (20, 1.0, 1, 1.0),  # a close of one won: the floor equals it, a factor of 0
+    (8000, 2.0, 1, 2.0),  # a return of capital of 80 % of 2 won rounds up to the close
+])  # fmt: skip
+def test_cash_reaching_the_previous_close_has_no_factor(
+    term: int, ref: float, unit: int, cash: float
+) -> None:
+    """TDS 5.11: 1 - D / close[e-1] is not positive, so the factor is null and its method
+    `unavailable`, never a value A003 refuses; one cent on a two-cent close keeps its factor."""
+    terms = acts._terms("cash_dividend", term, ref, unit, "USD")
+    assert (terms["cash_per_share"], terms["factor_ref_price"]) == (cash, ref)
+    assert (terms["price_factor"], terms["factor_method"]) == (None, "unavailable")
+    below = acts._terms("cash_dividend", 20, 0.02, 100, "USD")
+    assert (below["price_factor"], below["factor_method"]) == (0.5, "cash_prev_close")
+
+
+def test_full_slice_with_a_dividend_above_the_close_conforms(tmp_path: Path) -> None:
+    """#357: a slice of `full` (seed 29, 60 US instruments; seed 49 before #334's lives) where
+    US:T00041 closes under a cent from its 2015-12-14 dividend on. No factor is null or <= 0
+    under a method other than `unavailable`, those dividends move no bar, and the package passes
+    the full level (INV-17)."""
+    full = make_snapshot(tmp_path / "f", preset="full", seed=29, markets=("US",), n_us=60)
+    actions = rows(full, "corporate_actions")
+    none = [r for r in actions if r["factor_method"] == "unavailable"]
+    assert {(r["instrument_id"], r["kind"]) for r in none} == {("US:T00041", "cash_dividend")}
+    assert min(r["ex_date"] for r in none) == dt.date(2015, 12, 14)
+    total = steps(full, "total")
+    for r in none:  # the one-cent floor reaches the close: no factor, and the bars stay
+        assert r["price_factor"] is None
+        assert r["cash_per_share"] == 0.01 > r["factor_ref_price"]
+        assert total[r["instrument_id"], r["ex_date"]] == 1.0
+    assert all(r["price_factor"] > 0 for r in actions if r not in none)
+    assert min(b["close"] for b in rows(full, "bars")) > 0  # a negative factor flipped them
+    assert a001(read(full, "corporate_actions"), read(full, "bars_1d")) == 0
+    assert "0 errors" in pkg._tds("check", str(full), "--level", "full").stdout
 
 
 def steps(package: Path, basis: str) -> dict[tuple[str, dt.date], float]:
@@ -360,7 +491,7 @@ def test_reverse_split_makes_factor_non_monotonic(small: Path) -> None:
     ups = [r for r in reverse if split[r["instrument_id"], r["ex_date"]] > 1]
     assert ups  # a rising factor is data, not an error: A001 above and tds check below hold
     assert min(split.values()) < 1
-    assert "0 errors" in synth._tds("check", str(small), "--level", "full").stdout
+    assert "0 errors" in pkg._tds("check", str(small), "--level", "full").stdout
 
 
 def test_revisions_and_cancellations_present(
@@ -379,7 +510,7 @@ def test_revisions_and_cancellations_present(
     for a, b in cancelled:  # cancelled after the announcement, before it took effect
         assert a["status"] == "announced"
         assert a["ts_announced"] < b["ts_announced"] < b["ts_effective"]
-    for r in (r for r in actions if r["kind"] in synth.SHARE_EVENTS):  # exact ratios (#220 (2))
+    for r in (r for r in actions if r["kind"] in acts.SHARE_EVENTS):  # exact ratios (#220 (2))
         quotient = r["ratio_num"] / r["ratio_den"]
         assert quotient == r["share_factor"] == pytest.approx(1 / r["price_factor"], rel=1e-12)
     dividends = [r for r in actions if r["kind"] == "cash_dividend"]
@@ -408,6 +539,7 @@ def test_small_declares_availability_for_every_dataset_with_an_instant(small: Pa
         "calendar_sessions": None,
         "corporate_actions": {"effect": "ts_effective", "terms": "ts_terms_available"},
         "delistings": {"exit": "ts_exit_known", "value": "ts_value_available"},
+        "market_rules": None,  # 5.27 has no instant column, only its validity dates
         "bars_1d": {"rule": "ts_end"},
         "tradability_daily": None,  # its rules are `params.availability_by_column` (6.2, 5.10)
         "share_counts": {"column": "ts_available"},
@@ -491,12 +623,46 @@ def test_kr_prices_on_grid_with_halts_and_limits(small: Path) -> None:
     assert {"split", "cash_dividend"} <= over  # G-54: a split and an ex-dividend in a halt
 
 
+def warned(printed: str, code: str) -> int:
+    """The warnings of `code` in what `tds check` printed, one line per dataset or key."""
+    return len(re.findall(rf"^warning TDS-{code}\b", printed, re.M))
+
+
+def test_prices_on_grid_with_ulp_noise(small: Path, tmp_path: Path) -> None:
+    # 4.8 (5), (11a) [V31-05]: the package declares the KR grid, and its raw prices are on it
+    rules = rows(small, "market_rules")
+    bands = [r for r in rules if r["rule_kind"] == "tick_band"]
+    assert {r["valid_from"] for r in bands} == {dt.date(2010, 10, 4), dt.date(2023, 1, 25)}
+    assert {(r["venue_group"], r["limit_ratio"]) for r in rules
+            if r["rule_kind"] == "price_limit" and r["valid_to"] is None} == {
+        ("KOSPI", 0.3), ("KOSDAQ", 0.3)}  # fmt: skip
+    assert {r["market"] for r in rules} == {"KR"}
+    pointed = {(r["market"], r["tick_rule_id"]) for r in rows(small, "instruments")}
+    assert pointed == {("KR", bands[0]["rule_id"]), ("US", None), ("ZZ", None)}
+    closes = [b["close"] for b in rows(small, "bars")
+              if b[ID].startswith("KR:") and b["close"] is not None]  # fmt: skip
+    noisy = [c for c in closes if c != round(c)]  # every KR tick is a whole number of won
+    assert noisy
+    assert all(c == math.nextafter(round(c), math.inf) for c in noisy)  # 1 ULP: within 1e-9
+    assert warned(check_full(small), "V012") == 0
+    # counter-example: the lows of one file 1e-7 lower, and V012 counts each of them
+    package = make_snapshot(tmp_path / "off", **SHORT, markets=("KR",))
+    path = package / "bars/freq=1d/market=KR/year=2019/part-00000.parquet"
+    bars = pq.read_table(path)
+    lows = pc.multiply(bars["low"], 1 - 1e-7)
+    pq.write_table(bars.set_column(bars.schema.get_field_index("low"), "low", lows), path)
+    assert pkg._tds("hash", str(package), "--write").returncode == 0
+    printed = pkg._tds("check", str(package), "--level", "full").stdout
+    off = len(bars) - bars["low"].null_count
+    assert f"warning TDS-V012 bars_1d: {off} raw price(s) off the price grid" in printed
+
+
 def test_a_halt_never_hides_a_close_a_factor_uses() -> None:
     rng, split = np.random.Generator(np.random.PCG64(0)), [(0, 3, "split")]  # G-54: from 3
     for refs in ({(0, 3)}, set()):  # another event's factor uses session 3's close, or none
         bars: dict[str, list[Any]] = {n: [np.full(6, 100.0)] for n in (*daily.OHLC, "volume")}
         bars["obs_status"] = [["traded"] * 6]
-        halted = synth._halts([0], [5], split, refs, bars, rng, set())
+        halted = trade._halts([0], [5], split, refs, bars, rng, set())
         assert (bars["obs_status"][0][3] == "halted") == bool(halted) == (not refs)
 
 
@@ -561,8 +727,27 @@ def test_limit_prices_round_inward_on_the_issue_example() -> None:
     """KR reference 10,030 won at 0.30 on the 2023 table's 10-won band: 13,039 down to 13,030
     and 7,021 up to 7,030; 10,000 x 0.7, 7,000 within a float error, stays 7,000."""
     dates = np.array(["2024-01-02"] * 2, dtype="datetime64[D]")
-    up, down = synth._limit_prices(np.array([10030.0, 10000.0]), np.full(2, 0.3), dates, "XKRX")
+    up, down = trade._limit_prices(np.array([10030.0, 10000.0]), np.full(2, 0.3), dates, "XKRX")
     assert (up.tolist(), down.tolist()) == ([13030.0, 13000.0], [7030.0, 7000.0])
+
+
+def test_no_limit_hit_before_kr_had_a_price_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`kr_price_limits_v1` starts on 1995-04-01: a day before has no limit to close at, so no
+    hit falls there, and no price after it turns NaN (full's period starts 1995-01-02)."""
+    dates = np.arange("1995-03-20", "1995-04-15", dtype="datetime64[D]")  # every day offered
+    bars: dict[str, list[Any]] = {n: [np.full(len(dates), 10_000.0)] for n in daily.OHLC}
+    bars["session_date"] = [dates]
+
+    def every_day(first: Any, last: Any, rate: float, rng: Any, take: Any) -> None:
+        for d in range(first[0] + 1, last[0] + 1):
+            take(0, d)
+
+    monkeypatch.setattr(trade, "_sample", every_day)
+    rng = np.random.Generator(np.random.PCG64(0))
+    hits = trade._limits([0], [len(dates) - 1], ["XKRX"], [0], set(), bars, rng)
+    assert hits  # the days from 1995-04-01 take some
+    assert min(dates[d] for _, d in hits) >= np.datetime64("1995-04-01")
+    assert not any(np.isnan(bars[n][0]).any() for n in daily.OHLC)
 
 
 def by_bar(package: Path, kind: str) -> dict[tuple[str, dt.date], dict[str, Any]]:
@@ -696,7 +881,7 @@ def exit_agrees(package: Path, iid: str) -> dict[str, Any]:
         out["exit_date"], out["last_trading_date"])  # fmt: skip
     assert held[-1]["session_date"] == out["last_trading_date"] == out["ref_date"]
     assert held[-1]["close"] == out["ref_price"]
-    assert "0 errors" in synth._tds("check", str(package), "--level", "full").stdout
+    assert "0 errors" in pkg._tds("check", str(package), "--level", "full").stdout
     assert a001(read(package, "corporate_actions"), read(package, "bars_1d")) == 0
     return out
 
@@ -707,7 +892,7 @@ def test_injected_delisting_ends_the_listing(tmp_path: Path) -> None:
     out = exit_agrees(make_snapshot(tmp_path / "t", preset="tiny", events=[exit_]), "KR:T00003")
     assert (out["exit_date"], out["last_trading_date"]) == (
         dt.date(2020, 3, 2), dt.date(2020, 2, 28))  # fmt: skip
-    assert out["delist_type"] == synth.EXIT_TYPE[out["exit_value_status"]]  # 4.8 (6) fills it
+    assert out["delist_type"] == delist.EXIT_TYPE[out["exit_value_status"]]  # 4.8 (6) fills it
     early = exit_ | {ID: "KR:T00002", "exit_date": "2020-02-03"}  # before its ticker change
     renamed = make_snapshot(tmp_path / "r", preset="tiny", events=[early])
     spans = [(r["valid_from"], r["valid_to"]) for r in rows(renamed, "instrument_symbols")
@@ -757,7 +942,7 @@ def test_injected_halt_blanks_its_bar(tmp_path: Path) -> None:
         True, 0)  # fmt: skip
     assert (on["eligibility_daily"]["is_eligible"], on["eligibility_daily"]["reason"]) == (
         False, "no_price")  # fmt: skip
-    assert "0 errors" in synth._tds("check", str(package), "--level", "full").stdout
+    assert "0 errors" in pkg._tds("check", str(package), "--level", "full").stdout
     assert a001(read(package, "corporate_actions"), read(package, "bars_1d")) == 0
 
 
@@ -797,3 +982,423 @@ def test_injected_exits_and_halts_are_refused_with_the_reason(tmp_path: Path) ->
         with pytest.raises(ValueError, match=words):
             make_snapshot(tmp_path / "b", **short,
                           events=[halt | {ID: iid, "session_date": day}])  # fmt: skip
+
+
+SHORT: dict[str, Any] = {"start": dt.date(2019, 1, 2), "n_kr": 20, "n_us": 20}
+CORE, MINIMAL = "tds:equity-daily-core@1.0", "tds:minimal-daily@1.0"
+#: Spec 4.8's core `degrade` values; TDS 7: core needs calendar_sessions, delistings and dense
+#: bars with OHLCV and obs_status, so these four cannot keep it, and the other three can.
+DROPS_CORE = {"no_ohlc": True, "no_sessions": True, "sparse_bars": True, "no_cum_factors": False,
+              "kr_ex_is_record": False, "us_div_split_adjusted_no_dates": False,
+              "no_delistings": True, "no_tick_info": False,  # F-15: market_rules is optional
+              "late_bars": False}  # #354: no gap of the 4.5 table, valid data  # fmt: skip
+
+
+@pytest.fixture(scope="module")
+def us_dividend_before_split(tmp_path_factory: pytest.TempPathFactory) -> list[dict[str, Any]]:
+    """A US cash dividend injected 5 sessions before the first drawn US split, of the same
+    instrument, so a split-adjusted amount differs from the raw one."""
+    plain = make_snapshot(tmp_path_factory.mktemp("plain") / "p", **SHORT)
+    split = next(r for r in rows(plain, "corporate_actions")
+                 if r[ID].startswith("US:") and r["kind"] == "split")  # fmt: skip
+    days = sorted(b["session_date"] for b in rows(plain, "bars") if b[ID] == split[ID])
+    day = days[days.index(split["ex_date"]) - 5]
+    return [{"dataset": "corporate_actions", "kind": "cash_dividend", ID: split[ID],
+             "ex_date": day.isoformat(), "cash_per_share": 0.5}]  # fmt: skip
+
+
+def check_full(package: Path) -> str:
+    done = pkg._tds("check", str(package), "--level", "full")
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert re.search(r"\b0 errors\b", done.stdout), done.stdout
+    return done.stdout
+
+
+@pytest.mark.parametrize("value", list(DROPS_CORE))
+def test_synth_conforms_degraded_core(
+    value: str, tmp_path: Path, us_dividend_before_split: list[dict[str, Any]]
+) -> None:
+    # spec 4.8, INV-17: each degraded package passes the full check with what it declares,
+    # and holds the one gap of the 4.5 table its value names
+    package = make_snapshot(tmp_path / value, **SHORT, events=us_dividend_before_split,
+                            degrade=[value])  # fmt: skip
+    printed = check_full(package)
+    manifest = json.loads((package / "tds.json").read_text(encoding="utf-8"))
+    kinds = {d["kind"]: d for d in manifest["datasets"]}
+    bars = read(package, "bars_1d")
+    actions = rows(package, "corporate_actions")
+    dividends = [r for r in actions if r["kind"] == "cash_dividend"]
+    if value == "no_ohlc":  # F-01
+        assert all(bars[c].null_count == len(bars) for c in ("open", "high", "low"))
+        assert bars["close"].null_count < len(bars)
+    elif value == "no_sessions":  # F-02
+        assert "calendar_sessions" not in kinds
+    elif value == "sparse_bars":  # F-03: rows only where it traded, no obs_status
+        assert kinds["bars"]["params"]["density"] == "sparse"
+        assert "obs_status" not in bars.column_names
+        assert bars["close"].null_count == 0
+    elif value == "no_cum_factors":  # F-04
+        assert not {"cum_factor_split", "cum_factor_total"} & set(bars.column_names)
+    elif value == "kr_ex_is_record":  # F-05: every KR cash dividend, none elsewhere
+        kr = [r for r in dividends if r[ID].startswith("KR:")]
+        assert kr
+        assert all(r["record_date"] == r["ex_date"] for r in kr)
+        assert all(r["record_date"] != r["ex_date"] for r in dividends if r not in kr)
+    elif value == "us_div_split_adjusted_no_dates":  # F-09
+        us = [r for r in dividends if r[ID].startswith("US:")]
+        assert us
+        assert all(r["pay_date_status"] == "missing" for r in us)
+        for c in ("record_date", "declared_date", "pay_date", "resolution_date"):
+            assert all(r[c] is None for r in us), c
+        injected = us_dividend_before_split[0]
+        (given,) = (r for r in us if r[ID] == injected[ID]
+                    and r["ex_date"].isoformat() == injected["ex_date"])  # fmt: skip
+        assert given["cash_per_share"] < 0.5  # divided by the later split's ratio
+        assert re.search(r"TDS-A004\b", printed), printed  # the warning F-09 counts
+    elif value == "late_bars":  # 5.1.2's column rule with no ready_delay, so delta = 0
+        assert kinds["bars"]["availability"] == {"column": "ts_available"}
+        assert "ready_delay" not in kinds["bars"]["params"]
+        assert pc.sum(pc.greater(bars["ts_available"], bars["ts_end"])).as_py() > 0
+    elif value == "no_tick_info":  # F-15: no grid information anywhere, the prices as they were
+        assert "market_rules" not in kinds
+        assert "tick_rule_id" not in rows(package, "instruments")[0]
+        plain = make_snapshot(tmp_path / "plain", **SHORT, events=us_dividend_before_split)
+        assert "market_rules" in {d["kind"] for d in json.loads(
+            (plain / "tds.json").read_text(encoding="utf-8"))["datasets"]}  # fmt: skip
+        assert bars.equals(read(plain, "bars_1d"))
+    else:  # F-13: instruments still say they left, with no delistings to say how
+        assert "delistings" not in kinds
+        assert any(r["delisted_on"] for r in rows(package, "instruments"))
+    assert (CORE in manifest["profiles"]) is not DROPS_CORE[value]
+    assert MINIMAL in manifest["profiles"]
+    # the generator's own A001 agrees, also across the halted days sparse bars leave out
+    assert a001(read(package, "corporate_actions"), bars) == (
+        None if value == "no_cum_factors" else 0)  # fmt: skip
+
+
+def validate_short(monkeypatch: pytest.MonkeyPatch, out: Path, *more: str) -> None:
+    """The command with `--validate` on `small` cut to SHORT's year and counts."""
+    short = synth.PRESETS["small"]._replace(start=SHORT["start"], counts={"KR": 20, "US": 20})
+    monkeypatch.setitem(synth.PRESETS, "small", short)
+    assert main(["--preset", "small", "--out", str(out), "--validate", *more]) == 0
+
+
+def test_exact_ratios_present(
+    small: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # 4.8 (4) [V31-01]: every share event has its exact ratio, the others none
+    actions = rows(small, "corporate_actions")
+    shares = [r for r in actions if r["kind"] in acts.SHARE_EVENTS]
+    ratios = {(r["ratio_num"], r["ratio_den"]) for r in shares}
+    assert {(7, 1), (1, 3), (129, 100)} <= ratios  # 1/7, 1/3 and 1.29: no binary fraction
+    for r in shares:  # the f64 columns are the quotient (TDS 5.11), so no A010
+        assert r["share_factor"] == r["ratio_num"] / r["ratio_den"]
+        new_per_old = r["share_factor"] - (r["kind"] == "bonus_issue")
+        assert r["ratio_new_per_old"] == pytest.approx(new_per_old, rel=1e-12)
+    assert all((r["ratio_num"], r["ratio_den"]) == (None, None) for r in actions
+               if r not in shares)  # fmt: skip
+    printed = check_full(small)
+    assert warned(printed, "A011") == 0  # [V31-04]: every distribution's exit says if it counts
+    # the done line, on a short `small`: the counts are those of the rows it wrote
+    validate_short(monkeypatch, tmp_path / "cli")
+    written = rows(tmp_path / "cli", "corporate_actions")
+    last = {r[ID]: r["last_trading_date"] for r in rows(tmp_path / "cli", "delistings")}
+    n = sum(r["ratio_num"] is not None for r in written)
+    k = sum(r["kind"] == "return_of_capital" and r["ex_date"] > last[r[ID]] for r in written)
+    assert n > 0
+    assert k > 0
+    line = f"exact ratios: {n}, distributions before delisting: {k}, off-grid rows: 0"
+    assert line in capsys.readouterr().out.splitlines()
+    assert main(["--preset", "tiny", "--out", str(tmp_path / "tiny"), "--validate"]) == 0
+    line = "exact ratios: 0, distributions before delisting: 0, off-grid rows: no grid information"
+    assert line in capsys.readouterr().out.splitlines()
+
+
+def test_volume_in_lots_triggers_V011(  # noqa: N802 - the ticket's test name
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # 4.8 (3), (11a), F-16 [V31-16]: value traded in shares, KR volume in lots of 100
+    plain = make_snapshot(tmp_path / "plain", **SHORT)
+    bars = read(plain, "bars_1d").to_pylist()
+    for b in bars:
+        halted = b["obs_status"] == "halted"
+        typical = 0.0 if halted else (b["high"] + b["low"] + b["close"]) / 3
+        assert b["value_traded"] == pytest.approx(b["volume"] * typical, rel=1e-12), b
+    printed = check_full(plain)
+    assert warned(printed, "V011") == 0
+    assert "volume unit unverified" not in printed
+    package = make_snapshot(tmp_path / "lots", **SHORT, degrade=["volume_in_lots"])
+    for b, lot in zip(bars, read(package, "bars_1d").to_pylist(), strict=True):
+        kr = b[ID].startswith("KR:")  # whole lots, the odd shares dropped; nothing else moves
+        assert lot == b | {"volume": float(b["volume"] // 100) if kr else b["volume"]}, b
+    printed = check_full(package)
+    traded = {b[ID] for b in bars if b[ID].startswith("KR:") and b["volume"] >= 100}
+    assert warned(printed, "V011") == len(traded) > 0  # one per KR instrument and year
+    assert "hint: volume may be in lots" in printed
+    assert CORE in json.loads((package / "tds.json").read_text(encoding="utf-8"))["profiles"]
+    # the done line: the command names the count, 0 without the value
+    validate_short(monkeypatch, tmp_path / "cli", "--degrade", "volume_in_lots")
+    assert f"TDS-V011 warnings: {len(traded)}" in capsys.readouterr().out.splitlines()
+    validate_short(monkeypatch, tmp_path / "cli")
+    assert "TDS-V011 warnings: 0" in capsys.readouterr().out.splitlines()
+    # no count where the checker could not judge (no high or low), and the distributions are
+    # still counted without `delistings`
+    validate_short(monkeypatch, tmp_path / "cli", "--degrade", "no_ohlc,no_delistings")
+    printed = capsys.readouterr().out
+    assert "TDS-V011 warnings" not in printed
+    assert "note: TDS-V011 not checked" in printed
+    written = rows(tmp_path / "cli", "corporate_actions")
+    paid = sum(r["kind"] == "return_of_capital" for r in written)
+    assert f"distributions before delisting: {paid}, " in printed
+    assert paid > 0
+
+
+def test_late_bars_variant_has_late_bars_in_an_overlap_tail(tmp_path: Path) -> None:
+    # #354, spec 4.8 (3a): the rows a property test needs to reach 5.1.2's visibility rule
+    two_years: dict[str, Any] = SHORT | {"start": dt.date(2018, 1, 2)}
+    package = make_snapshot(tmp_path / "late", **two_years, degrade=["late_bars"])
+    closes = [r["ts_close"] for r in rows(package, "calendar_sessions")
+              if r["calendar_id"] == "XKRX"]  # fmt: skip
+    ready = {c.date(): k for k, c in enumerate(closes)}  # KR closes on its session's UTC day
+    bars = read(package, "bars_1d").to_pylist()
+    kr = [b for b in bars if b[ID].startswith("KR:")]
+    # sessions from ready(s) to ts_available: 0 on time, never negative, 1 to 3 when late
+    lag = [closes.index(b["ts_available"]) - ready[b["session_date"]] for b in kr]
+    assert set(lag) == {0, 1, 2, 3}
+    late = sum(k > 0 for k in lag)
+    assert 0.004 < late / len(kr) < 0.007, late  # about 0.5%
+    assert all(b["ts_available"] == b["ts_end"] for b in bars if not b[ID].startswith("KR:"))
+    # the last 20 rows of the 2018 partition hold a late bar, which 2019's rows wait for
+    tail = pq.read_table(package / "bars/freq=1d/market=KR/year=2018/part-00000.parquet")
+    tail = tail.slice(tail.num_rows - 20).to_pylist()
+    assert any(b["ts_available"].year == 2019 for b in tail)
+    # no other value differs from the package without the value, and it is byte-identical
+    plain = make_snapshot(tmp_path / "plain", **two_years)
+    assert read(package, "bars_1d").drop_columns(["ts_available"]).equals(read(plain, "bars_1d"))
+    again = make_snapshot(tmp_path / "again", **two_years, degrade=["late_bars"])
+    assert files_of(again) == files_of(package)
+    other = make_snapshot(tmp_path / "seed", **two_years, seed=1, degrade=["late_bars"])
+    assert read(other, "bars_1d")["ts_available"] != read(package, "bars_1d")["ts_available"]
+
+
+def test_command_names_the_late_bar_count(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # #354's "what should happen", on tiny: 341 KR bars, 323 of them with 3 sessions after
+    out = tmp_path / "cli"
+    assert main(["--preset", "tiny", "--out", str(out), "--degrade", "late_bars",
+                 "--validate"]) == 0  # fmt: skip
+    printed = capsys.readouterr().out
+    assert "late bars 2\n" in printed  # round(0.005 x 323)
+    assert re.search(r"\b0 errors\b", printed)
+    (entry,) = (d for d in json.loads((out / "tds.json").read_text(encoding="utf-8"))["datasets"]
+                if d["kind"] == "bars")  # fmt: skip
+    assert entry["availability"] == {"column": "ts_available"}
+
+
+def test_degrade_drops_declared_profiles(tmp_path: Path) -> None:
+    # spec 4.8: a value drops the profiles it cannot keep, and only those
+    tiny: dict[str, Any] = {"preset": "tiny", "markets": ("KR",)}
+    both = make_snapshot(tmp_path / "two", **tiny, degrade=["no_cum_factors", "no_delistings"])
+    assert json.loads((both / "tds.json").read_text(encoding="utf-8"))["profiles"] == [MINIMAL]
+    # counter-example: declared again, core fails the check where the checker sees the gap
+    missing = {"no_sessions": "dataset calendar_sessions", "no_delistings": "dataset delistings",
+               "sparse_bars": "density=dense",
+               "no_ohlc": "column open in bars: null in every row"}  # fmt: skip  # OHLCV (#352)
+    for value in (v for v, drops in DROPS_CORE.items() if drops):
+        package = make_snapshot(tmp_path / value, **tiny, degrade=[value])
+        check_full(package)
+        path = package / "tds.json"
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+        assert manifest["profiles"] == [MINIMAL]
+        path.write_text(json.dumps(manifest | {"profiles": [MINIMAL, CORE]}), encoding="utf-8")
+        assert pkg._tds("hash", str(package), "--write").returncode == 0
+        done = pkg._tds("check", str(package), "--level", "full")
+        assert done.returncode != 0
+        said = rf"^error TDS-M008(?: bars_1d)?: {re.escape(CORE)} requires .*"
+        assert re.search(said + re.escape(missing[value]), done.stdout, re.M), done.stdout
+    for wrong, error, words in (
+        (["no_eligibility"], NotImplementedError, r"come with T0.16b \(spec"),
+        (["no_ohlcv"], ValueError, "spec 4.8 has"),
+        ("no_ohlc", ValueError, "a sequence of values"),
+    ):  # fmt: skip
+        with pytest.raises(error, match=words):
+            make_snapshot(tmp_path / "x", **tiny, degrade=wrong)
+
+
+def manifest_of(package: Path) -> tuple[dict[str, Any], dict[str, Any]]:
+    """A package's `markets` and its datasets by name."""
+    manifest = json.loads((package / "tds.json").read_text(encoding="utf-8"))
+    return manifest["markets"], {d["name"]: d for d in manifest["datasets"]}
+
+
+def unchecked(package: Path) -> list[str]:
+    """The codes `tds check --level full` leaves unchecked, on a package without an error."""
+    done = pkg._tds("check", str(package), "--level", "full", "--format", "json")
+    summary = json.loads(done.stdout)["summary"]
+    assert summary["errors"] == 0, done.stdout
+    return list(summary["unchecked"])
+
+
+def test_small_watermark_is_each_markets_last_session(small: Path) -> None:
+    # #390, TDS 3.8: a synthetic package is complete through its period's last session
+    markets, _ = manifest_of(small)
+    sessions = rows(small, "calendar_sessions")
+    assert set(markets) == {"KR", "US", "ZZ"}
+    for market, entry in markets.items():
+        last = max((r for r in sessions if r["calendar_id"] == entry["calendar_id"]),
+                   key=lambda r: r["session_date"])  # fmt: skip
+        assert entry["complete_through_session"] == last["session_date"].isoformat(), market
+        assert dt.datetime.fromisoformat(entry["complete_through"]) == last["ts_close"], market
+    assert markets["KR"]["complete_through"] == "2019-12-30T06:30:00Z"  # TDS 4.2's form
+
+
+def test_small_coverage_matches_the_rows(small: Path) -> None:
+    # #390, TDS 4.3: the keys of 4.2's example, counted here from the rows
+    markets, datasets = manifest_of(small)
+    through = {m: {PT: e["complete_through_session"]} for m, e in markets.items()}  # #192
+    for name in ("bars_1d", "tradability_daily", "eligibility_daily"):
+        table, coverage = read(small, name), datasets[name]["coverage"]
+        low, high = pc.min_max(table["session_date"]).as_py().values()
+        assert coverage["instruments"] == pc.count_distinct(table[ID]).as_py() == 420, name
+        assert (coverage["ts_min"], coverage["ts_max"]) == (low.isoformat(), high.isoformat())
+        assert set(coverage["by_market"]) == {"KR", "US", "ZZ"}
+        for market, said in coverage["by_market"].items():  # ids are `KR:T00001`
+            part = table.filter(pc.equal(pc.utf8_slice_codeunits(table[ID], 0, 2), market))
+            first, last = pc.min_max(part["session_date"]).as_py().values()
+            assert said == {"instruments": pc.count_distinct(part[ID]).as_py(),
+                            "first": first.isoformat(), "last": last.isoformat(),
+                            "rows": part.num_rows} | through[market], (name, market)  # fmt: skip
+    # a dataset without `market=` partitions has a `by_market` of the processed-through session
+    # alone (#192); a key needs its column
+    assert datasets["instruments"]["coverage"] == {"instruments": 420, "by_market": through}
+    assert datasets["calendar_sessions"]["coverage"] == {"ts_min": "2015-01-02",
+                                                         "ts_max": "2019-12-31",
+                                                         "by_market": through}  # fmt: skip
+    assert datasets["market_rules"]["coverage"] == {"by_market": through}
+
+
+def test_full_check_judges_d001_on_small(small: Path) -> None:
+    # #390: every instrument's dense bars are judged to its last session or the watermark,
+    # and D004 compares the coverage. T006 is judged on the bars and stays unchecked for the
+    # datasets TDS 8.2 cannot judge from statistics (#192).
+    left = unchecked(small)
+    assert "TDS-D001" not in left
+    assert "TDS-D004" not in left
+    assert "TDS-V031" not in left  # judged, with no book_deltas to rebuild (#430)
+    assert "TDS-V032" not in left  # judged, with no declaration to judge (#432)
+
+
+def test_full_check_judges_k002_on_small(small: Path) -> None:
+    # #412: the three datasets TDS 5.3, 5.14 and 5.20 left without a sort declare the one the
+    # generator writes them in, so K002 judges every dataset of small
+    _, datasets = manifest_of(small)
+    assert datasets["instrument_xref"]["sort"] == [ID, "id_type", "id_value", "valid_from"]
+    assert datasets["share_counts"]["sort"] == [ID, "count_kind", "as_of_date", "ts_available"]
+    assert datasets["eligibility_daily"]["sort"] == ["session_date", ID, "rule_id"]
+    assert "TDS-K002" not in unchecked(small)
+
+
+def test_k002_takes_the_schema_files_sort_when_tds_json_has_none(tmp_path: Path) -> None:
+    # #412: the three schema files carry the sort TDS states, so a manifest that leaves it out
+    # is judged too; a cut-down small, which has share_counts and eligibility_daily
+    package = make_snapshot(tmp_path / "bare", preset="small", end=dt.date(2015, 6, 30),
+                            n_kr=8, n_us=8)  # fmt: skip
+    path = package / "tds.json"
+    manifest = json.loads(path.read_text(encoding="utf-8"))
+    names = {d["name"] for d in manifest["datasets"]}
+    assert {"instrument_xref", "share_counts", "eligibility_daily"} <= names
+    for dataset in manifest["datasets"]:
+        dataset.pop("sort", None)
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+    assert "TDS-K002" not in unchecked(package)
+
+
+def test_tiny_has_the_watermark_and_coverage_too(tiny: Path) -> None:
+    # #390 "Not sure yet", decided with the owner: tiny takes the same path as small
+    markets, datasets = manifest_of(tiny)
+    through = {"complete_through_session": "2020-03-31", "complete_through": "2020-03-31T20:00:00Z"}
+    assert markets["US"] == synth.MARKETS["US"] | through
+    kr = [r for r in rows(tiny, "bars") if r[ID].startswith("KR:")]
+    assert datasets["bars_1d"]["coverage"]["by_market"]["KR"] == {
+        "instruments": 6, "first": "2020-01-02", "last": "2020-03-31", "rows": len(kr),
+        PT: "2020-03-31"}  # fmt: skip
+    assert "TDS-D001" not in unchecked(tiny)
+
+
+def test_coverage_of_a_wrong_count_fails_d004(tiny: Path, tmp_path: Path) -> None:
+    # counter-example: the checker does compare what the generator declares
+    package = make_snapshot(tmp_path / "wrong", preset="tiny")
+    path = package / "tds.json"
+    manifest = json.loads(path.read_text(encoding="utf-8"))
+    (bars,) = (d for d in manifest["datasets"] if d["name"] == "bars_1d")
+    bars["coverage"]["by_market"]["KR"]["rows"] += 1
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+    done = pkg._tds("check", str(package), "--level", "full")
+    assert done.returncode != 0
+    assert "TDS-D004" in done.stdout
+
+
+def test_every_dataset_is_processed_through_its_markets_watermark(small: Path) -> None:
+    # #192, TDS 4.3: every dataset in every market, at the watermark session (3.8) by default,
+    # and M016 judges them all
+    markets, datasets = manifest_of(small)
+    for name, dataset in datasets.items():
+        said = {m: v[PT] for m, v in dataset["coverage"]["by_market"].items()}
+        assert said == {m: e["complete_through_session"] for m, e in markets.items()}, name
+    assert "TDS-M016" not in unchecked(small)
+
+
+def test_behind_cuts_one_datasets_processed_through_session(tmp_path: Path) -> None:
+    # #192, spec 4.8 `behind`: corporate_actions two sessions before each market's watermark;
+    # the other datasets stay at it and the package still passes
+    package = make_snapshot(tmp_path / "behind", preset="tiny", behind={"corporate_actions": 2})
+    markets, datasets = manifest_of(package)
+    sessions = rows(package, "calendar_sessions")
+    for market, entry in markets.items():
+        days = sorted(r["session_date"] for r in sessions
+                      if r["calendar_id"] == entry["calendar_id"])  # fmt: skip
+        by_market = {n: d["coverage"]["by_market"][market][PT] for n, d in datasets.items()}
+        assert by_market.pop("corporate_actions") == days[-3].isoformat(), market
+        assert set(by_market.values()) == {days[-1].isoformat()}, market
+    assert "TDS-M016" not in unchecked(package)
+
+
+CUT = dict.fromkeys(("corporate_actions", "delistings", "share_counts", "instrument_symbols"), 300)
+
+
+def test_behind_cuts_the_rows_known_after_the_session(small: Path, tmp_path: Path) -> None:
+    # #425, spec 4.8 `behind`: each moved dataset loses its rows first known after the cut
+    # session's close, the bars' factors and the instruments follow, and `full` finds nothing,
+    # D003 judging every moved dataset
+    package = make_snapshot(tmp_path / "cut", preset="small", markets=("KR", "US", "ZZ"),
+                            behind=CUT)  # fmt: skip
+    done = pkg._tds("check", str(package), "--level", "full")
+    assert "\n0 errors" in done.stdout, done.stdout
+    for name in CUT:
+        assert len(rows(package, name)) < len(rows(small, name)), name
+        assert f"TDS-D003 not checked on {name}:" not in done.stdout
+
+
+def test_behind_cuts_actions_from_bars_without_factors(tmp_path: Path) -> None:
+    # #425: with no_cum_factors (F-04) the bars carry no factor to follow a cut action
+    package = make_snapshot(tmp_path / "bare", preset="tiny", behind={"corporate_actions": 2},
+                            degrade=["no_cum_factors"])  # fmt: skip
+    check_full(package)
+
+
+def test_behind_cuts_nothing_from_a_dataset_without_an_instant(tmp_path: Path) -> None:
+    # #425 review: instrument_xref (written whole, not per market) has no instant to cut by
+    package = make_snapshot(tmp_path / "xref", preset="tiny", behind={"instrument_xref": 1})
+    assert "TDS-M016" not in unchecked(package)
+
+
+@pytest.mark.parametrize("behind", [
+    {"bars_1d": 1}, {"calendar_sessions": 1},  # a row per session: cut with its rows, not here
+    {"fundamentals_state": 1},  # not written by this generator yet
+    {"corporate_actions": -1}, {"corporate_actions": 10_000}, {"corporate_actions": 1.5},
+    {"corporate_actions": True},
+])  # fmt: skip
+def test_behind_refuses_what_it_cannot_cut(behind: dict[str, Any], tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="behind"):
+        make_snapshot(tmp_path / "refused", preset="tiny", behind=behind)

@@ -1,14 +1,22 @@
-"""`read_manifest`, `build_manifest`: tds.json read and drafted (TDS 4, 8.1)."""
+"""`read_manifest`: tds.json read (TDS 4); `draft.build_manifest` drafts one (TDS 8.1)."""
 
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+import re
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .schemas.verify import SCHEMA_DIR
+
 MANIFEST = "tds.json"
+#: TDS 4.2's fields as a JSON Schema (8.3's M001, #417), read by `schema_violations`.
+MANIFEST_SCHEMA: Mapping[str, Any] = json.loads(
+    (SCHEMA_DIR / "manifest" / "1.0.json").read_text(encoding="utf-8")
+)
+_JSON = {"object": dict, "array": list, "string": str}
 
 
 class ManifestError(Exception):
@@ -56,5 +64,33 @@ def read_manifest(path: Path) -> Manifest:
     return Manifest(root, data)
 
 
-def build_manifest(path: Path) -> Manifest:
-    raise NotImplementedError
+def schema_violations(value: Any, schema: Mapping[str, Any] = MANIFEST_SCHEMA, at: str = "$"
+                      ) -> Iterator[str]:  # fmt: skip
+    """`<JSON path>: <message>` for each place `value` breaks the manifest schema. Only the
+    keywords that file uses; `required` is left out, a missing field being M003's (8.3)."""
+    if "$ref" in schema:
+        schema = MANIFEST_SCHEMA["$defs"][schema["$ref"].rpartition("/")[2]]
+    if "type" in schema and not isinstance(value, _JSON[schema["type"]]):
+        yield f"{at}: {json.dumps(value)} is not a JSON {schema['type']}"
+        return
+    if "enum" in schema and value not in schema["enum"]:
+        yield f"{at}: {json.dumps(value)} is not one of {', '.join(schema['enum'])}"
+    if "pattern" in schema and not re.search(schema["pattern"], value):
+        yield f"{at}: {json.dumps(value)} does not match {schema['pattern']}"
+    if isinstance(value, dict):
+        named = schema.get("properties", {})
+        for key, item in value.items():
+            if (sub := named.get(key, schema.get("additionalProperties"))) is not None:
+                yield from schema_violations(item, sub, f"{at}.{key}")
+    if isinstance(value, list) and "items" in schema:
+        seen: set[object] = set()
+        for n, item in enumerate(value):
+            yield from schema_violations(item, schema["items"], f"{at}[{n}]")
+            key = schema.get("x-unique")
+            name = item.get(key) if key and isinstance(item, dict) else None
+            if isinstance(name, str) and name in seen:
+                yield f"{at}[{n}].{key}: {name!r} is listed twice"
+            if isinstance(name, str):
+                seen.add(name)
+            if schema.get("uniqueItems") and isinstance(item, str) and item in value[:n]:
+                yield f"{at}[{n}]: {item!r} is listed twice"

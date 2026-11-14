@@ -114,6 +114,16 @@ def test_cash_rate_default_zero(tmp_path: Path) -> None:
             load_config(write(tmp_path, f"[account]\ncash_rate_bps = {bad}\n"))
 
 
+def test_cash_rate_series_shape_only(tmp_path: Path) -> None:
+    # 3.11 `[account] cash_rate` (#313): {CURRENCY: str}, no default; nothing reads it yet
+    assert load_config(write(tmp_path, "")).values["account"]["cash_rate"] is None
+    config = load_config(write(tmp_path, "[account]\ncash_rate = {KRW = 'kr_cd91'}\n"))
+    assert config.values["account"]["cash_rate"] == {"KRW": "kr_cd91"}
+    for bad in ("'kr_cd91'", "{KRW = ''}", "{KRW = 350}", "{KR = 'kr_cd91'}"):
+        with pytest.raises(ConfigError, match="cash_rate"):
+            load_config(write(tmp_path, f"[account]\ncash_rate = {bad}\n"))
+
+
 def test_unknown_market_in_a_market_key(tmp_path: Path) -> None:
     for text in ("[sleeves]\nweights = {JP = 1}\n", "[defaults]\nclock = 'JP_close'\n"):
         with pytest.raises(ConfigError, match="unknown market JP; snapshot markets: KR, US"):

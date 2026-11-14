@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import datetime as dt
+import math
+import tracemalloc
 from pathlib import Path
 from typing import Any
 
@@ -10,8 +12,10 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from nexusbt_tds import ProfileStatus, check
+from nexusbt_tds import ProfileStatus, check, keys, pit, refs
 from nexusbt_tds.check import Level
+from nexusbt_tds.hash import value_hash
+from nexusbt_tds.manifest import read_manifest
 
 from .conformance_build import build
 
@@ -22,6 +26,20 @@ S_CODES = [f"TDS-S{n:03}" for n in range(1, 11)]
 def codes(path: Path, level: Level = "manifest", **kwargs: Any) -> list[str]:
     result = check(path, level=level, **kwargs)
     return [f.code for f in (*result.errors, *result.warnings)]
+
+
+def pairs(path: Path, level: Level = "manifest") -> list[tuple[str, str | None]]:
+    result = check(path, level=level)
+    return sorted(((f.code, f.dataset) for f in (*result.errors, *result.warnings)), key=str)
+
+
+def stated(code: str) -> list[tuple[str, str | None]]:
+    """The fail package's findings the builder states: its code, once per broken dataset (8.2)."""
+    return sorted(((code, dataset) for dataset in build.FAILS[code]), key=str)
+
+
+def test_every_fail_package_states_its_findings() -> None:
+    assert set(build.FAILS) == set(build.CASES)
 
 
 def write(root: Path, change: Any = None) -> Path:
@@ -38,30 +56,183 @@ def add_bars_file(path: str, size: int = 1) -> Any:
 @pytest.mark.parametrize("code", [f"TDS-M{n:03}" for n in range(1, 15)])
 def test_M_codes(code: str, tmp_path: Path) -> None:
     package = tmp_path / "pkg"
-    assert codes(build.write(package / "fail", *build.package(code, "fail"))) == [code]
+    assert pairs(build.write(package / "fail", *build.package(code, "fail"))) == stated(code)
     assert codes(build.write(package / "pass", *build.package(code, "pass"))) == []
-    assert codes(package / "fail", "schema") == [code]  # also at the CLI's default level
+    assert pairs(package / "fail", "schema") == stated(code)  # also at the CLI's default level
 
 
 @pytest.mark.parametrize("code", [*S_CODES, "TDS-T002", "TDS-T006", "TDS-D002"])  # 8.2
 def test_S_codes(code: str, tmp_path: Path) -> None:
     fail = build.write(tmp_path / "fail", *build.package(code, "fail"))
-    assert codes(fail, "schema") == [code]
+    assert pairs(fail, "schema") == stated(code)
     assert codes(fail) == []  # the manifest level reads no Parquet
     assert codes(build.write(tmp_path / "pass", *build.package(code, "pass")), "schema") == []
+
+
+@pytest.mark.parametrize("code", ["TDS-S006", "TDS-S007", "TDS-S009"])
+def test_S_codes_from_rows_at_full(code: str, tmp_path: Path) -> None:
+    """The same packages at `full`, which judges these three from the rows (TDS 8.1, #391)."""
+    fail = check(build.write(tmp_path / "fail", *build.package(code, "fail")), level="full")
+    assert pairs(tmp_path / "fail", "full") == stated(code)
+    assert code not in fail.unchecked
+    passed = check(build.write(tmp_path / "pass", *build.package(code, "pass")), level="full")
+    assert code not in codes(tmp_path / "pass", "full")  # S009's has a V002 close, -1e300
+    assert code not in passed.unchecked
+
+
+def _listed3(**columns: list[Any]) -> Any:
+    """Three instruments; `columns` replaces base columns. The middle value lies between a
+    row group's minimum and maximum, where the footer cannot see it."""
+    ids = {"instrument_id": ["US:AAA", "US:BBB", "US:CCC"]}
+    base = {k: v * 3 for k, v in build.instruments().to_pydict().items()} | ids
+    table = pa.table(base | columns)
+    return lambda m, f: build.rewrite(m, f, build.INSTRUMENTS, table, row_group_size=3)
+
+
+@pytest.mark.parametrize(
+    ("change", "found"),
+    [
+        (_listed3(asset_class=["bond", "cash", "rate"]), ["TDS-S006"]),  # closed: an error
+        (_listed3(asset_class=["bond", "equity", "rate"]), []),
+        (_listed3(category=["adr", "ordinary", "reit"]), ["TDS-S007"]),  # open: a warning
+        (build._both(_listed3(category=["adr", "ordinary", "reit"]), build._codes), []),
+        (_listed3(category=["adr", None, "reit"]), []),  # a null is no value
+    ],
+)
+def test_S006_S007_rows(change: Any, found: list[str], tmp_path: Path) -> None:
+    package = write(tmp_path, change)
+    result = check(package, level="full")
+    assert [f.code for f in (*result.errors, *result.warnings)] == found
+    assert not {"TDS-S006", "TDS-S007"} & set(result.unchecked)
+    assert codes(package, "schema") == []  # min and max are listed: the footer sees no fault
+    assert found == [] or {"TDS-S006", "TDS-S007"} & set(check(package, level="schema").unchecked)
+
+
+def test_S006_names_the_file_and_the_value(tmp_path: Path) -> None:
+    """When a bar has `obs_status = "tradedd"`, `full` reports S006 with the file and value."""
+    package = write(tmp_path, build._bars(obs_status=pa.array(["tradedd"])))
+    (finding,) = check(package, level="full").errors
+    assert (finding.code, finding.dataset, finding.file) == ("TDS-S006", "bars_1d", build.BARS)
+    assert "'tradedd'" in finding.message
+
+
+@pytest.mark.parametrize(
+    ("change", "found", "at_schema"),
+    [
+        (build._instruments(lot_size=pa.array([math.nan])), ["TDS-S009"], []),  # not in footers
+        (build._bars(close=pa.array([math.inf])), ["TDS-S009"], ["TDS-S009"]),  # once, not twice
+        (build._instruments(lot_size=pa.array([2.0])), [], []),
+    ],
+)
+def test_S009_rows(change: Any, found: list[str], at_schema: list[str], tmp_path: Path) -> None:
+    package = write(tmp_path, change)
+    result = check(package, level="full")
+    assert [f.code for f in result.errors] == found
+    assert "TDS-S009" not in result.unchecked
+    assert codes(package, "schema") == at_schema
+
+
+def test_dictionary_items_freq_is_optional_and_in_the_value_hash(tmp_path: Path) -> None:
+    """TDS 4.4 `dictionary/items.freq` (#406): an item's own cadence, null or absent when it
+    takes its column's; a dictionary without the column keeps the value hash it had."""
+
+    def items(name: str, **freq: list[Any]) -> tuple[list[str], str]:
+        package = write(tmp_path / name, build._add("dictionary/items", {"item": ["eps"]} | freq))
+        return codes(package, "full"), value_hash(package, "dictionary/items")
+
+    annual, quarterly = items("a", freq=["annual"]), items("q", freq=["quarterly"])
+    without, null = items("none"), items("null", freq=pa.array([None], pa.string()))
+    assert [annual[0], quarterly[0], without[0], null[0]] == [[], [], [], []]
+    assert annual[1] != quarterly[1]  # was ignored: two cadences hashed as the same data
+    assert without[1] == "c5d11590a1f690ff333d2f8969ce535da85a1dc8a7cd25c02f6f24c089b60935"
+    assert null[1] != without[1]  # written all null is not absent (4.5 step 1)
+
+
+def test_an_unreadable_file_leaves_the_row_S_codes_unchecked(tmp_path: Path) -> None:
+    def broken(m: dict[str, Any], f: Any) -> None:
+        f[build.BARS] = b"not parquet"
+        build.bars(m)["files"][0]["bytes"] = len(f[build.BARS])
+
+    result = check(write(tmp_path, broken), level="full")
+    assert {"TDS-S006", "TDS-S007", "TDS-S009"} <= set(result.unchecked)
+    # another file's findings stay (review): the +Inf close, with the unreadable instruments
+    unread = build._both(build._bars(close=pa.array([math.inf])), lambda m, f: (
+        f.update({build.INSTRUMENTS: b"not parquet"}),
+        m["datasets"][0]["files"][0].update(bytes=len(b"not parquet"))))  # fmt: skip
+    assert sorted(codes(write(tmp_path / "both", unread), "full")) == ["TDS-S009", "TDS-S010"]
+
+
+def test_M015_warns_of_an_experimental_dataset_and_otherwise_passes(tmp_path: Path) -> None:
+    plain = write(tmp_path / "plain")
+    for level in ("manifest", "schema", "full"):
+        assert "TDS-M015" not in check(plain, level=level).unchecked
+    trades = write(tmp_path / "trades", build._add("trades", {"instrument_id": ["US:AAA"]}))
+    assert pairs(trades, "manifest") == [("TDS-M015", "trades")]
+    assert check(trades, level="manifest").warnings[0].severity == "warning"
+
+
+def test_M016_rows_after_the_processed_through_session(tmp_path: Path) -> None:
+    # #192, TDS 4.3: bars whose `last` is after the session they say they are processed through
+    fail = build.write(tmp_path / "fail", *build.package("TDS-M016", "fail"))
+    passing = build.write(tmp_path / "pass", *build.package("TDS-M016", "pass"))
+    for level in ("manifest", "schema"):
+        assert pairs(fail, level) == stated("TDS-M016")
+        assert codes(passing, level) == []
+        assert "TDS-M016" not in check(passing, level=level).unchecked
+
+
+def _processed(day: object, watermark: str | None, dataset: int = 1) -> Any:
+    """`processed_through_session` `day` in US for dataset `dataset` (1: the bars, with a
+    `last`; 0: the instruments, without), and US's watermark session `watermark`."""
+
+    def change(m: dict[str, Any], files: Any) -> None:
+        if watermark:
+            m["markets"]["US"]["complete_through_session"] = watermark
+        said = build.COVERAGE["by_market"]["US"] if dataset else {}
+        coverage = {"by_market": {"US": said | {"processed_through_session": day}}}
+        m["datasets"][dataset]["coverage"] = coverage
+
+    return change
+
+
+@pytest.mark.parametrize(("change", "found"), [
+    (_processed("2024-01-03", "2024-01-02"), ["TDS-M016"]),  # after the watermark (3.8)
+    (_processed("2024-01-03", None), []),  # no watermark session: only `last` bounds it
+    (_processed("2023-12-29", "2024-01-02", dataset=0), []),  # no `last`: an event dataset
+    (_processed("2024-01-03", "2024-01-02", dataset=0), ["TDS-M016"]),
+    (_processed("2 Jan 2024", "2024-01-02"), ["TDS-M001"]),  # not a date: the schema's
+    (_processed(20240101, "2024-01-02"), ["TDS-M001"]),
+    (_processed("2024-02-30", "2024-01-02"), ["TDS-M001"]),  # the pattern's shape, no date
+    (_processed("2024-01-02\n", "2024-01-02"), ["TDS-M001"]),
+])  # fmt: skip
+def test_M016_bounds(change: Any, found: list[str], tmp_path: Path) -> None:
+    assert codes(write(tmp_path / "pkg", change)) == found
 
 
 K_CODES = ["TDS-K001", "TDS-K002", "TDS-K003", "TDS-K004", "TDS-K010", "TDS-K011"]
 
 
+@pytest.fixture(params=["whole", "a row per batch"])
+def keys_batches(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The K codes twice: files read in one batch, and one row per batch (#309): same findings."""
+    if request.param == "a row per batch":
+        monkeypatch.setattr(keys, "BATCH_ROWS", 1)
+
+
+@pytest.mark.usefixtures("keys_batches")
 @pytest.mark.parametrize("code", K_CODES)
 def test_K_codes(code: str, tmp_path: Path) -> None:
     fail = check(build.write(tmp_path / "fail", *build.package(code, "fail")), level="full")
-    assert [f.code for f in (*fail.errors, *fail.warnings)] == [code]
+    assert [p for p in pairs(tmp_path / "fail", "full") if p not in EXPERIMENTAL] == stated(code)
     assert code not in fail.unchecked
-    assert codes(tmp_path / "fail", "schema") == []  # the schema level reads no rows
+    assert [c for c in codes(tmp_path / "fail", "schema") if c != "TDS-M015"] == []  # no rows
     passed = check(build.write(tmp_path / "pass", *build.package(code, "pass")), level="full")
-    assert (passed.errors, passed.warnings, code in passed.unchecked) == ((), (), False)
+    warned = [p for p in ((w.code, w.dataset) for w in passed.warnings) if p not in EXPERIMENTAL]
+    assert (passed.errors, warned, code in passed.unchecked) == ((), [], False)
+
+
+#: The M015 warning a package with an experimental dataset also gets (TDS 5.7, 5.8).
+EXPERIMENTAL = [("TDS-M015", "quotes"), ("TDS-M015", "book_deltas")]
 
 
 def _custom_in_year(m: dict[str, Any], f: Any) -> None:  # no schema: no key, sort, date column
@@ -105,6 +276,13 @@ def _no_venue(m: dict[str, Any], f: Any) -> None:  # a symbol column missing: K0
     build.rewrite(m, f, rel, table)
 
 
+def _only_source(m: dict[str, Any], f: Any) -> None:  # rows, but none of K010's columns
+    build.CASES["TDS-K010"][1](m, f)
+    rel = "instrument_symbols/part-00000.parquet"
+    rows = pq.read_table(pa.BufferReader(f[rel])).num_rows
+    build.rewrite(m, f, rel, pa.table({"x_note": ["n"] * rows}))
+
+
 def _ranges(*names: str) -> Any:
     """K004's pass package with its bars files named `names`; a third holds US:BBB on 01-03."""
 
@@ -142,6 +320,7 @@ def _not_parquet(m: dict[str, Any], f: Any) -> None:  # S010: no rows read, no K
     build.bars(m)["files"][0]["bytes"] = len(f[build.BARS])
 
 
+@pytest.mark.usefixtures("keys_batches")
 @pytest.mark.parametrize(
     ("change", "errors", "unchecked"),
     [
@@ -152,10 +331,12 @@ def _not_parquet(m: dict[str, Any], f: Any) -> None:  # S010: no rows read, no K
         (_symbols(_unknown), [], ["TDS-K010"]),
         (_symbols(_unknown_then_found), ["TDS-K010"], []),
         (_no_venue, [], ["TDS-K001", "TDS-K002", "TDS-K010"]),  # venue_mic is in key and sort
+        (_only_source, [], ["TDS-K001", "TDS-K002", "TDS-K010"]),
         (_weekly, ["TDS-K002"], []),
         (_not_parquet, [], K_CODES),
         (lambda m, f: f.pop(build.BARS), [], []),  # M004: a missing file has no rows
         (_ranges("2024-01-02T25-00-00Z_2024-01-02T26-00-00Z", _B), [], []),  # hour 25: no range
+        (lambda m, f: _named_twice(m, f), [], K_CODES),  # which `instrument_id`? rows unseen
     ],
 )
 def test_key_rules_edges(
@@ -164,6 +345,100 @@ def test_key_rules_edges(
     result = check(write(tmp_path, change), level="full")
     assert [f.code for f in result.errors if f.code in K_CODES] == errors
     assert [c for c in K_CODES if c in result.unchecked] == unchecked
+
+
+def test_keys_read_the_named_datasets_and_only_their_key_columns(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """TDS 8.1 `--datasets` bounds what `keys` reads (#309): of the named datasets, the key,
+    sort and date columns, in batches; a broken file of another dataset hides nothing."""
+    read: list[list[str]] = []
+    batches = pq.ParquetFile.iter_batches
+
+    def record(self: pq.ParquetFile, *args: Any, columns: Any = None, **kw: Any) -> Any:
+        read.append(sorted(columns))
+        return batches(self, *args, columns=columns, **kw)
+
+    monkeypatch.setattr(pq.ParquetFile, "iter_batches", record)
+    blind: set[str] = set()
+    m = read_manifest(write(tmp_path / "broken", _not_parquet))  # bars unreadable, not named
+    assert keys.check_keys(m, ["instruments"], blind) == []
+    assert blind == set()
+    assert read == [["instrument_id"]]  # its key and its sort; no date folder, no date
+    read.clear()
+    assert keys.check_keys(read_manifest(write(tmp_path / "ok")), ["bars_1d"], blind) == []
+    assert read == [["instrument_id", "session_date"]]  # daily bars: no close, no volume
+
+
+def _daily_bars(rows: int) -> Any:
+    """`rows` daily bars of 2024, distinct keys, in the schema's sort (session_date first)."""
+    days = [dt.date(2024, 1, 1) + dt.timedelta(days=d) for d in range(250)]
+    ids = [f"US:I{i:05}" for i in range(-(-rows // len(days)))]
+    pairs = [(day, i) for day in days for i in ids][:rows]
+    table = build.bars_table(instrument_id=pa.array([i for _, i in pairs]),
+                             session_date=pa.array([d for d, _ in pairs]), close=None)  # fmt: skip
+    return lambda m, f: build.rewrite(m, f, build.BARS, table)
+
+
+@pytest.mark.usefixtures("keys_batches")
+def test_k001_names_the_smallest_key_on_more_than_one_row(tmp_path: Path) -> None:
+    """K001 finds duplicates in sorted runs (#309): its example is the smallest such key, not
+    the first one read."""
+    ids, days = ["US:BBB", "US:BBB", "US:AAA", "US:AAA"], [2, 2, 3, 3]
+    dates = pa.array([dt.date(2024, 1, d) for d in days])
+    table = build.bars_table(instrument_id=pa.array(ids), session_date=dates, close=None)
+    changed = write(tmp_path, lambda m, f: build.rewrite(m, f, build.BARS, table))
+    result = check(changed, level="full")
+    (k001,) = (f for f in result.errors if f.code == "TDS-K001")
+    assert (k001.message, k001.count) == ("2 key value(s) on more than one row", 4)
+    shown = {"instrument_id": "US:AAA", "session_date": "2024-01-03", "freq": "1d", "market": "US"}
+    assert k001.key == shown
+
+
+@pytest.mark.parametrize("named", [False, True])
+def test_k001_sorted_runs_go_beside_the_package_or_to_tmp_dir_and_are_removed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, named: bool
+) -> None:
+    monkeypatch.setattr(keys, "BATCH_ROWS", 1)  # a run per row: a dataset of two rows spills
+    package, scratch = write(tmp_path / "pkg", _daily_bars(2)), tmp_path / "scratch"
+    scratch.mkdir()
+    result = check(package, level="full", tmp_dir=scratch if named else None)
+    assert [f.code for f in result.errors if f.code in K_CODES] == []
+    where = scratch if named else tmp_path
+    assert f"key check: 1 temporary file(s) of sorted rows in {where}, removed" in result.notes
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["pkg", "scratch"]
+    assert list(scratch.iterdir()) == []
+
+
+def test_k001_without_a_temporary_file_is_unchecked_with_a_note(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A folder the sorted runs cannot go to leaves K001 alone unchecked, saying why; the other
+    K codes keep what they found (fresh-context review of #309's K001 part)."""
+    monkeypatch.setattr(keys, "BATCH_ROWS", 1)
+    days = pa.array([dt.date(2024, 1, d) for d in (3, 3, 2)])  # a key twice, then a row unsorted
+    table = build.bars_table(instrument_id=pa.array(["US:AAA"] * 3), session_date=days, close=None)
+    package = write(tmp_path / "pkg", lambda m, f: build.rewrite(m, f, build.BARS, table))
+    result = check(package, level="full", tmp_dir=tmp_path / "missing")
+    assert [f.code for f in result.errors if f.code in K_CODES] == ["TDS-K002"]
+    assert [c for c in K_CODES if c in result.unchecked] == ["TDS-K001"]
+    assert any(n.startswith("TDS-K001 not checked: ") for n in result.notes), result.notes
+
+
+def test_k001_memory_holds_a_batch_not_every_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#309: 4 times the rows, about the same peak. The set of every key took about 245 bytes
+    a row (2026-11-10), so `bars_1d`'s 60 million rows would have needed about 14 GB."""
+    monkeypatch.setattr(keys, "BATCH_ROWS", 2_000)
+    peaks = []
+    for rows in (10_000, 40_000):
+        m = read_manifest(write(tmp_path / str(rows), _daily_bars(rows)))
+        tracemalloc.start()
+        assert keys.check_keys(m, ["bars_1d"], set()) == []
+        peaks.append(tracemalloc.get_traced_memory()[1])
+        tracemalloc.stop()
+    assert (peaks[1] - peaks[0]) / 30_000 < 20, peaks  # bytes per row added
 
 
 def test_classification_levels_not_duplicate(tmp_path: Path) -> None:
@@ -177,6 +452,14 @@ def test_classification_levels_not_duplicate(tmp_path: Path) -> None:
 R_CODES = [f"TDS-R{n:03}" for n in range(1, 10)]
 
 
+@pytest.fixture(params=["whole", "a row per batch"])
+def refs_batches(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The R codes twice: files read in one batch, and one row per batch (#309): same findings."""
+    if request.param == "a row per batch":
+        monkeypatch.setattr(refs, "BATCH_ROWS", 1)
+
+
+@pytest.mark.usefixtures("refs_batches")
 @pytest.mark.parametrize("code", R_CODES)
 def test_R_codes(code: str, tmp_path: Path) -> None:
     test_K_codes(code, tmp_path)  # the same contract: once in its fail package, judged in both
@@ -229,6 +512,7 @@ _NO_CAL = ["TDS-R002", "TDS-R003"]  # the base package has no calendar_sessions
 _NO_EXITS = ["TDS-R008"]  # nor delistings
 
 
+@pytest.mark.usefixtures("refs_batches")
 @pytest.mark.parametrize(
     ("change", "errors", "unchecked"),
     [
@@ -276,6 +560,57 @@ def test_reference_rules_edges(
     assert [c for c in R_CODES if c in result.unchecked] == unchecked
 
 
+def test_refs_with_datasets_reads_the_named_and_the_lookup_columns(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """TDS 8.1 `--datasets` bounds what `refs` reads (#309): the named datasets, and of the
+    tables they point to only the lookup columns."""
+    read: list[tuple[bool, list[str]]] = []  # (a bars file?, the columns asked for)
+    batches = pq.ParquetFile.iter_batches
+
+    def record(self: pq.ParquetFile, *args: Any, columns: Any = None, **kw: Any) -> Any:
+        read.append(("close" in self.schema_arrow.names, sorted(columns or [])))
+        return batches(self, *args, columns=columns, **kw)
+
+    monkeypatch.setattr(pq.ParquetFile, "iter_batches", record)
+    blind: set[str] = set()
+    m = read_manifest(write(tmp_path / "broken", _not_parquet))  # bars unreadable, not named
+    assert refs.check_refs(m, ["instruments"], blind) == []
+    assert "TDS-R001" not in blind  # a broken file of a dataset not read hides nothing
+    assert [bars for bars, _ in read] == [False, False]  # instruments: as lookup, as named
+    read.clear()
+    assert refs.check_refs(read_manifest(write(tmp_path / "ok")), ["bars_1d"], set()) == []
+    ((_, instruments),) = [r for r in read if not r[0]]  # once, as the lookup
+    assert set(instruments) <= set(refs.LOOKUPS["instruments"])
+    assert [bars for bars, _ in read].count(True) == 1
+
+
+def _named_twice(m: dict[str, Any], f: Any) -> None:  # a bars file storing `instrument_id` twice
+    t = build.bars_table()
+    names = [*t.column_names, "instrument_id"]
+    build.rewrite(m, f, build.BARS, pa.Table.from_arrays([*t.columns, t["instrument_id"]], names))
+
+
+@pytest.mark.usefixtures("refs_batches")
+@pytest.mark.parametrize(
+    ("change", "unchecked"),
+    [  # the full level ends with a result, not a traceback (#309's review)
+        (build._bars(currency=pa.array([["USD"]])), [*_NO_CAL, *_NO_EXITS]),  # a list: no code
+        (
+            build._bars(calendar_id=pa.array([["X"]]), item=pa.array([{"a": 1}])),
+            [*_NO_CAL, *_NO_EXITS],
+        ),
+        (_named_twice, R_CODES),  # which `instrument_id`? unseen, as an unreadable file
+    ],
+)
+def test_refs_on_columns_it_cannot_compare(
+    change: Any, unchecked: list[str], tmp_path: Path
+) -> None:
+    result = check(write(tmp_path, change), level="full")
+    assert not [f.code for f in (*result.errors, *result.warnings) if f.code in R_CODES]
+    assert [c for c in R_CODES if c in result.unchecked] == unchecked
+
+
 @pytest.mark.parametrize(
     ("change", "dataset", "dictionary"),
     [
@@ -296,12 +631,518 @@ def test_R009_names_the_missing_dictionary_once_per_dataset(
     assert all(f"no {dictionary}" in f.message for f in r009)
 
 
+A_CODES = [f"TDS-A{n:03}" for n in range(1, 10)]
+
+
+@pytest.mark.usefixtures("refs_batches")
+@pytest.mark.parametrize("code", A_CODES)
+def test_A_codes(code: str, tmp_path: Path) -> None:
+    test_K_codes(code, tmp_path)  # the same contract: once in its fail package, judged in both
+
+
+@pytest.mark.usefixtures("refs_batches")
+def test_A010(tmp_path: Path) -> None:
+    """Four errors, one per way a ratio is wrong, each naming its row; the profile fails."""
+    test_K_codes("TDS-A010", tmp_path)
+    result = check(tmp_path / "fail", level="full")
+    assert [(f.severity, f.key, f.count) for f in result.errors] == [
+        ("error", {"event_id": f"US:E{n}"}, 1) for n in (1, 2, 3, 4)
+    ]
+    assert [p.result for p in result.profiles.values()] == ["fail"]
+
+
+@pytest.mark.usefixtures("refs_batches")
+def test_A011(tmp_path: Path) -> None:
+    test_K_codes("TDS-A011", tmp_path)
+    [found] = check(tmp_path / "fail", level="full").warnings
+    assert (found.code, found.key) == ("TDS-A011", {"delisting_id": "US:L1"})
+
+
+def _ratios(*events: dict[str, Any]) -> Any:
+    """`events` (each a change of the 2:1 split) in `corporate_actions` alone."""
+    return build._add("corporate_actions", build.action_table([build.SPLIT | e for e in events]))
+
+
+_NO_RATIO = {"ratio_num": None, "ratio_den": None}
+_CASH = {"cash_per_share": 1.0, "ratio_new_per_old": None, "affects": "total_only"}
+_SPUN = {"kind": "spinoff", "new_instrument_id": "US:AAA"}  # A006 wants one
+
+
+@pytest.mark.parametrize(
+    ("change", "found"),
+    [  # TDS 5.11 with the choices on #228: share_factor first, else ratio_new_per_old's rule
+        (_ratios({"share_factor": 2.0}), []),
+        (_ratios({"share_factor": 0.5}), ["TDS-A010"]),
+        (_ratios({"kind": "stock_dividend", "ratio_num": 21, "ratio_den": 20,
+                  "ratio_new_per_old": 0.05}), []),  # 1 + b
+        (_ratios(_SPUN | {"ratio_num": 1, "ratio_den": 2, "ratio_new_per_old": 0.5,
+                          "share_factor": 1.0}), []),  # not split-like: ratio_new_per_old
+        (_ratios(_SPUN | {"ratio_num": 1, "ratio_den": 3, "ratio_new_per_old": 0.5}),
+         ["TDS-A010"]),
+        (_ratios({"ratio_new_per_old": None}), []),  # no f64 to disagree with
+        (_ratios(_NO_RATIO | {"status": "cancelled"}), ["TDS-A010"]),  # every row
+        (_ratios(_NO_RATIO | {"kind": "bonus_issue", "ratio_new_per_old": None}), ["TDS-A010"]),
+        # the three kinds that change share counts only with a ratio_new_per_old
+        (_ratios(_NO_RATIO | _CASH | {"kind": "capital_reduction"}), []),
+        (_ratios(_NO_RATIO | {"kind": "capital_reduction", "ratio_new_per_old": 0.5}),
+         ["TDS-A010"]),
+        (_ratios(_NO_RATIO | _SPUN | {"kind": "exchange_offer", "ratio_new_per_old": 0.5}),
+         ["TDS-A010"]),
+        (_ratios(_NO_RATIO | _CASH | {"kind": "rights_issue"}), []),
+        (_ratios(_NO_RATIO | {"kind": "rights_issue", "ratio_new_per_old": 0.2}), ["TDS-A010"]),
+        (_ratios(_NO_RATIO | _CASH | {"kind": "cash_dividend"}), []),
+        (_ratios(_CASH | {"kind": "cash_dividend", "ratio_den": None}), ["TDS-A010"]),
+        (_ratios(_CASH | {"kind": "cash_dividend", "ratio_num": -1}), ["TDS-A010"]),
+    ],
+)  # fmt: skip
+def test_A010_rows(change: Any, found: list[str], tmp_path: Path) -> None:
+    assert codes(write(tmp_path, change), "full") == found
+
+
+def _exit_after(*events: dict[str, Any], includes: bool | None = None) -> Any:
+    """US:AAA's delisting after its last trading day, the 2nd; `events` change a dividend."""
+    rows = [build.SPLIT | build._DIVIDEND | {"price_factor": 0.9} | e for e in events]
+    return build._both(build._exits(delisted=True, includes=includes),
+                       build._add("corporate_actions", build.action_table(rows)))  # fmt: skip
+
+
+_AMENDED = {"event_id": "US:E2", "revision_of": "US:E1"}
+
+
+@pytest.mark.parametrize(
+    ("change", "found", "unchecked"),
+    [  # TDS 5.13 with the choices on #228: the latest version, not cancelled, ex after the day
+        (_exit_after({}), ["TDS-A011"], False),
+        (_exit_after({}, includes=False), [], False),
+        (_exit_after({"status": "cancelled"}), [], False),
+        (_exit_after({"ex_date": dt.date(2024, 1, 2), "ts_effective": build._at(2)}), [], False),
+        (_exit_after({"kind": "special_dividend"}), ["TDS-A011"], False),
+        (_exit_after({"kind": "return_of_capital"}), ["TDS-A011"], False),
+        # a cancelled revision ends the chain; an old version revised by a live one is not counted
+        (_exit_after({}, _AMENDED | {"status": "cancelled"}), [], False),
+        (_exit_after(_AMENDED | {"ex_date": dt.date(2024, 1, 2)}, {}), [], False),  # K002 order
+        (_exit_after({"ex_date": dt.date(2024, 1, 2)}, _AMENDED), ["TDS-A011"], False),
+        (build._exits(delisted=True), [], True),  # no corporate_actions: unknown
+    ],
+)  # fmt: skip
+def test_A011_rows(change: Any, found: list[str], unchecked: bool, tmp_path: Path) -> None:
+    result = check(write(tmp_path, change), level="full")
+    assert [f.code for f in (*result.errors, *result.warnings)] == found
+    assert ("TDS-A011" in result.unchecked) == unchecked
+
+
+def test_A011_on_a_timestamp_last_trading_date_is_S002_and_unchecked(tmp_path: Path) -> None:
+    """A date against a timestamp cannot be compared: A011 unchecked, not a crash (review)."""
+
+    def change(m: dict[str, Any], f: Any) -> None:
+        _exit_after({})(m, f)
+        rel = "delistings/part-00000.parquet"
+        table = pq.read_table(pa.BufferReader(f[rel]))
+        stamp = pa.array([dt.datetime(2024, 1, 2)], pa.timestamp("us"))
+        build.rewrite(m, f, rel, table.set_column(2, "last_trading_date", stamp))
+
+    result = check(write(tmp_path, change), level="full")
+    assert "TDS-S002" in [f.code for f in result.errors]
+    assert "TDS-A011" in result.unchecked
+
+
+#: V011, V012, V031 and V032 have tests of their own.
+V_CODES = [f"TDS-V{n:03}" for n in (1, 2, 4, 5, 10, 20, 30, 40, 41, 50)]
+
+
+@pytest.mark.usefixtures("refs_batches")
+@pytest.mark.parametrize("code", V_CODES)
+def test_V_codes(code: str, tmp_path: Path) -> None:
+    test_K_codes(code, tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("change", "found"),
+    [  # V001 and V002 judge a row only on the values it has; an index's price may be negative
+        (build._bars(open=pa.array([None], pa.float64()), low=pa.array([11.0])), []),
+        (build._both(build._instruments(asset_class=pa.array(["index"])),
+                     build._bars(close=pa.array([-1.0]), volume=pa.array([-1.0]))), ["TDS-V002"]),
+        (build._bars(volume=pa.array([1.5])), ["TDS-V010"]),  # US:AAA is equity
+        (build._both(build._instruments(asset_class=pa.array(["etf"])),
+                     build._bars(volume=pa.array([1.5]))), []),
+    ],
+)  # fmt: skip
+def test_value_rules_edges(change: Any, found: list[str], tmp_path: Path) -> None:
+    assert codes(write(tmp_path, change), "full") == found
+
+
+def test_a_column_of_the_wrong_type_is_S002_and_leaves_the_V_codes_unchecked(
+    tmp_path: Path,
+) -> None:
+    result = check(write(tmp_path, build._bars(close=pa.array(["abc"]))), level="full")
+    assert [f.code for f in result.errors] == ["TDS-S002"]
+    assert set(V_CODES) <= set(result.unchecked)
+
+
+@pytest.mark.parametrize(
+    ("session_date", "wrong"),
+    [(pa.array([dt.date(2024, 1, 2)]), False), (pa.array(["2024-01-02"]), True)],
+)
+def test_a_tradability_daily_id_or_date_of_the_wrong_type_is_S002(
+    session_date: pa.Array, wrong: bool, tmp_path: Path
+) -> None:
+    # TDS 5.10 types the row `instrument_id, session_date` as id / date (#105).
+    row = {"instrument_id": ["US:AAA"], "session_date": session_date, "status_known": [True]}
+    found = codes(write(tmp_path, build._add("tradability_daily", row)), "schema")
+    assert ("TDS-S002" in found) is wrong
+
+
+_SHARES = {
+    "instrument_id": ["US:AAA"], "count_kind": ["listed"], "as_of_date": build.DAY,
+    "shares": [1e6], "ts_available": pa.array([build.NEW_YEAR], build.TS_UTC),
+    "source": ["synthetic"], "evidence_id": ["e1"],
+}  # fmt: skip
+
+
+@pytest.mark.parametrize(
+    ("kind", "row", "code"),
+    [
+        ("share_counts", _SHARES, None),  # the control: the stated types raise neither
+        ("share_counts", _SHARES | {"instrument_id": [1]}, "TDS-S002"),
+        ("share_counts", _SHARES | {"source": [1]}, "TDS-S002"),
+        ("trading_status_events", {"sequence": pa.array([1], pa.int32())}, "TDS-S002"),
+        ("trading_status_events", {"ts_event": _SHARES["ts_available"]}, "TDS-S004"),  # us, not ns
+        ("rates", {"ts_available": pa.array([0], pa.timestamp("us"))}, "TDS-S004"),  # no time zone
+    ],
+)
+def test_a_column_typed_by_105_is_checked_for_S002_and_S004(
+    kind: str, row: dict[str, Any], code: str | None, tmp_path: Path
+) -> None:
+    # TDS 5.10 ~ 5.25: the columns chapter 5 named without a type have one in the schema file.
+    found = codes(write(tmp_path, build._add(kind, row)), "schema")
+    assert [c for c in ("TDS-S002", "TDS-S004") if c in found] == ([code] if code else [])
+
+
+_NS = pa.timestamp("ns", "UTC")
+_FUNDING = {
+    "instrument_id": ["US:AAA"], "ts_event": pa.array([build.NEW_YEAR], _NS), "rate": [1e-4],
+    "ts_available": pa.array([build.NEW_YEAR], _NS), "source": ["synthetic"], "x_note": ["n"],
+}  # fmt: skip
+
+
+def _funding(row: dict[str, Any] = _FUNDING, **declared: str) -> Any:
+    """One `funding_rates` row (5.24, experimental: its schema file leaves `ts_available` and
+    `source` untyped) with tds.json `columns` declaring `declared`."""
+    columns = [{"name": k, "type": v} for k, v in declared.items()]
+    return build._both(build._add("funding_rates", row),
+                       lambda m, f: m["datasets"][-1].update(columns=columns))  # fmt: skip
+
+
+@pytest.mark.parametrize(
+    ("change", "found"),
+    [  # #403: a declaration on an untyped or `x_` column is the type the file is checked against
+        (_funding(), []),  # untyped and undeclared: not checked, as before
+        (_funding(ts_available="ts_ns", source="string", x_note="string"), []),
+        (_funding(ts_available="ts_us/ns"), [("TDS-M001", "$.datasets[2].columns[0].type:")]),
+        (_funding(ts_available="ts_us", source="i64"),  # the Decision's conformance case
+         [("TDS-S004", "ts_available"), ("TDS-S002", "source")]),
+        (_funding(ts_available="f64"), [("TDS-S002", "ts_available")]),
+        (_funding(_FUNDING | {"ts_available": pa.array([0], pa.timestamp("ns"))},
+                  ts_available="ts_ns"), [("TDS-S004", "ts_available")]),  # no time zone
+        (_funding(x_note="i64"), [("TDS-S002", "x_note")]),
+        (_funding(rate="f64"), []),  # typed by the schema, declared the same
+        (_funding(source=""), [("TDS-M001", "$.datasets[2].columns[0].type:")]),  # #417
+    ],
+)  # fmt: skip
+def test_a_declared_type_on_an_untyped_column_is_checked(
+    change: Any, found: list[tuple[str, str]], tmp_path: Path
+) -> None:
+    result = check(write(tmp_path, change), level="schema")
+    assert [(f.code, f.message.split()[0]) for f in result.errors] == found
+    assert [(w.code, w.dataset) for w in result.warnings] == [("TDS-M015", "funding_rates")]
+
+
+def test_a_dataset_typed_by_105_has_a_value_hash_with_no_columns_in_tds_json(
+    tmp_path: Path,
+) -> None:
+    # Before #105 its untyped columns had "no declared type" unless tds.json `columns` gave one.
+    root = write(tmp_path, build._add("share_counts", _SHARES))
+    assert len(value_hash(root, "share_counts")) == 64
+
+
+def test_V031(tmp_path: Path) -> None:
+    """The pass package's books cross only inside a batch; the fail package's after one (#430)."""
+    test_K_codes("TDS-V031", tmp_path)
+
+
+def test_V032(tmp_path: Path) -> None:
+    """Snapshot rows numbered out of order pass; a skipped live number fails (#348, #432)."""
+    test_K_codes("TDS-V032", tmp_path)
+    [found] = check(tmp_path / "fail", level="full").warnings[1:]  # after M015
+    key = {"venue": "XNYS", "date": "2024-01-02"}
+    assert (found.key, found.count, found.message) == (
+        key,
+        1,
+        "1 missing sequence number(s); first gap 1002 -> 1004",
+    )
+
+
+def test_no_declaration_leaves_no_V_code_unchecked(tmp_path: Path) -> None:
+    # #432: a book_deltas dataset with no sequence_consecutive_within: nothing to judge
+    result = check(write(tmp_path, build.CASES["TDS-V031"][0]), level="full")
+    assert "TDS-V032" not in [f.code for f in result.warnings]
+    assert not {*V_CODES, "TDS-V012", "TDS-V031", "TDS-V032"} & set(result.unchecked)
+
+
+@pytest.mark.usefixtures("refs_batches")
+def test_V012(tmp_path: Path) -> None:
+    """TDS 5.27: a raw price more than 1e-9 relative off its grid; f64 jitter inside it passes."""
+    test_K_codes("TDS-V012", tmp_path)  # tick 0.0001: 0.67685 fails, 0.6768000000000001 passes
+    [found] = check(tmp_path / "fail", level="full").warnings
+    key = {"instrument_id": "US:AAA", "session_date": "2024-01-02", "column": "close"}
+    assert (found.key, found.count) == (key, 1)
+
+
+def _closes(*prices: float) -> Any:
+    """US:AAA's closes, a day apart from 2024-01-02."""
+    n = len(prices)
+    days = pa.array([dt.date(2024, 1, 2 + d) for d in range(n)])
+    return build._bars(instrument_id=pa.array(["US:AAA"] * n), session_date=days,
+                       close=pa.array(prices, pa.float64()))  # fmt: skip
+
+
+def _rules(*bands: tuple[Any, Any, Any], until: dt.date | None = None) -> Any:
+    """Rule set `us-tick` from 2024-01-02: a `tick_band` row per (price_from, price_to, tick)."""
+    n, (lo, hi, tick) = len(bands), zip(*bands, strict=True)
+    return build._add("market_rules", {
+        "rule_id": ["us-tick"] * n, "market": ["US"] * n, "rule_kind": ["tick_band"] * n,
+        "venue_group": ["*"] * n, "valid_from": pa.array([dt.date(2024, 1, 2)] * n),
+        "valid_to": pa.array([until] * n, pa.date32()), "price_from": pa.array(lo, pa.float64()),
+        "price_to": pa.array(hi, pa.float64()), "tick_size": pa.array(tick),
+        "source": ["https://example.test/r"] * n, "verified": [False] * n,
+    })  # fmt: skip
+
+
+def _assigned(day: int) -> Any:
+    """`classifications` scheme `tick_rule_id` (5.19): US:AAA on `us-tick` from January `day`."""
+    return build._add("classifications", {
+        "instrument_id": ["US:AAA"], "scheme": ["tick_rule_id"], "level": pa.array([0], pa.int8()),
+        "code": ["us-tick"], "effective_from": pa.array([dt.date(2024, 1, day)]),
+        "ts_known_from": pa.array([build.NEW_YEAR], build.TS_UTC), "edition": ["both"],
+        "pit_quality": ["native"], "source": ["synthetic"],
+    })  # fmt: skip
+
+
+_CENT = build._instruments(tick_size=pa.array([0.01]))
+_RULED = build._instruments(tick_rule_id=pa.array(["us-tick"]))
+_US = _rules((None, 1.0, 0.0001), (1.0, None, 0.01))  # a null `price_from` is 0
+_LIMITS = build._add("tradability_daily", {
+    "instrument_id": ["US:AAA"], "session_date": build.DAY, "status_known": [True],
+    "up_limit_price": [13.0], "down_limit_price": [7.005],
+})  # fmt: skip
+_ADJUSTED = build._set("params", {"freq": "1d", "price_basis": "total_adjusted"}, in_bars=True)
+
+
+@pytest.mark.parametrize(
+    ("changes", "count", "dataset"),
+    [
+        ((_closes(10.005),), 0, "bars_1d"),  # no grid information: nothing to compare
+        ((_CENT, _closes(10.0, 10.005, float("nan"))), 1, "bars_1d"),
+        ((_CENT, _closes(10.000000005, 10.00000002)), 1, "bars_1d"),  # 5e-10 and 2e-9 relative
+        # the fixed tick comes before the instrument's own rule set; a band's tick need not be
+        # a multiple of the smallest
+        ((build._instruments(tick_size=pa.array([0.01]), tick_rule_id=pa.array(["us-tick"])),
+          _rules((0.0, None, 0.005)), _closes(10.005)), 1, "bars_1d"),
+        ((_RULED, _rules((0.0, 20.0, 0.02), (20.0, None, 0.05)), _closes(19.98, 20.05, 20.1)),
+         0, ""),
+        ((_CENT, build._bars(open=pa.array([9.995]), high=pa.array([10.005]))), 2, "bars_1d"),
+        ((_CENT, _ADJUSTED, _closes(10.005)), 0, "bars_1d"),  # not declared raw
+        ((_CENT, _LIMITS), 1, "tradability_daily"),
+        # bands: each price in its band's tick; 0.9999999999999999 is 1.0, in the band from 1.0
+        ((_RULED, _US, _closes(0.6768000000000001, 0.9999, 0.9999999999999999, 1.01)), 0, ""),
+        ((_RULED, _US, _closes(1.005, 0.99995, 1.0001)), 3, "bars_1d"),
+        ((_RULED, _rules((0.0, None, 0.01), until=dt.date(2024, 1, 3)), _closes(1.005, 1.005)),
+         1, "bars_1d"),  # `valid_to` is exclusive: no rule on the 3rd
+        ((_RULED, _closes(1.005)), 0, ""),  # the rule set is not in the package
+        # the dated assignment comes before the fixed tick, from its `effective_from`
+        ((_CENT, _assigned(2), _rules((0.0, None, 0.005)), _closes(10.005)), 0, ""),
+        ((_CENT, _assigned(3), _rules((0.0, None, 0.005)), _closes(10.005, 10.005)), 1, "bars_1d"),
+    ],
+)  # fmt: skip
+def test_V012_rows(changes: tuple[Any, ...], count: int, dataset: str, tmp_path: Path) -> None:
+    result = check(write(tmp_path, build._both(*changes)), level="full")
+    found = [(f.dataset, f.count) for f in result.warnings if f.code == "TDS-V012"]
+    assert found == ([(dataset, count)] if count else [])
+    assert "TDS-V012" not in result.unchecked
+
+
+def test_V012_on_a_tick_that_is_no_number_is_unchecked_alone(tmp_path: Path) -> None:
+    bands = _rules((0.0, None, "a cent"))
+    result = check(write(tmp_path, build._both(_RULED, bands, _closes(10.005))), level="full")
+    assert [c for c in (*V_CODES, "TDS-V012") if c in result.unchecked] == ["TDS-V012"]
+
+
+@pytest.mark.usefixtures("refs_batches")
+def test_V011(tmp_path: Path) -> None:
+    """TDS 3.4: one warning per instrument and year whose median R is outside [0.5, 2]."""
+    test_K_codes("TDS-V011", tmp_path)  # R = 100 in the fail package, 1 in the pass package
+    [found] = check(tmp_path / "fail", level="full").warnings
+    assert (found.key, found.count) == ({"instrument_id": "US:AAA", "year": 2024}, 1)
+    assert (found.message, found.hint) == ("median R = 100 over 1 bar(s)", "volume may be in lots")
+
+
+def _years(*rows: tuple[str, int, float | None]) -> Any:
+    """Bars at 10.0 with `value_traded` 1000, one per (instrument, year, volume), a day apart."""
+    ids, years, volumes = zip(*rows, strict=True)
+    days = [dt.date(y, 1, 2 + n) for n, y in enumerate(years)]
+    tens, table = pa.array([10.0] * len(rows)), build.instruments()
+    listed = pa.table({c: [table[c][0].as_py()] * 2 for c in table.column_names})
+    listed = listed.set_column(0, "instrument_id", pa.array(["US:AAA", "US:BBB"]))
+    return build._both(
+        lambda m, f: build.rewrite(m, f, build.INSTRUMENTS, listed),
+        build._bars(instrument_id=pa.array(ids), session_date=pa.array(days), high=tens,
+                    low=tens, close=tens, volume=pa.array(volumes, pa.float64()),
+                    value_traded=pa.array([1000.0] * len(rows))),
+    )  # fmt: skip
+
+
+_FIFTY = build._future(**build._FUTURE, multiplier=pa.array([50.0]))
+
+
+@pytest.mark.parametrize(
+    ("change", "keys", "unchecked"),
+    [  # the median of 1, 1, 100 is 1; of 1, 100, 100 it is 100; R = 2 and 0.5 are inside
+        (_years(("US:AAA", 2024, 100), ("US:AAA", 2024, 100), ("US:AAA", 2024, 1)), [], False),
+        (_years(("US:AAA", 2024, 100), ("US:AAA", 2024, 1), ("US:AAA", 2024, 1)),
+         [("US:AAA", 2024, 3)], False),
+        (_years(("US:AAA", 2024, 50), ("US:BBB", 2024, 200)), [], False),
+        (_years(("US:AAA", 2024, 49), ("US:BBB", 2024, 201)),
+         [("US:AAA", 2024, 1), ("US:BBB", 2024, 1)], False),
+        # a bar with no volume, or a volume of 0, has no R: the other bars decide
+        (_years(("US:AAA", 2024, None), ("US:AAA", 2024, 0), ("US:AAA", 2024, 1)),
+         [("US:AAA", 2024, 1)], False),
+        (_years(("US:AAA", 2024, None)), [], True),  # no bar with an R: unverified
+        (build._bars(volume=pa.array([1.0])), [], True),  # no value_traded column
+        # a future's contracts: R = 1000 / (volume * 10 * multiplier 50), 1 then 0.02
+        (build._both(_FIFTY, build._traded(2.0)), [], False),
+        (build._both(_FIFTY, build._traded(100.0)), [("US:AAA", 2024, 1)], False),
+        # an index trades no quantity, adjusted prices are not what was paid: neither is read
+        (build._both(build._instruments(asset_class=pa.array(["index"])), build._traded(1.0)),
+         [], True),
+        (build._both(_ADJUSTED, build._traded(1.0)), [], True),
+    ],
+)  # fmt: skip
+def test_V011_rows(
+    change: Any, keys: list[tuple[str, int, int]], unchecked: bool, tmp_path: Path
+) -> None:
+    result = check(write(tmp_path, change), level="full")
+    found = [(f.key["instrument_id"], f.key["year"], f.count) for f in result.warnings if f.key]
+    assert ([f.code for f in result.warnings], found) == (["TDS-V011"] * len(keys), keys)
+    assert ("TDS-V011" in result.unchecked) == unchecked
+    said = [n for n in result.notes if n.startswith("TDS-V011 not checked: volume unit unverified")]
+    assert len(said) == unchecked
+
+
+def test_V011_on_a_session_date_that_is_no_date_leaves_the_other_V_codes_judged(
+    tmp_path: Path,
+) -> None:
+    ten, text = pa.array([10.0]), pa.array(["2024-01-02"])
+    bars = build._bars(session_date=text, open=ten, high=pa.array([5.0]), low=pa.array([9.0]),
+                       volume=pa.array([1.0]), value_traded=pa.array([1000.0]))  # fmt: skip
+    result = check(write(tmp_path, bars), level="full")
+    assert {"TDS-S002", "TDS-V001"} <= {f.code for f in result.errors}
+    assert (result.warnings, "TDS-V011" in result.unchecked) == ((), True)
+
+
+def _files_reversed(change: Any) -> Any:
+    """`change`, then its two bars rows in two files of one folder, listed last file first."""
+
+    def out(m: dict[str, Any], f: Any) -> None:
+        change(m, f)
+        table, folder = pq.read_table(pa.BufferReader(f.pop(build.BARS))), build.BARS[:-18]
+        build.bars(m)["files"] = []
+        for n in (1, 0):
+            rel = f"{folder}/part-{n:05}.parquet"
+            f[rel] = build.parquet(table.slice(n, 1), "bars_1d")
+            build.bars(m)["files"].append({"path": rel, "rows": 1, "bytes": len(f[rel])})
+
+    return out
+
+
+def test_reverse_split_not_flagged(tmp_path: Path) -> None:
+    """1:10 on the 3rd (m = 10), 2:1 on the 4th (m = 0.5): the factor goes up, then down."""
+    reverse = {"kind": "reverse_split", "ratio_num": 1, "ratio_den": 10, "price_factor": 10.0,
+               "ratio_new_per_old": 0.1}  # fmt: skip
+    split = {"event_id": "US:E2", "ex_date": dt.date(2024, 1, 4), "ts_effective": build._at(4)}
+    change = build._actions(reverse, split, split=(1.0, 10.0, 5.0), on=(2, 3, 4))
+    assert codes(write(tmp_path, change), "full") == []
+
+
+_LATER = dt.datetime(2024, 1, 2, tzinfo=dt.UTC)  # E2 is known after E1 (TDS 5.11 step 2)
+
+
+@pytest.mark.parametrize(
+    ("revision", "after", "found"),
+    [
+        ({"ratio_num": 4, "ratio_new_per_old": 4.0, "price_factor": 0.25}, 0.25, []),
+        ({"ratio_num": 4, "ratio_new_per_old": 4.0, "price_factor": 0.25}, 0.125, ["TDS-A001"]),
+        ({"ratio_num": 4, "ratio_new_per_old": 4.0, "price_factor": 0.25}, 0.5, ["TDS-A001"]),
+        ({"status": "cancelled"}, 1.0, []),  # a cancelled chain is 1.0
+        ({"status": "cancelled"}, 0.5, ["TDS-A001"]),
+    ],
+)
+def test_A001_multiplies_latest_revision_once(
+    revision: dict[str, Any], after: float, found: list[str], tmp_path: Path
+) -> None:
+    amended = {"event_id": "US:E2", "revision_of": "US:E1", "ts_announced": _LATER} | revision
+    change = build._actions({}, amended, split=(1.0, after))
+    assert codes(write(tmp_path, change), "full") == found
+
+
+@pytest.mark.parametrize(
+    ("change", "found", "unchecked"),
+    [  # sparse bars on the 2nd and 4th: the 3rd's split lies between them
+        (build._actions({}, on=(2, 3, 4), bars_on=(2, 4), split=(1.0, 0.5)), [], []),
+        (build._actions({}, on=(2, 3, 4), bars_on=(2, 4), split=(1.0, 1.0)), ["TDS-A001"], []),
+        # two bars files listed in reverse: read in path order, the 2nd is the first bar
+        (_files_reversed(build.CASES["TDS-A001"][0]), [], []),
+        (_files_reversed(build.CASES["TDS-A001"][1]), ["TDS-A001"], []),
+        # no corporate_actions: a factor that moves is not judged; one that does not, is
+        (build._bars(cum_factor_split=pa.array([1.0])), [], []),
+        (_without("corporate_actions", build.CASES["TDS-A001"][0]), [], ["TDS-A001"]),
+        # chains the resolver cannot tie (A007) leave A001 unchecked
+        (build.CASES["TDS-A007"][1], ["TDS-A007"], ["TDS-A001"]),
+        # no calendar: the sessions A005 and A009 look up are unknown
+        (_without("calendar_sessions", build.CASES["TDS-A009"][0]), [],
+         ["TDS-A005", "TDS-A009"]),
+    ],
+)  # fmt: skip
+def test_adjustment_rules_edges(
+    change: Any, found: list[str], unchecked: list[str], tmp_path: Path
+) -> None:
+    result = check(write(tmp_path, change), level="full")
+    assert [f.code for f in (*result.errors, *result.warnings)] == found
+    assert set(unchecked) <= set(result.unchecked)
+    assert not set(A_CODES) - set(unchecked) & set(result.unchecked)
+
+
 @pytest.mark.parametrize("code", ["TDS-H001", "TDS-H002", "TDS-H003"])
 def test_H_codes(code: str, tmp_path: Path) -> None:
     fail = build.write(tmp_path / "fail", *build.package(code, "fail"))
-    assert codes(fail, "full") == [code]
+    assert pairs(fail, "full") == stated(code)
     assert codes(fail, "schema") == []  # the schema level reads no rows and hashes nothing
     assert codes(build.write(tmp_path / "pass", *build.package(code, "pass")), "full") == []
+
+
+@pytest.mark.parametrize("named", [None, ["bars_1d"]])
+def test_H004(named: list[str] | None, tmp_path: Path) -> None:
+    """TDS 4.2: a file's optional `value_sha256` is advisory, so a wrong one is a warning."""
+    test_H_codes("TDS-H004", tmp_path)
+    result = check(tmp_path / "fail", level="full", datasets=named)
+    [found] = result.warnings
+    assert (found.code, found.dataset, found.file) == ("TDS-H004", "bars_1d", build.BARS)
+    assert (result.errors, "TDS-H004" in result.unchecked) == ((), False)
+    passed = check(tmp_path / "pass", level="full", datasets=named)
+    assert (passed.warnings, "TDS-H004" in passed.unchecked) == ((), False)
+    null = write(
+        tmp_path / "null", lambda m, f: build.bars(m)["files"][0].update(value_sha256=None)
+    )
+    assert codes(null, "full", datasets=named) == []  # a null is no declaration, as for H002
 
 
 @pytest.mark.parametrize("code", ["TDS-H002", "TDS-H003"])
@@ -321,6 +1162,43 @@ def test_a_wrong_dictionary_value_hash_is_H002(tmp_path: Path) -> None:
     assert [(f.code, f.dataset) for f in result.errors] == [("TDS-H002", "dictionary/codes")]
 
 
+def test_datasets_named_bound_the_hashes_and_leave_H003_unchecked(tmp_path: Path) -> None:
+    manifest, files = build.package("TDS-H003", "fail")  # a wrong package hash, then H002 too
+    named = next(d for d in manifest["datasets"] if d["kind"] == "dictionary/codes")
+    named["value_sha256"] = "0" * 64
+    result = check(build.write(tmp_path, manifest, files), level="full", datasets=[named["name"]])
+    assert [(f.code, f.dataset) for f in result.errors] == [("TDS-H002", named["name"])]
+    assert "TDS-H003" in result.unchecked
+    assert "TDS-H002" not in result.unchecked
+    assert any(n.startswith("TDS-H003 not checked") for n in result.notes)
+
+
+def test_a_file_listed_twice_in_a_named_dataset_is_not_hashed_twice(tmp_path: Path) -> None:
+    def twice(m: dict[str, Any], f: Any) -> None:  # M013's; its rows are not the dataset's twice
+        build.bars(m)["files"] *= 2
+        build.bars(m)["value_sha256"] = "0" * 64
+
+    result = check(write(tmp_path / "pkg", twice), level="full", datasets=["bars_1d"])
+    assert "TDS-H002" not in [f.code for f in result.errors]
+    assert "TDS-H002" in result.unchecked
+
+
+def test_full_level_says_where_sorted_runs_went(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("nexusbt_tds.hash.BATCH_ROWS", 1)  # a run per row: a temporary file
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    days = pa.array([dt.date(2024, 1, 2), dt.date(2024, 1, 3)])
+    ids, close = pa.array(["US:AAA"] * 2), pa.array([1.0, 2.0])
+    two = _bars(instrument_id=ids, session_date=days, close=close)
+    result = check(write(tmp_path / "pkg", two), level="full", tmp_dir=scratch)
+    assert (result.errors, list(scratch.iterdir())) == ((), [])
+    (said,) = [n for n in result.notes if str(scratch) in n]  # one line names the folder
+    assert "temporary file(s) of sorted rows" in said
+    assert said.endswith("removed")
+
+
 def test_full_level_checks_only_the_keys_references_and_hashes_so_far(tmp_path: Path) -> None:
     result = check(write(tmp_path / "pkg"), level="full")
     assert (result.errors, result.warnings) == ((), ())
@@ -328,13 +1206,15 @@ def test_full_level_checks_only_the_keys_references_and_hashes_so_far(tmp_path: 
     assert result.profiles == {
         "tds:minimal-daily@1.0": ProfileStatus(True, "schema", "not_checked")
     }
-    assert {"TDS-T001", "TDS-H004"} <= set(result.unchecked)
-    judged = {*K_CODES, *R_CODES, "TDS-H001", "TDS-H002", "TDS-H003"} - {*_NO_CAL, *_NO_EXITS}
+    hashes = {"TDS-H001", "TDS-H002", "TDS-H003", "TDS-H004"}
+    judged = {*K_CODES, *R_CODES, *hashes, "TDS-V012", "TDS-V031", *T_CODES, *D_CODES, "TDS-D002"}
+    judged |= {"TDS-V032"}  # no declaration: nothing promised, so judged (#432)
+    judged -= {*_NO_CAL, *_NO_EXITS}
     assert not judged & set(result.unchecked)
     assert {*_NO_CAL, *_NO_EXITS} <= set(result.unchecked)  # no calendar_sessions, delistings
     # a column whose type is declared nowhere: no value hash, so H002 and H003 are not checked
     untyped = check(write(tmp_path / "untyped", _bars(x_cf_note=pa.array([[1]]))), level="full")
-    assert {"TDS-H002", "TDS-H003"} <= set(untyped.unchecked)
+    assert {"TDS-H002", "TDS-H003", "TDS-H004"} <= set(untyped.unchecked)
     assert "TDS-H001" not in untyped.unchecked
 
 
@@ -600,6 +1480,25 @@ def test_T006_from_the_statistics(
     assert ("TDS-T006" in check(tmp_path, level="full").unchecked) is unchecked
 
 
+def _xref(m: dict[str, Any], f: Any) -> None:
+    """A US `instrument_xref` with no `availability`, US `complete_through` END."""
+    m["markets"]["US"]["complete_through"] = END.isoformat()
+    rel = "instrument_xref/market=US/part-00000.parquet"
+    f[rel] = build.parquet(pa.table({"instrument_id": ["US:AAA"]}), "instrument_xref")
+    m["datasets"].append({"name": "instrument_xref", "kind": "instrument_xref",
+                          "schema_version": "1.0", "path": "instrument_xref",
+                          "files": [{"path": rel, "bytes": len(f[rel])}]})  # fmt: skip
+
+
+@pytest.mark.parametrize("level", ["schema", "full"])
+def test_T006_does_not_read_instrument_xref(level: Level, tmp_path: Path) -> None:
+    """When I run `tds check --level schema --datasets instrument_xref`, then `TDS-T006` is
+    not in `unchecked`: the table is timeless for T006 (TDS 8.2, #332, #360)."""
+    result = check(write(tmp_path, _xref), level=level, datasets=["instrument_xref"])
+    assert "TDS-T006" not in result.unchecked
+    assert "TDS-T006" not in [f.code for f in result.errors]
+
+
 def _state(ts_known_from: dt.datetime, availability: object) -> Any:
     """A US `fundamentals_state` row known at `ts_known_from`, US `complete_through` END."""
 
@@ -728,6 +1627,13 @@ def test_D002_from_the_statistics(change: Any, found: list[str], tmp_path: Path)
 
 
 _bars, TS, VERSION_1_9 = build._bars, build.TS, build.VERSION_1_9
+TS_NS = TS.cast(pa.timestamp("ns", "UTC"))
+
+
+def _declares(name: str, tag: str | None, **columns: Any) -> Any:
+    """The bars' tds.json `columns` declares `name` as `tag`; `columns` rewrites its file."""
+    entry = {"name": name, "unit": "x"} if tag is None else {"name": name, "type": tag}
+    return lambda m, f: (build.bars(m).update(columns=[entry]), _bars(**columns)(m, f))
 
 
 @pytest.mark.parametrize(
@@ -736,6 +1642,16 @@ _bars, TS, VERSION_1_9 = build._bars, build.TS, build.VERSION_1_9
         (_bars(ts_end=TS.cast(pa.timestamp("ns", "UTC"))), []),  # `ts_us/ns`: either unit
         (lambda m, f: (build.bars(m).update(columns=[{"name": "ts_end", "type": "ts_ns"}]),
                        _bars(ts_end=TS)(m, f)), ["TDS-S004"]),  # unless tds.json names one
+        (_declares("ts_end", "ts_us/ns", ts_end=TS_NS), []),  # the schema's own type: either
+        (_declares("ts_end", "f64"), ["TDS-S002"]),  # #373: not a unit of `ts_us/ns`
+        (_declares("ts_available", "ts_ns", ts_available=TS_NS), ["TDS-S002", "TDS-S004"]),
+        # ^ #373: the schema's `ts_us` decides; the declaration is S002, the file S004
+        (_declares("ts_available", "ts_ns", ts_available=TS), ["TDS-S002"]),  # the file is right
+        (_declares("ts_available", "ts_us", ts_available=TS_NS), ["TDS-S004"]),  # as declared
+        (_declares("close", "string", close=pa.array(["1"])), ["TDS-S002", "TDS-S002"]),
+        # ^ the declaration, and the file against the schema's f64
+        (_declares("close", None), []),  # an entry without a type declares none
+        (_declares("close", ""), []),  # nor does an empty one, as the value hash reads it
         (_bars(ts_end=TS.cast(pa.timestamp("us"))), ["TDS-S004"]),  # no UTC
         (lambda m, f: build.rewrite(m, f, build.BARS, build.bars_table(ts_end=TS),
                                     use_deprecated_int96_timestamps=True), ["TDS-S004"]),
@@ -770,6 +1686,21 @@ _bars, TS, VERSION_1_9 = build._bars, build.TS, build.VERSION_1_9
 def test_schema_rules(change: Any, expected: list[str], tmp_path: Path) -> None:
     found = codes(write(tmp_path, change), "schema")
     assert [c for c in found if not c.startswith("TDS-M")] == expected  # M010, M008: not S rules
+
+
+def test_S002_names_the_declaration_once_for_the_dataset(tmp_path: Path) -> None:
+    """#373: the finding is the manifest's, not a file's, and says both types."""
+    other = build.BARS.replace("part-00000", "part-00001")
+
+    def change(m: Any, f: Any) -> None:
+        _declares("ts_available", "ts_ns")(m, f)
+        f[other] = f[build.BARS]  # a second file: the declaration is still one finding
+        add_bars_file(other, len(f[other]))(m, f)
+
+    errors = check(write(tmp_path, change), level="schema").errors
+    (found,) = [e for e in errors if e.code == "TDS-S002"]
+    assert (found.dataset, found.file) == ("bars_1d", None)
+    assert found.message == "tds.json declares ts_available as ts_ns, schema type ts_us"
 
 
 @pytest.mark.parametrize(
@@ -949,3 +1880,265 @@ def test_jsonl_ends_with_the_summary(tmp_path: Path) -> None:
     *findings, last = check(package, level="manifest").to_jsonl().splitlines()
     assert [line.count('"code": "TDS-M003"') for line in findings] == [1]
     assert last.startswith('{"summary": {"errors": 1, "warnings": 0, "level": "manifest"')
+
+
+#: The T codes the rows show; T002's package and T006's are the schema level's (`test_S_codes`;
+#: T002's rows: `test_instant_rules_edges`), and T009 and T013 are not in TDS 8.3.
+T_CODES = [f"TDS-T{n:03}" for n in (1, 3, 4, 5, 7, 8, 10, 11, 12)]
+INTERVAL_CODES = ["TDS-T003", "TDS-T004", "TDS-T012"]
+
+
+@pytest.mark.usefixtures("refs_batches")
+@pytest.mark.parametrize("code", T_CODES)
+def test_T_codes(code: str, tmp_path: Path) -> None:
+    test_K_codes(code, tmp_path)
+
+
+_E = ("E", "2024-01-02", None, "2024-01-01", None, 1, "strict", "native")
+_F = ("F", "2024-01-02", None, "2024-01-01", None, 1, "compare", "native")
+_G = ("G", "2024-01-02", None, "2024-01-01", None, 2, "both", "native")  # in both editions
+_H = ("H", "2024-01-02", None, "2024-01-01T12:00", None, 1, "strict", "backfilled")  # not strict
+
+
+@pytest.mark.parametrize(
+    ("rows", "query", "edition", "answer"),
+    [  # TDS 6.3 ③; dates and times as in the spec, the known time at 00:00 UTC
+        ([build._A, build._A2, build._B], ("2020-03-10", "2020-03-10"), None, ["A"]),  # A2
+        ([("O", "2010-01-01", None, "2010-01-01", "2017-01-01", 1, "both", "native"),
+          ("C", "2015-06-01", None, "2017-01-01", None, 1, "both", "native")],
+         ("2016-01-01", "2016-01-01"), None, ["O"]),  # ② effective, not yet known: the old row
+        ([("D", "2018-01-01", None, "2018-01-02", "2019-05-01", 1, "both", "native"),
+          ("D2", "2018-01-01", None, "2019-05-01", None, 1, "both", "native")],
+         ("2019-06-01", "2018-06-01"), None, ["D2"]),  # ③ the correction
+        ([("L1", "2024-01-02", None, "2024-01-01", None, 1, "both", "native"),
+          ("L3", "2024-01-02", None, "2024-01-01", None, 3, "both", "native")],
+         ("2024-01-05", "2024-01-05"), None, ["L1", "L3"]),  # ④ one per level
+        ([_F, _E, _H, _G], ("2024-01-05", "2024-01-05"), "strict", ["E", "G"]),  # ⑤
+        ([_F, _E, _H, _G], ("2024-01-05", "2024-01-05"), "compare", ["F", "G"]),
+    ],
+)  # fmt: skip
+def test_T012_rectangle_examples_1_to_5(
+    rows: list[Any], query: tuple[str, str], edition: str | None, answer: list[str],
+    tmp_path: Path,
+) -> None:  # fmt: skip
+    """`rect_lookup` answers each example; its package has no T012, and T012 is judged."""
+    cutoff = dt.datetime.fromisoformat(query[0]).replace(tzinfo=dt.UTC)
+    table = build.classified_table(rows)
+    found = pit.rect_lookup(table, cutoff, dt.date.fromisoformat(query[1]), edition=edition)
+    assert found["code"].to_pylist() == answer
+    result = check(write(tmp_path, build._classified(*rows)), level="full")
+    assert (result.errors, result.warnings, "TDS-T012" in result.unchecked) == ((), (), False)
+
+
+def test_rect_lookup_reads_a_null_edition_and_pit_quality() -> None:
+    """5.19: a null `edition` is `both`; a null `pit_quality` is not `backfilled`."""
+    table = build.classified_table([(*_G[:6], None, None)])
+    noon = dt.datetime(2024, 1, 5, 12, tzinfo=dt.UTC)
+    without = table.drop_columns(["edition", "pit_quality"])  # no column: the same defaults
+    for edition in ("strict", "compare"):
+        for rows in (table, without):
+            found = pit.rect_lookup(rows, noon, dt.date(2024, 1, 5), edition=edition)
+            assert found["code"].to_pylist() == ["G"]
+
+
+def _tickers(second_known: dt.datetime | None) -> Any:
+    """US:AAA's tickers A0 valid from 2024-01-02 known until 2024-01-03 00:00, and A1 valid from
+    2024-01-03 known from `second_known` (None: the session open of `valid_from`, 5.2)."""
+    return build._add("instrument_symbols", {
+        "instrument_id": ["US:AAA"] * 2, "symbol_type": ["ticker"] * 2, "symbol": ["A0", "A1"],
+        "venue_mic": ["XNYS"] * 2,
+        "valid_from": pa.array([dt.date(2024, 1, 2), dt.date(2024, 1, 3)]),
+        "ts_known_from": pa.array([build.NEW_YEAR, second_known], build.TS_UTC),
+        "ts_known_to": pa.array([_at(3, 0), None], build.TS_UTC),
+    })  # fmt: skip
+
+
+def _at(day: int, hour: int) -> dt.datetime:
+    return dt.datetime(2024, 1, day, hour, tzinfo=dt.UTC)
+
+
+@pytest.mark.parametrize(
+    ("change", "found", "unchecked"),
+    [  # TDS 5.2's T003 is T012's condition, reported once as T012 (#225, 2026-11-11)
+        (_tickers(_at(2, 0)), ["TDS-T012"], []),  # both known on the 2nd, both valid the 3rd on
+        (_tickers(_at(3, 0)), [], []),  # A1 known as A0 stops being known
+        (_tickers(None), [], ["TDS-T012"]),  # a null known start: undecided, as K010 is
+        (build._both(build._classified(  # a null edition is `both` (5.19), in each filter
+            ("N1", "2024-01-02", None, "2024-01-01", None, 1, None, None),
+            ("N2", "2024-01-03", None, "2024-01-01", None, 1, None, None),
+        ), build.CASES["TDS-T003"][1]), ["TDS-T012", "TDS-T003"], []),
+        (_rules((0.0, 1.0, 0.0001), (0.5, None, 0.01)), ["TDS-T003"], []),  # bands overlap
+        (_rules((0.0, 1.0, 0.0001), (1.0, None, 0.01), until=dt.date(2024, 1, 2)),
+         ["TDS-T004"], []),  # valid_to == valid_from: one finding for the dataset
+        (build._add("instrument_xref", {"instrument_id": ["US:AAA"], "id_type": ["figi"],
+            "id_value": ["F1"], "valid_from": [dt.date(2024, 1, 3)], "valid_to": [build.DAY[0]],
+            "link_quality": ["primary"], "source": ["s"]}), ["TDS-T004"], []),  # T004 only
+        (build._both(build.CASES["TDS-T003"][1], build._members("2024-01-04")), ["TDS-S002"],
+         INTERVAL_CODES),  # a text effective_to is S002's: none judged, the T003 there neither
+        (_rules((0.0, 1.0, 0.0001), (1.0, None, 0.01)), [], []),  # null ends are open
+    ],
+)  # fmt: skip
+def test_interval_rules_edges(
+    change: Any, found: list[str], unchecked: list[str], tmp_path: Path
+) -> None:
+    result = check(write(tmp_path, change), level="full")
+    assert [f.code for f in (*result.errors, *result.warnings)] == found
+    assert [c for c in result.unchecked if c in T_CODES] == unchecked
+
+
+_HALF = dt.timedelta(minutes=30)
+_ENDS = build._bars(ts_end=pa.array([_at(2, 21)]), ts_available=pa.array([_at(2, 22)]))
+_CALENDAR_RULE = build._both(build._sessions(0), build._bars(ts_available=pa.array([_at(2, 21)])))
+
+
+@pytest.mark.parametrize(
+    ("change", "found", "unchecked"),
+    [  # #225 Decisions, 2026-11-11; T002's rows (its package is the schema level's)
+        (_ENDS, ["TDS-T002"], ["TDS-T005"]),  # rule `ts_end` (the base), stored an hour later;
+        (build._both(_ENDS, build._set("availability", "ts_end+PT1H", in_bars=True)), [],
+         ["TDS-T005"]),  # a `ts_end` and no calendar_sessions to bound it: T005 not judged
+        (build._both(_CALENDAR_RULE, build._set("availability", "session_close", in_bars=True)),
+         [], []),  # the 2nd's close, from the calendar
+        (build._both(_CALENDAR_RULE, build._set("availability", "session_open", in_bars=True)),
+         ["TDS-T002"], []),
+        (build._both(build._bars(ts_available=pa.array([_at(2, 21)])),
+                     build._set("availability", "session_close", in_bars=True)),
+         [], ["TDS-T002"]),  # no calendar session: not judged
+        (build._both(_CALENDAR_RULE, build._set("availability", "ts_end+P1M", in_bars=True)),
+         [], ["TDS-T002"]),  # a month is no fixed span
+        (build._both(build._sessions(0), build._bars(ts_available=pa.array([_at(3, 14) + _HALF])),
+                     build._set("availability", "next_session_open(session_date)", in_bars=True)),
+         [], []),  # the 3rd's 14:30 open
+        (build._both(build._sessions(0), build._set("availability", "ts_recv_else(ts_end+PT1M)",
+                                                    in_bars=True),
+                     build._bars(ts_end=pa.array([_at(2, 21)]),
+                                 ts_available=pa.array([_at(2, 21) + _HALF]))),
+         ["TDS-T002"], []),  # no ts_recv: ts_end and a minute, not half an hour
+        (build._instruments(last_session=pa.array(["2024-01-01"])), ["TDS-S002"],
+         [f"TDS-T{n:03}" for n in (1, 2, 5, 7, 8, 10, 11)]),  # a text date: none judged
+        (build._bars(ts_end=pa.array([_at(2, 20)])), [], ["TDS-T005"]),  # no calendar_sessions
+        (build._both(build._sessions(0, (3,)), build._bars(ts_end=pa.array([_at(2, 20)]))),
+         ["TDS-D002", "TDS-R003"], ["TDS-T005"]),  # a calendar, no session that day: not judged
+        (build._facts("F1", period_end=[dt.date(2024, 1, 2)], value_how=["preliminary"]),
+         ["TDS-T007"], []),  # a warning
+        (build._event(_at(1, 0), series_id=["US:CPI"]), [], []),  # at the event: not before it
+    ],
+)  # fmt: skip
+def test_instant_rules_edges(
+    change: Any, found: list[str], unchecked: list[str], tmp_path: Path
+) -> None:
+    result = check(write(tmp_path, change), level="full")
+    assert [f.code for f in (*result.errors, *result.warnings)] == found
+    assert [c for c in result.unchecked if c in (*T_CODES, "TDS-T002")] == unchecked
+    assert "TDS-T007" not in [f.code for f in result.errors]  # preliminary: lowered (5.16)
+
+
+#: D002's package is the schema level's (`test_S_codes`); its rows: `test_density_rules_edges`.
+D_CODES = ["TDS-D001", "TDS-D003", "TDS-D004"]
+
+
+@pytest.mark.usefixtures("refs_batches")
+@pytest.mark.parametrize("code", D_CODES)
+def test_D_codes(code: str, tmp_path: Path) -> None:
+    test_K_codes(code, tmp_path)
+
+
+def _through(m: dict[str, Any], f: Any) -> None:  # US complete through the 3rd's close
+    m["markets"]["US"]["complete_through"] = "2024-01-03T21:00:00Z"
+
+
+def _three(*days: int, through: str = "2024-01-03T21:00:00Z", last: dt.date | None = None) -> Any:
+    """Dense bars of US:AAA on `days`, XNYS sessions on the 2nd to the 4th, US complete
+    `through`, `last_session` `last`."""
+
+    def change(m: dict[str, Any], f: Any) -> None:
+        build._sessions(0, (2, 3, 4))(m, f)
+        build._instruments(last_session=pa.array([last], pa.date32()))(m, f)
+        build._set("params", build.DENSE, in_bars=True)(m, f)
+        n, on = len(days), pa.array([JAN[d] for d in days])
+        ids, traded, close = pa.array(["US:AAA"] * n), pa.array(["traded"] * n), pa.array([1.0] * n)
+        build._bars(instrument_id=ids, session_date=on, obs_status=traded, close=close)(m, f)
+        m["markets"]["US"]["complete_through"] = through
+
+    return change
+
+
+def test_D004_reads_no_file_outside_the_package(tmp_path: Path) -> None:
+    """M012's paths are not read: an outside file's rows are not D004's, nor do they stop it."""
+    (tmp_path / "outside.txt").write_text("not parquet\n")
+
+    def change(m: dict[str, Any], f: Any) -> None:  # and the dataset's rows 2, read 1: D004
+        build._covered(2)(m, f)
+        build.bars(m)["files"].append({"path": "../outside.txt", "rows": 7, "bytes": 12})
+
+    result = check(write(tmp_path / "pkg", change), level="full")
+    assert sorted(f.code for f in result.errors) == ["TDS-D004", "TDS-M012"]
+    assert "outside" not in next(f.message for f in result.errors if f.code == "TDS-D004")
+
+
+_TRADED = build._bars(obs_status=pa.array(["traded"]))  # the 2nd only
+_DENSE_2 = build._both(build._sessions(0), build._set("params", build.DENSE, in_bars=True), _TRADED)
+
+
+@pytest.mark.parametrize(
+    ("change", "found", "unchecked"),
+    [  # #225 Decisions, 2026-11-11
+        (_days(JAN[2], ids=("US:AAA", "US:BBB"), listed_on=pa.array([JAN[3]])), ["TDS-D002"],
+         []),  # before listed_on, which the statistics of two ids cannot show
+        (_days(JAN[4], delisted_on=pa.array([JAN[4]])), [], []),  # on delisted_on: listed
+        (build.CASES["TDS-D002"][1], ["TDS-D002"], []),  # the statistics found it: once
+        (build._instruments(listed_on=pa.array(["2024-01-02"])), ["TDS-S002"],
+         ["TDS-D001", "TDS-D002", "TDS-D003", "TDS-D004"]),  # a text listed_on: none judged
+        (_DENSE_2, [], ["TDS-D001"]),  # no last_session, no complete_through: not judged
+        (build._both(_DENSE_2, _through), ["TDS-D001"], []),  # the 3rd, to the watermark
+        (_three(2, 4), ["TDS-D001"], []),  # a row after the watermark hides no gap
+        (_three(2, 3, through="2024-01-04T01:00:00Z"), [], []),  # 20:00 on the 3rd in New York
+        (build._both(_three(2, 3, through="2024-01-04T01:00:00Z"), lambda m, f: m["markets"]["US"]
+                     .update(timezone="Mars/Olympus")), ["TDS-D001"], []),  # unknown zone: UTC
+        (_three(4, last=JAN[3]), ["TDS-D001"], []),  # rows only after last_session: judged
+        (build._covered(2), ["TDS-D004"], []),  # the dataset's rows
+        (build._both(build._covered(), lambda m, f: build.bars(m)["files"][0].update(rows=2)),
+         ["TDS-D004"], []),  # a file's rows
+        (build._covered(by_market={"US": build.COVERAGE["by_market"]["US"] | {"rows": 2}}),
+         ["TDS-D004"], []),
+        (build._covered(ts_max="2024-01-03"), ["TDS-D004"], []),
+        (build._covered(note="free text"), [], []),  # a key 4.2's example does not show
+        # D003 (#425): an exit known on the 3rd, processed through the 3rd: inside its close
+        (build._exited(build._at(3), through="2024-01-03"), [], []),
+        (build._exited(None), [], ["TDS-D003"]),  # every US row null: not judged
+        (build._exited(build._at(3), through="2024-01-04"), [], ["TDS-D003"]),  # no such session
+        (build._exited(build._at(3), rule="session_close"), [], ["TDS-D003"]),  # no instant column
+    ],
+)  # fmt: skip
+def test_density_rules_edges(
+    change: Any, found: list[str], unchecked: list[str], tmp_path: Path
+) -> None:
+    result = check(write(tmp_path, change), level="full")
+    assert [f.code for f in (*result.errors, *result.warnings)] == found
+    assert [c for c in result.unchecked if c.startswith("TDS-D")] == unchecked
+
+
+def _actions_through(**times: Any) -> Any:
+    """SPLIT (effective the 3rd) with `times`, processed through the 2nd in US (#425)."""
+
+    def change(m: dict[str, Any], f: Any) -> None:
+        build._actions(times)(m, f)
+        (ds,) = (d for d in m["datasets"] if d["name"] == "corporate_actions")
+        ds["availability"] = {"effect": "ts_effective", "terms": "ts_terms_available"}
+        ds["coverage"] = {"by_market": {"US": {"processed_through_session": "2024-01-02"}}}
+
+    return change
+
+
+@pytest.mark.parametrize(("times", "late"), [  # TDS 5.11's existence instant, #425 (3)
+    ({"ts_terms_available": build._at(3)}, False),  # announced the 1st, terms later: it exists
+    ({"ts_announced": build._at(3), "ts_terms_available": build._at(2)}, False),  # the earlier
+    ({"ts_announced": None}, True),  # neither: its ts_effective, the 3rd
+    ({"ts_announced": build._at(3)}, True),
+])  # fmt: skip
+def test_D003_reads_an_actions_existence_instant(
+    times: dict[str, Any], late: bool, tmp_path: Path
+) -> None:
+    result = check(write(tmp_path / "pkg", _actions_through(**times)), level="full")
+    assert ("TDS-D003" in [f.code for f in result.errors]) == late
+    assert "TDS-D003" not in result.unchecked

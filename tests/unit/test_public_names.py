@@ -55,6 +55,7 @@ BUILT = {
     "nexusbt_tds.value_hash",
     "nexusbt_tds.semantic_hash",
     "nexusbt_tds.import_csv",  # T1.22, #257
+    "nexusbt_tds.build_manifest",  # T1.23, #258
     "nexusbt.config.load_config",
     "nexusbt.api.config",
     "nexusbt.pipeline.graph_hash",  # T1.5 (#237)

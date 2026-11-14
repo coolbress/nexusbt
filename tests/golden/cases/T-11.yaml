@@ -1,0 +1,52 @@
+# Golden case T-11 (spec 8.2): ties in `instrument_id` order under `tiebreak = "id"` (3.3 rank,
+# 5.4.2, 3.7, INV-04) [R3-12]. The default hash key is T-27.
+# Expected values are literals. `check/T-11.py` reaches them by counting comparisons only, and
+# `tests/golden/test_handcalc_self.py` compares the two. An implementation pull request does
+# not change this file (`tests/repo/test_golden_guard.py`); a wrong value reopens the golden
+# ticket ("spec deviation").
+id: T-11
+description: >-
+  Six KR instruments at one decision, their scores as the in-memory column order holds them:
+  KR:T00003 2.0, KR:T00001 2.0, KR:T00005 NaN, KR:T00002 5.0, KR:T00004 2.0, KR:T00006 1.0.
+  With `[portfolio] tiebreak = "id"` (the zipline preset, 5.6.15; the default hash is T-27),
+  equal scores are ordered by ascending `instrument_id` (3.7, 5.4.2). The cross-section is the
+  five finite cells (5.4.2): `rank("ordinal")` numbers them 1..5 from the smallest, ties by id;
+  with `ascending=False` the largest is 1 and ties are still by ascending id; `average`, `min`,
+  `max` and `dense` are scipy `rankdata` on the same cells. `top(2)` takes the first two of the
+  order score descending, id ascending (5.4.2). The NaN cell has NaN ranks and is never
+  selected. The memory order is shuffled on purpose: the ranks are those of the sorted index
+  (INV-04, 5.3.10).
+spec: "8.2 T-11; 3.3 rank(\"ordinal\"), 5.4.2 cross-sectional definitions, 3.7 the tie-break key, 1.3 INV-04"
+
+input:
+  tiebreak: id
+  scores:                                 # in memory order, shuffled on purpose
+    - {instrument_id: "KR:T00003", score: 2.0}
+    - {instrument_id: "KR:T00001", score: 2.0}
+    - {instrument_id: "KR:T00005", score: .nan}
+    - {instrument_id: "KR:T00002", score: 5.0}
+    - {instrument_id: "KR:T00004", score: 2.0}
+    - {instrument_id: "KR:T00006", score: 1.0}
+
+# One row per instrument in instrument_id order. `rank_ordinal`: ascending, 1 = the smallest
+# score; `rank_ordinal_desc`: `ascending=False`, 1 = the largest; `rank_average`, `rank_min`,
+# `rank_max`, `rank_dense`: the other methods, ascending; `in_top2`: picked by `top(2)`.
+# `n_tied_at_cutoff`: the decision's coverage.parquet count (3.7), the same in every row: the
+# tie group that straddles top(2)'s cutoff, 3 (1 of them taken), not the 2 left out (#341).
+#
+# Hand-checked 2026-11-10 (#222), via the coordinating session, recomputed from 5.4.2 / 3.7
+# without this file, all six rows:
+#   finite cells in id order: T00001 2, T00002 5, T00003 2, T00004 2, T00006 1 (n = 5)
+#   ascending: T00006 1; then the three 2.0 by id, T00001 2, T00003 3, T00004 4; T00002 5
+#   descending: T00002 1; T00001 2, T00003 3, T00004 4; T00006 5
+#   average of the 2.0 group = (2 + 3 + 4) / 3 = 3; min 2; max 4; dense 1 -> 1, 2 -> 2, 5 -> 3
+#   top(2): T00002 (5.0), then the smallest id of the 2.0 group, T00001
+#   n_tied_at_cutoff: the last one taken, T00001, scores 2.0; T00003 and T00004 also score 2.0
+#     and are left out, so the group straddles the cutoff: 3
+expected:
+  - {instrument_id: "KR:T00001", score: 2.0, rank_ordinal: 2, rank_ordinal_desc: 2, rank_average: 3.0, rank_min: 2, rank_max: 4, rank_dense: 2, in_top2: true, n_tied_at_cutoff: 3}
+  - {instrument_id: "KR:T00002", score: 5.0, rank_ordinal: 5, rank_ordinal_desc: 1, rank_average: 5.0, rank_min: 5, rank_max: 5, rank_dense: 3, in_top2: true, n_tied_at_cutoff: 3}
+  - {instrument_id: "KR:T00003", score: 2.0, rank_ordinal: 3, rank_ordinal_desc: 3, rank_average: 3.0, rank_min: 2, rank_max: 4, rank_dense: 2, in_top2: false, n_tied_at_cutoff: 3}
+  - {instrument_id: "KR:T00004", score: 2.0, rank_ordinal: 4, rank_ordinal_desc: 4, rank_average: 3.0, rank_min: 2, rank_max: 4, rank_dense: 2, in_top2: false, n_tied_at_cutoff: 3}
+  - {instrument_id: "KR:T00005", score: .nan, rank_ordinal: .nan, rank_ordinal_desc: .nan, rank_average: .nan, rank_min: .nan, rank_max: .nan, rank_dense: .nan, in_top2: false, n_tied_at_cutoff: 3}
+  - {instrument_id: "KR:T00006", score: 1.0, rank_ordinal: 1, rank_ordinal_desc: 5, rank_average: 1.0, rank_min: 1, rank_max: 1, rank_dense: 1, in_top2: false, n_tied_at_cutoff: 3}

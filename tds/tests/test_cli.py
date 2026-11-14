@@ -34,6 +34,7 @@ def test_exit_codes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     assert run(["check", warns]) == 0
     assert run(["check", warns, "--strict"]) == 2
     assert run(["check", clean, "--level", "every"]) == 64
+    assert run(["check", clean, "--level", "full", "--sample-rows", "5"]) == 64  # removed, #309
     assert run(["check"]) == 64
     assert run(["check", str(tmp_path / "missing")]) == 66
 
@@ -53,7 +54,7 @@ def test_text_output_names_the_dataset_with_no_value_hash(
     )
     run(["check", str(build.write(tmp_path, manifest, files)), "--level", "full"])
     out = capsys.readouterr().out
-    assert "TDS-H002, TDS-H003 not checked: notes: kind x_notes has no schema file" in out
+    assert "TDS-H002, TDS-H003, TDS-H004 not checked: notes: kind x_notes has no schema file" in out
     run(["check", str(build.write(tmp_path / "json", manifest, files)), "--level", "full",
          "--format", "json"])  # fmt: skip
     assert "not checked" not in capsys.readouterr().out  # TDS 8.4's JSON Lines stay as they are
@@ -103,6 +104,19 @@ def test_schema_level_done_means(code: str, capsys: pytest.CaptureFixture[str]) 
     *findings, last = (json.loads(line) for line in capsys.readouterr().out.splitlines())
     assert [f["code"] for f in findings] == [code]
     assert last["summary"]["level"] == "schema"
+
+
+def test_V011_done_means(capsys: pytest.CaptureFixture[str]) -> None:
+    # spec 10.1 T0.15d "done means": V011 reads rows, so the command names `--level full`; the
+    # default level, `schema`, reads none (TDS 8.1; #229, 2026-11-10)
+    argv = ["check", "--format", "json", "--level", "full"]
+    assert run([*argv, str(CONFORMANCE / "TDS-V011" / "fail")]) == 0  # a warning, exit 0
+    found, last = (json.loads(line) for line in capsys.readouterr().out.splitlines())
+    assert (found["code"], found["key"]) == ("TDS-V011", {"instrument_id": "US:AAA", "year": 2024})
+    assert (found["message"], last["summary"]["warnings"]) == ("median R = 100 over 1 bar(s)", 1)
+    assert run([*argv, str(CONFORMANCE / "TDS-V011" / "pass")]) == 0
+    (last,) = (json.loads(line) for line in capsys.readouterr().out.splitlines())
+    assert last["summary"]["warnings"] == 0
 
 
 def test_committed_packages_match_the_generator(tmp_path: Path) -> None:

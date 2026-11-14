@@ -1,17 +1,23 @@
 """`check(path, *, level, ...) -> CheckResult`: the levels manifest, schema and full (TDS 8.2).
 
-The `manifest` level reads `tds.json` and file sizes (M001~M014); the `schema` level adds the
+The `manifest` level reads `tds.json`, file sizes and the schema files' `status` (M001~M016);
+the `schema` level adds the
 Parquet footers and statistics and the `dictionary/` tables, no data rows (S001~S010, T006, part
-of D002); the `full` level adds, so far, the key checks (K001~K004, K010, K011; `keys`), the
-reference checks (R001~R009; `refs`) and the hashes (H001~H003, TDS 4.5); no profile is
-verified beyond `schema`. None reports a profile as `pass`: the rules a level cannot see are
-listed in `unchecked`, and the profile is `not_checked`.
+of D002, and of M008 the columns a profile names); the `full` level adds, so far, S006, S007
+and S009 from the rows (`cells`), the key
+checks (K001~K004, K010, K011; `keys`), the
+reference checks (R001~R009; `refs`), the adjustment and value checks (`adjustments`,
+`values`, V031 in `books`, V032 in `sequences`), the interval checks (T003, T004, T012;
+`times`), the instant checks (T001, T002, T005, T007, T008, T010, T011; `instants`), the
+density checks (D001~D004;
+`densities`) and the hashes (H001~H004, TDS 4.5); no profile is verified beyond `schema`.
+None reports a profile as `pass`: the rules a level cannot see are listed in `unchecked`, and
+the profile is `not_checked`.
 """
 
 from __future__ import annotations
 
 import datetime as dt
-import hashlib
 import json
 import math
 import os
@@ -24,23 +30,31 @@ from typing import Any, Literal
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from .manifest import MANIFEST, Manifest, ManifestError, read_manifest
+from .manifest import (
+    MANIFEST,
+    MANIFEST_SCHEMA,
+    Manifest,
+    ManifestError,
+    read_manifest,
+    schema_violations,
+)
 from .profiles import PROFILES, Need, describe, meets, profile_id
 
 Level = Literal["manifest", "schema", "full"]
 Severity = Literal["error", "warning"]
 
-#: TDS 8.3, the codes the `manifest` level cannot see (M015 comes with the schema files, T0.13b).
+#: TDS 8.3, the codes the `manifest` level cannot see. M015 it judges from tds.json's kinds and
+#: the schema files' `status` (#391).
 _ROW_CODES = (
-    "M015 S001 S002 S003 S004 S005 S006 S007 S008 S009 S010 K001 K002 K003 K004 K010 K011"
+    "S001 S002 S003 S004 S005 S006 S007 S008 S009 S010 K001 K002 K003 K004 K010 K011"
     " R001 R002 R003 R004 R005 R006 R007 R008 R009 T001 T002 T003 T004 T005 T006 T007 T008"
-    " T010 T011 T012 D001 D002 D004 A001 A002 A003 A004 A005 A006 A007 A008 A009 A010 A011"
+    " T010 T011 T012 D001 D002 D003 D004 A001 A002 A003 A004 A005 A006 A007 A008 A009 A010 A011"
     " V001 V002 V004 V005 V010 V011 V012 V020 V030 V031 V032 V040 V041 V050 H001 H002 H003 H004"
 )
 UNCHECKED_AT_MANIFEST = tuple(f"TDS-{c}" for c in _ROW_CODES.split())
 #: What the `schema` level judges from footers. S006 and S007 see only a column's minimum and
 #: maximum; S009 sees ±Inf in the statistics but never NaN, which writers leave out of them, so
-#: it stays unchecked.
+#: it stays unchecked. The `full` level judges the three from the rows instead (`cells`).
 #: TDS 4.4: the tables that describe the package; their schema files (`dictionary_schemas`) give
 #: the value hash its types, and the schema level checks no S code on them, nor hides one.
 DICTIONARIES = frozenset({"dictionary/columns", "dictionary/items", "dictionary/codes"})
@@ -50,6 +64,8 @@ T006, D002 = "TDS-T006", "TDS-D002"
 SCHEMA_CODES = tuple(f"TDS-S{n:03}" for n in (1, 2, 3, 4, 5, 6, 7, 8, 10))
 UNCHECKED_AT_SCHEMA = tuple(c for c in UNCHECKED_AT_MANIFEST if c not in (*SCHEMA_CODES, T006))
 
+#: The manifest schema's date pattern (4.2), which a `YYYY-MM-DD` that is no date also matches.
+DATE: str = MANIFEST_SCHEMA["$defs"]["date"]["pattern"]
 #: TDS 4.2: the fields marked ○ that are required unconditionally.
 REQUIRED: tuple[str, ...] = ("tds_version", "name", "created", "snapshot_id", "producer")
 REQUIRED += ("profiles", "id_namespaces", "markets", "datasets", "hashes", "writer")
@@ -57,11 +73,13 @@ REQUIRED += ("profiles", "id_namespaces", "markets", "datasets", "hashes", "writ
 #: manifest-level checks need (#51, Decisions 2026-11-02). A file needs `path` and `bytes`.
 DATASET_REQUIRED = ("name", "kind", "schema_version", "path", "files")
 FILE_REQUIRED = ("path", "bytes")  # TDS 4.2; checked one by one in _check_dataset
-_OBJECTS = ("producer", "id_namespaces", "markets", "hashes", "writer")
 HASH_SPECS = frozenset({"tds-hash-1"})  # 4.5
 SUPPORTED_MAJOR = 1  # 10.3
 #: The newest dataset `schema_version` MINOR this checker knows; per kind with T0.13b's files.
 KNOWN_MINOR = 0
+#: TDS 5.6~5.8 (#348): the kinds whose `params` may promise consecutive `sequence` numbers
+#: within the groups the listed columns make; the columns must be in every file (S001).
+SEQUENCED, WITHIN = frozenset({"trades", "quotes", "book_deltas"}), "sequence_consecutive_within"
 
 # TDS 6.2: the availability rule names. An unknown one is M014, never ignored.
 _DUR = r"P(?=\d|T\d)(\d+Y)?(\d+M)?(\d+W)?(\d+D)?(T(?=\d)(\d+H)?(\d+M)?(\d+(\.\d+)?S)?)?"
@@ -147,6 +165,7 @@ def check(
     profiles: Sequence[str] | None = None,
     datasets: Sequence[str] | None = None,
     max_errors: int = 1000,
+    tmp_dir: Path | None = None,
 ) -> CheckResult:
     manifest: Manifest | None = None
     blind: set[str] = set()  # codes this package's files hide from the level (no statistics)
@@ -155,15 +174,37 @@ def check(
         manifest = read_manifest(path)
         found = list(_check_manifest(manifest, datasets))
         if level != "manifest":
-            found += _check_schema(manifest, datasets, blind)
+            found += _check_schema(manifest, datasets, blind, rows=level == "full")
             found += _check_ranges(manifest, datasets, blind)
         if level == "full":
+            from .adjustments import check_actions
+            from .books import check_books
+            from .cells import check_cells
+            from .densities import check_densities
+            from .hash import spilled_note
+            from .instants import check_instants
             from .keys import check_keys
             from .refs import check_refs
+            from .sequences import check_sequences
+            from .times import check_times
+            from .values import check_values
 
-            found += check_keys(manifest, datasets, blind)
+            found += check_cells(manifest, datasets, blind)
+            spilled: list[Path] = []
+            try:
+                found += check_keys(manifest, datasets, blind, tmp_dir, spilled, notes)
+            finally:
+                notes.extend([spilled_note(spilled, "key check")] if spilled else [])
             found += check_refs(manifest, datasets, blind)
-            found += _check_hashes(manifest, datasets, blind, notes)
+            found += check_actions(manifest, datasets, blind, notes)
+            found += check_values(manifest, datasets, blind, notes)
+            found += check_books(manifest, datasets, blind, notes)
+            found += check_sequences(manifest, datasets, blind)
+            found += check_times(manifest, datasets, blind)
+            found += check_instants(manifest, datasets, blind, notes)
+            seen = {f.dataset for f in found if f.code == D002}  # by the statistics
+            found += check_densities(manifest, datasets, blind, seen, notes)
+            found += _check_hashes(manifest, datasets, blind, notes, tmp_dir)
     except ManifestError as exc:
         found = [Finding("TDS-M001", "error", str(exc))]
     declared = {profile_id(p) for p in manifest.profiles} if manifest else set()
@@ -171,9 +212,9 @@ def check(
     statuses: dict[str, ProfileStatus] = {}
     package_failed = any(f.severity == "error" for f in found)
     for name in dict.fromkeys(wanted):
-        own = list(_check_profile(manifest, name)) if manifest else []
+        own = list(_check_profile(manifest, name, level, datasets, notes)) if manifest else []
         found += own
-        # `full` checks only the K, R and H codes so far: no profile is verified to it
+        # `full` checks only `FULL_CODES` so far: no profile is verified to it
         verified: Level = "schema" if level == "full" else level
         statuses[name] = ProfileStatus(
             declared=name in declared,
@@ -202,20 +243,40 @@ def check(
 
 
 #: The declared hashes against the computed ones (TDS 4.5); `full` checks these and the keys.
-HASH_CODES = ("TDS-H001", "TDS-H002", "TDS-H003")
+HASH_CODES = ("TDS-H001", "TDS-H002", "TDS-H003", "TDS-H004")
 KEY_CODES = ("TDS-K001", "TDS-K002", "TDS-K003", "TDS-K004", "TDS-K010", "TDS-K011")  # `keys`
 REF_CODES = tuple(f"TDS-R{n:03}" for n in range(1, 10))  # `refs` checks them
-FULL_CODES = (*KEY_CODES, *REF_CODES, *HASH_CODES)
+ACTION_CODES = tuple(f"TDS-A{n:03}" for n in range(1, 12))  # `adjustments` checks them
+#: `values` checks them; `books` V031 (#430); `sequences` V032 (#348, #432).
+VALUE_CODES = tuple(f"TDS-V{n:03}" for n in (1, 2, 4, 5, 10, 11, 12, 20, 30, 40, 41, 50))
+BOOK_CODES = ("TDS-V031",)
+SEQUENCE_CODES = ("TDS-V032",)
+TIME_CODES = ("TDS-T003", "TDS-T004", "TDS-T012")  # `times` checks them (#225)
+INSTANT_CODES = tuple(f"TDS-T{n:03}" for n in (1, 2, 5, 7, 8, 10, 11))  # `instants` (#225)
+DENSITY_CODES = ("TDS-D001", D002, "TDS-D003", "TDS-D004")  # `densities` (#225, #425)
+CELL_CODES = ("TDS-S006", "TDS-S007", "TDS-S009")  # `cells`, from the rows (#391)
+FULL_CODES = (*KEY_CODES, *REF_CODES, *ACTION_CODES, *VALUE_CODES, *TIME_CODES, *INSTANT_CODES,
+              *DENSITY_CODES, *HASH_CODES, *CELL_CODES, *BOOK_CODES, *SEQUENCE_CODES)  # fmt: skip
 
 
 def _check_hashes(
-    m: Manifest, only: Sequence[str] | None, blind: set[str], notes: list[str]
+    m: Manifest, only: Sequence[str] | None, blind: set[str], notes: list[str], tmp: Path | None
 ) -> list[Finding]:
-    """H001 each declared file sha256, H002 each dataset value hash, H003 the package hashes;
-    `notes` gets the dataset that stopped the value hash, when one did."""
-    from .hash import HashError, inside, package_hashes
+    """H001 each declared file sha256, H002 each dataset value hash, H003 the package hashes,
+    H004 (a warning: the field is advisory, TDS 4.2) each declared file value hash; `notes` gets
+    the dataset that stopped the value hash, when one did, and where sorted runs went.
+    With `only`, the named datasets' rows alone are read and H003 is not checked (#309)."""
+    from .hash import (
+        HashError,
+        dataset_hashes,
+        file_sha256,
+        inside,
+        package_hashes,
+        spill_folder,
+        spilled_note,
+    )
 
-    out = []
+    out, spilled, hashes = [], list[Path](), dict[str, Any]()
     seen: set[object] = set()  # a path listed twice is M013's; its H001, once
     datasets = [d for d in m.datasets if only is None or d.get("name") in only]
     for ds in datasets:
@@ -224,25 +285,42 @@ def _check_hashes(
                 continue
             seen.add(f.get("path"))
             try:
-                actual = hashlib.sha256(inside(m.root, f.get("path")).read_bytes()).hexdigest()
+                actual = file_sha256(inside(m.root, f.get("path")))
             except (HashError, OSError):
                 continue  # outside the package or missing: the manifest level's (M004, M012)
             if actual != f["sha256"]:
                 message = f"sha256 {actual}, declared {f['sha256']}"
                 out.append(Finding("TDS-H001", "error", message, ds.get("name"), f["path"]))
     try:
-        hashes = package_hashes(m.root)
+        if only is None:
+            hashes = package_hashes(m.root, tmp_dir=tmp, spilled=spilled)
+        else:
+            folder = spill_folder(m.root, tmp)
+            each = {d.get("name"): dataset_hashes(m.root, d, folder, spilled) for d in datasets}
+            hashes["datasets"] = {name: whole for name, (whole, _) in each.items()}
+            hashes["files"] = {path: {"value_sha256": value} for _, files in each.values()
+                               for path, value in files.items()}  # fmt: skip
     except Exception as exc:  # no value hash for this package, whatever the cause: not judged
         blind.update(HASH_CODES[1:])
         notes.append(f"{', '.join(HASH_CODES[1:])} not checked: {str(exc) or repr(exc)}")
         return out
+    finally:
+        notes.extend([spilled_note(spilled)] if spilled else [])
+    if only is not None:
+        blind.add("TDS-H003")
+        notes.append("TDS-H003 not checked: the package hashes need every dataset, not --datasets")
     for ds in datasets:
         declared, actual = ds.get("value_sha256"), hashes["datasets"].get(ds.get("name"))
         if declared is not None and declared != actual:
             out.append(Finding("TDS-H002", "error", f"value hash {actual}, declared {declared}",
                                dataset=ds.get("name")))  # fmt: skip
+        for f in (f for f in ds.get("files") or [] if isinstance(f, dict)):
+            actual = hashes["files"].get(f.get("path"), {}).get("value_sha256")
+            if None not in (actual, f.get("value_sha256")) and actual != f["value_sha256"]:
+                message = f"file value hash {actual}, declared {f['value_sha256']}"
+                out.append(Finding("TDS-H004", "warning", message, ds.get("name"), f["path"]))
     declared_hashes = m.data.get("hashes")
-    for key in ("physical_sha256", "value_sha256", "semantic_sha256"):
+    for key in ("physical_sha256", "value_sha256", "semantic_sha256") if only is None else ():
         declared = declared_hashes.get(key) if isinstance(declared_hashes, dict) else None
         if declared is not None and declared != hashes[key]:
             out.append(Finding("TDS-H003", "error", f"{key} {hashes[key]}, declared {declared}"))
@@ -251,17 +329,11 @@ def _check_hashes(
 
 def _check_manifest(m: Manifest, only: Sequence[str] | None) -> Iterable[Finding]:
     data = m.data
+    for message in schema_violations(data):  # TDS 4.2's fields, shapes and type names (#417)
+        yield Finding("TDS-M001", "error", message)
     for key in REQUIRED:
         if key not in data:
             yield Finding("TDS-M003", "error", f"required manifest field {key!r} is missing")
-    for key in _OBJECTS:
-        if key in data and not isinstance(data[key], dict):
-            yield Finding("TDS-M001", "error", f"{key!r} is not a JSON object")
-    for key in ("profiles", "datasets"):
-        if key in data and not isinstance(data[key], list):
-            yield Finding("TDS-M001", "error", f"{key!r} is not a JSON array")
-    if isinstance(data.get("profiles"), list) and len(m.profiles) != len(data["profiles"]):
-        yield Finding("TDS-M001", "error", "'profiles' holds a value that is not a string")
     if "tds_version" in data and _major(data["tds_version"]) != SUPPORTED_MAJOR:
         msg = f"tds_version {data['tds_version']!r} is not supported (MAJOR {SUPPORTED_MAJOR})"
         yield Finding("TDS-M002", "error", msg)
@@ -276,23 +348,61 @@ def _check_manifest(m: Manifest, only: Sequence[str] | None) -> Iterable[Finding
         "edition": set(values) if isinstance(values, dict) else set(),
     }
 
-    root = m.root.resolve()
+    from .schemas.verify import load_schemas
+
+    root, schemas = m.root.resolve(), load_schemas()
     listed: set[str] = set()
     for ds in m.datasets:
         name = ds["name"] if isinstance(ds.get("name"), str) else None
         if only is not None and name not in only:
             continue
+        schema = schemas.get(str(ds.get("kind")))
+        if schema is not None and schema.status == "experimental":  # TDS 5.6's note, 8.3
+            msg = f"kind {ds['kind']} has an experimental schema (outside the 1.x promise)"
+            yield Finding("TDS-M015", "warning", msg, dataset=name)
         coverage = ds.get("coverage")
         by_market = coverage.get("by_market") if isinstance(coverage, dict) else None
-        for market in sorted(by_market) if isinstance(by_market, dict) else []:
+        for market, said in sorted(by_market.items()) if isinstance(by_market, dict) else []:
             if market not in declared["market"]:
                 msg = f"coverage.by_market names market {market!r}, not declared in tds.json"
                 yield Finding("TDS-M010", "error", msg, dataset=name)
+            watermark = markets.get(market) if isinstance(markets, dict) else None
+            yield from _processed(said, watermark, market, name)
         yield from _check_dataset(root, ds, name, listed, declared)
     if only is None:
         for rel in _walk(root):
             if rel not in listed and rel != MANIFEST:
                 yield Finding("TDS-M005", "warning", "file is not listed in tds.json", file=rel)
+
+
+def _processed(
+    said: object, market: object, code: str, name: str | None
+) -> Iterable[Finding]:  # fmt: skip
+    """M016 (TDS 4.3, #192): a dataset's `processed_through_session` in market `code`, when
+    present, is neither before its `last` there nor after the market's watermark session (3.8).
+    A value that is not a date is M001's (the manifest schema)."""
+    said = said if isinstance(said, dict) else {}
+    value = said.get("processed_through_session")
+    through = _day(value)
+    last = _day(said.get("last"))
+    watermark = _day(market.get("complete_through_session")) if isinstance(market, dict) else None
+    at = f"coverage.by_market.{code}.processed_through_session {through}"
+    if isinstance(value, str) and through is None and re.search(DATE, value):  # 2024-02-30
+        msg = f"coverage.by_market.{code}.processed_through_session {value!r} is not a date"
+        yield Finding("TDS-M001", "error", msg, dataset=name)  # what the pattern lets through
+    if through and last and through < last:
+        yield Finding("TDS-M016", "error", f"{at}, before its last {last}", dataset=name)
+    if through and watermark and through > watermark:
+        msg = f"{at}, after the market's complete_through_session {watermark}"
+        yield Finding("TDS-M016", "error", msg, dataset=name)
+
+
+def _day(value: object) -> dt.date | None:
+    """A `YYYY-MM-DD` calendar date; None for anything else (`20240102` included)."""
+    try:
+        return dt.date.fromisoformat(value) if isinstance(value, str) and len(value) == 10 else None
+    except ValueError:
+        return None
 
 
 def _check_dataset(
@@ -401,8 +511,11 @@ def _fits(tag: str, value: str) -> bool:
     return value != ""
 
 
-def _check_schema(m: Manifest, only: Sequence[str] | None, blind: set[str]) -> list[Finding]:
-    """S001~S010 from each listed, readable Parquet file's footer (TDS 8.2)."""
+def _check_schema(
+    m: Manifest, only: Sequence[str] | None, blind: set[str], *, rows: bool = False
+) -> list[Finding]:
+    """S001~S010 from each listed, readable Parquet file's footer (TDS 8.2); with `rows` (the
+    `full` level) S006, S007 and S009 are left to the rows (`cells`)."""
     from .schemas.verify import load_schemas
 
     schemas, root, out = load_schemas(), m.root.resolve(), []
@@ -417,6 +530,7 @@ def _check_schema(m: Manifest, only: Sequence[str] | None, blind: set[str]) -> l
             blind.update(SCHEMA_CODES)  # a kind with no schema file (`x_custom`): not checked
         if schema is None or not version or int(version[1]) != SUPPORTED_MAJOR:  # M009
             continue
+        out += _check_declared(ds, schema)
         files = ds.get("files")
         for entry in files if isinstance(files, list) else []:
             rel = entry.get("path") if isinstance(entry, dict) else None
@@ -425,7 +539,8 @@ def _check_schema(m: Manifest, only: Sequence[str] | None, blind: set[str]) -> l
             read.add(norm)
             if not _unsafe(root, rel) and (root / rel).is_file():
                 found = _check_file(root, rel, ds, schema, blind, codes, entry.get("bytes"))
-                out += [replace(f, dataset=ds.get("name"), file=rel) for f in found]
+                out += [replace(f, dataset=ds.get("name"), file=rel) for f in found
+                        if not rows or f.code not in CELL_CODES]  # fmt: skip
     return out
 
 
@@ -450,6 +565,21 @@ def _dictionary_codes(m: Manifest, root: Path) -> set[tuple[str, str]]:
 def _by_name(entries: object) -> dict[str, Any]:  # tds.json `columns`, `partitioning`: name → type
     items = entries if isinstance(entries, list) else []
     return {str(e["name"]): e.get("type") for e in items if isinstance(e, dict) and "name" in e}
+
+
+def _check_declared(ds: Mapping[str, Any], schema: Any) -> list[Finding]:
+    """S002 of each tds.json `columns[].type` that differs from the type the schema file states.
+
+    The schema file decides a typed column's type and timestamp unit (#373); a declaration only
+    names the one unit of a `ts_us/ns` column. One finding per column, for the dataset."""
+    declared, out = _by_name(ds.get("columns")), []
+    for column in schema.columns:
+        said, tag = declared.get(column.name), column.type
+        narrows = tag == "ts_us/ns" and said in ("ts_us", "ts_ns")
+        if said and tag is not None and said != tag and not narrows:  # "": none, as the hash reads
+            message = f"tds.json declares {column.name} as {said}, schema type {tag}"
+            out.append(Finding("TDS-S002", "error", message, dataset=ds.get("name")))
+    return out
 
 
 def _check_file(
@@ -487,15 +617,25 @@ def _check_file(
     from .hash import resolved_columns
 
     columns = resolved_columns(ds, schema.columns)  # the value hash's set too (#144)
-    known = {c.name for c in columns}
+    known, absent = {c.name for c in columns}, set[str]()
     for column in columns:
         if column.name not in arrow.names:
             if column.name not in parts and _required(column.null, params):
+                absent.add(column.name)
                 yield Finding("TDS-S001", "error", f"required column {column.name} is missing")
             continue
         required = _required(column.null, params)
         yield from _check_column(meta, arrow, column, required, declared.get(column.name), blind)
         yield from _check_values(meta, arrow, column, codes, blind)
+    within = params.get(WITHIN) if ds.get("kind") in SEQUENCED else None  # #348: it requires them
+    for name in within if isinstance(within, list) else []:
+        if isinstance(name, str) and name not in {*arrow.names, *parts, *absent}:
+            yield Finding("TDS-S001", "error", f"column {name} in params.{WITHIN} is missing")
+    from .schemas.verify import Column
+
+    for name in [n for n in arrow.names if n.startswith("x_") and n not in parts]:  # #403
+        if isinstance(tag := declared.get(name), str) and tag:
+            yield from _check_column(meta, arrow, Column(name, None, None), False, tag, blind)
     newer = int(str(ds["schema_version"]).split(".")[1]) > KNOWN_MINOR  # M011: ignore unknown
     for name in [] if newer else arrow.names:
         if name not in known and name not in parts and not name.startswith("x_"):
@@ -505,8 +645,10 @@ def _check_file(
 def _check_column(
     meta: Any, arrow: pa.Schema, column: Any, required: bool, unit: Any, blind: set[str]
 ) -> Iterable[Finding]:
-    """S002, S003, S004, S009 of one column; `unit`: its tds.json `columns[].type`."""
-    name, tag, kind = column.name, column.type, arrow.types[arrow.names.index(column.name)]
+    """S002, S003, S004, S009 of one column; `unit`: its tds.json `columns[].type`, the type
+    S002 and S004 check a column the schema file leaves untyped against (#403)."""
+    name, kind = column.name, arrow.types[arrow.names.index(column.name)]
+    tag = column.type or (unit if isinstance(unit, str) else None)
     paths = [meta.schema.column(i).path for i in range(meta.num_columns)]
     index = paths.index(name) if name in paths else None  # None: a nested column
     if index is not None and meta.schema.column(index).physical_type == "INT96":
@@ -515,8 +657,8 @@ def _check_column(
     if tag in _IS and not _IS[tag](kind):
         yield Finding("TDS-S002", "error", f"{name} is {kind}, TDS type {tag}")
         return
-    if tag in _UNITS:  # tds.json `columns[].type` names the unit of a `ts_us/ns` column (#57)
-        units = _UNITS.get(str(unit), _UNITS[tag])
+    if tag in _UNITS:  # the schema's unit; tds.json names one of a `ts_us/ns` column's (#57, #373)
+        units = _UNITS.get(str(unit), _UNITS[tag]) if tag == "ts_us/ns" else _UNITS[tag]
         if kind.tz != "UTC" or kind.unit not in units:
             yield Finding("TDS-S004", "error", f"{name} is {kind}, wants UTC {'/'.join(units)}")
     if index is None:  # its statistics are its leaves': a list's own null count is in none
@@ -528,8 +670,9 @@ def _check_column(
         blind.add("TDS-S003")
     elif required and (nulls := sum(s.null_count for s in stats)):
         yield Finding("TDS-S003", "error", f"{name} may not be null", count=nulls)
-    seen = [v for s in stats if s is not None and s.has_min_max for v in (s.min, s.max)]
-    if tag == "f64" and any(math.isinf(v) for v in seen):
+    # an f64's only: without pandas pyarrow gives no nanosecond instant's as a Python value (#382)
+    seen = [s for s in stats if column.type == "f64" and s is not None and s.has_min_max]
+    if any(math.isinf(v) for s in seen for v in (s.min, s.max)):
         yield Finding("TDS-S009", "error", f"{name} holds ±Inf (statistics; NaN is not visible)")
 
 
@@ -571,13 +714,18 @@ def _listed(value: str, values: Sequence[str]) -> bool:
 
 
 Stat = tuple[Any, Any, int]  # a row group's minimum, maximum (None: all null) and null count
-#: The kinds with no availability instant to hold against a watermark (5.1, 5.4, 4.4); any
-#: other kind without a rule leaves T006 unchecked, never passed (#181 review).
-TIMELESS = frozenset({"instruments", "calendar_sessions", "calendar_segments", *DICTIONARIES})
+_EPOCH, _MICRO = dt.datetime(1970, 1, 1, tzinfo=dt.UTC), dt.timedelta(microseconds=1)
+#: The kinds with no availability instant to hold against a watermark (5.1, 5.3, 5.4, 4.4;
+#: `instrument_xref` has no known time in v1, 8.2, #332); any other kind without a rule
+#: leaves T006 unchecked, never passed (#181 review).
+TIMELESS = frozenset({"instruments", "instrument_xref", "calendar_sessions",
+                      "calendar_segments", *DICTIONARIES})  # fmt: skip
 
 
 def _check_ranges(m: Manifest, only: Sequence[str] | None, blind: set[str]) -> list[Finding]:
     """T006 and D002's part from file statistics (TDS 8.2; rules: #181 Decisions)."""
+    from .keys import Instant
+
     root, out, seen = m.root.resolve(), [], set()
     markets = m.data["markets"] if isinstance(m.data.get("markets"), dict) else {}
     calendars = _reference(m, root, "calendar_sessions", ("calendar_id", "session_date"))
@@ -609,8 +757,8 @@ def _check_ranges(m: Manifest, only: Sequence[str] | None, blind: set[str]) -> l
                 last = _available(meta, rule, column) if meta is not None else None
                 if through is None or last is None:
                     blind.add(T006)  # no watermark, no statistics, or a rule they cannot apply
-                elif last > through:
-                    msg = f"available until {last.isoformat()}, after the market's"
+                elif last > (through - _EPOCH) // _MICRO * 1000:  # both in nanoseconds
+                    msg = f"available until {Instant(last).iso()}, after the market's"
                     msg += f" complete_through {market['complete_through']}"
                     out.append(Finding(T006, "error", msg, ds.get("name"), rel))
             if daily and meta:
@@ -654,18 +802,32 @@ def _footers(root: Path, ds: Mapping[str, Any]) -> Iterable[tuple[str, Any]]:
 
 def _stat(meta: Any, g: int, name: str, want: type) -> Stat | None:
     """Row group `g`'s statistics of the top-level column `name` holding `want` values, or None
-    when the footer does not say. A timestamp counts only with a time zone (S004)."""
+    when the footer does not say. A timestamp counts only with a time zone (S004) and where
+    `want` is a datetime, and comes as `keys.Instant`s from the stored integers: pyarrow makes
+    a nanosecond one a Python value only with pandas (#382). Of the other time types only a
+    `date32` where `want` is a date is read; any other is S002's and not made a value (#389)."""
+    from .keys import _NS, Instant
+
     paths = [meta.schema.column(i).path for i in range(meta.num_columns)]
     s = meta.row_group(g).column(paths.index(name)).statistics if name in paths else None
     if s is None or not s.has_null_count or (s.num_values and not s.has_min_max):
         return None
     if not s.has_min_max:
         return None, None, s.null_count
+    try:
+        arrow = meta.schema.to_arrow_schema()
+    except pa.ArrowException:  # a type Arrow does not read: S010's
+        return None
+    kind = arrow.types[arrow.names.index(name)]  # the first of a name stored twice, as `paths`
+    if pa.types.is_timestamp(kind):
+        if want is not dt.datetime or not kind.tz or s.physical_type != "INT64":  # INT96: S004's
+            return None
+        first, last = (Instant(v * _NS[kind.unit]) for v in (s.min_raw, s.max_raw))
+        return first, last, s.null_count
+    if pa.types.is_temporal(kind) and not (want is dt.date and pa.types.is_date32(kind)):
+        return None  # S002's: pyarrow makes a `time64[ns]` a Python value only with pandas
     low, high = (_text(v) if want is str else v for v in (s.min, s.max))
-    if want is dt.datetime:  # pandas' Timestamp for nanoseconds is a datetime too
-        fits = all(isinstance(v, dt.datetime) and v.tzinfo is not None for v in (low, high))
-    else:
-        fits = type(low) is want and type(high) is want  # a datetime is a date, not a `date`
+    fits = type(low) is want and type(high) is want  # a datetime is a date, not a `date`
     return (low, high, s.null_count) if fits else None
 
 
@@ -712,23 +874,30 @@ def _lookup(groups: list[Any], key: str, value: object, column: str) -> Stat | N
 _DELAY = re.compile(r"P(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?)?")
 
 
-def _available(meta: Any, rule: object, column: str) -> dt.datetime | None:
-    """The latest availability instant under 6.2 `rule` from the statistics, rule `column`
-    reading `column`; None when they cannot say: a rule on the calendar or with a fallback, a
-    null in its column (a daily bar's null `ts_end` is its session close; a null in a named
-    column has its dataset's fallback, 5.2, 5.11, 5.13), a delay in years or months."""
+def _delay(text: str | None) -> int | None:
+    """An ISO 8601 delay without years or months, in nanoseconds; None for one with them."""
+    delay = _DELAY.fullmatch(text or "P")
+    if delay is None:
+        return None
+    w, d, h, minutes, s = (x or "0" for x in delay.groups())
+    whole = (((int(w) * 7 + int(d)) * 24 + int(h)) * 60 + int(minutes)) * 60
+    return whole * 10**9 + round(float(s) * 10**9)
+
+
+def _available(meta: Any, rule: object, column: str) -> float | None:
+    """The latest availability instant under 6.2 `rule` from the statistics, in nanoseconds
+    since the epoch, rule `column` reading `column`; None when they cannot say: a rule on the
+    calendar or with a fallback, a null in its column (a daily bar's null `ts_end` is its
+    session close; a null in a named column has its dataset's fallback, 5.2, 5.11, 5.13), a
+    delay in years or months."""
     match = re.fullmatch(rf"(column|ts_end|ts_recv)(?:\+({_DUR}))?", str(rule))
-    delay = _DELAY.fullmatch(match[2] or "P") if match and RULE.fullmatch(str(rule)) else None
+    delay = _delay(match[2]) if match and RULE.fullmatch(str(rule)) else None
     if match is None or delay is None:
         return None
-    w, d, h, minutes, s = (float(x or 0) for x in delay.groups())
     span = _span(meta, column if match[1] == "column" else match[1], dt.datetime)
     if span is None:
         return None
-    if not span:  # no rows: nothing after any watermark
-        return dt.datetime.min.replace(tzinfo=dt.UTC)
-    last: dt.datetime = span[1] + dt.timedelta(weeks=w, days=d, hours=h, minutes=minutes, seconds=s)
-    return last
+    return span[1] + delay if span else -math.inf  # no rows: nothing after any watermark
 
 
 def _instant(value: object) -> dt.datetime | None:
@@ -740,7 +909,11 @@ def _instant(value: object) -> dt.datetime | None:
     return when if when and when.tzinfo else None
 
 
-def _check_profile(m: Manifest, name: str) -> Iterable[Finding]:
+def _check_profile(
+    m: Manifest, name: str, level: Level, only: Sequence[str] | None, notes: list[str]
+) -> Iterable[Finding]:
+    """M007, and M008: the profile's datasets and, above `manifest`, the columns chapter 7
+    names in each dataset that meets it (of `only`, when datasets are named)."""
     profile = PROFILES.get(name)
     if profile is None:
         why = "unknown profile" if _PROFILE.fullmatch(name) else "not a profile name"
@@ -754,6 +927,50 @@ def _check_profile(m: Manifest, name: str) -> Iterable[Finding]:
         if not any(all(_has(m.datasets, need) for need in alt) for alt in group):
             wanted = " or ".join(describe(alt) for alt in group)
             yield Finding("TDS-M008", "error", f"{name} requires dataset {wanted}")
+    for need, columns in profile.columns if level != "manifest" else ():
+        for ds in m.datasets:
+            if (only is not None and ds.get("name") not in only) or not _has([ds], need):
+                continue
+            for column in columns:
+                lack = _lacks(m.root.resolve(), ds, column)
+                if lack is None:
+                    said = f"column {column} of {ds.get('name')} ({name}): no statistics"
+                    notes.append(f"TDS-M008 not checked for {said}")
+                elif lack:
+                    message = f"{name} requires column {column} in {need[0]}: {lack}"
+                    yield Finding("TDS-M008", "error", message, dataset=ds.get("name"))
+
+
+def _lacks(root: Path, ds: Mapping[str, Any], column: str) -> str | None:
+    """Why no listed file of `ds` holds a value of `column`: "missing" from every footer, or
+    "null in every row"; "" when one holds a value, when the dataset has no row (an empty table
+    lacks nothing) or no readable footer, or when the column is a partition's; None when a
+    footer has the column without its null count."""
+    rows = 0  # of every listed file, with the column or without
+    held = unknown = False
+    for rel, meta in _footers(root, ds):
+        if meta is None or any(p.startswith(f"{column}=") for p in PurePosixPath(rel).parts):
+            return ""
+        rows += meta.num_rows
+        paths = [meta.schema.column(i).path for i in range(meta.num_columns)]
+        if column not in {p.split(".")[0] for p in paths}:
+            continue
+        held = True
+        for g in range(meta.num_row_groups if column in paths else 0):
+            s = meta.row_group(g).column(paths.index(column)).statistics
+            if not meta.row_group(g).num_rows:
+                continue  # a row group without rows has no null count and no value
+            if s is None or not s.has_null_count:
+                unknown = True
+            elif s.null_count < meta.row_group(g).num_rows:
+                return ""
+        # a nested column: its leaves' counts only
+        unknown = unknown or (column not in paths and meta.num_rows > 0)
+    if unknown:
+        return None
+    if not rows:
+        return ""
+    return "null in every row" if held else "missing"
 
 
 def _has(datasets: Iterable[Mapping[str, Any]], need: Need) -> bool:

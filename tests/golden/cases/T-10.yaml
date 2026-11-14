@@ -1,0 +1,34 @@
+# Golden case T-10 (spec 8.2): a start date that falls on a holiday (5.1.6, INV-14).
+# Expected values are literals. `check/T-10.py` reaches them by plain logic over the session
+# list, and `tests/golden/test_handcalc_self.py` compares the two. An implementation pull
+# request does not change this file (`tests/repo/test_golden_guard.py`); a wrong value reopens
+# the golden ticket ("spec deviation").
+id: T-10
+description: >-
+  Runs on the `tiny` XKRX calendar (spec 4.8): weekday sessions from 2020-01-02, with 2020-01-24
+  (Seollal) and 2020-01-27 (its substitute day) as holidays. `start` is aligned forward to the
+  first session on or after it and `end` backward to the last session on or before it (5.1.6).
+  The decision sessions of `nx.monthly(-1)` are anchored to the calendar, so a run that starts
+  on the holiday and one that starts on 2020-01-02 decide on the same 2020-01-31 (INV-14).
+spec: "8.2 T-10; 5.1.6 aligning start and end, 3.7 schedules, 1.3 INV-14"
+
+calendar:
+  calendar_id: XKRX
+  holidays: ["2020-01-24", "2020-01-27"]   # the weekday holidays of the tiny period
+  weekends: ["2020-01-25", "2020-01-26"]   # the Saturday and Sunday between them
+
+# One row per run. `n_sessions`: the sessions of the aligned run period. `decisions`: the
+# `monthly(-1)` decision sessions inside it.
+#
+# Hand-checked 2026-11-10 (#222), via the coordinating session, recomputed from the tiny
+# holiday table (2020-01-24, 2020-01-27) and 5.1.6 / 3.7 without this file, all four rows:
+#   start 2020-01-24 (Fri, holiday) -> 25 Sat, 26 Sun, 27 Mon holiday -> 2020-01-28
+#   end 2020-02-29 (Sat) -> 2020-02-28; end 2020-01-27 (holiday) -> 26 Sun, 25 Sat -> 2020-01-23
+#   January: 22 weekdays from the 2nd, minus 2 holidays = 20 sessions; February: 20 sessions
+#   run 2020-01-28 .. 2020-02-28: 4 (Jan 28, 29, 30, 31) + 20 = 24 sessions
+#   run 2020-01-13 .. 2020-01-23: 13, 14, 15, 16, 17, 20, 21, 22, 23 = 9 sessions, no month end
+expected:
+  - {start: "2020-01-24", end: "2020-02-29", aligned_start: "2020-01-28", aligned_end: "2020-02-28", n_sessions: 24, decisions: ["2020-01-31", "2020-02-28"]}
+  - {start: "2020-01-02", end: "2020-02-28", aligned_start: "2020-01-02", aligned_end: "2020-02-28", n_sessions: 40, decisions: ["2020-01-31", "2020-02-28"]}
+  - {start: "2020-01-27", end: "2020-01-31", aligned_start: "2020-01-28", aligned_end: "2020-01-31", n_sessions: 4, decisions: ["2020-01-31"]}
+  - {start: "2020-01-13", end: "2020-01-27", aligned_start: "2020-01-13", aligned_end: "2020-01-23", n_sessions: 9, decisions: []}

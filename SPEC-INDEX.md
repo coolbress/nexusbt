@@ -9,13 +9,13 @@ Generated from `docs/spec/engine-spec-v3.4.md` (chapter 10) by the spec checker 
 
 ## Counts
 
-222 engine tickets: M0 16, M1 41, M2 31, M3a 37, M3b 12, M4 28, M5 24, M6 31, v1.x 2 (T7.G, T7.1 and T7.V are part of M6; T7.2 and T7.5 are v1.x). 107 golden cases (G-01..G-107), 34 property tests, 49 error codes (E1..E49), 40 ADRs.
+224 engine tickets: M0 16, M1 41, M2 31, M3a 37, M3b 12, M4 28, M5 24, M6 33, v1.x 2 (T7.G, T7.1 and T7.V are part of M6, and so are T6.28 and T6.29, the real-data evidence after T7.V; T7.2 and T7.5 are v1.x). 107 golden cases (G-01..G-107), 36 property tests, 49 error codes (E1..E49), 41 ADRs. Counting rule (as of 2026-11-10): a property test is one `P-*` row of the spec's table 8.3; an ADR is one file in `docs/adr/` (0001..0041), each a row of the spec's table 9.3.
 
 ## Dependency graph (summary)
 
 - Acyclic; every "Blocked by" points to the same or an earlier milestone (checked by `tools/spec_lint.py`, and in the repo by `test_ticket_graph`, T0.12).
-- Single root: T0.1. Longest chain: 33 tickets:
-  T0.1 → T0.2a → T0.13a → T0.13b → T0.13c → T0.14a → T0.15a → T0.15b → T0.16a → T1.1b → T1.3 → T1.4 → T1.7a → T1.7b → T1.8 → T1.12 → T1.13 → T2.7 → T3.22 → T3.12 → T4.1 → T4.2 → T4.10 → T4.7 → T6.2 → T6.4 → T6.7 → T6.20 → T6.21 → T6.24 → T6.27 → T7.1 → T7.V.
+- Single root: T0.1. Longest chain: 35 tickets:
+  T0.1 → T0.2a → T0.13a → T0.13b → T0.13c → T0.14a → T0.15a → T0.15b → T0.16a → T1.1b → T1.3 → T1.4 → T1.7a → T1.7b → T1.8 → T1.12 → T1.13 → T2.7 → T3.22 → T3.12 → T4.1 → T4.2 → T4.10 → T4.7 → T6.2 → T6.4 → T6.7 → T6.20 → T6.21 → T6.24 → T6.24b → T6.27 → T7.1 → T7.V → T6.28.
 - Most depended-on tickets (number of direct dependents): T0.9 (19), T3.13a (10), T3.14 (9), T0.15a (7), T1.24 (7), T2.9 (7), T2.10a (7), T3.Gd (7), T0.2a (6), T4.7 (6), T0.7 (5), T0.14c (5), T1.11 (5), T1.13 (5), T1.Gb (5), T3.12 (5), T5.1 (5), T6.4 (5). Land these early and keep them small.
 
 
@@ -62,9 +62,9 @@ Generated from `docs/spec/engine-spec-v3.4.md` (chapter 10) by the spec checker 
 | T1.7a | `feat(compute): planner with window and shift row propagation` | 5.3.2 | — | T1.4, T1.5 |
 | T1.7b | `feat(compute): reference executor with fixed summation order and budgeted chunking` | 5.3.8, 5.3.10 | — | T1.7a |
 | T1.8 | `feat(compute): as-of adjustment reference and registered kernel classes` | 5.3.3, 5.3.3a, 5.3.4, 4.6 | T-07 | T1.7b, T0.15a, T1.G |
-| T1.9 | `feat(factors): returns, moving averages, volatility and traded value` | 3.4, 5.3.10 | T-12 | T1.8, T1.Gb |
+| T1.9 | `feat(factors): returns, moving averages, volatility and traded value` | 3.4, 5.3.10 | T-12, G-TIME-LATE | T1.8, T1.Gb |
 | T1.10 | `feat(factors): ewma, vwap, rsi, max drawdown and ops` | 3.3, 3.4 | — | T1.9, T1.Gb |
-| T1.11 | `feat(compute): cross-sectional operators with mask and groupby, sorted-index reductions` | 5.4, 5.3.10 | T-11, T-27 | T1.7b, T1.Gb |
+| T1.11 | `feat(compute): cross-sectional operators with mask and groupby, sorted-index reductions` | 5.4, 5.3.10 | T-11, T-27, G-TIME-LATE | T1.7b, T1.Gb |
 | T1.12 | `feat(pipeline): window-style user functions` | 3.3, 5.3.7, 6.5 | — | T1.8, T1.11 |
 | T1.14a | `feat(artifacts): sealed run folders with crash recovery and source capture` | 5.9.1–5.9.3, 2.6 | — | T0.5a |
 | T1.14b | `feat(artifacts): run index with candidates, observations, cohorts, pins and environment numerics` | 5.9.2, 5.9.5 | — | T1.14a |
@@ -132,7 +132,7 @@ Generated from `docs/spec/engine-spec-v3.4.md` (chapter 10) by the spec checker 
 | T3.1 | `feat(portfolio): pure target construction with stages and risk slot` | 3.7, 5.5 | — | T1.11, T1.9, T2.15, T1.Gb |
 | T3.2 | `feat(api): Strategy, schedules, params and strategy screen` | 3.7, 3.8 | — | T3.1, T1.13 |
 | T3.3 | `feat(accounting): columnar account state, integer money, valuation and NAV bridge` | 5.6.1, 5.6.9 | G-01, G-48 | T0.3, T3.Gc |
-| T3.4 | `feat(execution): order table, lifecycle, trigger state, quantity conservation, sizing and session loop skeleton` | 5.6.2, 5.6.3, 5.6.7 | G-10, G-14..G-15 | T3.3, T3.Ga |
+| T3.4 | `feat(execution): order table, lifecycle, trigger state, quantity conservation, sizing and session loop skeleton` | 5.6.2, 5.6.3, 5.6.7 | G-10, G-14..G-15, G-TIME-LATE | T3.3, T3.Ga |
 | T3.8 | `feat(execution): cost models, general impact form and cost table coverage` | 5.6.8, 4.7 | — | T3.4 |
 | T3.5a | `feat(execution): market fills at open with tradability rules` | 5.6.3–5.6.5 | G-01, G-11, G-13..G-14, G-31 | T3.4, T3.Ga |
 | T3.5b | `feat(execution): volume cap and affordable cash allocation with the actual cost function` | 5.6.6, 5.6.7 | G-10, G-12, G-41, G-53 | T3.5a, T3.8, T3.Gd |
@@ -278,6 +278,8 @@ Generated from `docs/spec/engine-spec-v3.4.md` (chapter 10) by the spec checker 
 | T7.G | `test(golden): hold-band edge cases (G-63)` | 5.5.3, 8.2 | G-63 | T0.9 |
 | T7.1 | `feat(portfolio): target-state recursion and hold band` | 5.5.3 | — | T6.11, T6.18, T7.G, T4.14, T5.16, T6.22, T6.24, T6.25, T6.27 |
 | T7.V | `verify: post-T7.1 release re-verification (no features)` | 7, 8, 9.1 | P-SHORT-OFF | T7.1 |
+| T6.28 | `perf: re-measure chapter 7 on a real snapshot (summary evidence)` | 7, 2.7, 12 | — | T7.V, T6.15 |
+| T6.29 | `test(release): verify a real ledger event by event against the situation table` | 8.4, 5.9.7, 2.7, 12 | LV-01..LV-08 | T7.V, T6.15, T5.11b |
 
 ## v1.x — Right after v1
 

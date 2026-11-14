@@ -89,6 +89,10 @@
 - **등록 커널과 수치 순서**: 엔진 커널은 정해진 덧셈 순서(창은 행 순, 단면은 `instrument_id` 순)로 계산해, 같은 환경에서 묶음·순서와 무관하게 비트가 같다.
 - **정답** (label): 기본 `fwd_return` = 배당을 배당락일 종가에 재투자한 보유 수익, 비교용 `fwd_return_adj` = 조정가 비율. 정답 시각 셋(시작·끝·알 수 있는 시각)으로 구간 끝에서 정화.
 - **검증 방법 / 분할기 / 경로** (`backtest(method=...)`): `linear`(기본), `walk_forward`, `cpcv`, `cscv`. 폴드·경로는 진단이고 시도 수에 들지 않는다. 정화 = 정답 구간(공개 시각까지)이 시험 묶음과 겹치는 훈련 표본 빼기, 엠바고 = 시험 묶음 바로 뒤 훈련 표본 빼기.
+- **primary 결과** (`Run.primary`): 사용자가 `method`로 요청한 평가와 그 기간. `linear`와 `splits.holdout()`: 실행의 지표; `walk_forward`: 이어 붙인 표본 밖 시계열; `cpcv`: 경로 분포이며, 한 숫자로 대표할 때는 완결 경로들의 중앙값이고 가장 좋은 경로는 결코 아니다; `cscv`: 후보 표.
+- **reference 결과** (방법이 `linear`가 아닐 때의 `Run.metrics`): `walk_forward`, `cpcv`, `cscv` 평가 옆의, 기본 파라미터 선형 실행. `linear`나 `splits.holdout()` 실행에는 없고, 그 지표가 primary 결과다.
+- **diagnostics** (`Run.diagnostics`): 실행의 통계(PSR, DSR, PBO, …), 각각 계산한 시계열과 비교 집합과 함께. 표시만, 막지 않음. 진단을 붙였다고 그 실행이 표본 밖 평가가 되지는 않는다.
+- **provenance** (`Run.provenance`): 결과의 자료와 절차가 무엇이었나 — 자료 노출, 사전 등록, 근사, 가정. ML 학습마다 네 출처 수준 `in-sample` < `model-fit-OOS` < `full-procedure-OOS` < `frozen-policy` 가운데 하나를 갖는다: 학습과 그 둘레의 선택이 자기가 예측하는 판단에서 얼마나 바깥에 있는지.
 - **ML 팩터** (`ml.factor`): 엔진이 앞쪽만(정답 공개 + 엠바고 ≤ 재학습 시각) 학습하고 판단마다 예측하는 Pipeline 노드. 모형 객체는 저장하지 않고 예측·학습 표를 남긴다.
 - **사전학습 모형** (`ml.pretrained`): `training_cutoff`를 밝힌 예측 전용 모형. 마감 + 엠바고 전 판단은 막고(E48), `allow_overlap=True`면 표시하고 돈다(E49).
 - **대조 기준** (oracle): 손으로 쓴 세션별 산수(golden), 느린 참조 구현, 생산자 해석 출력, 고정 zipline-reloaded 3.2.1(흉내 설정으로만).

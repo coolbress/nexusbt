@@ -3,8 +3,8 @@
   "key": ["instrument_id", "scheme", "level", "edition", "effective_from", "ts_known_from"],
   "sort": ["instrument_id", "scheme", "level", "edition", "effective_from", "ts_known_from"], "partitions": [],
   "columns": [
-    {"name": "instrument_id", "type": null, "null": null},
-    {"name": "scheme", "type": null, "null": null},
+    {"name": "instrument_id", "type": "id", "null": null},
+    {"name": "scheme", "type": "code", "null": null},
     {"name": "level", "type": "i8", "null": false},
     {"name": "code", "type": "string", "null": null},
     {"name": "label", "type": "string", "null": true},
@@ -14,6 +14,6 @@
     {"name": "ts_known_to", "type": "ts_us", "null": true},
     {"name": "edition", "type": "code", "null": null},
     {"name": "pit_quality", "type": "code", "null": null},
-    {"name": "source", "type": null, "null": null}
+    {"name": "source", "type": "string", "null": null}
   ]
 }

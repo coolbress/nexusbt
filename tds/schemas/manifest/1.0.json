@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TDS 1.0 tds.json (TDS 4.2)",
+  "$comment": "TDS 8.3: a violation is TDS-M001, except a missing `required` field, which is TDS-M003. `x-unique` (not a JSON Schema keyword) names the field whose value no two array items share.",
+  "type": "object",
+  "required": ["tds_version", "name", "created", "snapshot_id", "producer", "profiles", "id_namespaces", "markets", "datasets", "hashes", "writer"],
+  "properties": {
+    "producer": {"type": "object"},
+    "profiles": {"type": "array", "items": {"type": "string"}},
+    "id_namespaces": {"type": "object"},
+    "markets": {"type": "object", "additionalProperties": {"type": "object"}},
+    "hashes": {"type": "object"},
+    "writer": {"type": "object"},
+    "datasets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "kind", "schema_version", "path", "files"],
+        "properties": {
+          "partitioning": {
+            "type": "array",
+            "items": {"type": "object", "properties": {"name": {"type": "string"}, "type": {"$ref": "#/$defs/type"}}}
+          },
+          "columns": {
+            "type": "array",
+            "x-unique": "name",
+            "items": {"type": "object", "properties": {"name": {"type": "string"}, "type": {"$ref": "#/$defs/type"}}}
+          },
+          "files": {
+            "type": "array",
+            "items": {"type": "object", "required": ["path", "bytes"]}
+          },
+          "params": {
+            "$comment": "Only this key's shape (TDS 5.6~5.8, #348); the other params keys stay open.",
+            "properties": {
+              "sequence_consecutive_within": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {"type": "string", "pattern": "^(?!sequence$)"}
+              }
+            }
+          },
+          "coverage": {
+            "type": "object",
+            "properties": {
+              "by_market": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "object",
+                  "properties": {"processed_through_session": {"$ref": "#/$defs/date"}}
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "date": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
+    "type": {
+      "$comment": "TDS 3.2's type names and `string` (chapter 5's schema files, 4.4); never `ts_us/ns`, which a schema file may use and a declaration may not (4.5).",
+      "enum": ["id", "code", "string", "date", "ts_us", "ts_ns", "f64", "fixed", "i8", "i16", "i32", "i64", "bool", "json", "list<code>"]
+    }
+  }
+}

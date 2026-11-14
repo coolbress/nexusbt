@@ -8,6 +8,7 @@ integer-and-+-x/ value path (#128), so moving them here changed no byte of `smal
 from __future__ import annotations
 
 import csv
+import datetime as dt
 import functools
 import itertools
 from collections.abc import Callable, Iterator, Sequence
@@ -28,6 +29,14 @@ ELIGIBILITY = "investable-v1"  # 4.8 (10)'s rule
 #: 4.8 (5): the KR tick and price-limit tables' venue group of each MIC.
 KR_GROUP = {"XKRX": "KOSPI", "XKOS": "KOSDAQ"}
 OHLC = ("open", "high", "low", "close")
+#: 4.8 (11a): the `market_rules` rule sets; every KR instrument's `tick_rule_id` is TICK_RULE.
+TICK_RULE, LIMIT_RULE = "kr-tick", "kr-price-limit"
+RULE_KEY = ("rule_id", "rule_kind", "venue_group", "valid_from", "price_from")  # TDS 5.27
+RULES = pa.schema({
+    "rule_id": pa.string(), "market": pa.string(), "rule_kind": pa.string(),
+    "venue_group": pa.string(), "valid_from": pa.date32(), "valid_to": pa.date32(),
+    "price_from": pa.float64(), "price_to": pa.float64(), "tick_size": pa.float64(),
+    "limit_ratio": pa.float64(), "source": pa.string(), "verified": pa.bool_()})  # fmt: skip
 
 
 @functools.cache
@@ -61,6 +70,28 @@ def _snap(prices: np.ndarray, dates: np.ndarray, venue: str | None,
     return out
 
 
+def _market_rules() -> pa.Table:
+    """4.8 (11a): TDS 5.27 `market_rules` for KR, copied from the pack's resources: the tick
+    bands that have a start date (two versions) as rule set TICK_RULE, and the price limits of
+    KR_GROUP's groups as LIMIT_RULE."""
+    rows = []
+    for name, group, kind in (
+        ("ticks/kr_tick_table_v1.csv", "venue_group", "tick_band"),
+        ("limits/kr_price_limits_v1.csv", "market", "price_limit"),
+    ):
+        for r in _resource(name):
+            if r["valid_from"] and r[group] in (*KR_GROUP.values(), "*"):
+                number = {c: float(r[c]) if r.get(c) else None
+                          for c in ("price_from", "price_to", "tick", "limit_ratio")}  # fmt: skip
+                rows.append(number | {
+                    "rule_id": TICK_RULE if kind == "tick_band" else LIMIT_RULE, "market": "KR",
+                    "rule_kind": kind, "venue_group": r[group], "tick_size": number["tick"],
+                    "valid_from": dt.date.fromisoformat(r["valid_from"]), "source": r["source"],
+                    "valid_to": dt.date.fromisoformat(r["valid_to"]) if r["valid_to"] else None,
+                    "verified": r["verified"] == "true"})  # fmt: skip
+    return pa.Table.from_pylist(rows, schema=RULES).sort_by([(c, "ascending") for c in RULE_KEY])
+
+
 def _ratios(dates: np.ndarray, venue: str | None) -> np.ndarray:
     """Each date's KR daily price limit ratio, NaN where there is none."""
     out = np.full(len(dates), np.nan)
@@ -78,6 +109,13 @@ def _venues(
     for k, name in itertools.product(range(n), OHLC):
         bars[name][k] = _snap(bars[name][k], bars["session_date"][k], mics[k])
     return mics
+
+
+def _value_traded(bars: dict[str, list[Any]]) -> list[np.ndarray]:
+    """4.8 (3): each bar's `value_traded`, its volume x (high + low + close) / 3 (TDS 3.4's
+    representative price, so V011's R is 1), and 0 on a halted bar, which has no price."""
+    return [np.where(v > 0, v * (h + lo + c) / 3, 0.0) for v, h, lo, c in zip(
+        bars["volume"], bars["high"], bars["low"], bars["close"], strict=True)]  # fmt: skip
 
 
 def _share_counts(
