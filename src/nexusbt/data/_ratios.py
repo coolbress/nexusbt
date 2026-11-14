@@ -60,7 +60,11 @@ def check_ratios(
     if doubtful and policy is DecimalRatioPolicy.REQUIRE_EXACT:
         ids = [r["event_id"] for r, _ in doubtful]
         raise _e13(manifest, ids, "no exact ratio, or one off its f64 column")
-    if policy is DecimalRatioPolicy.LITERAL:
+    if policy is DecimalRatioPolicy.LITERAL:  # nothing to read is refused, not guessed (#446)
+        if unread := [r["event_id"] for r, _ in doubtful if _f64(r) is None]:
+            raise _e13(manifest, unread, "no exact ratio and no f64 ratio to read literally",
+                       fix="use the default [corporate_actions] decimal_ratio ="
+                       " 'exclude_instrument', or a package with ratio_num/ratio_den")  # fmt: skip
         return (), len(doubtful)
     return tuple(RatioExclusion(r[ID], r["event_id"], cause, _visible(r))
                  for r, cause in doubtful), 0  # fmt: skip
@@ -73,13 +77,16 @@ def _malformed(num: int | None, den: int | None) -> bool:
 
 
 def _doubt(r: dict[str, Any]) -> str | None:
-    """5.6.1's cause for a share event's ratio, None when it is exact and agrees."""
-    kind, num, den, f64 = r["kind"], r["ratio_num"], r["ratio_den"], _f64(r)
+    """5.6.1's cause for a share event's ratio, None when it is exact and agrees. A capital
+    reduction or rights issue needs one only with a `ratio_new_per_old`, as A010 reads TDS
+    5.11 (a share consolidation, an allotment ratio; #446)."""
+    kind, num, den = r["kind"], r["ratio_num"], r["ratio_den"]
     if kind not in EXCLUDING:
         return None
     if num is None:  # both missing: `_malformed` took one-sided rows
-        return "ca_ratio_missing" if kind in SHARE_KINDS or f64 is not None else None
-    if f64 is not None and not math.isclose(num / den, f64, rel_tol=REL_TOL):
+        needed = kind in SHARE_KINDS or r["ratio_new_per_old"] is not None
+        return "ca_ratio_missing" if needed else None
+    if (f64 := _f64(r)) is not None and not math.isclose(num / den, f64, rel_tol=REL_TOL):
         return "ca_ratio_disagrees"
     return None
 
@@ -110,7 +117,13 @@ def _rows(manifest: Manifest, kind: str, columns: Sequence[str]) -> Iterator[dic
                 yield dict.fromkeys(columns) | parts | row
 
 
-def _e13(manifest: Manifest, events: Sequence[str], what: str) -> AccountingDataError:
+FIX = ("correct the rows in the producer's package and build it again; a missing or disagreeing"
+       " ratio follows [corporate_actions] decimal_ratio (5.6.1)")  # fmt: skip
+
+
+def _e13(
+    manifest: Manifest, events: Sequence[str], what: str, fix: str = FIX
+) -> AccountingDataError:
     shown = ", ".join(events[:10]) + (f" and {len(events) - 10} more" if len(events) > 10 else "")
     producer = manifest.data.get("producer")
     name = producer.get("name", "-") if isinstance(producer, dict) else "-"
@@ -119,8 +132,7 @@ def _e13(manifest: Manifest, events: Sequence[str], what: str) -> AccountingData
         what=f"{len(events)} corporate action(s) with {what}: {shown}",
         where=f"snapshot {snapshot} corporate_actions",
         why="share quantities are computed from the exact ratio only (5.6.1, TDS 5.11 A010)",
-        fix="correct the rows in the producer's package and build it again; a missing or"
-        " disagreeing ratio follows [corporate_actions] decimal_ratio (5.6.1)",
+        fix=fix,
         more="spec 4.4 step 4 and 5.6.1; tds check <package> --level full",
         layer=f"data — snapshot {snapshot} / corporate_actions / column ratio_num, ratio_den"
         f" / producer {name}",
