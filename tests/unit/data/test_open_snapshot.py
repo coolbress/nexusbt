@@ -476,3 +476,123 @@ def test_ratio_compared_with_its_f64_column(
                  ratio_new_per_old=given)  # fmt: skip
         found = excluded(with_rows(split, tmp_path / name, row))
         assert found == ([] if name == "agrees" else [("KR:E000001", "ca_ratio_disagrees")])
+
+
+BARS = Path("bars/freq=1d/market=KR/year=2020/part-00000.parquet")  # one of tiny's files
+
+
+def flip_byte(path: Path) -> None:
+    """Change one byte of a page in place: the same inode and size, a later mtime."""
+    with open(path, "r+b") as f:
+        f.seek(100)
+        byte = f.read(1)[0]
+        f.seek(100)
+        f.write(bytes([byte ^ 0xFF]))
+
+
+def stamped(path: Path, stamps: Path | None) -> Any:
+    """An open that needs each file's sha256 (`rerun`, `reconcile`, `live`, `fill`; 4.4-1)."""
+    return open_snapshot(DataConfig(path=path, stamps=stamps), sha256=True)
+
+
+def test_full_verify_detects_tamper(tiny: Path, tmp_path: Path) -> None:
+    """One changed byte: `manifest` reads sizes, not bytes; `full` gives E14 TDS-H001."""
+    copy = shutil.copytree(tiny, tmp_path / "t")
+    flip_byte(copy / BARS)
+    open_snapshot(DataConfig(path=copy))
+    with pytest.raises(SnapshotError, match="TDS-H001"):
+        open_snapshot(DataConfig(path=copy, verify=VerifyPolicy.FULL))
+
+
+def test_verified_stamp_detects_later_tamper(tiny: Path, tmp_path: Path) -> None:
+    """The first open hashes every file and stamps their identities, as relative paths (2.7).
+    A byte changed with the identity kept passes: the cost ADR-0037 names, which an open without
+    the stamp sees. A file replaced later has a new inode, so it is hashed again: E14, and the
+    stamp is discarded."""
+    copy, stamps = shutil.copytree(tiny, tmp_path / "t"), tmp_path / "runs/.cache/verified"
+    stamp = stamps / stamped(copy, stamps).physical_hash
+    held = json.loads(stamp.read_text(encoding="utf-8"))["files"]
+    assert str(BARS) in held
+    assert not any(Path(p).is_absolute() for p in held)
+    kept = os.stat(copy / BARS)
+    flip_byte(copy / BARS)
+    os.utime(copy / BARS, ns=(kept.st_atime_ns, kept.st_mtime_ns))
+    stamped(copy, stamps)
+    with pytest.raises(SnapshotError, match="TDS-H001"):
+        stamped(copy, None)
+    shutil.copy2(copy / BARS, tmp_path / "bars.parquet")
+    os.replace(tmp_path / "bars.parquet", copy / BARS)  # same bytes and mtime, a new inode
+    with pytest.raises(SnapshotError, match="TDS-H001") as raised:
+        stamped(copy, stamps)
+    assert str(BARS) in str(raised.value)
+    assert not stamp.exists()
+
+
+def test_inplace_edit_invalidates_stamp_and_l0(tiny: Path, tmp_path: Path) -> None:
+    """An edit in place after the stamp keeps the inode and size but not the mtime, so the next
+    open sees another identity, hashes the file again and gives E14; the stamp is discarded.
+    The L0 half comes with the L0 cache (T6.12)."""
+    copy, stamps = shutil.copytree(tiny, tmp_path / "t"), tmp_path / "runs/.cache/verified"
+    stamp = stamps / stamped(copy, stamps).physical_hash
+    before = os.stat(copy / BARS)
+    flip_byte(copy / BARS)
+    after = os.stat(copy / BARS)
+    assert (after.st_ino, after.st_size) == (before.st_ino, before.st_size)
+    assert after.st_mtime_ns != before.st_mtime_ns
+    with pytest.raises(SnapshotError, match="TDS-H001"):
+        stamped(copy, stamps)
+    assert not stamp.exists()
+
+
+def test_readonly_package_all_consumption_paths(tiny: Path, tmp_path: Path) -> None:
+    """A read-only data root opens on every path: the package or its root's `LATEST`, at each
+    verify level, and with file sha256s, whose stamp goes under the runs folder and is read by
+    the next open, or is skipped where it cannot be written; nothing in the root changes."""
+    data, stamps = tmp_path / "data", tmp_path / "runs/.cache/verified"
+    shutil.copytree(tiny, data / "s1")
+    (data / "LATEST").write_text("s1\n", encoding="utf-8")
+    paths = sorted(data.rglob("*"), reverse=True)
+    before = [(p, p.stat().st_size, p.stat().st_mtime_ns) for p in paths]
+    for path in [*paths, data]:
+        path.chmod(0o555 if path.is_dir() else 0o444)
+    try:
+        for level in VerifyPolicy:
+            for path in (data, data / "s1"):
+                assert open_snapshot(DataConfig(path=path, verify=level)).id == "synth-0001"
+        for _ in range(2):  # the second open reads the stamp the first wrote
+            s = stamped(data, stamps)
+        assert (stamps / s.physical_hash).is_file()
+        assert stamped(data, data / "runs").id == s.id  # a stamp it cannot write is skipped
+        assert [(p, p.stat().st_size, p.stat().st_mtime_ns) for p in paths] == before
+    finally:
+        for path in [data, *paths]:
+            path.chmod(0o755 if path.is_dir() else 0o644)
+
+
+def test_bars_keep_ts_available(tmp_path: Path) -> None:
+    """G-TIME-LATE at open: a package with late bars opens with no E14, fallback or warning, and
+    the bars its manifest names keep each `ts_available`: a late KR bar's is the close of a
+    session 1 to 3 after its own (4.8, #354), every other bar's is its own session's close.
+    The bar staying in row s is `market_block`'s (T1.4, test_late_bar_stays_in_its_row)."""
+    path = make_snapshot(tmp_path / "late", preset="tiny", degrade=["late_bars"])
+    s = open_snapshot(DataConfig(path=path), required=BACKTEST)
+    assert (s.fallbacks, s.warnings) == ([], {})
+    data = json.loads((path / "tds.json").read_text(encoding="utf-8"))
+    sessions = path / dataset(data, "calendar_sessions")["files"][0]["path"]
+    close: dict[str, list[dt.datetime]] = {}  # per calendar, its closes in session order
+    at: dict[tuple[str, dt.date], int] = {}
+    for row in pq.read_table(sessions).sort_by("session_date").to_pylist():
+        at[row["calendar_id"], row["session_date"]] = len(close.setdefault(row["calendar_id"], []))
+        close[row["calendar_id"]].append(row["ts_close"])
+    late = 0
+    for f in dataset(data, "bars_1d")["files"]:
+        market = f["path"].split("market=")[1].split("/")[0]
+        calendar = data["markets"][market]["calendar_id"]
+        closes = close[calendar]
+        bars = pq.read_table(path / f["path"], columns=["session_date", "ts_available"])
+        for bar in bars.to_pylist():
+            i = at[calendar, bar["session_date"]]
+            if bar["ts_available"] != closes[i]:
+                assert (market, bar["ts_available"] in closes[i + 1 : i + 4]) == ("KR", True)
+                late += 1
+    assert late > 0
