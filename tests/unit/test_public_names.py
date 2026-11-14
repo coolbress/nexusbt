@@ -65,6 +65,7 @@ BUILT = {
     *(f"nexusbt.data.Snapshot.{m}" for m in ("id", "semantic_hash", "value_hash")),
     "nexusbt.data.Snapshot.physical_hash",
     "nexusbt.data.Snapshot.markets",
+    *(f"nexusbt.data.Snapshot.{m}" for m in ("profiles", "capabilities", "fallbacks")),  # #233
 }
 
 #: 6.6, the classes whose kind is block or fail: the sub-errors of `NexusBTError`. The warnings

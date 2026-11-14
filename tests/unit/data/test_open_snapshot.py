@@ -21,11 +21,19 @@ from nexusbt.contracts import (
     CapabilityError,
     ConfigError,
     DecimalRatioPolicy,
+    FallbacksPolicy,
     SnapshotError,
     VerifyPolicy,
 )
-from nexusbt.data import DataConfig, RatioExclusion, open_snapshot
+from nexusbt.data import (
+    CapabilityRequest,
+    DataConfig,
+    FallbackRecord,
+    RatioExclusion,
+    open_snapshot,
+)
 from nexusbt.testing.synth import make_snapshot
+from nexusbt_tds import ProfileStatus
 from nexusbt_tds.hash import package_hashes, write_hashes
 
 
@@ -112,10 +120,13 @@ def test_market_without_pack_E18(kr_zz: Path) -> None:  # noqa: N802 - the ticke
 
 def test_allow_untested_recorded(kr_zz: Path) -> None:
     cfg = DataConfig(path=kr_zz, markets=("KR", "ZZ"), allow_untested=True)
-    s = open_snapshot(cfg)
+    with pytest.warns(UserWarning, match="F-15"):  # the generic pack has no grid (4.5)
+        s = open_snapshot(cfg)
     assert (s.markets["KR"].rules, s.markets["ZZ"].rules) == ("KR@1", "_generic@1")
     assert s.assumptions == ("untested market rules: ZZ",)
-    assert open_snapshot(DataConfig(path=kr_zz, allow_untested=True)).assumptions == s.assumptions
+    with pytest.warns(UserWarning, match="F-15"):
+        again = open_snapshot(DataConfig(path=kr_zz, allow_untested=True))
+    assert again.assumptions == s.assumptions
 
 
 def test_semantic_hash_exposed(tmp_path: Path) -> None:
@@ -241,3 +252,127 @@ def test_missing_exact_ratio_excludes_instrument_from_event(split: Path, tmp_pat
     literal = open_snapshot(DataConfig(path=missing, decimal_ratio=DecimalRatioPolicy.LITERAL))
     assert literal.ca_exclusions == ()
     assert literal.assumptions == ("decimal ratios used literally: 1 events",)
+
+
+CORE, MINIMAL = "tds:equity-daily-core@1.0", "tds:minimal-daily@1.0"
+
+
+def test_three_status_distinct(tiny: Path, tmp_path: Path) -> None:
+    """4.3: declared, checked (to a level; not passed) and supported are three results."""
+    s = open_snapshot(DataConfig(path=tiny))
+    assert s.profiles[CORE] == ProfileStatus(True, "manifest", "not_checked")
+    schema = open_snapshot(DataConfig(path=tiny, verify=VerifyPolicy.SCHEMA))
+    assert schema.profiles[CORE].verified_level == "schema"
+    more = shutil.copytree(tiny, tmp_path / "more")
+    edit_manifest(more, lambda d: d["profiles"].append("tds:bitemporal@1.0"))
+    s = open_snapshot(DataConfig(path=more))  # declared and checked, not read by v1 (4.3)
+    assert s.profiles["tds:bitemporal@1.0"] == ProfileStatus(True, "manifest", "not_checked")
+    assert s.capabilities.supported == {CORE, MINIMAL}
+
+
+def test_price_only_graph_needs_core_only(tiny: Path, tmp_path: Path) -> None:
+    """4.3: `Price` alone needs instruments and bars; a richer feature is E18 on such a package."""
+    assert CapabilityRequest().datasets == {"instruments", "bars"}
+    bare = shutil.copytree(tiny, tmp_path / "bare")
+    kept = {"instruments", "bars"}
+    for d in json.loads((bare / "tds.json").read_text(encoding="utf-8"))["datasets"]:
+        if d["kind"] not in kept:
+            shutil.rmtree(bare / d["path"])
+    edit_manifest(bare, lambda d: d.update(
+        profiles=[MINIMAL], datasets=[x for x in d["datasets"] if x["kind"] in kept]))  # fmt: skip
+    s = open_snapshot(DataConfig(path=bare), required=CapabilityRequest())
+    assert (s.capabilities.features, s.fallbacks) == (frozenset({"price", "grid"}), [])
+    with pytest.raises(CapabilityError, match="backtest needs corporate_actions,"):  # F-02 too
+        open_snapshot(DataConfig(path=bare), required=CapabilityRequest(frozenset({"backtest"})))
+    with pytest.raises(ValueError, match="no feature"):
+        CapabilityRequest(frozenset({"Price"}))
+
+
+def test_declared_but_broken_is_E14_not_fallback(tiny: Path, tmp_path: Path) -> None:  # noqa: N802 - the ticket's test name
+    """4.4-3: a package that declares the core profile without calendar_sessions is not given
+    F-02: the checker's error is E14 (INV-17)."""
+    broken = shutil.copytree(tiny, tmp_path / "broken")
+    shutil.rmtree(broken / "calendar_sessions")
+    edit_manifest(broken, lambda d: d.update(
+        datasets=[x for x in d["datasets"] if x["kind"] != "calendar_sessions"]))  # fmt: skip
+    with pytest.raises(SnapshotError, match="TDS-M008") as raised:
+        open_snapshot(DataConfig(path=broken), required=CapabilityRequest(frozenset({"backtest"})))
+    assert "F-02" not in str(raised.value)
+
+
+BACKTEST = CapabilityRequest(frozenset({"backtest"}))
+
+
+def opened_warned(path: Path, **cfg: Any) -> tuple[Any, list[str]]:
+    """The snapshot opened at `path`, and the text of each E30 warning the open gave."""
+    with pytest.warns(UserWarning, match=r"DataProfileWarning \[E30\]") as said:
+        s = open_snapshot(DataConfig(path=path, **cfg), required=BACKTEST)
+    return s, [str(w.message) for w in said]
+
+
+def test_fallback_F02_sessions(tmp_path: Path) -> None:  # noqa: N802 - the ticket's test name
+    """F-02: one E30 line, one record per market (XKRX and XNYS sessions of the bars' period),
+    and the manifest assumption; a calendar exchange_calendars does not know is E18."""
+    s, said = opened_warned(make_snapshot(tmp_path / "a", preset="tiny", degrade=["no_sessions"]))
+    assert len(said) == 1
+    assert "DataProfileWarning [E30] F-02" in said[0]
+    assert s.fallbacks == [FallbackRecord("F-02", "calendar_sessions", "KR", 62),  # tiny's own
+                           FallbackRecord("F-02", "calendar_sessions", "US", 62)]  # fmt: skip
+    assert s.assumptions == ("sessions synthesized from exchange_calendars 4.13.2",)
+    zz = make_snapshot(tmp_path / "zz", preset="tiny", markets=("KR", "ZZ"),
+                       degrade=["no_sessions"])  # fmt: skip
+    with pytest.raises(CapabilityError, match="backtest needs calendar_sessions"):
+        open_snapshot(DataConfig(path=zz, allow_untested=True), required=BACKTEST)
+
+
+def test_fallback_F03_densify(tmp_path: Path) -> None:  # noqa: N802 - the ticket's test name
+    """F-03: sparse bars without obs_status are recorded for a backtest, not for `Price` alone."""
+    sparse = make_snapshot(tmp_path / "s", preset="tiny", degrade=["sparse_bars"])
+    s, said = opened_warned(sparse)
+    assert [(r.id, r.market) for r in s.fallbacks] == [("F-03", "KR"), ("F-03", "US")]
+    assert {(r.dataset, r.count) for r in s.fallbacks} == {("bars_1d", 341)}  # tiny: all traded
+    assert "listing period x sessions" in said[0]
+    assert open_snapshot(DataConfig(path=sparse), required=CapabilityRequest()).fallbacks == []
+
+
+def test_fallback_F04_factors_from_resolver(tiny: Path, tmp_path: Path) -> None:  # noqa: N802 - the ticket's test name
+    """F-04 is a definition: no cumulative factor columns, the resolver's factors, no warning."""
+    assert open_snapshot(DataConfig(path=tiny), required=BACKTEST).capabilities.cum_factors == (
+        "columns")  # fmt: skip
+    bare = make_snapshot(tmp_path / "f", preset="tiny", degrade=["no_cum_factors"])
+    s = open_snapshot(DataConfig(path=bare), required=BACKTEST)  # filterwarnings: no warning
+    assert (s.capabilities.cum_factors, s.fallbacks) == ("resolver", [])
+    assert "backtest" in s.capabilities.features
+
+
+def test_fallbacks_fail_mode_raises_E14(tmp_path: Path) -> None:  # noqa: N802 - the ticket's test name
+    """4.4-3: `[data] fallbacks = "fail"` makes a needed fallback E14, without a warning."""
+    gap = make_snapshot(tmp_path / "g", preset="tiny", degrade=["no_sessions"])
+    with pytest.raises(SnapshotError, match="fallback F-02 needed") as raised:
+        open_snapshot(DataConfig(path=gap, fallbacks=FallbacksPolicy.FAIL), required=BACKTEST)
+    assert "[E14]" in str(raised.value)
+    price = CapabilityRequest()  # `Price` alone needs no session table: nothing to refuse
+    assert open_snapshot(DataConfig(path=gap, fallbacks=FallbacksPolicy.FAIL), required=price)
+
+
+def test_volume_unit_warning_lifted_E30(tmp_path: Path) -> None:  # noqa: N802 - the ticket's test name
+    """F-16 (V31-16): the checker's TDS-V011 warnings become one E30 line and a record of the
+    KR instrument-years whose volume unit is unverified; no repair."""
+    lots = make_snapshot(tmp_path / "v", preset="small", n_kr=6, n_us=6, degrade=["volume_in_lots"])
+    s, said = opened_warned(lots, verify=VerifyPolicy.FULL)
+    assert s.fallbacks == [FallbackRecord("F-16", "bars_1d", "KR", 16)]
+    assert s.warnings["TDS-V011"] == 16
+    assert len(said) == 1
+    assert "volume unit unverified" in said[0]
+
+
+def test_fallback_F15_grid_minor_unit(tmp_path: Path) -> None:  # noqa: N802 - the ticket's test name
+    """F-15 (V31-05): no grid anywhere for ZZ (generic pack, no tick column, no market_rules):
+    the currency minor unit, E30; KR keeps its pack's tick table."""
+    path = make_snapshot(tmp_path / "t", preset="tiny", markets=("KR", "ZZ"),
+                         degrade=["no_tick_info"])  # fmt: skip
+    grid = CapabilityRequest(frozenset({"grid"}))
+    with pytest.warns(UserWarning, match="price grid = currency minor unit for ZZ"):
+        s = open_snapshot(DataConfig(path=path, allow_untested=True), required=grid)
+    assert s.fallbacks == [FallbackRecord("F-15", "market_rules", "ZZ", 6)]
+    assert open_snapshot(DataConfig(path=path), required=grid).fallbacks == []  # ZZ: no pack
