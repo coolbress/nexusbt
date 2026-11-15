@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import re
+import warnings
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -12,7 +14,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
-from nexusbt.contracts import CapabilityError, SnapshotError
+from nexusbt.contracts import CapabilityError, ConfigError, SessionNotice, SnapshotError
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
@@ -44,6 +46,31 @@ class Calendar:
         """`ready_m(s) = ts_close(s) + delta_m` for every row (5.1.2)."""
         return self.ts_close + self.ready_delay
 
+    def align(self, start: dt.date | str, end: dt.date | str) -> tuple[int, int]:
+        """The rows of the first session on or after `start` and the last on or before `end`
+        (5.1.6), with an E9 notice for each date that is not a session."""
+        given = [_day("start", start), _day("end", end)]
+        first = int(np.searchsorted(self.dates, given[0], "left"))
+        last = int(np.searchsorted(self.dates, given[1], "right")) - 1
+        if first > last:
+            raise ConfigError(
+                what=f"no {self.market} session from {start} to {end}",
+                where="arguments start and end", why="a run needs one session or more (5.1.6)",
+                fix=f"choose a period inside {self.dates[0]} to {self.dates[-1]}",
+                more="spec 5.1.6", layer=f"config — argument start={start}",
+            )  # fmt: skip
+        for name, day, row, verb in (("start", given[0], first, "begin"),
+                                     ("end", given[1], last, "end")):  # fmt: skip
+            if self.dates[row] != day:
+                using = self.dates[row]
+                warnings.warn(str(SessionNotice(
+                    what=f"{name} {day} is not a {self.market} session; using {using}",
+                    where=f"argument {name}", why=f"runs {verb} on a session",
+                    fix=f"{name}='{using}'", more="spec 6.6 E9", subject=name,
+                    layer=f"config — argument {name}={day}",
+                )), stacklevel=3)  # fmt: skip
+        return first, last
+
     def late_bars(
         self, dates: NDArray[np.datetime64], available: NDArray[np.datetime64]
     ) -> NDArray[np.int64]:
@@ -53,6 +80,21 @@ class Calendar:
         rows = np.minimum(np.searchsorted(self.dates, dates), len(self.dates) - 1)
         late = (self.dates[rows] == dates) & (available.astype("datetime64[us]") > self.ready[rows])
         return np.bincount(rows[late], minlength=len(self.dates))
+
+
+def _day(name: str, value: object) -> np.datetime64:
+    """A `start` or `end` as a day: a date, a datetime's date, or `YYYY-MM-DD`; else E16."""
+    try:
+        if isinstance(value, dt.datetime):
+            value = value.date()
+        day = value if isinstance(value, dt.date) else dt.date.fromisoformat(str(value))
+    except ValueError:
+        raise ConfigError(
+            what=f"{name} = {value!r} is not a date", where=f"argument {name}",
+            why="a run begins and ends on a session date (5.1.6)", fix=f"{name}='YYYY-MM-DD'",
+            more="spec 5.1.6", layer=f"config — argument {name}={value!r}",
+        ) from None  # fmt: skip
+    return np.datetime64(day, "D")
 
 
 def read_calendar(manifest: Manifest, market: str) -> Calendar:
