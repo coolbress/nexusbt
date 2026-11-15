@@ -8,8 +8,9 @@ A fixed column (`Price`, `Meta`) is checked where it is written. A snapshot's co
 from __future__ import annotations
 
 import difflib
-from collections.abc import Collection, Iterator
-from typing import Any
+from collections.abc import Collection, Iterator, Mapping
+from types import MappingProxyType
+from typing import Any, ClassVar
 
 from nexusbt.contracts import ENGINE_COLUMNS, ColumnNameError, LabelLeakError, SchemaRegistry
 
@@ -23,10 +24,10 @@ class _Dataset(type):
     """A dataset's class. `_fixed` are its columns, None when the snapshot names them; `_kinds`
     the term kind of a column that is not `_kind`; `_aliases` the v1 names kept (3.2)."""
 
-    _fixed: tuple[str, ...] | None = None
-    _kind: type[Term] = BoundColumn
-    _kinds: dict[str, type[Term]] = {}  # noqa: RUF012 - read only
-    _aliases: dict[str, str] = {}  # noqa: RUF012 - read only
+    _fixed: ClassVar[tuple[str, ...] | None] = None
+    _kind: ClassVar[type[Term]] = BoundColumn
+    _kinds: ClassVar[Mapping[str, type[Term]]] = MappingProxyType({})
+    _aliases: ClassVar[Mapping[str, str]] = MappingProxyType({})
 
     def __getattr__(cls, name: str) -> Any:
         if name.startswith("_"):
@@ -55,8 +56,8 @@ class Meta(metaclass=_Dataset):
     _fixed = ("market", "currency", "asset_class", "venue_mic", "category", "sector", "industry",
               "is_financial")  # fmt: skip
     _kind = Classifier
-    _kinds = {"is_financial": Filter}  # noqa: RUF012
-    _aliases = {"country": "market", "exchange": "venue_mic"}  # noqa: RUF012
+    _kinds = MappingProxyType({"is_financial": Filter})
+    _aliases = MappingProxyType({"country": "market", "exchange": "venue_mic"})
 
 
 class Panel(metaclass=_Dataset): ...
