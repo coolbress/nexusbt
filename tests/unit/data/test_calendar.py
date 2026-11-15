@@ -133,18 +133,20 @@ def decisions(snapshot: Snapshot, schedule: Schedule, start: str = "2020-01-02",
 
 def test_monthly_last_session(tiny: Snapshot) -> None:
     """3.7 `monthly(day)`: the day-th session of the month from 1, from the end when negative,
-    the last (or first) when the month has fewer; each decision at its session's `ready`."""
+    the last (or first) when the month has fewer; each decision at its session's `ready`.
+    `tiny` ends on 2020-03-31 and starts on 01-02: its calendar does not settle the end of
+    March or the start of January (ADR 0043), so a pick that needs them is not there."""
     grid = decision_grid(tiny, monthly(), "2020-01-02", "2020-03-31")
-    assert [str(d) for d in grid.session_dates] == ["2020-01-31", "2020-02-28", "2020-03-31"]
+    assert [str(d) for d in grid.session_dates] == ["2020-01-31", "2020-02-28"]
     assert grid.decision_ts[0] == dt.datetime(2020, 1, 31, 6, 30, tzinfo=dt.UTC)  # KR close
     assert (grid.market, grid.calendar_id, grid.clock) == ("KR", "XKRX", "KR_close")
-    assert decisions(tiny, monthly(1)) == ["2020-01-02", "2020-02-03", "2020-03-02"]
-    assert decisions(tiny, monthly(-2)) == ["2020-01-30", "2020-02-27", "2020-03-30"]
-    assert decisions(tiny, monthly(16)) == ["2020-01-23", "2020-02-24", "2020-03-23"]
-    assert decisions(tiny, monthly(99)) == decisions(tiny, monthly())
-    assert decisions(tiny, monthly(-99)) == decisions(tiny, monthly(1))
+    assert decisions(tiny, monthly(1)) == ["2020-02-03", "2020-03-02"]
+    assert decisions(tiny, monthly(-2)) == ["2020-01-30", "2020-02-27"]
+    assert decisions(tiny, monthly(16)) == ["2020-02-24", "2020-03-23"]
+    assert decisions(tiny, monthly(99)) == ["2020-02-28"]  # the last of a month with fewer
+    assert decisions(tiny, monthly(-99)) == ["2020-02-03"]
     us = decisions(tiny, monthly(), clock="US_close")  # the calendar of the clock's market
-    assert us == ["2020-01-31", "2020-02-28", "2020-03-31"]
+    assert us == ["2020-01-31", "2020-02-28"]
     us_january = decision_grid(tiny, monthly(), "2020-01-02", "2020-01-31", clock="US_close")
     assert us_january.decision_ts == (dt.datetime(2020, 1, 31, 21, 0, tzinfo=dt.UTC),)
     with pytest.raises(ConfigError, match="day = 0"):
@@ -185,14 +187,16 @@ def test_weekly_quarterly(tiny: Snapshot, tmp_path: Path) -> None:
     january = {"start": "2020-01-02", "end": "2020-01-31"}  # no session on 01-24 and 01-27
     week_ends = ["2020-01-03", "2020-01-10", "2020-01-17", "2020-01-23", "2020-01-31"]
     assert decisions(tiny, weekly(), **january) == week_ends
+    # the calendar's first week, of 01-02 and 01-03, has no session before it (ADR 0043)
     assert decisions(tiny, weekly(1), **january) == [
-        "2020-01-02", "2020-01-06", "2020-01-13", "2020-01-20", "2020-01-28"]  # fmt: skip
+        "2020-01-06", "2020-01-13", "2020-01-20", "2020-01-28"]  # fmt: skip
     assert decisions(tiny, weekly(2), **january) == [
-        "2020-01-03", "2020-01-07", "2020-01-14", "2020-01-21", "2020-01-29"]  # fmt: skip
-    assert decisions(tiny, quarterly()) == ["2020-03-31"]
+        "2020-01-07", "2020-01-14", "2020-01-21", "2020-01-29"]  # fmt: skip
+    assert decisions(tiny, quarterly()) == []  # no session after March
     assert len(decisions(tiny, daily(), **january)) == 20
-    path = make_snapshot(tmp_path / "small", preset="small", n_kr=2, n_us=2)
-    small = open_snapshot(DataConfig(path=path))  # 2015 to 2019; KRX closes on 12-31
+    path = make_snapshot(tmp_path / "small", preset="small", n_kr=2, n_us=2,
+                         end=dt.date(2020, 1, 31))  # fmt: skip
+    small = open_snapshot(DataConfig(path=path))  # 2015 into 2020; KRX closes on 12-31
     year = {"start": "2019-01-01", "end": "2019-12-31", "clock": "KR_close"}
     with pytest.warns(UserWarning, match=r"SessionNotice \[E9\]"):
         quarter_ends = decisions(small, quarterly(), **year)
@@ -247,3 +251,34 @@ def test_default_clock_codepoint_first_market(tmp_path: Path) -> None:
     alone = make_snapshot(tmp_path / "us", preset="tiny", markets=("US",))
     us = decision_grid(open_snapshot(DataConfig(path=alone)), *january, clock="market_local")
     assert (us.market, us.clock, us.decision_ts[0].hour) == ("US", "market_local", 21)
+
+
+def test_partial_period_decides_only_when_the_calendar_settles_it() -> None:
+    """3.7, ADR 0043 (#461): a pick from the end needs a session after its period, one from
+    the start a session before it, a pick that falls back to the first or last session both.
+    The calendar is #461's: weekday sessions from 2020-01-15 (a Wednesday) to 2020-03-13."""
+    days = np.arange("2020-01-15", "2020-03-14", dtype="datetime64[D]")
+    days = days[(days.astype(np.int64) + 3) % 7 < 5]  # day 0 is a Thursday
+    times = days.astype("datetime64[us]")
+    cut = Calendar("KR", "XKRX", days, times, times, np.arange(len(days)), 0 * MINUTE)
+
+    def picks(schedule: Schedule) -> list[str]:
+        return [str(d)[5:] for d in days[schedule.rows(cut)]]
+
+    assert (len(days), str(days[0]), str(days[-1])) == (43, "2020-01-15", "2020-03-13")
+    assert picks(monthly()) == ["01-31", "02-28"]  # the table of #461's Decision
+    assert picks(monthly(-2)) == ["01-30", "02-27"]
+    assert picks(monthly(1)) == ["02-03", "03-02"]
+    assert picks(monthly(5)) == ["02-07", "03-06"]
+    assert picks(monthly(99)) == ["02-28"]
+    assert picks(monthly(-99)) == ["02-03"]
+    assert picks(quarterly()) == []
+    fridays = ["01-17", "01-24", "01-31", "02-07", "02-14", "02-21", "02-28", "03-06"]
+    mondays = ["01-20", "01-27", "02-03", "02-10", "02-17", "02-24", "03-02", "03-09"]
+    assert picks(weekly()) == fridays  # the week of 03-09 has no session after it
+    assert picks(weekly(1)) == mondays  # the week of 01-15 has no session before it
+    assert picks(weekly(3)) == ["01-22", "01-29", "02-05", "02-12", "02-19", "02-26", "03-04",
+                                "03-11"]  # fmt: skip
+    assert picks(weekly(-9)) == mondays[:-1]  # falls back to the first session: both sides
+    assert len(picks(daily())) == 43  # `daily` and `every` count no period
+    assert picks(every(20)) == ["01-15", "02-12", "03-11"]
