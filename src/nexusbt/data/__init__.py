@@ -20,12 +20,23 @@ from nexusbt.contracts import (
     SnapshotError,
     VerifyPolicy,
 )
+from nexusbt.data._calendar import Calendar as Calendar
+from nexusbt.data._calendar import read_calendar
 from nexusbt.data._capabilities import CapabilityRequest as CapabilityRequest
 from nexusbt.data._capabilities import DataCapabilities as DataCapabilities
 from nexusbt.data._capabilities import FallbackRecord as FallbackRecord
 from nexusbt.data._capabilities import decide
 from nexusbt.data._ratios import RatioExclusion as RatioExclusion
 from nexusbt.data._ratios import check_ratios
+from nexusbt.data._schedule import Schedule as Schedule
+from nexusbt.data._schedule import annually as annually
+from nexusbt.data._schedule import daily as daily
+from nexusbt.data._schedule import decision_grid as decision_grid
+from nexusbt.data._schedule import default_clock as default_clock
+from nexusbt.data._schedule import every as every
+from nexusbt.data._schedule import monthly as monthly
+from nexusbt.data._schedule import quarterly as quarterly
+from nexusbt.data._schedule import weekly as weekly
 from nexusbt.data._stamp import check_files
 from nexusbt_tds.hash import declared_semantic_hash, package_hashes
 from nexusbt_tds.manifest import Manifest, ManifestError
@@ -96,10 +107,6 @@ class MarketInfo:
     timezone: str
     complete_through_session: str | None
     rules: str | None
-
-
-@dataclass(frozen=True, slots=True)
-class Calendar: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -177,7 +184,10 @@ class Snapshot:
         return self._markets
 
     def calendar(self, market: str) -> Calendar:
-        raise NotImplementedError
+        """The sessions of `market` and the time each of its rows freezes (5.1.1, 5.1.2)."""
+        if market not in self._markets:
+            raise _no_pack(market, self._manifest, False)
+        return read_calendar(self._manifest, market)
 
     def market_block(self, market: str, fields: Sequence[str], sessions: object) -> MarketBlock:
         raise NotImplementedError
