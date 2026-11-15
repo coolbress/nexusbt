@@ -23,7 +23,7 @@ from nexusbt.contracts import (
 from nexusbt.data._capabilities import CapabilityRequest as CapabilityRequest
 from nexusbt.data._capabilities import DataCapabilities as DataCapabilities
 from nexusbt.data._capabilities import FallbackRecord as FallbackRecord
-from nexusbt.data._capabilities import decide
+from nexusbt.data._capabilities import _columns, decide
 from nexusbt.data._ratios import RatioExclusion as RatioExclusion
 from nexusbt.data._ratios import check_ratios
 from nexusbt.data._stamp import check_files
@@ -99,6 +99,16 @@ class MarketInfo:
 
 
 @dataclass(frozen=True, slots=True)
+class DailyCoverage:
+    """One market's `coverage.by_market` entry of the daily bars (TDS 4.3), for `doctor`."""
+
+    first: str | None
+    last: str | None
+    instruments: int
+    rows: int
+
+
+@dataclass(frozen=True, slots=True)
 class Calendar: ...
 
 
@@ -127,7 +137,10 @@ class Snapshot:
 
     `warnings` counts the checker's warnings per TDS code (4.4-2); `assumptions` are the
     sentences a run manifest records, such as an untested market's (4.7); `ca_exclusions`
-    are the instruments 5.6.1 excludes for an event without a usable exact ratio (4.4-4)."""
+    are the instruments 5.6.1 excludes for an event without a usable exact ratio (4.4-4);
+    `unchecked` are the TDS codes the check level did not judge (4.4-5, the manifest's
+    `data.unchecked`); `daily` and `daily_columns` are the daily bars' coverage per market and
+    column count, as `doctor` prints them (3.10)."""
 
     def __init__(
         self,
@@ -138,10 +151,15 @@ class Snapshot:
         assumptions: tuple[str, ...],
         ca_exclusions: tuple[RatioExclusion, ...],
         decided: Decided,
+        *,
+        unchecked: tuple[str, ...] = (),
+        daily: Mapping[str, DailyCoverage] | None = None,
+        daily_columns: int = 0,
     ) -> None:
         self._manifest, self._hashes, self._markets = manifest, hashes, markets
         self.warnings, self.assumptions = dict(warnings), assumptions
         self.ca_exclusions, self._decided = ca_exclusions, decided
+        self.unchecked, self.daily, self.daily_columns = unchecked, dict(daily or {}), daily_columns
 
     @property
     def id(self) -> str:
@@ -280,7 +298,13 @@ def open_snapshot(
     caps, used, assumed = decide(folder, manifest, rules, result.warnings, required, cfg.fallbacks)
     warnings = Counter(f.code for f in result.warnings)
     decided = (result.profiles, caps, used)
-    return Snapshot(manifest, hashes, markets, warnings, untested + assumed, excluded, decided)
+    bars = next((d for d in manifest.data["datasets"] if d["kind"] == "bars"), None)
+    covered = (bars or {}).get("coverage", {}).get("by_market", {})
+    daily = {m: DailyCoverage(e.get("first"), e.get("last"), int(e.get("instruments", 0)),
+                              int(e.get("rows", 0))) for m, e in covered.items()}  # fmt: skip
+    return Snapshot(manifest, hashes, markets, warnings, untested + assumed, excluded, decided,
+                    unchecked=tuple(result.unchecked), daily=daily,
+                    daily_columns=len(_columns(folder, bars)))  # fmt: skip
 
 
 def _market(name: str, entry: Mapping[str, Any], allow_untested: bool) -> MarketInfo:

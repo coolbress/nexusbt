@@ -14,7 +14,8 @@ from collections.abc import Sequence
 from importlib import metadata
 from pathlib import Path
 
-from nexusbt.contracts import RUN_SCHEMA, EngineBugError
+from nexusbt.api import _doctor as api_doctor
+from nexusbt.contracts import RUN_SCHEMA, EngineBugError, NexusBTError
 
 #: Spec 3.10, the command table, in its order.
 COMMANDS: tuple[tuple[str, str], ...] = (
@@ -67,18 +68,27 @@ def _bundle(run_id: str) -> Path:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="nexusbt", description=__doc__.split("\n", 1)[0])
     commands = parser.add_subparsers(dest="command", metavar="COMMAND", required=True)
-    for name, help_text in COMMANDS:
-        commands.add_parser(name, help=help_text)
+    sub = {name: commands.add_parser(name, help=help_text) for name, help_text in COMMANDS}
+    sub["init"].add_argument("--data-root", metavar="PATH")
     commands.add_parser("bugreport", help="bundle a run for a bug report").add_argument("run_id")
     try:
         return _run(parser.parse_args(argv))
     except EngineBugError as bug:  # 6.6 E46, from any command: exit code 2
         print(bug, file=sys.stderr)
         return 2
+    except NexusBTError as error:  # 3.10: a user error is exit code 1
+        print(error, file=sys.stderr)
+        return 1
 
 
 def _run(args: argparse.Namespace) -> int:
     if args.command == "bugreport":
         print(_bundle(args.run_id))
+        return 0
+    if args.command == "init":
+        print(api_doctor.init(args.data_root))
+        return 0
+    if args.command == "doctor":
+        print(api_doctor.doctor())
         return 0
     raise NotImplementedError(f"nexusbt {args.command}: not built yet (its ticket is in spec 10.1)")
