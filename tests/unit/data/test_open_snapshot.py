@@ -148,6 +148,22 @@ def test_semantic_hash_exposed(tmp_path: Path) -> None:
         "XNYS", "USD", "America/New_York", "US@1")  # fmt: skip
 
 
+def test_edited_markets_change_the_semantic_hash_at_open(tiny: Path, tmp_path: Path) -> None:
+    """ADR 0042: below `full` the semantic hash is recomputed from tds.json and the declared
+    dataset value hashes; the value and physical hashes stay as declared (#329)."""
+    edited = shutil.copytree(tiny, tmp_path / "edited")
+    declared = json.loads((tiny / "tds.json").read_text(encoding="utf-8"))["hashes"]
+    edit_manifest(edited, lambda d: d["markets"]["KR"].update(timezone="Asia/Tokyo"))
+    s = open_snapshot(DataConfig(path=edited))
+    assert s.semantic_hash != declared["semantic_sha256"]
+    assert s.semantic_hash == package_hashes(edited)["semantic_sha256"]  # as the full read gives
+    assert (s.value_hash, s.physical_hash) == (
+        declared["value_sha256"], declared["physical_sha256"])  # fmt: skip
+    assert open_snapshot(DataConfig(path=tiny)).semantic_hash == declared["semantic_sha256"]
+    edit_manifest(edited, lambda d: dataset(d, "bars_1d").pop("value_sha256"))  # none: computed
+    assert open_snapshot(DataConfig(path=edited)).semantic_hash == s.semantic_hash
+
+
 def test_open_path_and_latest_parent(root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     assert nx.open(root / "s2").id == "s2"  # the package folder
     assert nx.open(str(root)).id == "s1"  # a parent folder: through LATEST

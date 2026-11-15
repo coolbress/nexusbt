@@ -483,12 +483,30 @@ def _inventory(
             raise  # already says which dataset or file
         except (OSError, KeyError, TypeError, ValueError, struct.error, pa.ArrowException) as exc:
             raise HashError(f"dataset {name}: {exc!r}") from exc
-        units = {c["name"]: c["unit"] for c in entry.get("columns", []) if "unit" in c}
-        semantic.append({"name": name, "value_sha256": datasets[name], "units": units,
-                         **{k: entry.get(k) for k in _DATASET_KEYS},
-                         "price_exponent": entry.get("price_exponent", -9),
-                         "size_exponent": entry.get("size_exponent", 0)})  # fmt: skip
+        semantic.append(_semantic_entry(entry, datasets[name]))
     return datasets, files, sorted(semantic, key=lambda d: d["name"])
+
+
+def _semantic_entry(entry: Mapping[str, Any], value: str) -> dict[str, Any]:
+    """One dataset's part of the semantic hash, given its value hash (TDS 4.5)."""
+    units = {c["name"]: c["unit"] for c in entry.get("columns", []) if "unit" in c}
+    return {"name": str(entry.get("name")), "value_sha256": value, "units": units,
+            **{k: entry.get(k) for k in _DATASET_KEYS},
+            "price_exponent": entry.get("price_exponent", -9),
+            "size_exponent": entry.get("size_exponent", 0)}  # fmt: skip
+
+
+def declared_semantic_hash(path: Path) -> str | None:
+    """The semantic hash of tds.json as it stands, from each dataset's declared `value_sha256`:
+    no row is read (ADR 0042). None when a dataset declares none."""
+    root = Path(path)
+    entries = []
+    for entry in read_manifest(root).datasets:
+        if not isinstance(value := entry.get("value_sha256"), str):
+            return None
+        entries.append(_semantic_entry(entry, value))
+    entries.sort(key=lambda d: d["name"])
+    return _sha256(_semantic(root, entries).encode("utf-8"))
 
 
 def _semantic(root: Path, entries: list[Any]) -> str:
