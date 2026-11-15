@@ -70,6 +70,10 @@ from nexusbt.pipeline import BoundColumn as BoundColumn
 from nexusbt.pipeline import Classifier as Classifier
 from nexusbt.pipeline import Factor as Factor
 from nexusbt.pipeline import Filter as Filter
+from nexusbt.pipeline import Label as Label
+from nexusbt.pipeline import Meta as Meta
+from nexusbt.pipeline import Panel as Panel
 from nexusbt.pipeline import Pipeline as Pipeline
+from nexusbt.pipeline import Price as Price
 from nexusbt.pipeline import Term as Term
 from nexusbt.pipeline import factor as factor

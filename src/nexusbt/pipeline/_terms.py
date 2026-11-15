@@ -359,9 +359,9 @@ def _look_ahead(k: int) -> LookAheadError:
 
 
 def _user_line() -> str:
-    """`file:line in function` of the first frame outside this module (6.6 header)."""
-    frame = sys._getframe(1)
-    while frame.f_code.co_filename == __file__ and frame.f_back is not None:
+    """`file:line in function` of the first frame outside the engine (6.6 header)."""
+    frame, engine = sys._getframe(1), Path(__file__).parents[1]
+    while Path(frame.f_code.co_filename).is_relative_to(engine) and frame.f_back is not None:
         frame = frame.f_back
     name = frame.f_code.co_name
     where = f"{Path(frame.f_code.co_filename).name}:{frame.f_lineno}"
