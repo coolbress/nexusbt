@@ -14,6 +14,7 @@ from collections.abc import Sequence
 from importlib import metadata
 from pathlib import Path
 
+from nexusbt import api
 from nexusbt.api import _doctor as api_doctor
 from nexusbt.contracts import RUN_SCHEMA, EngineBugError, NexusBTError
 
@@ -90,5 +91,8 @@ def _run(args: argparse.Namespace) -> int:
         return 0
     if args.command == "doctor":
         print(api_doctor.doctor())
+        return 0
+    if args.command == "stubs":
+        print(api.stubs())
         return 0
     raise NotImplementedError(f"nexusbt {args.command}: not built yet (its ticket is in spec 10.1)")

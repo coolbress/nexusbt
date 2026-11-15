@@ -11,6 +11,7 @@ from ._datasets import Meta as Meta
 from ._datasets import Panel as Panel
 from ._datasets import Price as Price
 from ._datasets import bind as bind
+from ._datasets import stub_source as stub_source
 from ._terms import BoundColumn as BoundColumn
 from ._terms import Classifier as Classifier
 from ._terms import Factor as Factor

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import difflib
 from collections.abc import Collection, Iterator, Mapping
+from keyword import iskeyword
 from types import MappingProxyType
 from typing import Any, ClassVar
 
@@ -69,9 +70,55 @@ class Label(metaclass=_Dataset): ...
 def bind(graph: Term | Pipeline, registry: SchemaRegistry) -> None:
     """2.5: check the graph's `Panel` and `Label` columns against the snapshot's registry (E7).
 
+    A label read through `Panel` is E2 (8.4)."""
+    names, leaks = _snapshot_columns(registry)
+    for term in _terms(graph):
+        params = dict(term.params)
+        known = names.get(params["dataset"]) if term.op == "column" else None
+        if known is not None and params["column"] not in known:
+            if params["dataset"] == "Panel" and params["column"] in leaks:
+                raise _label_leak(params["column"])
+            raise _no_column(params["dataset"], params["column"], known)
+
+
+_STUB = """\
+# Written by `nexusbt stubs` from the snapshot's dictionary (spec 3.2); not edited by hand.
+from nexusbt.pipeline._terms import BoundColumn, Classifier, Filter
+
+class _Snapshot(type):  # another snapshot holds other columns: any name is one
+    def __getattr__(cls, name: str) -> BoundColumn: ...
+"""
+
+
+def stub_source(registry: SchemaRegistry | None = None) -> str:
+    """`_stubs/datasets.pyi`: the fixed columns and aliases, and the snapshot's `Panel` and
+    `Label` columns when a registry names them, for the editor and the type checker (3.2)."""
+    names = _snapshot_columns(registry)[0] if registry else {}
+    text = _STUB
+    for cls in (Price, Meta, Panel, Label):
+        columns = names.get(cls.__name__, [*(cls._fixed or ()), *cls._aliases])
+        kinds = {c: cls._kinds.get(cls._aliases.get(c, c), cls._kind).__name__ for c in columns}
+        body = [f"    {c}: {k}" for c, k in kinds.items() if _writable(c)]
+        head = f"class {cls.__name__}" + ("" if cls._fixed else "(metaclass=_Snapshot)")
+        # the formatter's shape: no blank line between two classes without a body
+        gap = "\n" if body or not text.endswith("): ...\n") else ""
+        text += gap + "\n".join([f"{head}:" if body else f"{head}: ...", *body]) + "\n"
+    return text
+
+
+def _writable(name: str) -> bool:
+    """A column the stub can list: a name Python reads after a dot, that the dataset gives
+    (not `_x`) and that does not hide a type the stub names."""
+    hides = name in ("BoundColumn", "Classifier", "Filter")
+    return name.isidentifier() and not (iskeyword(name) or name.startswith("_") or hides)
+
+
+def _snapshot_columns(registry: SchemaRegistry) -> tuple[dict[str, list[str]], frozenset[str]]:
+    """`Panel`'s and `Label`'s columns in the registry, and the names that are labels.
+
     `Panel` holds the feature columns of the dataset `registry.feature`, `Label` the columns of
     `registry.label` that `dictionary/columns` marks `is_label`. A label is in `Label` only: a
-    name marked in either dataset, read through `Panel`, is E2 (8.4)."""
+    name marked in either dataset is not a `Panel` column."""
     features = registry.columns.get(registry.feature, ())
     labels = registry.columns.get(registry.label, ())
     marked = registry.labels.get(registry.label, frozenset())
@@ -81,13 +128,7 @@ def bind(graph: Term | Pipeline, registry: SchemaRegistry) -> None:
         "Panel": [name for name, _ in features if name not in hidden],
         "Label": [name for name, _ in labels if name in marked],
     }
-    for term in _terms(graph):
-        params = dict(term.params)
-        known = names.get(params["dataset"]) if term.op == "column" else None
-        if known is not None and params["column"] not in known:
-            if params["dataset"] == "Panel" and params["column"] in leaks:
-                raise _label_leak(params["column"])
-            raise _no_column(params["dataset"], params["column"], known)
+    return names, leaks
 
 
 def _terms(graph: Term | Pipeline) -> Iterator[Term]:

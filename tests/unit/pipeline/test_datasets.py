@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 import nexusbt as nx
 from nexusbt import Label, Meta, Panel, Price
+from nexusbt.cli.main import main as nexusbt_main
 from nexusbt.contracts import SchemaRegistry
-from nexusbt.pipeline import BoundColumn, bind
+from nexusbt.pipeline import BoundColumn, bind, stub_source
 
+ODD = ("class", "1m", "_x", "Filter")  # column names a stub cannot list
+TYPO = "clsoe"  # by `getattr`: the stubs make `Price.clsoe` a type error too
 #: 3.2, the `Price` table, in its order.
 PRICE = "open high low close close_tr close_unadjusted volume volume_unadjusted value_traded"
 PRICE += " shares_out market_cap"
@@ -26,14 +31,14 @@ def test_price_columns_fixed() -> None:
 
 def test_typo_suggestions() -> None:
     with pytest.raises(nx.ColumnNameError) as wrong:
-        _ = Price.clsoe
+        getattr(Price, TYPO)
     text = str(wrong.value)
     assert text.startswith("ColumnNameError [E7] in test_datasets.py:")
     assert " Price.clsoe\n" in text
     assert "Price has no column 'clsoe'. Did you mean: close, close_tr?" in text  # cutoff 0.6
     assert "layer  your code — test_datasets.py:" in text
     with pytest.raises(AttributeError, match=r"Price has no column 'zzz'\.\n"):  # none is close
-        _ = Price.zzz
+        getattr(Price, TYPO[:0] + "zzz")
     assert not hasattr(Price, "clsoe")
 
 
@@ -46,7 +51,7 @@ def test_meta_aliases() -> None:
     assert type(Meta.sector.eq("10")) is nx.Filter
     assert {"country", "exchange", "market"} <= set(dir(Meta))
     with pytest.raises(nx.ColumnNameError, match=r"'contry'\. Did you mean: country\?"):
-        _ = Meta.contry
+        getattr(Meta, TYPO[:0] + "contry")
 
 
 @pytest.mark.parametrize("name", ["delisted_on", "last_session", "name"])
@@ -103,3 +108,34 @@ def test_schema_registry_injected_at_binding() -> None:
     bind(typo, other)  # `[panels] feature` names the dataset
     with pytest.raises(nx.ColumnNameError, match="Panel has no column 'bm'"):
         bind(Panel.bm.latest, SchemaRegistry({}, {}))  # a snapshot without panels
+
+
+def test_stub_file_generated(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """3.2: `nexusbt stubs` writes the datasets' columns where the editor reads them."""
+    fixed = stub_source()
+    for line in (
+        "class Price:\n    open: BoundColumn",
+        "market_cap: BoundColumn",
+        "class Meta:\n",
+        "    market: Classifier\n",
+        "    is_financial: Filter\n",
+        "    country: Classifier\n",
+        "class Label(metaclass=_Snapshot): ...\n",
+    ):
+        assert line in fixed
+    assert "delisted_on" not in fixed
+    bound = stub_source(SchemaRegistry(
+        {**REGISTRY.columns, "label_monthly": (*((c, "f64") for c in ("ret_fwd_1m_dl", *ODD)),)},
+        {"label_monthly": frozenset({"ret_fwd_1m_dl", *ODD})}))  # fmt: skip
+    assert "class Panel(metaclass=_Snapshot):\n    bm: BoundColumn\n    mom_12_1: Bound" in bound
+    # a label is a `Label` column only; a name Python cannot write after a dot is left out
+    assert bound.endswith("class Label(metaclass=_Snapshot):\n    ret_fwd_1m_dl: BoundColumn\n")
+    stub = Path(nx.__file__).parent / "_stubs" / "datasets.pyi"
+    assert stub.read_text(encoding="utf-8") == fixed  # the committed file: no snapshot
+    monkeypatch.chdir(tmp_path)  # no nexusbt.toml: no snapshot to read
+    monkeypatch.delenv("NEXUSBT_DATA_ROOT", raising=False)
+    assert nexusbt_main(["stubs"]) == 0
+    assert capsys.readouterr().out.strip() == str(stub)
+    assert stub.read_text(encoding="utf-8") == fixed
