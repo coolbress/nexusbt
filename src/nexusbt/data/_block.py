@@ -68,7 +68,7 @@ def build_block(
     available = np.full(shape, np.datetime64("NaT", "us"))
     bars = kinds["bars"]
     declared = bars.get("availability")
-    wanted = [ID, "session_date", *fields, *_OPTIONAL]
+    wanted = [ID, "session_date", "close", *fields, *_OPTIONAL]
     wanted += [declared["column"]] if isinstance(declared, dict) and "column" in declared else []
     for file in bars["files"] if n else ():
         rows, cols, table = _cells(manifest.root / file["path"], ids, dates, wanted)
@@ -77,7 +77,10 @@ def build_block(
         if "obs_status" in table.column_names:
             codes = pc.index_in(table["obs_status"], pa.array(OBS_STATUS[:-1])).fill_null(-1)
             status[rows, cols] = codes.to_numpy().astype(np.int8)
+        else:  # F-03: traded with a price, else no_trade
+            status[rows, cols] = np.where(pc.is_valid(table["close"]).to_numpy(), 0, 1)
         available[rows, cols] = _available(bars, table, calendar, first + rows)
+    status[exists & (status == -1)] = 3  # a listed session without a bar is missing (F-03)
     hidden = (status == 2) | (status == 3)  # halted, missing
     for f in fields:
         values[f][hidden & (f in _PRICES)] = np.nan
@@ -138,6 +141,7 @@ def _available(
     declared = entry.get("availability", "ts_end")
     rule = declared.get("rule", "column") if isinstance(declared, dict) else declared
     column = str(declared.get("column", "ts_available")) if isinstance(declared, dict) else ""
+    column = column or "ts_available"  # the bare rule `column` (TDS 6.2)
 
     def stamps(name: str) -> NDArray[np.datetime64]:
         out: NDArray[np.datetime64] = table[name].to_numpy(zero_copy_only=False)

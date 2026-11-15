@@ -76,20 +76,20 @@ def test_obs_status_halted_is_nan(tiny: Path, tmp_path: Path) -> None:
     def halt(rows: Rows) -> Rows:
         for r in rows:
             status = marked.get((str(r["session_date"]), r["instrument_id"]))
-            if status in ("halted", "missing"):
-                r.update(obs_status=status, open=None, high=None, low=None, close=None, volume=0.0)
+            if status in ("halted", "missing"):  # the file keeps a close: 3.2 still says NaN
+                r.update(obs_status=status, volume=0.0)
             elif status:
                 r.update(obs_status=status, open=None, high=None, low=None, volume=None)
         return rows
 
     b = whole(opened(edited(tiny, tmp_path / "h", bars_1d=halt)), "KR", ["close", "volume"])
-    for day in ("2020-01-07", "2020-01-08"):
+    for day, status in (("2020-01-07", "halted"), ("2020-01-08", "missing")):
         assert np.isnan(cell(b, "close", day, B))
         assert not np.isnan(cell(b, "close", day, A))  # the other instrument traded
-    row = int(np.searchsorted(b.dates, np.datetime64("2020-01-07", "D")))
-    assert OBS_STATUS[b.obs_status[row, b.instrument_ids.index(B)]] == "halted"
-    assert b.exists[row, b.instrument_ids.index(B)]  # halted, still listed
-    # no_trade: the reference close stays, volume is 0 (5.2)
+        row = int(np.searchsorted(b.dates, np.datetime64(day, "D")))
+        assert OBS_STATUS[b.obs_status[row, b.instrument_ids.index(B)]] == status
+        assert b.exists[row, b.instrument_ids.index(B)]  # still listed
+    # no_trade: the reference close stays, volume is 0 (3.2)
     assert cell(b, "close", "2020-01-09", B) > 0
     assert cell(b, "volume", "2020-01-09", B) == 0
 
@@ -189,3 +189,34 @@ def test_late_bar_stays_in_its_row(tmp_path: Path) -> None:
         assert np.isnan(expected["a_close"]) == (not seen)
     s = int(np.searchsorted(b.dates, np.datetime64("2020-01-06", "D")))
     assert b.values["close"][s + 1, a] == 13  # the late 18 did not move into row s+1
+
+
+def test_bare_column_rule_reads_ts_available(tmp_path: Path) -> None:
+    """TDS 6.2's bare rule `column` is the `ts_available` column as it is."""
+    source = make_snapshot(tmp_path / "src", preset="tiny", markets=("KR",), degrade=["late_bars"])
+    bare = edited(source, tmp_path / "bare", lambda e: e.update(availability="column"),
+                  bars_1d=lambda rows: rows)  # fmt: skip
+    b = whole(opened(bare), "KR", ["close"])
+    stored = read(bare, "bars_1d").sort_by(
+        [("session_date", "ascending"), ("instrument_id", "ascending")]
+    )
+    np.testing.assert_array_equal(b.ts_available[b.exists], stored["ts_available"].to_numpy())
+
+
+def test_without_obs_status_f03(tmp_path: Path) -> None:
+    """F-03: without `obs_status`, a bar with a price is traded and a listed session without a
+    bar is missing, never `absent`, which means outside the listing period (5.3.1)."""
+    sparse = ["sparse_bars"]  # dense rows, no obs_status column
+    source = make_snapshot(tmp_path / "src", preset="tiny", markets=("KR",), degrade=sparse)
+    hole = ("2020-01-07", B)
+
+    def drop(rows: Rows) -> Rows:
+        return [r for r in rows if (str(r["session_date"]), r["instrument_id"]) != hole]
+
+    with pytest.warns(UserWarning, match="F-03"):  # E30: the fallback is said at open (4.5)
+        snap = opened(edited(source, tmp_path / "gap", bars_1d=drop))
+    b = whole(snap, "KR", ["close"])
+    row = int(np.searchsorted(b.dates, np.datetime64("2020-01-07", "D")))
+    assert OBS_STATUS[b.obs_status[row, b.instrument_ids.index(B)]] == "missing"
+    assert OBS_STATUS[b.obs_status[row, b.instrument_ids.index(A)]] == "traded"
+    assert (OBS_STATUS[b.obs_status[b.exists]] != "absent").all()
