@@ -223,8 +223,13 @@ workflow's tag check against these files.
   PyPI with `nexusbt-tds` as the PyPI Project Name (step 2); a second tag
   rule `tds-v*` on the `pypi` environment (step 3); and `refs/tags/tds-v*`
   in the tag ruleset beside `refs/tags/v*`, so a released `tds-v*` tag
-  cannot be moved or deleted either.
-- **Draft, then release candidates, then 1.0.** For a release candidate,
+  cannot be moved or deleted either. This repository's ruleset was made
+  before plinth's covered `*-v*`, so it names `refs/tags/v*` alone until
+  you add it; `/plinth:floor-check` reports the gap.
+- **Draft, then release candidates, then 1.0.** `tds/pyproject.toml` says
+  `1.0.0` while TDS is still a draft, and a `tds-v1.0.0` tag would pass the
+  tag check and spend 1.0.0 on PyPI for good. Do not push that tag before
+  the 1.0 graduation (TDS 10.5). For a release candidate,
   set the version in a pull request with
   `uv version --package nexusbt-tds 1.0.0rc1`, add it to
   `tds/CHANGELOG.md`, merge, and tag the merged `main` `tds-v1.0.0-rc.1`.

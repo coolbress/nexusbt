@@ -13,6 +13,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -40,7 +41,8 @@ def _run(tmp_path: Path, tag: str, tds_version: str | None = None) -> tuple[int,
     shutil.copy(ROOT / "pyproject.toml", work / "pyproject.toml")
     tds = (ROOT / "tds/pyproject.toml").read_text(encoding="utf-8")
     if tds_version is not None:
-        tds = re.sub(r'(?m)^version = ".*"$', f'version = "{tds_version}"', tds, count=1)
+        tds, n = re.subn(r'(?m)^version = ".*"$', f'version = "{tds_version}"', tds, count=1)
+        assert n == 1, "tds/pyproject.toml: no `version = ...` line to set"
     (work / "tds/pyproject.toml").write_text(tds, encoding="utf-8")
     env = {**os.environ, "GITHUB_REF_NAME": tag, "RUNNER_TEMP": str(temp)}
     env.pop("GITHUB_OUTPUT", None)
@@ -61,10 +63,12 @@ def _read(temp: Path, name: str) -> str:
 
 
 def test_an_engine_v_tag_releases_the_engine_and_leaves_nexusbt_tds_out(tmp_path: Path) -> None:
-    code, out, temp = _run(tmp_path, "v0.1.0")
+    engine = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    code, out, temp = _run(tmp_path, f"v{engine['project']['version']}")
     assert code == 0, out
     assert _read(temp, "member") == ""
-    # Left out of dist/ after the build, and needed on the index before the upload.
+    # Left out of dist/ after the build, and needed on the index before the upload, within
+    # the range spec 2.3 gives the engine.
     assert _read(temp, "listed").split() == ["nexusbt_tds"]
     assert _read(temp, "needs") == "nexusbt-tds>=1.0,<2\ttds-\n"
 
@@ -90,4 +94,5 @@ def test_a_tds_v_tag_that_differs_from_the_version_stops_before_any_upload(
     code, out, temp = _run(tmp_path, tag, tds_version=tds_version)
     assert code != 0
     assert "The tag and the version differ" in out
+    assert f"The tag is {tag}, which releases nexusbt-tds at" in out
     assert not (temp / "release-member").exists()
