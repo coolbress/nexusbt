@@ -45,8 +45,10 @@ class Schedule:
             )  # fmt: skip
 
     def rows(self, calendar: Calendar) -> NDArray[np.intp]:
-        """The rows of `calendar` the schedule decides on. A month or week the calendar holds
-        in part counts with the sessions it has."""
+        """The rows of `calendar` the schedule decides on. A schedule that counts inside a
+        month or week decides there only when the calendar settles which session the pick is
+        (3.7, ADR 0043): a pick from the end needs a session after the period, one from the
+        start a session before it, one that falls back to the first or last session both."""
         if self.kind == "daily":
             return np.arange(len(calendar.dates))
         if self.kind == "every":  # the absolute session number, not a count from the start
@@ -61,7 +63,10 @@ class Schedule:
         at = np.minimum(self.day, size) - 1 if self.day > 0 else np.maximum(size + self.day, 0)
         month = months[first] % 12 + 1
         held = {"quarterly": month % 3 == 0, "annually": month == self.month}
-        rows: NDArray[np.intp] = (first + at)[held.get(self.kind, np.ones(len(first), bool))]
+        short = size < abs(self.day)  # the pick falls back to the first or last session
+        before, after = first > 0, first + size < len(period)  # a session on that side
+        settled = (before | ~(short | (self.day > 0))) & (after | ~(short | (self.day < 0)))
+        rows: NDArray[np.intp] = (first + at)[settled & held.get(self.kind, True)]
         return rows
 
 
