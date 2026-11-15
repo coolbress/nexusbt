@@ -39,7 +39,7 @@ from nexusbt.data import (
 from nexusbt.data._capabilities import _columns
 from nexusbt.testing.synth import make_snapshot
 from nexusbt_tds import ProfileStatus
-from nexusbt_tds.hash import package_hashes, write_hashes
+from nexusbt_tds.hash import declared_value_hash, package_hashes, write_hashes
 
 
 def edit_manifest(root: Path, change: Any) -> None:
@@ -176,6 +176,8 @@ def test_edited_dataset_value_hash_is_h003_at_open(
         open_snapshot(DataConfig(path=edited, verify=VerifyPolicy.MANIFEST))
     assert "declared dataset value hashes" in str(raised.value)
     assert open_snapshot(DataConfig(path=tiny)).id == "synth-0001"  # agreeing: opens
+    edit_manifest(edited, lambda d: dataset(d, "bars_1d").pop("value_sha256"))
+    assert declared_value_hash(edited) is None  # nothing to compare (ADR 0042 point 3)
 
 
 def test_open_path_and_latest_parent(root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
