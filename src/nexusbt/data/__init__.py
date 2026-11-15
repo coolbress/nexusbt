@@ -27,7 +27,7 @@ from nexusbt.data._capabilities import decide
 from nexusbt.data._ratios import RatioExclusion as RatioExclusion
 from nexusbt.data._ratios import check_ratios
 from nexusbt.data._stamp import check_files
-from nexusbt_tds.hash import package_hashes
+from nexusbt_tds.hash import declared_semantic_hash, package_hashes
 from nexusbt_tds.manifest import Manifest, ManifestError
 
 if TYPE_CHECKING:
@@ -263,9 +263,10 @@ def open_snapshot(
             producer=str(producer.get("name", "-")) if isinstance(producer, dict) else "-",
         )  # fmt: skip
     manifest = tds.read_manifest(folder)
-    declared = manifest.data["hashes"]  # trusted as declared below `full`, which checks them
-    whole = {"semantic_sha256", "value_sha256", "physical_sha256"} <= declared.keys()
-    hashes = declared if whole else package_hashes(folder)
+    # Below `full` the row bytes are trusted as declared, tds.json's metadata is not (ADR 0042)
+    declared, semantic = manifest.data["hashes"], declared_semantic_hash(folder)
+    whole = semantic and {"value_sha256", "physical_sha256"} <= declared.keys()
+    hashes = {**declared, "semantic_sha256": semantic} if whole else package_hashes(folder)
     markets = {m: _market(m, e, cfg.allow_untested) for m, e in manifest.data["markets"].items()}
     for m in cfg.markets:
         if markets.get(m) is None or markets[m].rules is None:
