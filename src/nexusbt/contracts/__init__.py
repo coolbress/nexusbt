@@ -11,6 +11,7 @@ E1~E39 messages are T0.4's (#49), the `layer` lines and E40~E49 T0.4b's.
 
 from __future__ import annotations
 
+import datetime as dt
 import inspect
 import re
 import tomllib
@@ -328,7 +329,20 @@ class TargetState: ...
 
 
 @dataclass(frozen=True, slots=True)
-class DecisionGrid: ...
+class DecisionGrid:
+    """The decisions of a run on its schedule calendar, in time order (5.1.3).
+
+    `market` is the market whose calendar the schedule runs on and `clock` the rule that gave
+    it; `start` and `end` are the run's first and last session (5.1.6). Decision i is on
+    session `session_dates[i]` and may use what was available by `decision_ts[i]` (UTC)."""
+
+    market: str
+    calendar_id: str
+    clock: str
+    start: dt.date
+    end: dt.date
+    session_dates: tuple[dt.date, ...]
+    decision_ts: tuple[dt.datetime, ...]
 
 
 @dataclass(frozen=True, slots=True)

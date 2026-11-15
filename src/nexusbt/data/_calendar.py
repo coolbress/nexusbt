@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import re
+import warnings
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -12,7 +14,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
-from nexusbt.contracts import CapabilityError, SnapshotError
+from nexusbt.contracts import CapabilityError, ConfigError, SessionNotice, SnapshotError
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
@@ -43,6 +45,31 @@ class Calendar:
     def ready(self) -> NDArray[np.datetime64]:
         """`ready_m(s) = ts_close(s) + delta_m` for every row (5.1.2)."""
         return self.ts_close + self.ready_delay
+
+    def align(self, start: dt.date | str, end: dt.date | str) -> tuple[int, int]:
+        """The rows of the first session on or after `start` and the last on or before `end`
+        (5.1.6), with an E9 notice for each date that is not a session."""
+        given = [np.datetime64(str(d), "D") for d in (start, end)]
+        first = int(np.searchsorted(self.dates, given[0], "left"))
+        last = int(np.searchsorted(self.dates, given[1], "right")) - 1
+        if first > last:
+            raise ConfigError(
+                what=f"no {self.market} session from {start} to {end}",
+                where="arguments start and end", why="a run needs one session or more (5.1.6)",
+                fix=f"choose a period inside {self.dates[0]} to {self.dates[-1]}",
+                more="spec 5.1.6", layer=f"config — argument start={start}",
+            )  # fmt: skip
+        for name, day, row, verb in (("start", given[0], first, "begin"),
+                                     ("end", given[1], last, "end")):  # fmt: skip
+            if self.dates[row] != day:
+                using = self.dates[row]
+                warnings.warn(str(SessionNotice(
+                    what=f"{name} {day} is not a {self.market} session; using {using}",
+                    where=f"argument {name}", why=f"runs {verb} on a session",
+                    fix=f"{name}='{using}'", more="spec 6.6 E9", subject=name,
+                    layer=f"config — argument {name}={day}",
+                )), stacklevel=3)  # fmt: skip
+        return first, last
 
     def late_bars(
         self, dates: NDArray[np.datetime64], available: NDArray[np.datetime64]
