@@ -49,7 +49,7 @@ class Calendar:
     def align(self, start: dt.date | str, end: dt.date | str) -> tuple[int, int]:
         """The rows of the first session on or after `start` and the last on or before `end`
         (5.1.6), with an E9 notice for each date that is not a session."""
-        given = [np.datetime64(str(d), "D") for d in (start, end)]
+        given = [_day("start", start), _day("end", end)]
         first = int(np.searchsorted(self.dates, given[0], "left"))
         last = int(np.searchsorted(self.dates, given[1], "right")) - 1
         if first > last:
@@ -80,6 +80,21 @@ class Calendar:
         rows = np.minimum(np.searchsorted(self.dates, dates), len(self.dates) - 1)
         late = (self.dates[rows] == dates) & (available.astype("datetime64[us]") > self.ready[rows])
         return np.bincount(rows[late], minlength=len(self.dates))
+
+
+def _day(name: str, value: object) -> np.datetime64:
+    """A `start` or `end` as a day: a date, a datetime's date, or `YYYY-MM-DD`; else E16."""
+    try:
+        if isinstance(value, dt.datetime):
+            value = value.date()
+        day = value if isinstance(value, dt.date) else dt.date.fromisoformat(str(value))
+    except ValueError:
+        raise ConfigError(
+            what=f"{name} = {value!r} is not a date", where=f"argument {name}",
+            why="a run begins and ends on a session date (5.1.6)", fix=f"{name}='YYYY-MM-DD'",
+            more="spec 5.1.6", layer=f"config — argument {name}={value!r}",
+        ) from None  # fmt: skip
+    return np.datetime64(day, "D")
 
 
 def read_calendar(manifest: Manifest, market: str) -> Calendar:

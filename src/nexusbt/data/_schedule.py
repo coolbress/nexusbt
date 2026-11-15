@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 
-from nexusbt.contracts import ConfigError, DecisionGrid
+from nexusbt.contracts import CapabilityError, ConfigError, DecisionGrid
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
@@ -111,7 +111,16 @@ def decision_grid(
     market; the clock of each sleeve's own calendar (`market_local`) comes with the sleeves."""
     clock = clock or default_clock(snapshot.markets)
     market = clock.removesuffix("_close")
-    if not clock.endswith("_close") or market not in snapshot.markets:
+    if clock == "market_local" and len(snapshot.markets) == 1:
+        market = next(iter(snapshot.markets))  # one market: its own calendar and `ready`
+    elif clock == "market_local":
+        raise CapabilityError(
+            what="clock = 'market_local' is not available yet for several markets",
+            where="argument clock", why="a grid per sleeve comes with the sleeves (M4)",
+            fix=f"use one of: {', '.join(f'{m}_close' for m in sorted(snapshot.markets))}",
+            more="spec 5.1.3", layer="config — argument clock='market_local'",
+        )  # fmt: skip
+    elif not clock.endswith("_close") or market not in snapshot.markets:
         raise ConfigError(
             what=f"clock = {clock!r} names no market of the snapshot",
             where="argument clock", why="the decision schedule runs on one market's calendar",

@@ -155,21 +155,27 @@ def test_start_rounds_forward_end_backward(tiny: Snapshot) -> None:
     """T-10 (5.1.6): `start` moves to the next session and `end` to the previous one, each
     with an E9 notice, and `monthly(-1)` decides on the same sessions whatever the start."""
     case = yaml.safe_load((GOLDEN / "T-10.yaml").read_text())
-    sessions = [str(d) for d in tiny.calendar("KR").dates]
+    kr = tiny.calendar("KR")
     for row in case["expected"]:
         with warnings.catch_warnings(record=True) as said:
             warnings.simplefilter("always")
             grid = decision_grid(tiny, monthly(-1), row["start"], row["end"], clock="KR_close")
+            first, last = kr.align(dt.date.fromisoformat(row["start"]), row["end"])
+        del said[len(said) // 2 :]  # `align` again, with a date: the same notices twice
         moved = [f"{name} {row[name]} is not a KR session; using {row[f'aligned_{name}']}"
                  for name in ("start", "end") if row[name] != row[f"aligned_{name}"]]  # fmt: skip
         assert [str(w.message).splitlines()[2].removeprefix("  what   ") for w in said] == moved
         assert all(str(w.message).startswith("SessionNotice [E9]") for w in said)
         assert (str(grid.start), str(grid.end)) == (row["aligned_start"], row["aligned_end"])
-        run = sessions[sessions.index(row["aligned_start"]) : sessions.index(row["aligned_end"])]
-        assert len(run) + 1 == row["n_sessions"]
+        assert (str(kr.dates[first]), str(kr.dates[last])) == (str(grid.start), str(grid.end))
+        assert last - first + 1 == row["n_sessions"]
         assert [str(d) for d in grid.session_dates] == row["decisions"]
     with pytest.raises(ConfigError, match="no KR session from 2020-01-25 to 2020-01-27"):
         decision_grid(tiny, monthly(), "2020-01-25", "2020-01-27")
+    wrongs: list[Any] = ["2020-1-5", "2020/01/05", "2020-01", "", "NaT", "2020-01-05T10:00", None]
+    for wrong in wrongs:
+        with pytest.raises(ConfigError, match="is not a date"):
+            decision_grid(tiny, monthly(), "2020-01-02", wrong)
 
 
 def test_weekly_quarterly(tiny: Snapshot, tmp_path: Path) -> None:
@@ -208,11 +214,14 @@ def test_T23_every_anchor_independent_of_start(tiny: Snapshot) -> None:  # noqa:
             warnings.simplefilter("ignore")  # the E9 of the holiday start is T-10's
             grid = decision_grid(tiny, terms[row["term"]], row["start"], row["end"])
         assert str(grid.start) == row["aligned_start"]
-        got = [str(d) for d in grid.session_dates]
-        assert got == row["decisions"]
-        assert (got == row["from_run_start"]) == (row["decisions"] == row["from_run_start"])
+        assert [str(d) for d in grid.session_dates] == row["decisions"]
     moved = decisions(tiny, every(5), "2020-01-03", "2020-02-28")  # the start one day later
     assert moved == decisions(tiny, every(5), "2020-01-02", "2020-02-28")[1:]
+    days = np.arange("2020-01-06", "2020-01-16", dtype="datetime64[D]")  # ten rows, ord 1003..
+    times = days.astype("datetime64[us]")
+    numbered = Calendar("KR", "XKRX", days, times, times, np.arange(1003, 1013), 0 * MINUTE)
+    assert every(5).rows(numbered).tolist() == [2, 7]  # ord 1005 and 1010, not rows 0 and 5
+    assert every(5, offset=-2).rows(numbered).tolist() == [0, 5]  # ord 1003 and 1008
 
 
 def test_default_clock_codepoint_first_market(tmp_path: Path) -> None:
@@ -228,6 +237,12 @@ def test_default_clock_codepoint_first_market(tmp_path: Path) -> None:
     snapshot = open_snapshot(DataConfig(path=path))
     grid = decision_grid(snapshot, monthly(), "2020-01-02", "2020-01-31")
     assert (grid.clock, grid.market, grid.calendar_id) == ("KR_close", "KR", "XKRX")
-    for wrong in ("JP_close", "market_local", "KR"):
+    for wrong in ("JP_close", "KR"):
         with pytest.raises(ConfigError, match="names no market of the snapshot"):
             decision_grid(snapshot, monthly(), "2020-01-02", "2020-01-31", clock=wrong)
+    january = (monthly(), "2020-01-02", "2020-01-31")
+    with pytest.raises(CapabilityError, match="market_local"):  # a grid per sleeve: M4
+        decision_grid(snapshot, *january, clock="market_local")
+    alone = make_snapshot(tmp_path / "us", preset="tiny", markets=("US",))
+    us = decision_grid(open_snapshot(DataConfig(path=alone)), *january, clock="market_local")
+    assert (us.market, us.clock, us.decision_ts[0].hour) == ("US", "market_local", 21)
