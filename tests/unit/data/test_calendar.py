@@ -172,6 +172,7 @@ def test_start_rounds_forward_end_backward(tiny: Snapshot) -> None:
         assert [str(d) for d in grid.session_dates] == row["decisions"]
     with pytest.raises(ConfigError, match="no KR session from 2020-01-25 to 2020-01-27"):
         decision_grid(tiny, monthly(), "2020-01-25", "2020-01-27")
+    assert kr.align(dt.datetime(2020, 1, 13, 9, 0), "2020-01-23") == (7, 15)  # a datetime's date
     wrongs: list[Any] = ["2020-1-5", "2020/01/05", "2020-01", "", "NaT", "2020-01-05T10:00", None]
     for wrong in wrongs:
         with pytest.raises(ConfigError, match="is not a date"):
