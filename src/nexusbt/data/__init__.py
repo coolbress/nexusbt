@@ -27,7 +27,7 @@ from nexusbt.data._capabilities import decide
 from nexusbt.data._ratios import RatioExclusion as RatioExclusion
 from nexusbt.data._ratios import check_ratios
 from nexusbt.data._stamp import check_files
-from nexusbt_tds.hash import declared_semantic_hash, package_hashes
+from nexusbt_tds.hash import declared_semantic_hash, declared_value_hash, package_hashes
 from nexusbt_tds.manifest import Manifest, ManifestError
 
 if TYPE_CHECKING:
@@ -266,6 +266,8 @@ def open_snapshot(
     # Below `full` the row bytes are trusted as declared, tds.json's metadata is not (ADR 0042)
     declared, semantic = manifest.data["hashes"], declared_semantic_hash(folder)
     whole = semantic and {"value_sha256", "physical_sha256"} <= declared.keys()
+    if whole and declared_value_hash(folder) != declared["value_sha256"]:
+        raise _disagreeing_value_hash(folder, manifest)
     hashes = {**declared, "semantic_sha256": semantic} if whole else package_hashes(folder)
     markets = {m: _market(m, e, cfg.allow_untested) for m, e in manifest.data["markets"].items()}
     for m in cfg.markets:
@@ -309,6 +311,19 @@ def _no_pack(market: str, manifest: Manifest, declared: bool) -> CapabilityError
         fix="set [markets] allow_untested = true to run with generic rules (recorded)",
         more="spec 4.4 step 4 and 4.7; python -m nexusbt.config.packs --describe KR",
         layer="config — nexusbt.toml [markets] allow_untested = false",
+    )  # fmt: skip
+
+
+def _disagreeing_value_hash(folder: Path, manifest: Manifest) -> SnapshotError:
+    """E14 `TDS-H003` (ADR 0042, #455): the declared dataset value hashes do not hash to the
+    declared package value hash, so `full` would refuse the package; which is wrong is unknown."""
+    data, producer = manifest.data, manifest.data.get("producer")
+    return SnapshotError.from_check(
+        path=str(folder), counts={"TDS-H003": 1}, dataset="-", file="-", key="-",
+        hint="hashes.value_sha256 differs from the value computed from the declared dataset"
+        " value hashes (no row read)",
+        snapshot_id=str(data["snapshot_id"]),
+        producer=str(producer.get("name", "-")) if isinstance(producer, dict) else "-",
     )  # fmt: skip
 
 

@@ -509,6 +509,17 @@ def declared_semantic_hash(path: Path) -> str | None:
     return _sha256(_semantic(root, entries).encode("utf-8"))
 
 
+def declared_value_hash(path: Path) -> str | None:
+    """The package value hash of each dataset's declared `value_sha256` (TDS 4.5): no row is
+    read (ADR 0042). None when a dataset declares none."""
+    values = {}
+    for entry in read_manifest(path).datasets:
+        if not isinstance(value := entry.get("value_sha256"), str):
+            return None
+        values[str(entry.get("name"))] = value
+    return _lines(values)
+
+
 def _semantic(root: Path, entries: list[Any]) -> str:
     data = read_manifest(root).data
     doc = {"tds_version": data.get("tds_version"), "hash_spec": HASH_SPEC, "datasets": entries,

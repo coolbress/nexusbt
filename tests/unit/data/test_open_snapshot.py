@@ -164,6 +164,20 @@ def test_edited_markets_change_the_semantic_hash_at_open(tiny: Path, tmp_path: P
     assert open_snapshot(DataConfig(path=edited)).semantic_hash == s.semantic_hash
 
 
+def test_edited_dataset_value_hash_is_h003_at_open(
+    tiny: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ADR 0042 (#455): a dataset `value_sha256` edited after the hashes were written no longer
+    hashes to `hashes.value_sha256`, so the open stops with E14 `TDS-H003`; no row is hashed."""
+    edited = shutil.copytree(tiny, tmp_path / "edited")
+    edit_manifest(edited, lambda d: dataset(d, "bars_1d").update(value_sha256="0" * 64))
+    monkeypatch.setattr("nexusbt.data.package_hashes", lambda _: pytest.fail("rows hashed"))
+    with pytest.raises(SnapshotError, match="TDS-H003") as raised:
+        open_snapshot(DataConfig(path=edited, verify=VerifyPolicy.MANIFEST))
+    assert "declared dataset value hashes" in str(raised.value)
+    assert open_snapshot(DataConfig(path=tiny)).id == "synth-0001"  # agreeing: opens
+
+
 def test_open_path_and_latest_parent(root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     assert nx.open(root / "s2").id == "s2"  # the package folder
     assert nx.open(str(root)).id == "s1"  # a parent folder: through LATEST
@@ -321,6 +335,7 @@ def test_price_only_graph_needs_core_only(tiny: Path, tmp_path: Path) -> None:
             shutil.rmtree(bare / d["path"])
     edit_manifest(bare, lambda d: d.update(
         profiles=[MINIMAL], datasets=[x for x in d["datasets"] if x["kind"] in kept]))  # fmt: skip
+    write_hashes(bare)  # fewer datasets: the package value hash changes too (#455)
     s = open_snapshot(DataConfig(path=bare), required=CapabilityRequest())
     assert (s.capabilities.features, s.fallbacks) == (frozenset({"price", "grid"}), [])
     with pytest.raises(CapabilityError, match="backtest needs corporate_actions,"):  # F-02 too
