@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 
 from nexusbt.contracts import CapabilityError, SnapshotError
-from nexusbt.data import DataConfig, open_snapshot
+from nexusbt.data import Calendar, DataConfig, open_snapshot
 from nexusbt.testing.synth import make_snapshot
 
 pytestmark = pytest.mark.unit
@@ -54,6 +54,8 @@ def test_ready_delay_from_availability_rule(tmp_path: Path) -> None:
     late = make_snapshot(tmp_path / "late", preset="tiny", degrade=["late_bars"])
     assert delay(late) == 0 * MINUTE  # the column rule with no `ready_delay`
     assert delay(bars_declared(late, tmp_path / "c", params={"ready_delay": "PT5M"})) == 5 * MINUTE
+    named = {"availability": {"rule": "column"}, "params": {"ready_delay": "PT5M"}}
+    assert delay(bars_declared(late, tmp_path / "e", **named)) == 5 * MINUTE  # TDS 6.2's name
     # under a rule the rule decides, not a stray `ready_delay`
     assert delay(bars_declared(tiny, tmp_path / "d", params={"ready_delay": "PT5M"})) == 0 * MINUTE
     with pytest.raises(CapabilityError, match="market JP is not in the snapshot"):
@@ -78,3 +80,20 @@ def test_calendar_without_sessions_is_the_library_s(tmp_path: Path) -> None:
         62, np.datetime64("2020-01-02"), np.datetime64("2020-03-31"))  # fmt: skip
     assert np.datetime64("2020-01-24") not in kr.dates  # Seollal
     assert (kr.ts_close[1], kr.session_ord[-1]) == (np.datetime64("2020-01-03T06:30"), 61)
+    data = json.loads((bare / "tds.json").read_text(encoding="utf-8"))
+    data["markets"]["KR"]["calendar_id"] = "XQQQ"  # a calendar the library does not know
+    (bare / "tds.json").write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(CapabilityError, match="no sessions for market KR: calendar XQQQ"):
+        open_snapshot(DataConfig(path=bare)).calendar("KR")
+
+
+def test_late_bars_counts_only_bars_in_a_row() -> None:
+    """5.1.2 `LateBar`: a bar later than its row's `ready`; one on no session is in no row."""
+    days = np.array(["2020-01-03", "2020-01-06"], "datetime64[D]")
+    close = np.array(["2020-01-03T06:30", "2020-01-06T06:30"], "datetime64[us]")
+    kr = Calendar("KR", "XKRX", days, days.astype("datetime64[us]"), close, np.arange(2), MINUTE)
+    dates = np.array(["2020-01-03", "2020-01-03", "2020-01-04", "2020-01-06", "2020-04-01"],
+                     "datetime64[D]")  # fmt: skip
+    available = np.array(["2020-01-03T06:31", "2020-01-03T06:32", "2020-01-09", "2020-01-06T06:00",
+                          "2020-04-02"], "datetime64[us]")  # fmt: skip
+    assert kr.late_bars(dates, available).tolist() == [1, 0]  # at `ready` is on time
