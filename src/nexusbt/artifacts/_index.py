@@ -216,3 +216,13 @@ class Index:
         with connect(self.root) as db:
             rows = db.execute("SELECT snapshot_id FROM pins WHERE ts_released IS NULL")
             return frozenset(s for (s,) in rows)
+
+    def held(self, holder_kind: str = "run") -> frozenset[tuple[str, str]]:
+        """(snapshot_id, holder_id) of each unreleased pin `holder_kind` holds."""
+        with connect(self.root) as db:
+            rows = db.execute(
+                "SELECT snapshot_id, holder_id FROM pins WHERE ts_released IS NULL"
+                " AND holder_kind = ?",
+                (holder_kind,),
+            )
+            return frozenset((s, h) for s, h in rows)
