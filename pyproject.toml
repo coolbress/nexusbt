@@ -56,6 +56,11 @@ members = ["tds"]
 [tool.uv.sources]
 nexusbt-tds = { workspace = true }
 
+# `nexusbt-tds` is released on its own tags, `tds-v1.0.0-rc.N` then `tds-v1.0.0`, never on
+# the engine's `v*` (2.3, #444): release.yml reads this. docs/how-to/publish-a-release.md.
+[tool.plinth.release]
+own-tags = { "nexusbt-tds" = "tds-" }
+
 # Linter and formatter. The configuration is committed; CI runs `ruff check`
 # and `ruff format --check` as `ci / lint`.
 [tool.ruff]
