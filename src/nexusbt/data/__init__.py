@@ -100,12 +100,13 @@ class MarketInfo:
 
 @dataclass(frozen=True, slots=True)
 class DailyCoverage:
-    """One market's `coverage.by_market` entry of the daily bars (TDS 4.3), for `doctor`."""
+    """One market's `coverage.by_market` entry of the daily bars (TDS 4.3), for `doctor`;
+    None where the package does not declare the key (each is optional)."""
 
     first: str | None
     last: str | None
-    instruments: int
-    rows: int
+    instruments: int | None
+    rows: int | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -300,8 +301,8 @@ def open_snapshot(
     decided = (result.profiles, caps, used)
     bars = next((d for d in manifest.data["datasets"] if d["kind"] == "bars"), None)
     covered = (bars or {}).get("coverage", {}).get("by_market", {})
-    daily = {m: DailyCoverage(e.get("first"), e.get("last"), int(e.get("instruments", 0)),
-                              int(e.get("rows", 0))) for m, e in covered.items()}  # fmt: skip
+    daily = {m: DailyCoverage(e.get("first"), e.get("last"), e.get("instruments"), e.get("rows"))
+             for m, e in covered.items()}  # fmt: skip
     return Snapshot(manifest, hashes, markets, warnings, untested + assumed, excluded, decided,
                     unchecked=tuple(result.unchecked), daily=daily,
                     daily_columns=len(_columns(folder, bars)))  # fmt: skip

@@ -40,6 +40,9 @@ def init(data_root: str | None = None) -> str:
 def doctor() -> str:
     """The snapshot `nexusbt.toml` points at, as 3.10's `doctor` row lists it (T1.2's part)."""
     cfg = load_config(TOML if TOML.is_file() else None)  # no tds.json read: it may be mid-write
+    if not (cfg.values["data"]["path"] or cfg.values["data"]["root"]):  # /run's default target
+        why = "doctor reports on one snapshot (3.10)"
+        raise _refused("no snapshot to open: [data] names none", f"{NO_ROOT}; then init", why)
     data = DataConfig.from_config(cfg)
     found = _data_root(Path(data.path))  # None for a package alone: no `PINS/` to see
     root = found or Path(data.path)
@@ -59,7 +62,10 @@ def doctor() -> str:
     for m, info in s.markets.items():
         d = s.daily.get(m)
         rules = "none" if info.rules is None else info.rules.replace(GENERIC, "untested")
-        counts = f"{d.first}..{d.last}  instruments {d.instruments}  rows {d.rows}" if d else "-"
+        counts = "-"
+        if d is not None:
+            first, last, n, rows = (_or(v) for v in (d.first, d.last, d.instruments, d.rows))
+            counts = f"{first}..{last}  instruments {n}  rows {rows}"
         lines.append((f"market {m}", f"rules {rules}  {counts}"))
     lines.append(("columns", f"{s.daily_columns} daily bar columns"))
     lines.append(("free disk", f"{shutil.disk_usage(root).free / 1e9:.1f} GB"))
@@ -77,12 +83,16 @@ def _unseen_pins(runs: Path, root: Path | None) -> int:
     return sum(root is None or not (root / "PINS" / s / r).exists() for s, r in held)
 
 
+def _or(value: object) -> str:  # an undeclared coverage key is shown as unknown, not 0
+    return "-" if value is None else str(value)
+
+
 def _yes(flag: bool) -> str:
     return "yes" if flag else "no"
 
 
-def _refused(what: str, fix: str) -> ConfigError:
+def _refused(what: str, fix: str, why: str = "init writes the file once (3.10)") -> ConfigError:
     return ConfigError(
-        what=what, where=f"{TOML} in the working folder", why="init writes the file once (3.10)",
-        fix=fix, more="spec 3.10 nexusbt init", layer="config — nexusbt.toml [data] -",
+        what=what, where=f"{TOML} in the working folder", why=why, fix=fix,
+        more="spec 3.10 nexusbt init and doctor", layer="config — nexusbt.toml [data] -",
     )  # fmt: skip

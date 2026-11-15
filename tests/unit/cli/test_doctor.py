@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -32,8 +33,9 @@ def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 def test_init_uses_env_root(
     snap: Path, project: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    assert main(["init"]) == 1  # no root anywhere: how to make a synthetic snapshot, no file
-    assert "python -m nexusbt.testing.synth" in capsys.readouterr().err
+    for command in ("init", "doctor"):  # no root anywhere: how to make a synthetic snapshot
+        assert main([command]) == 1
+        assert "python -m nexusbt.testing.synth" in capsys.readouterr().err
     assert not (project / "nexusbt.toml").exists()
     monkeypatch.setenv("NEXUSBT_DATA_ROOT", str(snap))
     assert main(["init"]) == 0
@@ -61,6 +63,21 @@ def test_doctor_lists_markets_packs_and_counts(
         assert re.search(line, out, re.M), out
     assert re.search(r"^columns +12 daily bar columns$", out, re.M)  # tiny's bars file has 12
     assert re.search(r"^free disk +\d+\.\d GB$", out, re.M)
+
+
+def test_undeclared_counts_are_unknown_not_zero(
+    tmp_path: Path, project: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """TDS 4.3's coverage keys are optional: one the package leaves out is `-`, never 0."""
+    package = make_snapshot(tmp_path / "pkg", preset="tiny")
+    manifest = json.loads((package / "tds.json").read_text(encoding="utf-8"))
+    bars = next(d for d in manifest["datasets"] if d["kind"] == "bars")
+    for key in ("instruments", "rows"):
+        del bars["coverage"]["by_market"]["KR"][key]
+    (package / "tds.json").write_text(json.dumps(manifest), encoding="utf-8")
+    out = doctor(package, capsys)
+    assert re.search(r"^market KR +rules KR@1 +2020-01-02\.\.2020-03-31 +instruments - +rows -$",
+                     out, re.M), out  # fmt: skip
 
 
 def test_doctor_lists_fallbacks_and_unchecked(
