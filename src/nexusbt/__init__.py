@@ -5,6 +5,8 @@ the name is bound to `api.config`, so only attribute access such as `nexusbt.con
 (and `import nexusbt.config as c`, which resolves through it) stops working (#53 Decisions).
 """
 
+import typing as _typing
+
 # Functions (3.1): `config`, T0.5a (#53). `api` loads the subpackage `nexusbt.config` (2.4) first,
 # so the 3.1 function holds the name; `import nexusbt.config` still finds the module.
 from nexusbt.api import config as config
@@ -70,10 +72,19 @@ from nexusbt.pipeline import BoundColumn as BoundColumn
 from nexusbt.pipeline import Classifier as Classifier
 from nexusbt.pipeline import Factor as Factor
 from nexusbt.pipeline import Filter as Filter
-from nexusbt.pipeline import Label as Label
-from nexusbt.pipeline import Meta as Meta
-from nexusbt.pipeline import Panel as Panel
 from nexusbt.pipeline import Pipeline as Pipeline
-from nexusbt.pipeline import Price as Price
 from nexusbt.pipeline import Term as Term
 from nexusbt.pipeline import factor as factor
+
+# Datasets (3.1, 3.2), T1.6 (#238): the editor and the type checker read their columns from
+# the stubs `nexusbt stubs` writes; the classes themselves are `pipeline`'s.
+if _typing.TYPE_CHECKING:
+    from nexusbt._stubs.datasets import Label as Label
+    from nexusbt._stubs.datasets import Meta as Meta
+    from nexusbt._stubs.datasets import Panel as Panel
+    from nexusbt._stubs.datasets import Price as Price
+else:
+    from nexusbt.pipeline import Label as Label
+    from nexusbt.pipeline import Meta as Meta
+    from nexusbt.pipeline import Panel as Panel
+    from nexusbt.pipeline import Price as Price

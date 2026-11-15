@@ -14,6 +14,7 @@ from collections.abc import Sequence
 from importlib import metadata
 from pathlib import Path
 
+from nexusbt import api
 from nexusbt.contracts import RUN_SCHEMA, EngineBugError
 
 #: Spec 3.10, the command table, in its order.
@@ -80,5 +81,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 def _run(args: argparse.Namespace) -> int:
     if args.command == "bugreport":
         print(_bundle(args.run_id))
+        return 0
+    if args.command == "stubs":
+        print(api.stubs())
         return 0
     raise NotImplementedError(f"nexusbt {args.command}: not built yet (its ticket is in spec 10.1)")

@@ -25,7 +25,7 @@ from nexusbt.data._calendar import read_calendar
 from nexusbt.data._capabilities import CapabilityRequest as CapabilityRequest
 from nexusbt.data._capabilities import DataCapabilities as DataCapabilities
 from nexusbt.data._capabilities import FallbackRecord as FallbackRecord
-from nexusbt.data._capabilities import decide
+from nexusbt.data._capabilities import _columns, _values, decide
 from nexusbt.data._ratios import RatioExclusion as RatioExclusion
 from nexusbt.data._ratios import check_ratios
 from nexusbt.data._schedule import Schedule as Schedule
@@ -38,8 +38,14 @@ from nexusbt.data._schedule import monthly as monthly
 from nexusbt.data._schedule import quarterly as quarterly
 from nexusbt.data._schedule import weekly as weekly
 from nexusbt.data._stamp import check_files
-from nexusbt_tds.hash import declared_semantic_hash, declared_value_hash, package_hashes
+from nexusbt_tds.hash import (
+    declared_semantic_hash,
+    declared_value_hash,
+    package_hashes,
+    resolved_columns,
+)
 from nexusbt_tds.manifest import Manifest, ManifestError
+from nexusbt_tds.schemas.verify import dictionary_schemas, load_schemas
 
 if TYPE_CHECKING:
     import pyarrow as pa
@@ -220,6 +226,31 @@ class Snapshot:
 
     def explain(self, instrument_id: str, field: str, ts: object) -> Explanation:
         raise NotImplementedError
+
+
+def dataset_columns(
+    snapshot: Snapshot,
+) -> tuple[dict[str, tuple[tuple[str, str | None], ...]], dict[str, frozenset[str]]]:
+    """Per dataset name, its (column, TDS type) pairs as `nexusbt_tds` resolves them, in that
+    order, and the columns `dictionary/columns` marks `is_label` (TDS 4.4).
+
+    The column set is `hash.resolved_columns`, the one the value hash and the checker read
+    (#144, #331): the engine resolves nothing itself (INV-17)."""
+    manifest = snapshot._manifest
+    schemas = {**load_schemas(), **dictionary_schemas()}
+    columns = {}
+    for ds in manifest.datasets:
+        schema = schemas.get(str(ds.get("kind")))
+        resolved = resolved_columns(ds, schema.columns if schema else ())
+        columns[str(ds.get("name"))] = tuple((c.name, c.type) for c in resolved)
+    labels: dict[str, set[str]] = {}
+    for ds in manifest.datasets:  # every dictionary; one without `is_label` marks none
+        marks = ds.get("kind") == "dictionary/columns" and "is_label" in _columns(manifest.root, ds)
+        rows = _values(manifest.root, ds if marks else None, "dataset", "column", "is_label")
+        for dataset, column, is_label in rows:
+            if is_label:
+                labels.setdefault(dataset, set()).add(column)
+    return columns, {name: frozenset(marked) for name, marked in labels.items()}
 
 
 def _data_root(path: Path) -> Path | None:

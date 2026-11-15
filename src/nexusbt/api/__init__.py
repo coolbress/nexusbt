@@ -15,8 +15,8 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from nexusbt import pipeline
 from nexusbt.config import Config, load_config
-from nexusbt.contracts import DataProfileWarning, PinsPolicy
-from nexusbt.data import DataConfig, _data_root, _snapshot_markets, open_snapshot
+from nexusbt.contracts import DataProfileWarning, PinsPolicy, SchemaRegistry
+from nexusbt.data import DataConfig, _data_root, _snapshot_markets, dataset_columns, open_snapshot
 
 if TYPE_CHECKING:
     from nexusbt.artifacts import RunStore, RunTxn
@@ -258,6 +258,24 @@ def config() -> Config:
     path = Path("nexusbt.toml") if Path("nexusbt.toml").is_file() else None
     markets = _snapshot_markets(load_config(path))
     return load_config(path, markets=markets) if markets else load_config(path)
+
+
+def schema_registry(snapshot: Snapshot, cfg: Config) -> SchemaRegistry:
+    """2.5: what `pipeline` binds column names against, from the opened snapshot and the two
+    datasets `[panels]` names."""
+    panels = cfg.values["panels"]
+    return SchemaRegistry(*dataset_columns(snapshot), panels["feature"], panels["label"])
+
+
+def stubs(path: Path | None = None) -> Path:
+    """`nexusbt stubs` (3.10): rewrite `_stubs/datasets.pyi` (or `path`) with the columns of
+    the snapshot `[data]` names, or with the fixed columns alone when it names none."""
+    cfg, registry = config(), None
+    if cfg.values["data"]["path"] or cfg.values["data"]["root"]:
+        registry = schema_registry(open_snapshot(DataConfig.from_config(cfg)), cfg)
+    path = path or Path(__file__).parents[1] / "_stubs" / "datasets.pyi"
+    path.write_text(pipeline.stub_source(registry), encoding="utf-8")
+    return path
 
 
 def _begin_run(
