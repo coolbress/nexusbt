@@ -20,6 +20,8 @@ from nexusbt.contracts import (
     SnapshotError,
     VerifyPolicy,
 )
+from nexusbt.data._calendar import Calendar as Calendar
+from nexusbt.data._calendar import read_calendar
 from nexusbt.data._capabilities import CapabilityRequest as CapabilityRequest
 from nexusbt.data._capabilities import DataCapabilities as DataCapabilities
 from nexusbt.data._capabilities import FallbackRecord as FallbackRecord
@@ -99,10 +101,6 @@ class MarketInfo:
 
 
 @dataclass(frozen=True, slots=True)
-class Calendar: ...
-
-
-@dataclass(frozen=True, slots=True)
 class MarketBlock: ...
 
 
@@ -177,7 +175,10 @@ class Snapshot:
         return self._markets
 
     def calendar(self, market: str) -> Calendar:
-        raise NotImplementedError
+        """The sessions of `market` and the time each of its rows freezes (5.1.1, 5.1.2)."""
+        if market not in self._markets:
+            raise _no_pack(market, self._manifest, False)
+        return read_calendar(self._manifest, market)
 
     def market_block(self, market: str, fields: Sequence[str], sessions: object) -> MarketBlock:
         raise NotImplementedError
