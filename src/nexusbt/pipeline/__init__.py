@@ -6,6 +6,11 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from ._datasets import Label as Label
+from ._datasets import Meta as Meta
+from ._datasets import Panel as Panel
+from ._datasets import Price as Price
+from ._datasets import bind as bind
 from ._terms import BoundColumn as BoundColumn
 from ._terms import Classifier as Classifier
 from ._terms import Factor as Factor
@@ -23,21 +28,7 @@ from . import factors as factors  # the 2.4 "`factors` module"  # isort: skip
 class Finding: ...
 
 
-# The datasets of 3.2: namespaces of columns, not values, so plain classes; the
-# columns come with their tickets.
-class Price: ...
-
-
-class Fund: ...
-
-
-class Meta: ...
-
-
-class Panel: ...
-
-
-class Label: ...
+class Fund: ...  # T2.2
 
 
 def filter(  # noqa: A001 - the 3.1 name `nx.filter`
