@@ -15,6 +15,7 @@ Below `full`, the row bytes are trusted as declared and the manifest's metadata 
 1. The semantic hash is recomputed at open from `tds.json` as it stands and each dataset's declared `value_sha256` (TDS 4.5's canonical JSON). No row is read. An edited `markets`, availability rule or other hashed field opens with a different semantic hash.
 2. The value hash and the physical hash are taken as declared.
 3. When a dataset declares no `value_sha256`, or `hashes` lacks the value or physical hash, every hash is computed from the rows, as before.
+4. Before the declared value hash is taken, the package value hash is computed from each dataset's declared `value_sha256` (TDS 4.5's `"{name}\t{value_sha256}\n"` lines; no row is read). When it differs from `hashes.value_sha256`, the open stops with E14 carrying `TDS-H003` (#455): such a `tds.json` contradicts itself, and `full` would refuse it with H002 or H003. The hashes are not recomputed from the rows, which would repair the package without a word and read every row below `full`. The check cannot tell which declaration is wrong. The physical hash is not compared.
 
 At `full` the checker reads every row and checks every declared hash, so the three are the computed ones.
 
