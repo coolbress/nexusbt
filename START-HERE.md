@@ -1,5 +1,7 @@
 # START HERE
 
+> **This is the hand-over document of 2026-10-29, not kept current.** It describes the repository before M0: the steps below are the ones that set it up, and its numbers are those of that date. For the present state read [README.md](README.md), [SPEC-INDEX.md](SPEC-INDEX.md) and the open issues. The spec checker it names, `tools/spec_lint.py`, is not in this repository.
+
 **Event-driven where it matters, vectorized where it scales. You just snap the blocks together.**
 
 This repository builds **NexusBT**, an open-source (Apache-2.0) backtesting and screening engine for equity factor research. The design is finished; the code is not written yet. Everything an agent needs is in this repository after the hand-off pack is copied in. There is no other memory to look for. Korean translation: [START-HERE.ko.md](START-HERE.ko.md).
@@ -99,7 +101,7 @@ ADRs (all accepted; full text in [docs/adr/](docs/adr/)):
 
 ## Numbers (computed by script from the spec, 2026-10-29)
 
-219 tickets (M0 16, M1 40, M2 30, M3a 37, M3b 11, M4 28, M5 24, M6 31, v1.x 2) · 107 golden cases (G-01..G-107) · 34 property tests · 49 error codes (E1..E49) · 40 ADRs · 950 named acceptance tests · 177 headings. Recompute tickets, goldens and property tests with `python3 tools/spec_lint.py`; error codes and ADRs are the rows of the tables in spec 6.6 and 9.3.
+219 tickets (M0 16, M1 40, M2 30, M3a 37, M3b 11, M4 28, M5 24, M6 31, v1.x 2) · 107 golden cases (G-01..G-107) · 34 property tests · 49 error codes (E1..E49) · 40 ADRs · 950 named acceptance tests · 177 headings. Recompute tickets, goldens and property tests with `python3 tools/spec_lint.py`; error codes and ADRs are the rows of the tables in spec 6.6 and 9.3. The current counts are in [SPEC-INDEX.md](SPEC-INDEX.md).
 
 ## Where the evidence is
 
