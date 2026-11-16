@@ -1,6 +1,14 @@
 """The key of an L0 entry, a market block's (market, column, year) partition (spec 5.3.9).
 
-T1.4 (#236) fixes the key; the cache that stores and reuses entries is T6.12."""
+T1.4 (#236) fixes the key; the cache that stores and reuses entries is T6.12. Two notes for
+T6.12, both following from 5.3.9 as written (#480, Decisions 2026-11-16):
+
+(a) An entry of year Y holds year Y's rows only. The overlap rows `market_block(...,
+    overlap=n)` shows before Y come from year Y-1's entry, whose bars file is not in Y's key;
+    5.3.9 gives them to L1's input keys, so Y's entry must not store their values.
+(b) `l0_key` takes the resolution metadata and the files of the bars dataset, the one every
+    column comes from today. An entry of a column from another dataset, such as `Q` (5.3.5a,
+    from `share_counts`), keys on that dataset's metadata and files instead."""
 
 from __future__ import annotations
 
@@ -16,11 +24,15 @@ import pyarrow.parquet as pq
 
 from nexusbt.contracts import ID_COLUMN as ID
 from nexusbt.data._block import partition_values
+from nexusbt.data._calendar import read_calendar
 from nexusbt_tds.actions import chain_digest
 from nexusbt_tds.hash import canonical_json, encode_table
 from nexusbt_tds.schemas.verify import load_schemas
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
+    from nexusbt.data._calendar import Calendar
     from nexusbt_tds.manifest import Manifest
 
 BLOCK_VERSION = "l0-v4"
@@ -42,7 +54,7 @@ def l0_key(manifest: Manifest, market: str, column: str, year: int, edition: str
     bars, entry = kinds["bars"], manifest.data["markets"][market]
     units = {c["name"]: c["unit"] for c in bars.get("columns", []) if "unit" in c}
     files = sorted(
-        (f["path"], f.get("sha256"))
+        (f["path"], f.get("sha256") or _sha256(manifest.root / f["path"]))
         for f in bars["files"]
         if _holds(partition_values(f["path"], bars.get("partitioning", [])), market, year)
     )
@@ -54,7 +66,7 @@ def l0_key(manifest: Manifest, market: str, column: str, year: int, edition: str
                        "market": {k: entry[k] for k in _MARKET_KEYS if k in entry}},
         "files": [list(f) for f in files],
         "chains": _chains(manifest, kinds.get("corporate_actions"), instruments, year),
-        "axis": _axis(manifest, kinds, instruments, str(entry["calendar_id"]), year),
+        "axis": _axis(manifest, kinds, instruments, market, str(entry["calendar_id"]), year),
         "market": market, "column": column, "year": year, "edition": edition,
         "block": BLOCK_VERSION, "engine": metadata.version("nexusbt"),  # = nexusbt.__version__
     }  # fmt: skip
@@ -64,6 +76,12 @@ def l0_key(manifest: Manifest, market: str, column: str, year: int, edition: str
 def _holds(parts: Mapping[str, Any], market: str, year: int) -> bool:
     """A file of the (market, year) partition, by its path (4.6)."""
     return parts.get("market", market) == market and int(parts.get("year", year)) == year
+
+
+def _sha256(path: Path) -> str:
+    """The file sha256 of a file whose manifest declares none (TDS 4.2 does not require it)."""
+    with path.open("rb") as f:
+        return hashlib.file_digest(f, "sha256").hexdigest()
 
 
 def _rows(manifest: Manifest, entry: Mapping[str, Any] | None) -> pa.Table:
@@ -81,16 +99,37 @@ def _chains(
     return chain_digest(events, dt.date(year, 12, 31)) if events.num_rows else ""
 
 
+def _synthesized(calendar: Calendar) -> pa.Table:
+    """4.5 F-02's session rows, over the columns it builds."""
+    utc = pa.timestamp("us", tz="UTC")
+    return pa.table({
+        "calendar_id": [calendar.calendar_id] * len(calendar.dates),
+        "session_date": pa.array(calendar.dates, pa.date32()),
+        "ts_open": pa.array(calendar.ts_open, pa.timestamp("us")).cast(utc),
+        "ts_close": pa.array(calendar.ts_close, pa.timestamp("us")).cast(utc),
+        "session_ord": pa.array(calendar.session_ord, pa.int32()),
+    })  # fmt: skip
+
+
 def _axis(
-    manifest: Manifest, kinds: Mapping[str, Any], instruments: pa.Table, calendar: str, year: int
+    manifest: Manifest,
+    kinds: Mapping[str, Any],
+    instruments: pa.Table,
+    market: str,
+    calendar: str,
+    year: int,
 ) -> str:
     """5.3.9's axis-row hash: (a) the market's `instruments` rows whose `[listed_on,
     delisted_on]` meets the year's sessions, over the fields the block reads; (b) the
     calendar's `calendar_sessions` rows of the year and the whole year before, over every
-    column but `calendar_version`; each in TDS 4.5's canonical bytes."""
+    column but `calendar_version`, or without such rows the ones F-02 builds, over the
+    columns it builds; each in TDS 4.5's canonical bytes."""
     schemas = load_schemas()
-    sessions = _rows(manifest, kinds["calendar_sessions"])
-    sessions = sessions.filter(pc.equal(sessions["calendar_id"], calendar))
+    sessions = _rows(manifest, kinds.get("calendar_sessions"))
+    if sessions.num_rows:
+        sessions = sessions.filter(pc.equal(sessions["calendar_id"], calendar))
+    if not sessions.num_rows:  # F-02: the rows the engine builds and reads (#480)
+        sessions = _synthesized(read_calendar(manifest, market))
     years = pc.year(sessions["session_date"])
     own = sessions.filter(pc.equal(years, year))["session_date"]
     if len(own):
