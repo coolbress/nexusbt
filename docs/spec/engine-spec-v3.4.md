@@ -1440,14 +1440,14 @@ session t (market m), phase order session_start < open < intraday < close_fill <
 #### 5.3.1 Market axis and blocks [D2, design 4.4.2]
 - Per market a dense block `X[m]: (number of sessions, number of instruments) float64`. Instrument axis = the instruments with `asset_class = equity ∧ is_synthetic = false` listed at least once in that chunk's period (sorted by `instrument_id`; index and synthetic instruments are not put in the block and go only through the benchmark path, 3.3) [RV-Q06]. Cells before listing and after delisting are "absent" (value NaN, existence mask False).
 - **Storage** [decision 2026-11-04]: next to the value columns the block keeps the `ts_available` of each cell. The observation of session s stays in row s; a late observation is not moved to a later row. Which cells a term value of row t sees is the visibility rule of 5.1.2 (`ts_available <= ready_m(t)`), applied when a window is read and not when the block is built, so one block serves every row and every reader; the L0 entry (5.3.9) holds the same `ts_available` array.
-- Chunk = a session range (by default a year; smaller than 1 year when the memory budget is short; 5.3.8). The tail `W_max − 1` rows of the previous chunk are read as an overlap.
+- Chunk = a session range (by default a year; smaller than 1 year when the memory budget is short; 5.3.8). Before its first row a chunk reads the rows the plan of 5.3.2 gives for its decisions (the overlap); they may lie in more than one earlier chunk. For a graph with a single window and no `shift` this is the tail `W_max − 1` rows of the previous chunk (decision 2026-11-16, #486: windows and shifts add up along a path of the graph, 5.3.2 (2)).
 - A block builds the `instrument_id → column number` and `session_ord → row number` mappings in memory. Since the files have no integer keys, the Parquet dictionary index is turned into block column numbers once (a small table the size of the dictionary), and `session_date` gets its row number with `searchsorted` [A-05].
 
 #### 5.3.2 Plan [R-14, 11.7]
 1. From the decision grid (schedule × sleeve), find for each market the set of rows needed, `R_m = {row_m(d)}`.
 2. Follow the graph from top to bottom, propagating the row set each term needs: if a window-W term needs row set R, its input is `⋃_{r∈R} [r−W+1, r]`; for `shift(k)`, `R − k`. Cross-sectional operations use the same row set [11.7].
 3. Pruning: each term computes only the rows it needs. When a daily cross-sectional term is used by a window below it, every daily row that window covers is computed [design 4.4.1, 11.7].
-4. Each column is read once with its longest window, and shorter windows use the tail of the same array [design 4.4.2].
+4. Each column is read once, on the rows the plan gives it, and every window reads a slice of that array [design 4.4.2].
 5. Terms with the same structural hash share one node. A node is dropped when its reference count reaches 0.
 6. `across_markets=True` terms and `Market.series` terms of another market [V31-13]: at each decision the `row_m(d)` values of the markets are gathered and computed. The result is a value on the decision grid and does not return to the market axis. Using such a term as a window or `shift` input is a `TermDomainError` (error E17) when the graph is built.
 
