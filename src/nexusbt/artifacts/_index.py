@@ -198,6 +198,15 @@ class Index:
             rows = db.execute("SELECT family_id FROM families WHERE reason = ?", (_MIGRATED,))
             return tuple(f'add `[research] family_id = "{f}"` to nexusbt.toml' for (f,) in rows)
 
+    def add_family(self, family_id: str, parent_family_id: str | None, reason: str) -> None:
+        """A row of `families` (5.9.5): `nexusbt init --new-family` names the old one as parent."""
+        with connect(self.root) as db:
+            db.execute(
+                "INSERT INTO families (family_id, parent_family_id, reason, ts_created)"
+                " VALUES (?, ?, ?, ?)",
+                (family_id, parent_family_id, reason, datetime.now().astimezone().isoformat()),
+            )
+
     def pin(self, snapshot_id: str, holder_id: str, holder_kind: str = "run") -> None:
         with connect(self.root) as db:
             insert_pin(db, snapshot_id, holder_id, holder_kind)
