@@ -25,7 +25,8 @@ import numpy.typing as npt
 import pyarrow as pa
 
 from nexusbt.compute import _kernels
-from nexusbt.compute._plan import _top_down, plan
+from nexusbt.compute._chunks import schedule
+from nexusbt.compute._plan import plan
 from nexusbt.contracts import ID_COLUMN
 from nexusbt.data._block import MarketBlock
 from nexusbt.pipeline import Term, graph_hash
@@ -70,8 +71,8 @@ def execute(
     terms = list({graph_hash(t): t for t in terms}.values())  # a term listed twice is one node
     if columns := [dict(t.params)["column"] for t in terms if t.op == "column"]:
         raise ValueError(f"a column is read through a term, such as `.latest`: {columns}")
-    order = [t for t in _top_down(terms)[::-1] if t.op != "column"]  # inputs first
-    if any(t.op == "user" and dict(t.params)["mask"] is not None for t in order):
+    order = schedule(terms)  # inputs first, with the nodes each one's computing lets go
+    if any(t.op == "user" and dict(t.params)["mask"] is not None for t, _ in order):
         raise NotImplementedError("a user function's mask comes with T1.12")
     parts: dict[str, list[pa.Table]] = {graph_hash(t): [] for t in terms}
     for first, last in spans:
@@ -82,8 +83,10 @@ def execute(
         low = min([first, *(int(r[0]) for r in rows.values() if r.size)])
         chunk = _Chunk(read(low, last), low, ready, functions or {})
         with np.errstate(all="ignore"):  # IEEE results (inf, NaN), as numpy gives them
-            for term in order:
+            for term, dropped in order:
                 chunk.compute(term, rows[graph_hash(term)])
+                for key in dropped:  # 5.3.2 (5): no reader left, so the estimate's count holds
+                    del chunk.values[key]
         for term in terms:
             parts[graph_hash(term)].append(chunk.frame(term, mine))
     empty = _frame([], [], [])

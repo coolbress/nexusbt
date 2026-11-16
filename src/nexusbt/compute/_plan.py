@@ -92,6 +92,10 @@ def _top_down(roots: list[Term]) -> list[Term]:
             continue
         seen.add(key)
         stack.append((term, True))
-        children = (*term.inputs, *(v for _, v in term.params if isinstance(v, Term)))
-        stack.extend((child, False) for child in reversed(children))
+        stack.extend((child, False) for child in reversed(children(term)))
     return post[::-1]
+
+
+def children(term: Term) -> tuple[Term, ...]:
+    """The terms a term reads: its inputs, then the terms among its parameters (a mask)."""
+    return (*term.inputs, *(v for _, v in term.params if isinstance(v, Term)))
