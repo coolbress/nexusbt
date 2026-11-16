@@ -211,6 +211,38 @@ it.
 against a stand-in for PyPI; a real tag has not run it. Rehearse on
 TestPyPI first (step 4.2): the check then reads TestPyPI too.
 
+## In this repository: `nexusbt-tds` on `tds-v*` tags
+
+The checker `nexusbt-tds`, under `tds/`, is versioned apart from the
+engine (spec 2.3), so the root `pyproject.toml` lists it with the prefix
+`tds-`. A `v*` tag releases `nexusbt` alone; a `tds-v*` tag releases
+`nexusbt-tds` alone. `tests/repo/test_release_tags.py` runs the
+workflow's tag check against these files.
+
+- **Once, before the first `tds-v*` tag, by you.** A pending publisher on
+  PyPI with `nexusbt-tds` as the PyPI Project Name (step 2); a second tag
+  rule `tds-v*` on the `pypi` environment (step 3); and `refs/tags/tds-v*`
+  in the tag ruleset beside `refs/tags/v*`, so a released `tds-v*` tag
+  cannot be moved or deleted either. This repository's ruleset was made
+  before plinth's covered `*-v*`, so it names `refs/tags/v*` alone until
+  you add it; `/plinth:floor-check` reports the gap.
+- **Draft, then release candidates, then 1.0.** `tds/pyproject.toml` says
+  `1.0.0` while TDS is still a draft, and a `tds-v1.0.0` tag would pass the
+  tag check and spend 1.0.0 on PyPI for good. Do not push that tag before
+  the 1.0 graduation (TDS 10.5). For a release candidate,
+  set the version in a pull request with
+  `uv version --package nexusbt-tds 1.0.0rc1`, add it to
+  `tds/CHANGELOG.md`, merge, and tag the merged `main` `tds-v1.0.0-rc.1`.
+  The next candidate is `1.0.0rc2` and `tds-v1.0.0-rc.2`; the release is
+  `1.0.0` and `tds-v1.0.0`. The tag and the version are compared in
+  PEP 440's normal form, so `tds-v1.0.0-rc.1` matches `1.0.0rc1`. The
+  `tds_version` string inside the standard stays `"1.0"` throughout.
+- **TDS goes first, the engine after.** The engine needs
+  `nexusbt-tds>=1.0,<2`, and that range names no release candidate. A
+  `v*` tag therefore stops before any upload until PyPI has
+  `nexusbt-tds` 1.0.0 or later: the engine's first release waits for
+  `tds-v1.0.0`.
+
 ## When a release fails
 
 Nothing is uploaded until every check before the upload has passed. The run

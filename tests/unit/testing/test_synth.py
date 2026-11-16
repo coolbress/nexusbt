@@ -36,18 +36,31 @@ UTC = dt.UTC
 PT = "processed_through_session"  # TDS 4.3 (#192)
 
 
+#: The module's shared packages, which no test writes to: `rows` reads each dataset of them
+#: once (#475). A package a test makes, and may change, is read again on every call.
+SHARED: set[Path] = set()
+_READ: dict[tuple[Path, str], list[dict[str, Any]]] = {}
+
+
 @pytest.fixture(scope="module")
 def tiny(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    return make_snapshot(tmp_path_factory.mktemp("tiny") / "snap", preset="tiny")
+    path = make_snapshot(tmp_path_factory.mktemp("tiny") / "snap", preset="tiny")
+    SHARED.add(path)
+    return path
 
 
 def rows(package: Path, kind: str) -> list[dict[str, Any]]:
     """Every row of the dataset of `kind`, read from the files tds.json lists."""
+    if (package, kind) in _READ:
+        return list(_READ[package, kind])
     manifest = json.loads((package / "tds.json").read_text(encoding="utf-8"))
     (entry,) = (d for d in manifest["datasets"] if d["kind"] == kind)
     out: list[dict[str, Any]] = []
     for f in entry["files"]:
         out += pq.read_table(package / f["path"]).to_pylist()
+    if package in SHARED:
+        _READ[package, kind] = out
+        return list(out)
     return out
 
 
@@ -225,8 +238,22 @@ def test_a_failing_tds_hash_is_an_error(tmp_path: Path, monkeypatch: pytest.Monk
 
 @pytest.fixture(scope="module")
 def small(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    path = tmp_path_factory.mktemp("small") / "snap"
-    return make_snapshot(path, preset="small", markets=("KR", "US", "ZZ"))
+    path = make_snapshot(tmp_path_factory.mktemp("small") / "snap", preset="small",
+                         markets=("KR", "US", "ZZ"))  # fmt: skip
+    SHARED.add(path)
+    return path
+
+
+@pytest.fixture(scope="module")
+def small_checked(small: Path) -> str:
+    """What `tds check --level full` prints on `small`, run once for the tests that read it."""
+    return check_full(small)
+
+
+@pytest.fixture(scope="module")
+def small_unchecked(small: Path) -> list[str]:
+    """The codes the full check leaves unchecked on `small`, from one run in JSON."""
+    return unchecked(small)
 
 
 def test_small_sessions_from_exchange_calendars(small: Path) -> None:
@@ -482,7 +509,7 @@ def test_factor_event_reconciliation(small: Path) -> None:
     )  # a share event: split and total
 
 
-def test_reverse_split_makes_factor_non_monotonic(small: Path) -> None:
+def test_reverse_split_makes_factor_non_monotonic(small: Path, small_checked: str) -> None:
     split = steps(small, "split")
     reverse = [r for r in rows(small, "corporate_actions") if r["kind"] == "reverse_split"]
     assert reverse
@@ -491,11 +518,14 @@ def test_reverse_split_makes_factor_non_monotonic(small: Path) -> None:
     ups = [r for r in reverse if split[r["instrument_id"], r["ex_date"]] > 1]
     assert ups  # a rising factor is data, not an error: A001 above and tds check below hold
     assert min(split.values()) < 1
-    assert "0 errors" in pkg._tds("check", str(small), "--level", "full").stdout
+    assert "0 errors" in small_checked
 
 
 def test_revisions_and_cancellations_present(
-    small: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    small: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     actions = rows(small, "corporate_actions")
     by_id = {r["event_id"]: r for r in actions}
@@ -521,9 +551,10 @@ def test_revisions_and_cancellations_present(
     assert late
     assert {r["instrument_id"][:3] for r in dividends if r["ts_terms_available"]} == {"KR:"}
     assert 30 <= min(late) <= max(late) <= 61  # 30~60 days after the ex-date's close
-    code = main(["--preset", "small", "--out", str(tmp_path / "cli"), "--validate"])
+    # the done line, on a short `small` (#475): it too revises and cancels
+    capsys.readouterr()
+    validate_short(monkeypatch, tmp_path / "cli")
     printed = capsys.readouterr().out
-    assert code == 0, printed
     assert "TDS-A001: 0" in printed.splitlines()
     assert re.search(r"^corporate_actions revisions [1-9]\d*, cancellations [1-9]", printed, re.M)
 
@@ -628,7 +659,7 @@ def warned(printed: str, code: str) -> int:
     return len(re.findall(rf"^warning TDS-{code}\b", printed, re.M))
 
 
-def test_prices_on_grid_with_ulp_noise(small: Path, tmp_path: Path) -> None:
+def test_prices_on_grid_with_ulp_noise(small: Path, small_checked: str, tmp_path: Path) -> None:
     # 4.8 (5), (11a) [V31-05]: the package declares the KR grid, and its raw prices are on it
     rules = rows(small, "market_rules")
     bands = [r for r in rules if r["rule_kind"] == "tick_band"]
@@ -644,7 +675,7 @@ def test_prices_on_grid_with_ulp_noise(small: Path, tmp_path: Path) -> None:
     noisy = [c for c in closes if c != round(c)]  # every KR tick is a whole number of won
     assert noisy
     assert all(c == math.nextafter(round(c), math.inf) for c in noisy)  # 1 ULP: within 1e-9
-    assert warned(check_full(small), "V012") == 0
+    assert warned(small_checked, "V012") == 0
     # counter-example: the lows of one file 1e-7 lower, and V012 counts each of them
     package = make_snapshot(tmp_path / "off", **SHORT, markets=("KR",))
     path = package / "bars/freq=1d/market=KR/year=2019/part-00000.parquet"
@@ -1084,7 +1115,11 @@ def validate_short(monkeypatch: pytest.MonkeyPatch, out: Path, *more: str) -> No
 
 
 def test_exact_ratios_present(
-    small: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    small: Path,
+    small_checked: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     # 4.8 (4) [V31-01]: every share event has its exact ratio, the others none
     actions = rows(small, "corporate_actions")
@@ -1097,8 +1132,8 @@ def test_exact_ratios_present(
         assert r["ratio_new_per_old"] == pytest.approx(new_per_old, rel=1e-12)
     assert all((r["ratio_num"], r["ratio_den"]) == (None, None) for r in actions
                if r not in shares)  # fmt: skip
-    printed = check_full(small)
-    assert warned(printed, "A011") == 0  # [V31-04]: every distribution's exit says if it counts
+    # [V31-04]: every distribution's exit says if it counts
+    assert warned(small_checked, "A011") == 0
     # the done line, on a short `small`: the counts are those of the rows it wrote
     validate_short(monkeypatch, tmp_path / "cli")
     written = rows(tmp_path / "cli", "corporate_actions")
@@ -1278,25 +1313,25 @@ def test_small_coverage_matches_the_rows(small: Path) -> None:
     assert datasets["market_rules"]["coverage"] == {"by_market": through}
 
 
-def test_full_check_judges_d001_on_small(small: Path) -> None:
+def test_full_check_judges_d001_on_small(small_unchecked: list[str]) -> None:
     # #390: every instrument's dense bars are judged to its last session or the watermark,
     # and D004 compares the coverage. T006 is judged on the bars and stays unchecked for the
     # datasets TDS 8.2 cannot judge from statistics (#192).
-    left = unchecked(small)
+    left = small_unchecked
     assert "TDS-D001" not in left
     assert "TDS-D004" not in left
     assert "TDS-V031" not in left  # judged, with no book_deltas to rebuild (#430)
     assert "TDS-V032" not in left  # judged, with no declaration to judge (#432)
 
 
-def test_full_check_judges_k002_on_small(small: Path) -> None:
+def test_full_check_judges_k002_on_small(small: Path, small_unchecked: list[str]) -> None:
     # #412: the three datasets TDS 5.3, 5.14 and 5.20 left without a sort declare the one the
     # generator writes them in, so K002 judges every dataset of small
     _, datasets = manifest_of(small)
     assert datasets["instrument_xref"]["sort"] == [ID, "id_type", "id_value", "valid_from"]
     assert datasets["share_counts"]["sort"] == [ID, "count_kind", "as_of_date", "ts_available"]
     assert datasets["eligibility_daily"]["sort"] == ["session_date", ID, "rule_id"]
-    assert "TDS-K002" not in unchecked(small)
+    assert "TDS-K002" not in small_unchecked
 
 
 def test_k002_takes_the_schema_files_sort_when_tds_json_has_none(tmp_path: Path) -> None:
@@ -1339,14 +1374,16 @@ def test_coverage_of_a_wrong_count_fails_d004(tiny: Path, tmp_path: Path) -> Non
     assert "TDS-D004" in done.stdout
 
 
-def test_every_dataset_is_processed_through_its_markets_watermark(small: Path) -> None:
+def test_every_dataset_is_processed_through_its_markets_watermark(
+    small: Path, small_unchecked: list[str]
+) -> None:
     # #192, TDS 4.3: every dataset in every market, at the watermark session (3.8) by default,
     # and M016 judges them all
     markets, datasets = manifest_of(small)
     for name, dataset in datasets.items():
         said = {m: v[PT] for m, v in dataset["coverage"]["by_market"].items()}
         assert said == {m: e["complete_through_session"] for m, e in markets.items()}, name
-    assert "TDS-M016" not in unchecked(small)
+    assert "TDS-M016" not in small_unchecked
 
 
 def test_behind_cuts_one_datasets_processed_through_session(tmp_path: Path) -> None:
@@ -1367,16 +1404,18 @@ def test_behind_cuts_one_datasets_processed_through_session(tmp_path: Path) -> N
 CUT = dict.fromkeys(("corporate_actions", "delistings", "share_counts", "instrument_symbols"), 300)
 
 
-def test_behind_cuts_the_rows_known_after_the_session(small: Path, tmp_path: Path) -> None:
+def test_behind_cuts_the_rows_known_after_the_session(tmp_path: Path) -> None:
     # #425, spec 4.8 `behind`: each moved dataset loses its rows first known after the cut
     # session's close, the bars' factors and the instruments follow, and `full` finds nothing,
-    # D003 judging every moved dataset
-    package = make_snapshot(tmp_path / "cut", preset="small", markets=("KR", "US", "ZZ"),
-                            behind=CUT)  # fmt: skip
+    # D003 judging every moved dataset; on two years of SHORT's counts (#475), longer than CUT
+    two_years: dict[str, Any] = SHORT | {"start": dt.date(2018, 1, 2),
+                                         "markets": ("KR", "US", "ZZ")}  # fmt: skip
+    package = make_snapshot(tmp_path / "cut", **two_years, behind=CUT)
+    plain = make_snapshot(tmp_path / "plain", **two_years)
     done = pkg._tds("check", str(package), "--level", "full")
     assert "\n0 errors" in done.stdout, done.stdout
     for name in CUT:
-        assert len(rows(package, name)) < len(rows(small, name)), name
+        assert len(rows(package, name)) < len(rows(plain, name)), name
         assert f"TDS-D003 not checked on {name}:" not in done.stdout
 
 
