@@ -1,6 +1,6 @@
 # Spec index: milestone → ticket → spec section → tests
 
-Generated from `docs/spec/engine-spec-v3.4.md` (chapter 10) by the spec checker (`tools/spec_lint.py`). Use it in `/to-tickets` and `/implement` sessions to open only the sections a ticket needs. If this file and the spec disagree, the spec wins; regenerate this file.
+Built from `docs/spec/engine-spec-v3.4.md` (chapter 10). It was generated at the hand-over by a spec checker that is not in this repository, and it has been maintained by hand since. Use it in `/to-tickets` and `/implement` sessions to open only the sections a ticket needs. If this file and the spec disagree, the spec wins; correct this file by hand.
 
 - **§** = section of the engine spec. **TDS x.y** = section of the data standard (`docs/tds/tds-v1.4.md`; examples in `docs/tds/tds-examples.md`; Korean translations `*.ko.md`).
 - **Tests** = hand-computed golden cases (`G-NN`, spec 8.2, `tests/golden/`), property tests (`P-NAME`, spec 8.3, `tests/property/`), point-in-time cases (`T-NN`, spec 8.4). A golden ticket (`T<m>.G…`) is written and merged in a separate session *before* the ticket that consumes it.
@@ -13,7 +13,7 @@ Generated from `docs/spec/engine-spec-v3.4.md` (chapter 10) by the spec checker 
 
 ## Dependency graph (summary)
 
-- Acyclic; every "Blocked by" points to the same or an earlier milestone (checked by `tools/spec_lint.py`, and in the repo by `test_ticket_graph`, T0.12).
+- Acyclic; every "Blocked by" points to the same or an earlier milestone (checked by `tests/repo/test_ticket_graph.py`, T0.12).
 - Single root: T0.1. Longest chain: 35 tickets:
   T0.1 → T0.2a → T0.13a → T0.13b → T0.13c → T0.14a → T0.15a → T0.15b → T0.16a → T1.1b → T1.3 → T1.4 → T1.7a → T1.7b → T1.8 → T1.12 → T1.13 → T2.7 → T3.22 → T3.12 → T4.1 → T4.2 → T4.10 → T4.7 → T6.2 → T6.4 → T6.7 → T6.20 → T6.21 → T6.24 → T6.24b → T6.27 → T7.1 → T7.V → T6.28.
 - Most depended-on tickets (number of direct dependents): T0.9 (19), T3.13a (10), T3.14 (9), T0.15a (7), T1.24 (7), T2.9 (7), T2.10a (7), T3.Gd (7), T0.2a (6), T4.7 (6), T0.7 (5), T0.14c (5), T1.11 (5), T1.13 (5), T1.Gb (5), T3.12 (5), T5.1 (5), T6.4 (5). Land these early and keep them small.
