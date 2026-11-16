@@ -81,6 +81,8 @@ def test_init_adds_the_key_to_a_toml_without_it(
         ([], '[research]\nfamily_id = "my-study"\n', "a UUID4"),
         (["--new-family", "x"], '[research]\nfamily_id = "my-study"\n', "a UUID4"),
         ([], "[data\n", "is not TOML"),
+        ([], 'research = "x"\n', "is not a table"),
+        (["--new-family", "x"], f'runs = 1\n[research]\nfamily_id = "{OLD}"\n', "is not a table"),
         (["--data-root", "root"], '[data]\nroot = "root"\n', "already exists"),  # as #459
     ],
 )  # fmt: skip

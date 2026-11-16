@@ -94,7 +94,7 @@ def _new_family(reason: str, data_root: str | None) -> str:
     new = str(uuid.uuid4())
     part = _staged(text.replace(old, new).encode("utf-8"))  # a full disk stops it before the index
     try:
-        runs = Path(given.get("runs", {}).get("dir", DEFAULTS["runs"]["dir"]))
+        runs = Path(_table(given, "runs").get("dir", DEFAULTS["runs"]["dir"]))
         Index(runs, family_id=old).add_family(new, old, f"new family: {reason}")  # 5.9.5's form
     except BaseException:
         part.unlink(missing_ok=True)
@@ -113,8 +113,15 @@ def _project() -> tuple[str, dict[str, Any]]:
         raise _refused(f"{TOML} is not TOML: {error}", "fix the file", "spec 3.11") from None
 
 
+def _table(given: dict[str, Any], name: str) -> dict[str, Any]:
+    table = given.get(name, {})
+    if not isinstance(table, dict):  # `research = "x"`, `[[research]]`: a ConfigError, not a crash
+        raise _refused(f"{name} = {table!r} is not a table", f"write it as [{name}]", "spec 3.11")
+    return table
+
+
 def _family(given: dict[str, Any]) -> str | None:
-    family = given.get("research", {}).get("family_id")
+    family = _table(given, "research").get("family_id")
     if family is not None and not (isinstance(family, str) and re.fullmatch(UUID4, family)):
         fix = "a UUID4 as nexusbt init writes it"
         raise _refused(f"[research] family_id = {family!r}", fix, "spec 3.11", _RESEARCH)
