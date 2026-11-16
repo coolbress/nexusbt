@@ -78,19 +78,20 @@ def _cover(rows: Rows, window: int) -> Rows:
 
 
 def _top_down(roots: list[Term]) -> list[Term]:
-    """Every node once, each after all the nodes that use it (a reversed post-order)."""
+    """Every node once, each after all the nodes that use it (a reversed post-order, walked with
+    a stack: a graph may be deeper than Python's recursion limit)."""
     seen: set[str] = set()
     post: list[Term] = []
-
-    def visit(term: Term) -> None:
-        key = graph_hash(term)
-        if key in seen:
-            return
+    stack: list[tuple[Term, bool]] = [(root, False) for root in reversed(roots)]
+    while stack:
+        term, done = stack.pop()
+        if done:
+            post.append(term)
+            continue
+        if (key := graph_hash(term)) in seen:
+            continue
         seen.add(key)
-        for child in (*term.inputs, *(v for _, v in term.params if isinstance(v, Term))):
-            visit(child)
-        post.append(term)
-
-    for root in roots:
-        visit(root)
+        stack.append((term, True))
+        children = (*term.inputs, *(v for _, v in term.params if isinstance(v, Term)))
+        stack.extend((child, False) for child in reversed(children))
     return post[::-1]

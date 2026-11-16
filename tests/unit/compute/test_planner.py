@@ -40,7 +40,7 @@ def test_shift_rows_propagate() -> None:
 
 
 def test_nested_windows_across_chunks() -> None:
-    """A chunk starting at row 100 reads 15 rows of the one before, not just `W_max - 1 = 9`;
+    """A chunk starting at row 100 reads 14 rows of the one before, not just `W_max - 1 = 9`;
     planning each chunk's decisions alone gives the rows of planning them all (INV-03)."""
     inner = sma(10, CLOSE)
     outer = sma(5, inner).shift(2)
@@ -77,6 +77,14 @@ def test_daily_cross_section_feeding_window_computed() -> None:
     assert p.rows_of(ranked) == covered
     assert p.rows_of(liquid) == covered
     assert p.rows_of(CLOSE) == covered
+
+
+def test_deep_graph_plans() -> None:
+    """A chain deeper than Python's recursion limit plans; terms build without recursing."""
+    term = CLOSE.latest
+    for _ in range(3000):
+        term = term + 1.0
+    assert plan([term], rows=[5], sessions=10).rows_of(CLOSE) == [5]
 
 
 def test_debug_log_counts_rows(caplog: pytest.LogCaptureFixture) -> None:
