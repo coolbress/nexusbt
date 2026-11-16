@@ -168,6 +168,27 @@ def test_unknown_term_and_missing_function_are_refused() -> None:
         run([CLOSE], [50], [(0, 199)], block())
 
 
+def test_edges_a_run_meets() -> None:
+    """A chunk with no decisions reads nothing; an element function runs compiled; a user window
+    before the axis start is NaN; a user mask and a wrong-shaped return are refused."""
+    whole, reads = block(), list[tuple[int, int]]()
+    logged = CLOSE.latest.log()
+    found = run([logged, sma(3, CLOSE)], [1, 60], [(0, 49), (50, 99), (100, 199)], whole, reads)
+    assert [r for r in reads if r[1] == 199] == []  # the last chunk holds no decision
+    assert found[graph_hash(logged)]["value"][0].as_py() == np.log(whole.values["close"][1, 0])
+    assert np.isnan(found[graph_hash(sma(3, CLOSE))]["value"][0].as_py())  # row 1 of window 3
+    masked = factor(3, [CLOSE], mask=CLOSE.latest > 0.0)(_mean)
+    with pytest.raises(NotImplementedError, match=r"mask comes with T1\.12"):
+        execute([masked], [50], [(0, 199)], reader(whole, []), READY, {graph_hash(masked): _mean})
+    wide = sma(3, CLOSE)
+    with pytest.raises(ValueError, match=r"returned \(1,\), not \(3,\)"):
+        execute([wide], [50], [(0, 199)], reader(whole, []), READY, {graph_hash(wide): _first})
+
+
+def _first(w: Any) -> Any:
+    return w[0, :1]
+
+
 def test_a_term_listed_twice_is_one_output() -> None:
     found = run([CLOSE.latest, CLOSE.latest], [50], [(0, 199)], block())
     assert found[graph_hash(CLOSE.latest)].num_rows == 3  # A, B and C once each

@@ -71,6 +71,8 @@ def execute(
     if columns := [dict(t.params)["column"] for t in terms if t.op == "column"]:
         raise ValueError(f"a column is read through a term, such as `.latest`: {columns}")
     order = [t for t in _top_down(terms)[::-1] if t.op != "column"]  # inputs first
+    if any(t.op == "user" and dict(t.params)["mask"] is not None for t in order):
+        raise NotImplementedError("a user function's mask comes with T1.12")
     parts: dict[str, list[pa.Table]] = {graph_hash(t): [] for t in terms}
     for first, last in spans:
         mine = wanted[(wanted >= first) & (wanted <= last)]
@@ -152,8 +154,6 @@ class _Chunk:
 
     def user(self, term: Term, t: int) -> F64:
         params, out = dict(term.params), np.full(len(self.block.instrument_ids), np.nan)
-        if params["mask"] is not None:
-            raise NotImplementedError("a user function's mask comes with T1.12")
         fn = self.functions.get(graph_hash(term))
         if fn is None:
             raise ValueError(f"no function given for the user term {params['function']}")
