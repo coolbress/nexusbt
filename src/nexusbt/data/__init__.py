@@ -212,10 +212,12 @@ class Snapshot:
             raise _no_pack(market, self._manifest, False)
         return read_calendar(self._manifest, market)
 
-    def market_block(self, market: str, fields: Sequence[str], sessions: object) -> MarketBlock:
+    def market_block(
+        self, market: str, fields: Sequence[str], sessions: object, *, overlap: int = 0
+    ) -> MarketBlock:
         """The dense block of the daily bars' `fields` over the calendar rows from the first to
-        the last of `sessions` (5.3.1)."""
-        return build_block(self._manifest, self.calendar(market), fields, sessions)
+        the last of `sessions`, after up to `overlap` rows of the previous chunk (5.3.1)."""
+        return build_block(self._manifest, self.calendar(market), fields, sessions, overlap)
 
     def intervals(
         self,

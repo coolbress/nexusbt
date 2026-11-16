@@ -15,8 +15,9 @@ import pyarrow.parquet as pq
 import pytest
 import yaml
 
+from nexusbt.contracts import SnapshotError
 from nexusbt.data import DataConfig, MarketBlock, Snapshot, open_snapshot
-from nexusbt.data._block import OBS_STATUS
+from nexusbt.data._block import OBS_STATUS, partition_values
 from nexusbt.testing.synth import make_snapshot, read
 from nexusbt_tds.hash import write_hashes
 
@@ -30,6 +31,14 @@ A, B = "KR:T00001", "KR:T00002"
 @pytest.fixture(scope="module")
 def tiny(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return make_snapshot(tmp_path_factory.mktemp("tiny") / "snap", preset="tiny")
+
+
+@pytest.fixture(scope="module")
+def years(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """`small` KR over a year's turn: a bars file per year, 2018 and 2019."""
+    at = tmp_path_factory.mktemp("years") / "snap"
+    return make_snapshot(at, preset="small", markets=("KR",), n_kr=4,
+                         start=dt.date(2018, 12, 3), end=dt.date(2019, 2, 8))  # fmt: skip
 
 
 def edited(
@@ -220,3 +229,90 @@ def test_without_obs_status_f03(tmp_path: Path) -> None:
     assert OBS_STATUS[b.obs_status[row, b.instrument_ids.index(B)]] == "missing"
     assert OBS_STATUS[b.obs_status[row, b.instrument_ids.index(A)]] == "traded"
     assert (OBS_STATUS[b.obs_status[b.exists]] != "absent").all()
+
+
+def test_session_close_rule_is_the_close(tiny: Path, tmp_path: Path) -> None:
+    """#460: on daily bars `session_close` is each cell's session close, as `ts_end` is, with
+    delta 0; `session_open`, a bar used before it is complete (INV-01), is E14."""
+    for rule in ("session_close", "session_open"):
+
+        def declared(entry: dict[str, Any], rule: str = rule) -> None:
+            entry["availability"] = rule
+
+        snap = opened(edited(tiny, tmp_path / rule, declared, bars_1d=lambda rows: rows))
+        if rule == "session_open":
+            with pytest.raises(SnapshotError, match="gives no delay"):
+                whole(snap, "KR", ["close"])
+            continue
+        b, calendar = whole(snap, "KR", ["close"]), snap.calendar("KR")
+        close = np.broadcast_to(calendar.ts_close[:, None], b.ts_available.shape)
+        np.testing.assert_array_equal(b.ts_available[b.exists], close[b.exists])
+        assert calendar.ready_delay == np.timedelta64(0, "us")
+
+
+def test_sessions_not_of_the_market(tiny: Path) -> None:
+    snap = opened(tiny)
+    with pytest.raises(ValueError, match="not KR sessions"):  # 2020-01-04 is a Saturday
+        snap.market_block("KR", ["close"], np.array(["2020-01-04"], dtype="datetime64[D]"))
+    with pytest.raises(ValueError, match="not KR sessions"):
+        snap.market_block("KR", ["close"], np.array([], dtype="datetime64[D]"))
+
+
+def test_tail_overlap_rows(years: Path) -> None:
+    snap = opened(years)
+    dates = snap.calendar("KR").dates
+    own = dates[dates >= np.datetime64("2019-01-01", "D")]
+    before = snap.market_block("KR", ["close"], dates[dates < np.datetime64("2019-01-01", "D")])
+    b = snap.market_block("KR", ["close"], own, overlap=3)
+    assert b.overlap == 3
+    assert (b.dates[:3] == before.dates[-3:]).all()
+    assert (b.dates[3:] == own).all()
+    shared = [i for i in b.instrument_ids if i in before.instrument_ids]
+    assert shared
+    for instrument in shared:  # the previous chunk's tail, cell for cell
+        tail = before.values["close"][-3:, before.instrument_ids.index(instrument)]
+        np.testing.assert_array_equal(b.values["close"][:3, b.instrument_ids.index(instrument)],
+                                      tail)  # fmt: skip
+    # the first chunk's overlap is what the data has: no row before the first session
+    first = snap.market_block("KR", ["close"], dates[:5], overlap=3)
+    assert first.overlap == 0
+    assert len(first.dates) == 5
+
+
+def test_partition_values_from_path(years: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    declared = [{"name": "freq", "type": "code"}, {"name": "market", "type": "code"},
+                {"name": "year", "type": "i16"}]  # fmt: skip
+    path = "bars/freq=1d/market=KR/year=2019/part-00000.parquet"
+    assert partition_values(path, declared) == {"freq": "1d", "market": "KR", "year": 2019}
+    assert partition_values(path, []) == {"freq": "1d", "market": "KR", "year": "2019"}
+    opened_files: list[str] = []
+    read_table = pq.read_table
+
+    def counted(source: Any, *args: Any, **kwargs: Any) -> pa.Table:
+        if "bars" in Path(source).parts:
+            opened_files.append(Path(source).parent.name)
+        return read_table(source, *args, **kwargs)
+
+    snap = opened(years)
+    monkeypatch.setattr(pq, "read_table", counted)
+    dates = snap.calendar("KR").dates
+    january = dates[(dates >= np.datetime64("2019-01-01", "D"))
+                    & (dates < np.datetime64("2019-02-01", "D"))]  # fmt: skip
+    snap.market_block("KR", ["close"], january)
+    assert opened_files == ["year=2019"]  # the path chose the file, not its rows
+    opened_files.clear()
+    snap.market_block("KR", ["close"], january, overlap=2)
+    assert sorted(opened_files) == ["year=2018", "year=2019"]
+
+
+def test_files_chosen_by_stats(years: Path, tmp_path: Path) -> None:
+    """A file whose `files[].stats` range misses the block's rows is not opened (4.6, P1)."""
+
+    def later(entry: dict[str, Any]) -> None:  # stats that place every file in 2030
+        for f in entry["files"]:
+            f["stats"] = {"session_date": ["2030-01-01", "2030-12-31"]}
+
+    snap = opened(edited(years, tmp_path / "stats", later, bars_1d=lambda rows: rows))
+    b = whole(snap, "KR", ["close"])
+    assert b.exists.any()
+    assert np.isnan(b.values["close"]).all()

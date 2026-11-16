@@ -13,7 +13,7 @@ import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
 from nexusbt.contracts import ID_COLUMN as ID
-from nexusbt.contracts import SnapshotError
+from nexusbt.data._calendar import bars_availability
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
@@ -25,6 +25,7 @@ if TYPE_CHECKING:
 OBS_STATUS = np.array(["traded", "no_trade", "halted", "missing", "absent"])
 #: Price cells NaN in a halted or missing session (3.2); `no_trade` keeps its reference close.
 _PRICES = frozenset({"open", "high", "low", "close"})
+_INTEGER = frozenset({"i8", "i16", "i32", "i64"})
 #: Columns a bars file may lack: the block reads them when present (TDS 5.5, F-03).
 _OPTIONAL = ("obs_status", "ts_end", "ts_available")
 
@@ -35,10 +36,11 @@ class MarketBlock:
     chunk (5.3.1). Every array is `(rows, columns)`: `values[field]` float64, `exists` the
     listing mask, `obs_status` codes into `OBS_STATUS`, `ts_available` each cell's availability
     instant (NaT without a bar), which a reader compares with `ready(t)` (5.1.2); a late bar
-    stays in its session's row."""
+    stays in its session's row. The first `overlap` rows are the previous chunk's tail."""
 
     market: str
     dates: NDArray[np.datetime64]
+    overlap: int
     instrument_ids: tuple[str, ...]
     values: Mapping[str, NDArray[np.float64]]
     exists: NDArray[np.bool_]
@@ -46,11 +48,20 @@ class MarketBlock:
     ts_available: NDArray[np.datetime64]
 
 
+def partition_values(path: str, partitioning: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """A file's partition values, read from its path (4.6; they are not in the file): integer
+    types as `int`, every other value as its text."""
+    types = {p.get("name"): p.get("type") for p in partitioning}
+    parts = dict(p.split("=", 1) for p in Path(path).parent.parts if "=" in p)
+    return {k: int(v) if types.get(k) in _INTEGER else v for k, v in parts.items()}
+
+
 def build_block(
-    manifest: Manifest, calendar: Calendar, fields: Sequence[str], sessions: object
+    manifest: Manifest, calendar: Calendar, fields: Sequence[str], sessions: object, overlap: int
 ) -> MarketBlock:
-    """The block of `fields` over the calendar rows from the first to the last of `sessions`
-    (5.3.1). Every bars file is read; choosing them by path and statistics is #236's next PR."""
+    """The block of `fields` over the calendar rows from the first to the last of `sessions`,
+    after up to `overlap` rows before them, the previous chunk's tail (5.3.1). The columns
+    are the instruments listed in `sessions`; the overlap rows show those columns."""
     given = np.asarray(sessions, dtype="datetime64[D]")
     ends = np.searchsorted(calendar.dates, given[[0, -1]]) if len(given) else (-1, -1)
     first, last = (int(e) for e in ends)
@@ -58,7 +69,8 @@ def build_block(
         (calendar.dates[[first, last]] != given[[0, -1]]).any()
     ):
         raise ValueError(f"sessions {given[:1]}..{given[-1:]} are not {calendar.market} sessions")
-    dates = calendar.dates[first : last + 1]
+    start = max(0, first - overlap)
+    dates = calendar.dates[start : last + 1]
     kinds = {d["kind"]: d for d in reversed(manifest.datasets)}  # the first of each kind
     ids, listed, delisted = _axis(manifest, kinds["instruments"], calendar.market, given)
     n, shape = len(ids), (len(dates), len(ids))
@@ -67,11 +79,11 @@ def build_block(
     status = np.full(shape, -1, dtype=np.int8)
     available = np.full(shape, np.datetime64("NaT", "us"))
     bars = kinds["bars"]
-    declared = bars.get("availability")
+    source, _ = bars_availability(bars, str(manifest.data["snapshot_id"]))
     wanted = [ID, "session_date", "close", *fields, *_OPTIONAL]
-    wanted += [declared["column"]] if isinstance(declared, dict) and "column" in declared else []
-    for file in bars["files"] if n else ():
-        rows, cols, table = _cells(manifest.root / file["path"], ids, dates, wanted)
+    wanted += [source] if source != "ts_close" else []  # ts_close is the calendar's
+    for path in _files(bars, calendar.market, dates) if n else ():
+        rows, cols, table = _cells(manifest.root / path, ids, dates, wanted)
         for f in fields:
             values[f][rows, cols] = table[f].to_numpy(zero_copy_only=False).astype(np.float64)
         if "obs_status" in table.column_names:
@@ -79,7 +91,7 @@ def build_block(
             status[rows, cols] = codes.to_numpy().astype(np.int8)
         else:  # F-03: traded with a price, else no_trade
             status[rows, cols] = np.where(pc.is_valid(table["close"]).to_numpy(), 0, 1)
-        available[rows, cols] = _available(bars, table, calendar, first + rows)
+        available[rows, cols] = _available(source, table, calendar, start + rows)
     status[exists & (status == -1)] = 3  # a listed session without a bar is missing (F-03)
     hidden = (status == 2) | (status == 3)  # halted, missing
     for f in fields:
@@ -88,7 +100,26 @@ def build_block(
     if "volume" in values:
         values["volume"][status == 1] = 0.0  # no_trade (3.2)
     status[~exists] = -1
-    return MarketBlock(calendar.market, dates, ids, values, exists, status, available)
+    return MarketBlock(calendar.market, dates, first - start, ids, values, exists, status,
+                       available)  # fmt: skip
+
+
+def _files(entry: Mapping[str, Any], market: str, dates: NDArray[np.datetime64]) -> list[str]:
+    """The bars files that can hold rows of `market` on `dates`, chosen by the path's partition
+    values and `files[].stats` alone, no footer opened (4.6, P1)."""
+    low, high = str(dates[0]), str(dates[-1])
+    chosen = []
+    for f in entry["files"]:
+        parts = partition_values(f["path"], entry.get("partitioning", []))
+        if parts.get("market", market) != market:
+            continue
+        if "year" in parts and not int(low[:4]) <= int(parts["year"]) <= int(high[:4]):
+            continue
+        span = f.get("stats", {}).get("session_date")
+        if span and (str(span[1]) < low or str(span[0]) > high):
+            continue
+        chosen.append(f["path"])
+    return chosen
 
 
 def _axis(
@@ -133,32 +164,19 @@ def _cells(
 
 
 def _available(
-    entry: Mapping[str, Any], table: pa.Table, calendar: Calendar, rows: NDArray[np.intp]
+    source: str, table: pa.Table, calendar: Calendar, rows: NDArray[np.intp]
 ) -> NDArray[np.datetime64]:
-    """Each bar's `ts_available` by the dataset's availability (4.6, TDS 6.2): the column
-    under a column rule, `ts_end` (a null one is the session close) plus 5.1.2's delay under
-    `ts_end[+<duration>]`, the session's own open or close under `session_open/close`."""
-    declared = entry.get("availability", "ts_end")
-    rule = declared.get("rule", "column") if isinstance(declared, dict) else declared
-    column = str(declared.get("column", "ts_available")) if isinstance(declared, dict) else ""
-    column = column or "ts_available"  # the bare rule `column` (TDS 6.2)
-
-    def stamps(name: str) -> NDArray[np.datetime64]:
-        out: NDArray[np.datetime64] = table[name].to_numpy(zero_copy_only=False)
-        return out.astype("datetime64[us]")
-
-    if rule == "column" and column in table.column_names:
-        return stamps(column)
-    if str(rule).startswith("ts_end"):
-        end = stamps("ts_end") if "ts_end" in table.column_names else calendar.ts_close[rows]
-        end = np.where(np.isnat(end), calendar.ts_close[rows], end)
-        return end + calendar.ready_delay
-    if rule in ("session_open", "session_close"):
-        return (calendar.ts_open if rule == "session_open" else calendar.ts_close)[rows]
-    raise SnapshotError(
-        what=f"bars availability {declared!r} is not one the market block reads",
-        where="tds.json, the bars dataset", why="a block keeps each cell's ts_available (5.3.1)",
-        fix="declare a column, ts_end, ts_end+<duration>, session_open or session_close",
-        more="spec 4.6 and 5.3.1; TDS 6.2",
-        layer="data — snapshot - / bars / column ts_available / producer -",
-    )  # fmt: skip
+    """Each bar's `ts_available` from `bars_availability`'s source (4.6, TDS 6.2): the
+    session's `ts_close`, the column as it is, or `ts_end` (a null one is the session close,
+    TDS 5.5) plus 5.1.2's delay."""
+    close = calendar.ts_close[rows]
+    if source == "ts_close":
+        return close
+    if source == "ts_end" and source not in table.column_names:
+        return close + calendar.ready_delay
+    stamps: NDArray[np.datetime64] = table[source].to_numpy(zero_copy_only=False)
+    stamps = stamps.astype("datetime64[us]")
+    if source != "ts_end":
+        return stamps
+    ended: NDArray[np.datetime64] = np.where(np.isnat(stamps), close, stamps)
+    return ended + calendar.ready_delay
