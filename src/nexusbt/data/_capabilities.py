@@ -212,22 +212,33 @@ def _no_grid(
     folder: Path, kinds: Mapping[str, Mapping[str, Any]], rules: Mapping[str, str | None],
     by_market: Mapping[str, Mapping[str, Any]], market_of: Mapping[str, str],
 ) -> list[FallbackRecord]:  # fmt: skip
-    """F-15: a market with a pack and no grid anywhere in 4.3's chain: no `classifications`
-    scheme `tick_rule_id` row of its instruments, no instrument tick column, no
-    `market_rules` rows of the market and no `tick_table` or `base_unit` in its pack."""
-    ticks = {"tick_size", "tick_rule_id"} & _columns(folder, kinds.get("instruments"))
-    ruled = kinds.get("market_rules", {}).get("coverage", {}).get("by_market", {})
-    bare = [m for m, pack in rules.items() if pack is not None  # no pack: nothing runs (4.4-4)
-            and not ({"tick_table", "base_unit"} & load_pack(pack.split("@")[0])["grid"].keys()
-                     or ticks or m in ruled)]  # fmt: skip
-    classified: set[str | None] = set()
-    for f in kinds.get("classifications", {}).get("files", []) if bare else ():  # only then
+    """F-15: a market with a pack where no instrument has a usable source of 4.3's grid chain
+    (#453): a non-null `instruments.tick_size`; a `tick_rule_id`, of a `classifications` row
+    of that scheme or of `instruments`, that is the `rule_id` of a `market_rules` `tick_band`
+    rule set (5.6.4a); `tick_band` rows of the market; a `tick_table` or `base_unit` in its
+    pack. Dates are not read: whether a row applies on a day is the grid lookup's (T3.24)."""
+    # a market without a pack is not here: nothing runs there (4.4-4)
+    packed = {m: load_pack(p.split("@")[0])["grid"] for m, p in rules.items() if p is not None}
+    bare = [m for m, grid in packed.items() if not {"tick_table", "base_unit"} & grid.keys()]
+    if not bare:
+        return []
+    rows = _values(folder, kinds.get("market_rules"), "rule_id", "market", "rule_kind")
+    bands = [(r, m) for r, m, kind in rows if kind == "tick_band"]
+    named = {r for r, _ in bands}
+    sourced: set[str | None] = {m for _, m in bands}
+    instruments = kinds.get("instruments")
+    held = [c for c in ("tick_size", "tick_rule_id") if c in _columns(folder, instruments)]
+    for i, *ticks in _values(folder, instruments, ID_COLUMN, *held) if held else ():
+        tick = dict(zip(held, ticks, strict=True))
+        if tick.get("tick_size") is not None or tick.get("tick_rule_id") in named:
+            sourced.add(market_of.get(i))
+    for f in kinds.get("classifications", {}).get("files", []) if named else ():  # only then
         table = pq.read_table(folder / f["path"], columns=[ID_COLUMN, "code"],
                               filters=[("scheme", "=", "tick_rule_id")])  # fmt: skip
         ids, codes = table[ID_COLUMN].to_pylist(), table["code"].to_pylist()
-        classified |= {market_of.get(i) for i, c in zip(ids, codes, strict=True) if c}
+        sourced |= {market_of.get(i) for i, c in zip(ids, codes, strict=True) if c in named}
     return [FallbackRecord("F-15", "market_rules", m, int(by_market.get(m, {}).get(
-        "instruments", 0))) for m in bare if m not in classified]  # fmt: skip
+        "instruments", 0))) for m in bare if m not in sourced]  # fmt: skip
 
 
 def _layer(data: Mapping[str, Any], dataset: str) -> str:

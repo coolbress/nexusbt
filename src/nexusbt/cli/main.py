@@ -71,6 +71,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     commands = parser.add_subparsers(dest="command", metavar="COMMAND", required=True)
     sub = {name: commands.add_parser(name, help=help_text) for name, help_text in COMMANDS}
     sub["init"].add_argument("--data-root", metavar="PATH")
+    sub["init"].add_argument("--new-family", metavar="REASON")
     commands.add_parser("bugreport", help="bundle a run for a bug report").add_argument("run_id")
     try:
         return _run(parser.parse_args(argv))
@@ -87,7 +88,7 @@ def _run(args: argparse.Namespace) -> int:
         print(_bundle(args.run_id))
         return 0
     if args.command == "init":
-        print(api_doctor.init(args.data_root))
+        print(api_doctor.init(args.data_root, new_family=args.new_family))
         return 0
     if args.command == "doctor":
         print(api_doctor.doctor())
