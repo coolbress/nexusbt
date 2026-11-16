@@ -69,6 +69,8 @@ def build_block(
         (calendar.dates[[first, last]] != given[[0, -1]]).any()
     ):
         raise ValueError(f"sessions {given[:1]}..{given[-1:]} are not {calendar.market} sessions")
+    if overlap < 0:
+        raise ValueError(f"overlap {overlap} is negative; it counts rows before the sessions")
     start = max(0, first - overlap)
     dates = calendar.dates[start : last + 1]
     kinds = {d["kind"]: d for d in reversed(manifest.datasets)}  # the first of each kind

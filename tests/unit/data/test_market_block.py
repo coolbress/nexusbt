@@ -277,6 +277,8 @@ def test_tail_overlap_rows(years: Path) -> None:
     first = snap.market_block("KR", ["close"], dates[:5], overlap=3)
     assert first.overlap == 0
     assert len(first.dates) == 5
+    with pytest.raises(ValueError, match="negative"):  # it would drop own rows silently
+        snap.market_block("KR", ["close"], dates[5:10], overlap=-3)
 
 
 def test_partition_values_from_path(years: Path, monkeypatch: pytest.MonkeyPatch) -> None:
