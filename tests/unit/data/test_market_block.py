@@ -18,7 +18,9 @@ import yaml
 from nexusbt.contracts import SnapshotError
 from nexusbt.data import DataConfig, MarketBlock, Snapshot, open_snapshot
 from nexusbt.data._block import OBS_STATUS, partition_values
+from nexusbt.data._l0 import l0_key
 from nexusbt.testing.synth import make_snapshot, read
+from nexusbt_tds import read_manifest
 from nexusbt_tds.hash import write_hashes
 
 pytestmark = pytest.mark.unit
@@ -318,3 +320,174 @@ def test_files_chosen_by_stats(years: Path, tmp_path: Path) -> None:
     b = whole(snap, "KR", ["close"])
     assert b.exists.any()
     assert np.isnan(b.values["close"]).all()
+
+
+def test_ts_end_rule_without_the_column(tiny: Path, tmp_path: Path) -> None:
+    """Under `ts_end` a bar without `ts_end` ends at its session's close (TDS 5.5), plus delta."""
+    root = shutil.copytree(tiny, tmp_path / "bare")
+    data = json.loads((root / "tds.json").read_text(encoding="utf-8"))
+    bars_of(data)["availability"] = "ts_end+PT5M"
+    for f in bars_of(data)["files"]:
+        pq.write_table(pq.read_table(part := root / f["path"]).drop_columns(["ts_end"]), part)
+        f["bytes"] = part.stat().st_size
+    (root / "tds.json").write_text(json.dumps(data), encoding="utf-8")
+    write_hashes(root)
+    snap = opened(root)
+    b, calendar = whole(snap, "KR", ["close"]), snap.calendar("KR")
+    ready = np.broadcast_to(calendar.ready[:, None], b.ts_available.shape)
+    np.testing.assert_array_equal(b.ts_available[b.exists], ready[b.exists])
+
+
+# L0 keys (5.3.9): which of the 2018 and 2019 keys a change of the package moves.
+
+
+def keys(root: Path, column: str = "close", edition: str = "strict") -> dict[int, str]:
+    manifest = read_manifest(root)
+    return {y: l0_key(manifest, "KR", column, y, edition) for y in (2018, 2019)}
+
+
+def moved(base: Path, at: Path, **changes: Callable[[Rows], Rows]) -> set[int]:
+    """The years whose key differs between `base` and a copy with `changes` (as `edited`)."""
+    before, after = keys(base), keys(edited(base, at, None, **changes))
+    return {y for y in before if before[y] != after[y]}
+
+
+def manifest_moved(base: Path, at: Path, change: Callable[[dict[str, Any]], None]) -> set[int]:
+    """The same for a change of tds.json alone, its hashes left as they are."""
+    shutil.copytree(base, at)
+    data = json.loads((at / "tds.json").read_text(encoding="utf-8"))
+    change(data)
+    (at / "tds.json").write_text(json.dumps(data), encoding="utf-8")
+    before, after = keys(base), keys(at)
+    return {y for y in before if before[y] != after[y]}
+
+
+def bars_of(data: dict[str, Any]) -> dict[str, Any]:
+    return next(d for d in data["datasets"] if d["kind"] == "bars")
+
+
+def first_of(year: int, then: Callable[[dict[str, Any]], None]) -> Callable[[Rows], Rows]:
+    """A change of the first row dated in `year` by `then`."""
+
+    def change(rows: Rows) -> Rows:
+        hit = [r for r in rows if r["session_date"].year == year]
+        if hit:
+            then(hit[0])
+        return rows
+
+    return change
+
+
+def test_l0_key_partition_scoped(years: Path, tmp_path: Path) -> None:
+    """File sha256 of the (market, year) partition, every revision of the chain, the axis rows
+    and the stable `markets` fields are in the key; another partition's are not (R3-04)."""
+    assert len(set(keys(years).values())) == 2
+    assert keys(years, "open") != keys(years)
+    assert keys(years, edition="compare") != keys(years)
+    bump = first_of(2019, lambda r: r.update(close=r["close"] + 1))
+    assert moved(years, tmp_path / "file", bars_1d=bump) == {2019}
+
+    def later(rows: Rows) -> Rows:  # a middle version's publication time, nothing else
+        for r in rows:
+            if r["event_id"] == "KR:E000001":
+                r["ts_announced"] -= dt.timedelta(hours=1)
+        return rows
+
+    assert moved(years, tmp_path / "chain", corporate_actions=later) == {2019}  # ex-dates 2019
+    for field, value in (("currency", "USD"), ("timezone", "UTC"), ("calendar_id", "XKOS")):
+
+        def stable(data: dict[str, Any], field: str = field, value: str = value) -> None:
+            data["markets"]["KR"][field] = value
+
+        assert manifest_moved(years, tmp_path / field, stable) == {2018, 2019}
+    policies = {"policies": {"price_basis": "raw"}}
+    assert manifest_moved(years, tmp_path / "policies", lambda d: d.update(policies)) == {
+        2018, 2019}  # fmt: skip
+
+
+def test_l0_key_ignores_watermark(years: Path, tmp_path: Path) -> None:
+    def tomorrow(data: dict[str, Any]) -> None:
+        data["markets"]["KR"].update(complete_through_session="2019-02-11",
+                                     complete_through="2019-02-11T06:30:00Z")  # fmt: skip
+
+    assert manifest_moved(years, tmp_path / "watermark", tomorrow) == set()
+
+
+def test_l0_key_ignores_advisory_value_hash(years: Path, tmp_path: Path) -> None:
+    def wrong(data: dict[str, Any]) -> None:  # H004's advisory hash, not an identity
+        for f in bars_of(data)["files"]:
+            f["value_sha256"] = "0" * 64
+
+    assert manifest_moved(years, tmp_path / "value", wrong) == set()
+
+    def recorded(data: dict[str, Any]) -> None:  # the file sha256 is the identity
+        for f in bars_of(data)["files"]:
+            if "year=2018" in f["path"]:
+                f["sha256"] = "0" * 64
+
+    assert manifest_moved(years, tmp_path / "sha", recorded) == {2018}
+
+
+def copy_of(source: str, **changes: Any) -> Callable[[Rows], Rows]:
+    """A change adding a copy of instrument `source`'s row with `changes`."""
+    return lambda rows: [*rows, {**next(r for r in rows if r["instrument_id"] == source),
+                                 **changes}]  # fmt: skip
+
+
+def test_l0_key_axis_rows_invalidation_table(years: Path, tmp_path: Path) -> None:
+    """5.3.9's table: each axis change misses exactly the years it names (2018 = Y, 2019 = Y+1
+    and the current year)."""
+
+    def tomorrow(rows: Rows) -> Rows:  # the session after the last, 2019-02-11 (a Monday)
+        last = max((r for r in rows if r["calendar_id"] == "XKRX"), key=lambda r: r["session_date"])
+        three = dt.timedelta(days=3)
+        return [*rows, {**last, "session_date": last["session_date"] + three,
+                        "ts_open": last["ts_open"] + three, "ts_close": last["ts_close"] + three,
+                        "session_ord": last["session_ord"] + 1}]  # fmt: skip
+
+    assert moved(years, tmp_path / "t", calendar_sessions=tomorrow) == {2019}
+    new = copy_of(A, instrument_id="KR:T00099", listed_on=dt.date(2019, 1, 15))
+    assert moved(years, tmp_path / "n1", instruments=new) == {2019}  # listed this year
+    old = copy_of(A, instrument_id="KR:T00098", listed_on=dt.date(2018, 12, 10))
+    assert moved(years, tmp_path / "n2", instruments=old) == {2018, 2019}  # to the current year
+
+    def relisted(rows: Rows) -> Rows:  # 2018-12-03 corrected to 2019-01-07
+        next(r for r in rows if r["instrument_id"] == B)["listed_on"] = dt.date(2019, 1, 7)
+        return rows
+
+    assert moved(years, tmp_path / "l", instruments=relisted) == {2018, 2019}  # old or new
+    hour = dt.timedelta(hours=1)
+    late = first_of(2018, lambda r: r.update(ts_close=r["ts_close"] + hour))
+    assert moved(years, tmp_path / "s18", calendar_sessions=late) == {2018, 2019}  # Y and Y+1
+    late = first_of(2019, lambda r: r.update(ts_close=r["ts_close"] + hour))
+    assert moved(years, tmp_path / "s19", calendar_sessions=late) == {2019}
+    versions = []
+    for label in ("v1", "v2"):  # calendar_version rewritten on past rows: no year misses
+        at = shutil.copytree(years, tmp_path / label)
+        (part,) = (at / "calendar_sessions").glob("*.parquet")
+        table = pq.read_table(part)
+        pq.write_table(table.append_column("calendar_version", pa.array([label] * len(table))),
+                       part)  # fmt: skip
+        write_hashes(at)
+        versions.append(keys(at))
+    assert versions[0] == versions[1]
+
+
+def test_l0_key_ignores_axis_rows_outside_the_year(years: Path, tmp_path: Path) -> None:
+    """A listing inside 2018 is no row of 2019's key, and a field the block does not read
+    (`name`) is in no key; the previous year's instruments are not hashed (5.3.9)."""
+    brief = copy_of(
+        A,
+        instrument_id="KR:T00097",
+        listed_on=dt.date(2018, 12, 3),
+        last_session=dt.date(2018, 12, 20),
+        delisted_on=dt.date(2018, 12, 20),
+    )
+    assert moved(years, tmp_path / "brief", instruments=brief) == {2018}
+
+    def renamed(rows: Rows) -> Rows:
+        for r in rows:
+            r["name"] = f"renamed {r['instrument_id']}"
+        return rows
+
+    assert moved(years, tmp_path / "name", instruments=renamed) == set()

@@ -6,6 +6,10 @@ the name is bound to `api.config`, so only attribute access such as `nexusbt.con
 """
 
 import typing as _typing
+from importlib import metadata as _metadata
+
+# Modules (3.1): `__version__`, T1.4 (#236): the installed distribution's, in L0 keys (5.3.9).
+__version__ = _metadata.version("nexusbt")
 
 # Functions (3.1): `config`, T0.5a (#53). `api` loads the subpackage `nexusbt.config` (2.4) first,
 # so the 3.1 function holds the name; `import nexusbt.config` still finds the module.
