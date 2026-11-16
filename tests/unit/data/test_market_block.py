@@ -394,6 +394,22 @@ def test_l0_key_partition_scoped(years: Path, tmp_path: Path) -> None:
         return rows
 
     assert moved(years, tmp_path / "chain", corporate_actions=later) == {2019}  # ex-dates 2019
+
+    def earlier(rows: Rows) -> Rows:  # the split's ex-date moved into 2018
+        for r in rows:
+            if r["event_id"] == "KR:E000003":
+                r["ex_date"], r["ts_effective"] = dt.date(2018, 12, 12), None
+        return rows
+
+    def announced(rows: Rows) -> Rows:  # its publication time only
+        for r in earlier(rows):
+            if r["event_id"] == "KR:E000003":
+                r["ts_announced"] -= dt.timedelta(hours=1)
+        return rows
+
+    base = edited(years, tmp_path / "chain18", None, corporate_actions=earlier)
+    # a chain effective by 2018's end is in 2018's key and every later year's (5.3.9)
+    assert moved(base, tmp_path / "chain18b", corporate_actions=announced) == {2018, 2019}
     for field, value in (("currency", "USD"), ("timezone", "UTC"), ("calendar_id", "XKOS")):
 
         def stable(data: dict[str, Any], field: str = field, value: str = value) -> None:
