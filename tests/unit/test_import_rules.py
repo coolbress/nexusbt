@@ -51,7 +51,7 @@ PENDING_3_1 = {
     " RunTable Description Preregistration Config Snapshot Book",
     "Types": "Param Schedule PortfolioRule Sizer RiskRule ExecutionRule"
     " CostModel Window DecisionContext",
-    "Modules": "compat testing __version__",
+    "Modules": "compat testing",  # `__version__`: T1.4 (#236)
 }
 ROOT = Path(__file__).resolve().parents[2]
 SPEC = ROOT / "docs" / "spec" / "engine-spec-v3.4.md"
