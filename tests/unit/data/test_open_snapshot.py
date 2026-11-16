@@ -37,6 +37,7 @@ from nexusbt.data import (
     open_snapshot,
 )
 from nexusbt.data._capabilities import _columns
+from nexusbt.testing._synth_daily import RULES
 from nexusbt.testing.synth import make_snapshot
 from nexusbt_tds import ProfileStatus
 from nexusbt_tds.hash import declared_value_hash, package_hashes, write_hashes
@@ -457,26 +458,85 @@ def test_volume_unit_market_from_instruments(tmp_path: Path) -> None:
     assert s.fallbacks == [FallbackRecord("F-16", "bars_1d", "KR", 16)]
 
 
-def test_grid_from_classifications_is_no_fallback(tmp_path: Path) -> None:
-    """4.3's grid chain starts at `classifications` scheme `tick_rule_id`: a ZZ instrument
-    with one has a grid, so the generic pack's ZZ takes no F-15."""
-    path = make_snapshot(tmp_path / "t", preset="tiny", markets=("KR", "ZZ"),
-                         degrade=["no_tick_info"])  # fmt: skip
-    (path / "classifications").mkdir()
-    row = {"instrument_id": "ZZ:T00001", "scheme": "tick_rule_id", "level": 0, "code": "zz-tick",
-           "label": None, "effective_from": dt.date(2020, 1, 2), "effective_to": None,
-           "ts_known_from": dt.datetime(2020, 1, 1, tzinfo=dt.UTC), "ts_known_to": None,
-           "edition": "economic", "pit_quality": "pit", "source": "test"}  # fmt: skip
-    pq.write_table(pa.Table.from_pylist([row]), part := path / "classifications" / "p.parquet")
-    edit_manifest(path, lambda d: d["datasets"].append({
-        "name": "classifications", "kind": "classifications", "path": "classifications",
-        "schema_version": "1.0", "coverage": {},
-        "files": [{"path": "classifications/p.parquet", "rows": 1,
-                   "bytes": part.stat().st_size}]}))  # fmt: skip
+def rule(rule_id: str, market: str = "KR", kind: str = "tick_band") -> dict[str, Any]:
+    """A TDS 5.27 `market_rules` row of rule set `rule_id`."""
+    band = kind == "tick_band"
+    return {"rule_id": rule_id, "market": market, "rule_kind": kind, "venue_group": "*",
+            "valid_from": dt.date(2020, 1, 2), "valid_to": None, "price_from": 0.0,
+            "price_to": None, "tick_size": 0.01 if band else None,
+            "limit_ratio": None if band else 0.3, "source": "test", "verified": True}  # fmt: skip
+
+
+def gridded(
+    at: Path, ticks: dict[str, tuple[float | None, str | None]] | None = None,
+    rules: Rows | None = None, codes: dict[str, tuple[str, dt.date]] | None = None,
+) -> Path:  # fmt: skip
+    """The tiny KR and ZZ package without tick information (ZZ: the generic pack, no grid),
+    given `instruments` tick columns (`ticks`: id → (tick_size, tick_rule_id), the rest null),
+    these `market_rules` rows, and `classifications` tick_rule_id rows (id → (code, from))."""
+    path = make_snapshot(at, preset="tiny", markets=("KR", "ZZ"), degrade=["no_tick_info"])
+
+    def change(data: dict[str, Any]) -> None:
+        for f in dataset(data, "instruments")["files"] if ticks is not None else ():
+            assert ticks is not None  # for mypy: the loop runs only then
+            t = pq.read_table(part := path / f["path"])
+            pairs = [ticks.get(i, (None, None)) for i in t["instrument_id"].to_pylist()]
+            t = t.append_column("tick_size", pa.array([p[0] for p in pairs], pa.float64()))
+            t = t.append_column("tick_rule_id", pa.array([p[1] for p in pairs], pa.string()))
+            pq.write_table(t, part)
+            f.update(bytes=part.stat().st_size)
+        classified = [{"instrument_id": i, "scheme": "tick_rule_id", "level": 0, "code": code,
+                       "label": None, "effective_from": start, "effective_to": None,
+                       "ts_known_from": dt.datetime(2020, 1, 1, tzinfo=dt.UTC),
+                       "ts_known_to": None, "edition": "economic", "pit_quality": "pit",
+                       "source": "test"} for i, (code, start) in (codes or {}).items()]  # fmt: skip
+        for kind, rows, schema in (("market_rules", rules, RULES),
+                                   ("classifications", classified, None)):  # fmt: skip
+            if rows:
+                (path / kind).mkdir()
+                part = path / kind / "p.parquet"
+                pq.write_table(pa.Table.from_pylist(rows, schema), part)
+                data["datasets"].append({
+                    "name": kind, "kind": kind, "path": kind, "schema_version": "1.0",
+                    "coverage": {}, "files": [{"path": f"{kind}/p.parquet", "rows": len(rows),
+                                               "bytes": part.stat().st_size}]})  # fmt: skip
+
+    edit_manifest(path, change)
     write_hashes(path)
-    grid = CapabilityRequest(frozenset({"grid"}))
-    s = open_snapshot(DataConfig(path=path, allow_untested=True), required=grid)  # no E30
+    return path
+
+
+GRID = CapabilityRequest(frozenset({"grid"}))
+ZZ1, START, LATER = "ZZ:T00001", dt.date(2020, 1, 2), dt.date(2030, 1, 2)  # LATER: after the bars
+
+
+@pytest.mark.parametrize("source", [
+    {"ticks": {ZZ1: (0.01, None)}},
+    {"ticks": {ZZ1: (None, "zz-tick")}, "rules": [rule("zz-tick")]},
+    {"codes": {ZZ1: ("zz-tick", LATER)}, "rules": [rule("zz-tick")]},  # dates are not read
+    {"rules": [rule("zz-band", market="ZZ")]},
+], ids=["tick_size", "tick_rule_id", "classifications", "market_rules"])  # fmt: skip
+def test_one_instrument_with_a_grid_source_is_no_f15(tmp_path: Path, source: Any) -> None:
+    """#453: a usable grid source for one of ZZ's six instruments: no F-15 for ZZ. The
+    `tick_band` rule set a code names is filed under KR, so that ZZ's own rows give nothing."""
+    path = gridded(tmp_path / "t", **source)
+    s = open_snapshot(DataConfig(path=path, allow_untested=True), required=GRID)  # no E30
     assert s.fallbacks == []
+
+
+@pytest.mark.parametrize("source", [
+    {"ticks": {}},  # the columns, every value null
+    {"ticks": {ZZ1: (None, "zz-tick")}},
+    {"codes": {ZZ1: ("zz-tick", START)}, "rules": [rule("kr-tick")]},
+    {"codes": {ZZ1: ("zz-tick", START)}, "rules": [rule("zz-tick", "ZZ", "price_limit")]},
+], ids=["null-columns", "dangling-column", "dangling-code", "price_limit-only"])  # fmt: skip
+def test_unusable_grid_source_is_f15(tmp_path: Path, source: Any) -> None:
+    """#453: a null column, a code that names no `tick_band` rule set, and `price_limit` rows
+    give no grid: F-15 with the count of ZZ's instruments."""
+    path = gridded(tmp_path / "t", **source)
+    with pytest.warns(UserWarning, match="price grid = currency minor unit for ZZ"):
+        s = open_snapshot(DataConfig(path=path, allow_untested=True), required=GRID)
+    assert s.fallbacks == [FallbackRecord("F-15", "market_rules", "ZZ", 6)]
 
 
 def test_bar_outside_synthesized_calendar_is_r003(tmp_path: Path) -> None:

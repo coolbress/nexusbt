@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -13,6 +14,7 @@ import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
 from nexusbt.contracts import ID_COLUMN as ID
+from nexusbt.contracts import SnapshotError
 from nexusbt.data._calendar import bars_availability
 
 if TYPE_CHECKING:
@@ -82,10 +84,12 @@ def build_block(
     available = np.full(shape, np.datetime64("NaT", "us"))
     bars = kinds["bars"]
     source, _ = bars_availability(bars, str(manifest.data["snapshot_id"]))
-    wanted = [ID, "session_date", "close", *fields, *_OPTIONAL]
-    wanted += [source] if source != "ts_close" else []  # ts_close is the calendar's
+    wanted = [ID, "session_date", "close", *fields]
+    optional = [*_OPTIONAL, *([source] if source != "ts_close" else [])]  # ts_close: calendar's
     for path in _files(bars, calendar.market, dates) if n else ():
-        rows, cols, table = _cells(manifest.root / path, ids, dates, wanted)
+        rows, cols, table = _cells(manifest.root / path, ids, dates, wanted, optional)
+        if source not in (*table.column_names, "ts_end", "ts_close"):
+            raise _absent(manifest, bars, path, source)
         for f in fields:
             values[f][rows, cols] = table[f].to_numpy(zero_copy_only=False).astype(np.float64)
         if "obs_status" in table.column_names:
@@ -108,20 +112,37 @@ def build_block(
 
 def _files(entry: Mapping[str, Any], market: str, dates: NDArray[np.datetime64]) -> list[str]:
     """The bars files that can hold rows of `market` on `dates`, chosen by the path's partition
-    values and `files[].stats` alone, no footer opened (4.6, P1)."""
-    low, high = str(dates[0]), str(dates[-1])
+    values and `files[].stats` alone, no footer opened (4.6, P1). The statistics are read as
+    dates; a value that is no date leaves the file to be read (#480)."""
+    low, high = dates[0].item(), dates[-1].item()
     chosen = []
     for f in entry["files"]:
         parts = partition_values(f["path"], entry.get("partitioning", []))
         if parts.get("market", market) != market:
             continue
-        if "year" in parts and not int(low[:4]) <= int(parts["year"]) <= int(high[:4]):
+        if "year" in parts and not low.year <= int(parts["year"]) <= high.year:
             continue
-        span = f.get("stats", {}).get("session_date")
-        if span and (str(span[1]) < low or str(span[0]) > high):
+        span = (f.get("stats") or {}).get("session_date")
+        first, last = _dates(span) if isinstance(span, list) and len(span) == 2 else (None,) * 2
+        if (last is not None and last < low) or (first is not None and first > high):
             continue
         chosen.append(f["path"])
     return chosen
+
+
+def _dates(span: Sequence[object]) -> tuple[dt.date | None, dt.date | None]:
+    """A statistic's first and last dates (4.6): `YYYY-MM-DD` or ISO 8601 date-time text gives
+    its date, widened by a day on its side when it carries a UTC offset, since the market's
+    date may be another; a value that is no date gives None."""
+    out: list[dt.date | None] = []
+    for value, side in zip(span, (-1, 1), strict=True):
+        try:
+            stamp = dt.datetime.fromisoformat(str(value))
+        except ValueError:
+            out.append(None)
+            continue
+        out.append(stamp.date() + dt.timedelta(days=side if stamp.tzinfo else 0))
+    return out[0], out[1]
 
 
 def _axis(
@@ -141,14 +162,31 @@ def _axis(
     return ids, listed[meets], delisted[meets]
 
 
+def _absent(manifest: Manifest, bars: Mapping[str, Any], path: str, column: str) -> SnapshotError:
+    """E14 `TDS-T002` (#480): the column rule names a column the file lacks, which the checker
+    finds at `schema` and `manifest` leaves unread (TDS 6.2)."""
+    data, producer = manifest.data, manifest.data.get("producer")
+    return SnapshotError.from_check(
+        path=str(manifest.root), counts={"TDS-T002": 1}, dataset=str(bars["name"]), file=path,
+        key="-", hint=f"availability names column {column}, which the file does not have",
+        snapshot_id=str(data["snapshot_id"]), column=column,
+        producer=str(producer.get("name", "-")) if isinstance(producer, dict) else "-",
+    )  # fmt: skip
+
+
 def _cells(
-    path: Path, ids: tuple[str, ...], dates: NDArray[np.datetime64], wanted: Sequence[str]
+    path: Path,
+    ids: tuple[str, ...],
+    dates: NDArray[np.datetime64],
+    wanted: Sequence[str],
+    optional: Sequence[str],
 ) -> tuple[NDArray[np.intp], NDArray[np.intp], pa.Table]:
-    """A file's rows that fall in the block, with their row and column numbers. The
-    dictionary of `instrument_id` is mapped to column numbers once, then each row's
-    index is looked up in that small table (5.3.1, A-05). `ids` is sorted and not empty."""
+    """A file's rows that fall in the block, with their row and column numbers; the `optional`
+    columns are read when the file has them. The dictionary of `instrument_id` is mapped to
+    column numbers once, then each row's index is looked up in that small table (5.3.1,
+    A-05). `ids` is sorted and not empty."""
     names = set(pq.read_schema(path).names)
-    columns = list(dict.fromkeys(c for c in wanted if c in names or c not in _OPTIONAL))
+    columns = list(dict.fromkeys([*wanted, *(c for c in optional if c in names)]))
     table = pq.read_table(path, columns=columns, read_dictionary=[ID])
     sorted_ids = np.array(ids, dtype=object)
     cols = []
