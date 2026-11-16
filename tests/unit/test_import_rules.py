@@ -1,4 +1,5 @@
-"""Spec 2.5, the dependency rules, read from every import and call through the AST.
+"""Spec 2.5, the dependency rules, read from every import and call through the AST; and the
+2.4 seams, whose functions exchange only Arrow-shaped values (`seam_violations`).
 
 The graph is copied from 2.5 as drawn; `X ← Y` reads "Y imports X". The import
 rule is four lines (#41 D2), quoted from 2.5 as written:
@@ -22,14 +23,21 @@ re-exports the 3.1 surface (2.3) and is outside the graph; the ban still applies
 from __future__ import annotations
 
 import ast
+import inspect
 import json
+import math
 import re
 import subprocess
 import sys
+import types
+import typing
 from collections.abc import Callable
 from itertools import pairwise
 from pathlib import Path
 
+import numpy as np
+import numpy.typing as npt
+import pyarrow as pa
 import pytest
 
 Check = Callable[[tuple[str, ...], str], list[str]]
@@ -249,3 +257,100 @@ def test_rules_catch_a_violation(module: tuple[str, ...], source: str, check: Ch
 )
 def test_rules_allow_a_direct_arrow(module: tuple[str, ...], source: str) -> None:
     assert layer_violations(module, source) == []
+
+
+def arrow_only(hint: object) -> bool:
+    """2.4's seam types: an Arrow array, a numpy array of numbers, booleans or times, an int or
+    float scalar (an integer code is an int), or a tuple of them. No object array, no bool
+    scalar standing for a flag object, no Python container, callback or dict."""
+    if hint in (int, float, pa.Array):
+        return True
+    origin, args = typing.get_origin(hint), typing.get_args(hint)
+    if origin is tuple:
+        return bool(args) and all(arrow_only(a) for a in args if a is not Ellipsis)
+    if origin is npt.NDArray:  # numpy 2.5's alias: `NDArray[np.float64]` has the scalar type
+        scalar = args[0]
+    elif origin is np.ndarray:  # `np.ndarray[shape, np.dtype[np.float64]]`
+        scalar = typing.get_args(args[1])[0] if typing.get_args(args[1]) else None
+    else:
+        return False
+    return isinstance(scalar, type) and issubclass(scalar, np.number | np.bool_ | np.datetime64)
+
+
+def seam_callables(module: types.ModuleType) -> dict[str, object]:
+    """Every public callable the seam offers, its own or imported, a Numba dispatcher included;
+    a submodule, a class and a type alias are not kernels."""
+    return {
+        name: obj
+        for name, obj in sorted(vars(module).items())
+        if not name.startswith("_")
+        and callable(obj)
+        and not isinstance(obj, type | types.ModuleType)
+        and typing.get_origin(obj) is None
+    }
+
+
+def seam_violations(module: types.ModuleType) -> list[str]:
+    """Each public callable of the seam is a Python function (a Numba dispatcher by its
+    `py_func`) with every parameter and its result typed `arrow_only`; `*args` and `**kwargs`
+    could carry anything, and a callable with no readable signature could take anything."""
+    out = []
+    for name, obj in seam_callables(module).items():
+        fn = getattr(obj, "py_func", obj)
+        if not inspect.isfunction(fn):
+            out.append(f"{name}: a {type(obj).__name__}, not a typed function")
+            continue
+        hints = typing.get_type_hints(fn)
+        for param in inspect.signature(fn).parameters.values():
+            if param.kind in (param.VAR_POSITIONAL, param.VAR_KEYWORD):
+                out.append(f"{name}(*{param.name})")
+            elif not arrow_only(hints.get(param.name)):
+                out.append(f"{name}({param.name}: {hints.get(param.name)})")
+        if not arrow_only(hints.get("return")):
+            out.append(f"{name} -> {hints.get('return')}")
+    return out
+
+
+def test_kernel_seam_signatures_arrow_only() -> None:
+    """2.4 [R3-26]: `nx.compute._kernels` exchanges only arrays, scalars and integer codes."""
+    from nexusbt.compute import _kernels
+
+    assert set(seam_callables(_kernels)) == {"elementwise", "fold_sum", "power", "window_sum"}
+    assert seam_violations(_kernels) == []
+
+    def ok(x: npt.NDArray[np.float64], w: int) -> tuple[npt.NDArray[np.int64], float]:
+        raise NotImplementedError
+
+    def rows(x: npt.NDArray[np.object_]) -> float:
+        raise NotImplementedError
+
+    def opts(x: dict[str, int]) -> float:
+        raise NotImplementedError
+
+    def cb(f: Callable[[float], float], *a: float) -> float:
+        raise NotImplementedError
+
+    def flag(x: float) -> bool:
+        raise NotImplementedError
+
+    class Dispatcher:  # shaped like numba's `CPUDispatcher`: callable, the source as `py_func`
+        def __init__(self, py_func: Callable[..., object]) -> None:
+            self.py_func = py_func
+
+        def __call__(self, *args: object) -> object:
+            return self.py_func(*args)
+
+    fake = types.ModuleType("fake")
+    vars(fake).update(ok=ok, rows=rows, opts=opts, cb=cb, flag=flag, jitted=Dispatcher(opts))
+    vars(fake).update(fsum=math.fsum, F64=npt.NDArray[np.float64], np=np, Dispatcher=Dispatcher)
+    assert seam_violations(fake) == [
+        "cb(f: collections.abc.Callable[[float], float])",
+        "cb(*a)",
+        "flag -> <class 'bool'>",
+        "fsum: a builtin_function_or_method, not a typed function",
+        "jitted(x: dict[str, int])",
+        "opts(x: dict[str, int])",
+        "rows(x: NDArray[numpy.object_])",
+    ]
+    assert arrow_only(npt.NDArray[np.bool_])
+    assert arrow_only(pa.Array)
