@@ -132,6 +132,7 @@ def test_one_row_over_the_budget_is_e16() -> None:
         spans(DATES, len(IDS), 4, (estimate(10, len(IDS), 4) - 1) / GB, 9)
     with pytest.raises(ValueError, match="positive number, not nan"):
         spans(DATES, len(IDS), 4, float("nan"))
+    assert spans(DATES[:0], len(IDS), 4, 1.0) == []  # no sessions, no chunks
 
 
 def test_most_alive_drops_a_node_once_read(monkeypatch: pytest.MonkeyPatch) -> None:
