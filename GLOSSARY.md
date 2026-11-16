@@ -29,6 +29,7 @@ This file holds the terms of the spec's glossary (spec §1.2 and §9.2) and noth
 - **Information cutoff** (`decision_ts`): the last instant of information a decision may use. One rule everywhere: `ts_available <= decision_ts`.
 - **As of**: always "as of `decision_ts`". Currencies and date strings never set the as-of time.
 - **Market axis**: the session sequence of one market. Row s freezes at `ready(s) = ts_close(s) + declared delay` and never changes afterwards.
+- **Term value**: the value a term has at a row, fixed at that row's `ready`. A window over a column reads its cells again at each row; a term that reads another term's values (`shift`, a window over a term, an element-wise operation) does not — it reads the values fixed at each row it reads (spec 5.1.2).
 - **Phase**: the order inside a session: `session_start < open < intraday < close_fill < close_mark < decision < session_end`. Equal instants follow this order.
 - **As-of adjustment**: past prices in a window adjusted only by splits and dividends known up to the computation day. Future splits are unknown.
 - **Corporate-action resolver**: the one function that, given a reference time, resolves amendments, cancellations and late terms into one version per chain and four effects (price factor, share factor, entitlement, settlement). Adjustment, accounting, labels and checks all use it.
