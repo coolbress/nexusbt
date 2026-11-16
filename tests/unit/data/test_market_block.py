@@ -252,6 +252,22 @@ def test_session_close_rule_is_the_close(tiny: Path, tmp_path: Path) -> None:
         assert calendar.ready_delay == np.timedelta64(0, "us")
 
 
+def test_absent_availability_column_is_t002(tiny: Path, tmp_path: Path) -> None:
+    """#480: a column rule naming a column the bars files lack is E14 `TDS-T002` naming the
+    dataset and the column, not a `KeyError`; `manifest` does not run T002 (TDS 6.2)."""
+    assert "ts_available" not in pq.read_schema(next((tiny / "bars").rglob("*.parquet"))).names
+    for rule, column in (("column", "ts_available"), ({"column": "ts_pub"}, "ts_pub")):
+
+        def declared(entry: dict[str, Any], rule: Any = rule) -> None:
+            entry["availability"] = rule
+
+        snap = opened(edited(tiny, tmp_path / column, declared, bars_1d=lambda rows: rows))
+        with pytest.raises(SnapshotError, match="TDS-T002") as raised:
+            whole(snap, "KR", ["close"])
+        assert "bars_1d" in str(raised.value)
+        assert f"column {column}" in str(raised.value)
+
+
 def test_sessions_not_of_the_market(tiny: Path) -> None:
     snap = opened(tiny)
     with pytest.raises(ValueError, match="not KR sessions"):  # 2020-01-04 is a Saturday
@@ -320,6 +336,30 @@ def test_files_chosen_by_stats(years: Path, tmp_path: Path) -> None:
     b = whole(snap, "KR", ["close"])
     assert b.exists.any()
     assert np.isnan(b.values["close"]).all()
+
+
+def test_stats_read_as_dates(years: Path, tmp_path: Path) -> None:
+    """#480: `files[].stats` given as ISO date-time text choose a file as their dates would,
+    and a value that is no date never skips a file (4.6). The block ends on the first session
+    of the 2019 file, the day text comparison put after `2019-01-02`; another holds its last
+    session only, which KST midnight written in UTC (`Z`) dates a day before."""
+    for name, span in (("datetime", ["2019-01-02T00:00:00", "2019-02-08T00:00:00"]),
+                       ("utc", ["2019-01-01T15:00:00Z", "2019-02-07T15:00:00Z"]),
+                       ("nodate", ["first", "last"])):  # fmt: skip
+
+        def stated(entry: dict[str, Any], span: list[str] = span) -> None:
+            for f in entry["files"]:
+                if "year=2019" in f["path"]:
+                    f["stats"] = {"session_date": span}
+
+        snap = opened(edited(years, tmp_path / name, stated, bars_1d=lambda rows: rows))
+        dates = snap.calendar("KR").dates
+        b = snap.market_block("KR", ["close"], dates[dates <= np.datetime64("2019-01-02", "D")])
+        assert b.dates[-1] == np.datetime64("2019-01-02", "D")
+        assert not np.isnan(b.values["close"][-1][b.exists[-1]]).any()
+        b = snap.market_block("KR", ["close"], dates[-1:])
+        assert b.dates[-1] == np.datetime64("2019-02-08", "D")
+        assert not np.isnan(b.values["close"][-1][b.exists[-1]]).any()
 
 
 def test_ts_end_rule_without_the_column(tiny: Path, tmp_path: Path) -> None:
@@ -410,7 +450,8 @@ def test_l0_key_partition_scoped(years: Path, tmp_path: Path) -> None:
     base = edited(years, tmp_path / "chain18", None, corporate_actions=earlier)
     # a chain effective by 2018's end is in 2018's key and every later year's (5.3.9)
     assert moved(base, tmp_path / "chain18b", corporate_actions=announced) == {2018, 2019}
-    for field, value in (("currency", "USD"), ("timezone", "UTC"), ("calendar_id", "XKOS")):
+    # XNYS has no calendar_sessions rows: F-02 builds its sessions (#480)
+    for field, value in (("currency", "USD"), ("timezone", "UTC"), ("calendar_id", "XNYS")):
 
         def stable(data: dict[str, Any], field: str = field, value: str = value) -> None:
             data["markets"]["KR"][field] = value
@@ -442,6 +483,23 @@ def test_l0_key_ignores_advisory_value_hash(years: Path, tmp_path: Path) -> None
                 f["sha256"] = "0" * 64
 
     assert manifest_moved(years, tmp_path / "sha", recorded) == {2018}
+
+
+def test_l0_key_hashes_undeclared_file(years: Path, tmp_path: Path) -> None:
+    """#480: a bars file without a declared `files[].sha256` (optional in TDS 4.2) enters the
+    key by the sha256 of its bytes: the same key as declared, and changed bytes move it."""
+    root = shutil.copytree(years, tmp_path / "undeclared")
+    data = json.loads((root / "tds.json").read_text(encoding="utf-8"))
+    for f in bars_of(data)["files"]:
+        del f["sha256"]
+    (root / "tds.json").write_text(json.dumps(data), encoding="utf-8")
+    assert keys(root) == keys(years)
+    (part,) = (root / f["path"] for f in bars_of(data)["files"] if "year=2019" in f["path"])
+    table = pq.read_table(part)
+    pq.write_table(table.set_column(table.schema.get_field_index("close"), "close",
+                                    pa.compute.add(table["close"], 1)), part)  # fmt: skip
+    after = keys(root)
+    assert {y for y in after if after[y] != keys(years)[y]} == {2019}
 
 
 def copy_of(source: str, **changes: Any) -> Callable[[Rows], Rows]:
@@ -507,3 +565,32 @@ def test_l0_key_ignores_axis_rows_outside_the_year(years: Path, tmp_path: Path) 
         return rows
 
     assert moved(years, tmp_path / "name", instruments=renamed) == set()
+
+
+def test_l0_key_synthesized_sessions(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """#480: without `calendar_sessions` (4.5 F-02) the axis-row hash (b) holds the sessions
+    F-02 builds, so a library that moves a session of 2018 misses 2018 and 2019, one of 2019
+    misses 2019, and the key never needs the library's version (5.3.9)."""
+    import exchange_calendars as xcals
+
+    root = make_snapshot(tmp_path / "snap", preset="small", markets=("KR",), n_kr=4,
+                         start=dt.date(2018, 12, 3), end=dt.date(2019, 2, 8),
+                         degrade=["no_sessions"])  # fmt: skip
+    assert not (root / "calendar_sessions").exists()
+    base, real = keys(root), xcals.get_calendar
+
+    def moved_session(day: str) -> set[int]:
+        def library(name: str, **kwargs: Any) -> Any:
+            calendar = real(name, **kwargs)
+            schedule = calendar.schedule.copy()
+            schedule.loc[day, "close"] += dt.timedelta(hours=1)
+            return type("Moved", (), {"schedule": schedule, "sessions": calendar.sessions})
+
+        with monkeypatch.context() as m:
+            m.setattr(xcals, "get_calendar", library)
+            after = keys(root)
+        return {y for y in base if base[y] != after[y]}
+
+    assert len(set(base.values())) == 2
+    assert moved_session("2018-12-14") == {2018, 2019}
+    assert moved_session("2019-01-15") == {2019}
