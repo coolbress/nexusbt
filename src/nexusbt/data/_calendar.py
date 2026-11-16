@@ -108,7 +108,8 @@ def read_calendar(manifest: Manifest, market: str) -> Calendar:
     if rows is not None:
         rows = rows.filter(pc.equal(rows["calendar_id"], calendar_id)).sort_by("session_date")
     bars = kinds.get("bars")
-    delta = np.timedelta64(_delay(bars, str(manifest.data["snapshot_id"])), "us")
+    _, delay = bars_availability(bars, str(manifest.data["snapshot_id"]))
+    delta = np.timedelta64(delay, "us")
     if rows is None or not len(rows):
         return _synthesized(market, calendar_id, bars, delta)
 
@@ -151,16 +152,23 @@ def _synthesized(
                     np.arange(len(dates), dtype=np.int64), delta)  # fmt: skip
 
 
-def _delay(bars: Mapping[str, Any] | None, snapshot_id: str) -> int:
-    """5.1.2's delta in microseconds: 0 under the bars' rule `ts_end`, the duration under
-    `ts_end+<duration>`, `params.ready_delay` (0 when absent) under the column rule."""
+def bars_availability(bars: Mapping[str, Any] | None, snapshot_id: str) -> tuple[str, int]:
+    """The daily bars' availability, read once for the calendar and the market block: where a
+    bar's `ts_available` comes from and 5.1.2's delta in microseconds. The column (its name)
+    with `params.ready_delay` (0 when absent) under the column rule; `ts_end` with 0 under
+    `ts_end`, with the duration under `ts_end+<duration>`; the session's `ts_close` with 0
+    under `session_close`, the same instant on a daily bar (#460). Any other rule, among them
+    `session_open`, is E14."""
     declared = (bars or {}).get("availability", "ts_end")
     rule = declared.get("rule") if isinstance(declared, dict) else declared
     if rule == "column" or (isinstance(declared, dict) and "column" in declared):
+        named = declared.get("column") if isinstance(declared, dict) else None
+        source = str(named or "ts_available")  # the bare rule `column` (TDS 6.2)
         text = (bars or {}).get("params", {}).get("ready_delay", "PT0S")
-    elif rule == "ts_end":
-        return 0
+    elif rule in ("ts_end", "session_close"):
+        return ("ts_end" if rule == "ts_end" else "ts_close"), 0
     else:
+        source = "ts_end"
         text = str(rule)[len("ts_end+") :] if str(rule).startswith("ts_end+") else None
     duration = _DURATION.fullmatch(text) if isinstance(text, str) and text != "P" else None
     if duration is None:
@@ -168,11 +176,11 @@ def _delay(bars: Mapping[str, Any] | None, snapshot_id: str) -> int:
             what=f"bars availability {declared!r} with ready_delay {text!r} gives no delay",
             where=f"snapshot {snapshot_id} tds.json, the bars dataset",
             why="a row freezes at ts_close + a delay of fixed length set by the data (5.1.2)",
-            fix="declare the rule ts_end, ts_end+<duration>, or a column with params.ready_delay"
-                " as an ISO 8601 duration without years or months",
+            fix="declare the rule ts_end, ts_end+<duration>, session_close, or a column with"
+                " params.ready_delay as an ISO 8601 duration without years or months",
             more="spec 5.1.2 and 4.6; TDS 6.2",
             layer=f"data — snapshot {snapshot_id} / bars / column ts_available / producer -",
         )  # fmt: skip
     w, d, h, m, s = (x or "0" for x in duration.groups())
     whole = (((int(w) * 7 + int(d)) * 24 + int(h)) * 60 + int(m)) * 60
-    return whole * 10**6 + round(float(s) * 10**6)
+    return source, whole * 10**6 + round(float(s) * 10**6)

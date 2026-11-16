@@ -55,8 +55,8 @@ def delay(path: Path) -> np.timedelta64:
 
 
 def test_ready_delay_from_availability_rule(tmp_path: Path) -> None:
-    """5.1.2: delta is 0 under `ts_end`, the duration under `ts_end+<duration>`, and
-    `params.ready_delay` (0 when absent) under the column rule."""
+    """5.1.2: delta is 0 under `ts_end` and `session_close` (#460), the duration under
+    `ts_end+<duration>`, and `params.ready_delay` (0 when absent) under the column rule."""
     tiny = make_snapshot(tmp_path / "tiny", preset="tiny")
     kr = open_snapshot(DataConfig(path=tiny)).calendar("KR")
     assert (kr.calendar_id, len(kr.dates), kr.ready_delay) == ("XKRX", 62, 0 * MINUTE)
@@ -79,8 +79,9 @@ def test_ready_delay_from_availability_rule(tmp_path: Path) -> None:
     assert delay(bars_declared(tiny, tmp_path / "d", params={"ready_delay": "PT5M"})) == 0 * MINUTE
     with pytest.raises(CapabilityError, match="market JP is not in the snapshot"):
         open_snapshot(DataConfig(path=tiny)).calendar("JP")
+    assert delay(bars_declared(tiny, tmp_path / "f", availability="session_close")) == 0 * MINUTE
     wrongs: list[dict[str, Any]] = [
-        {"availability": "session_close"},  # none of 5.1.2's three
+        {"availability": "session_open"},  # the bar before it is complete (INV-01, #460)
         {"availability": "ts_end+P1M"},  # a month has no fixed length
         {"availability": {"column": "ts_available"}, "params": {"ready_delay": "5 minutes"}},
     ]
