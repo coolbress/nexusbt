@@ -25,7 +25,7 @@ NexusBT는 일봉으로 주식 팩터를 연구하는 오픈소스(Apache-2.0) �
 | [ARCHITECTURE.ko.md](ARCHITECTURE.ko.md) | 시스템 지도: 층, 예정된 코드 배치, 불변식 |
 | [GLOSSARY.ko.md](GLOSSARY.ko.md) | 이 프로젝트의 낱말(명세가 쓰는 이름 `CONTEXT.ko.md`는 이 파일을 가리킨다) |
 | [SPEC-INDEX.md](SPEC-INDEX.md) | 마일스톤과 티켓, 티켓마다 명세 절과 시험 |
-| [docs/adr/](docs/adr/) | 받아들인 설계 결정 40개 |
+| [docs/adr/](docs/adr/) | 받아들인 설계 결정 43개 |
 | [docs/tds/tds-v1.4.ko.md](docs/tds/tds-v1.4.ko.md) | 입력 자료 표준과 [예시](docs/tds/tds-examples.ko.md) |
 | [docs/design/prototype-results.md](docs/design/prototype-results.md) | 시제품 실측 증거 |
 

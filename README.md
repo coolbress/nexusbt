@@ -29,7 +29,7 @@ not here yet because nothing runs them.
 | [ARCHITECTURE.md](ARCHITECTURE.md) | The map of the system: layers, planned code layout, invariants |
 | [GLOSSARY.md](GLOSSARY.md) | The words of this project (`CONTEXT.md`, the spec's name for it, links here) |
 | [SPEC-INDEX.md](SPEC-INDEX.md) | Milestones and tickets, with the spec sections and tests for each |
-| [docs/adr/](docs/adr/) | The 40 accepted design decisions |
+| [docs/adr/](docs/adr/) | The 43 accepted design decisions |
 | [docs/tds/tds-v1.4.md](docs/tds/tds-v1.4.md) | The input data standard, with [examples](docs/tds/tds-examples.md) |
 | [docs/design/prototype-results.md](docs/design/prototype-results.md) | Measured prototype evidence |
 
