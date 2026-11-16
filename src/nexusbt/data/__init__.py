@@ -20,6 +20,8 @@ from nexusbt.contracts import (
     SnapshotError,
     VerifyPolicy,
 )
+from nexusbt.data._block import MarketBlock as MarketBlock
+from nexusbt.data._block import build_block
 from nexusbt.data._calendar import Calendar as Calendar
 from nexusbt.data._calendar import read_calendar
 from nexusbt.data._capabilities import CapabilityRequest as CapabilityRequest
@@ -127,10 +129,6 @@ class DailyCoverage:
 
 
 @dataclass(frozen=True, slots=True)
-class MarketBlock: ...
-
-
-@dataclass(frozen=True, slots=True)
 class PITBlock: ...
 
 
@@ -215,7 +213,9 @@ class Snapshot:
         return read_calendar(self._manifest, market)
 
     def market_block(self, market: str, fields: Sequence[str], sessions: object) -> MarketBlock:
-        raise NotImplementedError
+        """The dense block of the daily bars' `fields` over the calendar rows from the first to
+        the last of `sessions` (5.3.1)."""
+        return build_block(self._manifest, self.calendar(market), fields, sessions)
 
     def intervals(
         self,
