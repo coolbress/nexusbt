@@ -87,6 +87,16 @@ def test_deep_graph_plans() -> None:
     assert plan([term], rows=[5], sessions=10).rows_of(CLOSE) == [5]
 
 
+def test_no_decision_rows_plan_nothing() -> None:
+    ret = Returns(3, inputs=[CLOSE])
+    assert plan([ret], rows=[], sessions=30).rows_of(CLOSE) == []
+
+
+def test_decision_row_past_the_axis_is_refused() -> None:
+    with pytest.raises(ValueError, match=r"\[0, 30\)"):
+        plan([CLOSE.latest], rows=[30], sessions=30)
+
+
 def test_debug_log_counts_rows(caplog: pytest.LogCaptureFixture) -> None:
     """Monthly decisions compute some rows, not every row of every node (spec 10.1 T1.7a)."""
     ret = Returns(3, inputs=[CLOSE])
