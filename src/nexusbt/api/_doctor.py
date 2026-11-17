@@ -11,6 +11,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from nexusbt import api
 from nexusbt.artifacts import Index
 from nexusbt.config import DEFAULTS, UUID4, load_config
 from nexusbt.contracts import ConfigError
@@ -23,6 +24,8 @@ NO_ROOT = (
     "no data root: pass --data-root PATH or set $NEXUSBT_DATA_ROOT; to make a synthetic"
     " snapshot: uv run python -m nexusbt.testing.synth --preset tiny --out .scratch/snap"
 )
+#: `doctor`'s stubs line when the stub file is not what `nexusbt stubs` writes (3.2, #469).
+_STALE = "stale: not what nexusbt stubs writes for this snapshot's columns; run nexusbt stubs"
 
 
 def init(data_root: str | None = None, *, new_family: str | None = None) -> str:
@@ -167,6 +170,7 @@ def doctor() -> str:
         lines.append((f"market {m}", f"rules {rules}  {counts}"))
     lines.append(("columns", f"{s.daily_columns} daily bar columns"))
     lines.append(("free disk", f"{shutil.disk_usage(root).free / 1e9:.1f} GB"))
+    lines.append(("stubs", "current" if api.stubs_current(s, cfg) else _STALE))
     hidden = _unseen_pins(Path(cfg.values["runs"]["dir"]), found)
     text = "\n".join(f"{k:<11}{v}" for k, v in lines)
     return text + f"\npins not visible to producer: {hidden} runs"

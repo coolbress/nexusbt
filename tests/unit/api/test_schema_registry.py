@@ -11,8 +11,8 @@ import pyarrow as pa
 import pytest
 
 import nexusbt as nx
-from nexusbt import Label, Panel
-from nexusbt.api import schema_registry, stubs
+from nexusbt import Label, Panel, api
+from nexusbt.api import schema_registry, stubs, stubs_current
 from nexusbt.config import load_config
 from nexusbt.pipeline import bind, stub_source
 from nexusbt.testing._synth_package import _write
@@ -105,3 +105,13 @@ def test_column_sets_are_the_checkers_resolved_columns(tmp_path: Path) -> None:
         assert registry.columns[ds["name"]] == tuple((c.name, c.type) for c in resolved)
     assert ("close", "f64") in registry.columns["bars_1d"]
     assert registry.labels == {}  # no `dictionary/columns` in the package
+
+
+def test_stubs_current_without_a_snapshot(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """#469: with no snapshot the comparison is against the fixed columns alone, without an
+    error; the tracked stub holds exactly those (#469, Decisions 2026-11-16)."""
+    assert stubs_current(None, load_config(None))
+    changed = tmp_path / "d.pyi"
+    changed.write_text("class Panel(metaclass=_Snapshot):\n    momentum: BoundColumn\n")
+    monkeypatch.setattr(api, "_STUBS", changed)
+    assert not stubs_current(None, load_config(None))
