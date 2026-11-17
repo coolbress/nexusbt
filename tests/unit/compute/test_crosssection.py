@@ -124,3 +124,16 @@ def test_quantiles_preserve_ties() -> None:
     codes, _ = k.quantiles(x, mask, groups, xs.sorted_order(list("ABCDEFG")), 3)
     assert codes.tolist() == [2, 3, 1, 2, -1, 3, 2]
     assert codes.dtype == np.int32
+
+
+def test_unknown_codes_refused() -> None:
+    """A direction, a rank method or a bin count no kernel defines is refused, not guessed."""
+    x = np.array([1.0, 2.0])
+    mask, groups = everyone(2)
+    tie = np.arange(2, dtype=np.int64)
+    with pytest.raises(ValueError, match="no direction has code 2"):
+        k.select(x, mask, groups, tie, 1, 2)
+    with pytest.raises(ValueError, match="no rank method has code 5"):
+        k.rank(x, mask, groups, tie, 5, k.ASCENDING)
+    with pytest.raises(ValueError, match="at least one bin, not 0"):
+        k.quantiles(x, mask, groups, tie, 0)
