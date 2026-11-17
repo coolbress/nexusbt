@@ -167,18 +167,26 @@ def doctor() -> str:
         lines.append((f"market {m}", f"rules {rules}  {counts}"))
     lines.append(("columns", f"{s.daily_columns} daily bar columns"))
     lines.append(("free disk", f"{shutil.disk_usage(root).free / 1e9:.1f} GB"))
-    hidden = _unseen_pins(Path(cfg.values["runs"]["dir"]), found)
+    hidden = _unseen_pins(Path(cfg.values["runs"]["dir"]))
     text = "\n".join(f"{k:<11}{v}" for k, v in lines)
-    return text + f"\npins not visible to producer: {hidden} runs"
+    return text + f"\npins not visible to producer: {hidden} runs (root pin not written)"
 
 
-def _unseen_pins(runs: Path, root: Path | None) -> int:
-    """The runs pinned in the index with no `PINS/<snapshot_id>/<run_id>` under the data root:
-    the producer's clean-up sees only that folder (4.2, R3-17). No index, no run: 0."""
+def _unseen_pins(runs: Path) -> int:
+    """The runs holding an unreleased pin in the index whose sealed manifest says `retention:
+    unmanaged`: their root pin was not written, so the producer's clean-up cannot see them (3.10,
+    4.2, R3-17). Which data root `nexusbt.toml` names now does not matter; a run not sealed is
+    not counted (#465 Decisions). No index, no run: 0."""
     if not (runs / "index.sqlite").is_file():
         return 0
-    held = Index(runs).held("run")
-    return sum(root is None or not (root / "PINS" / s / r).exists() for s, r in held)
+    return sum(_unmanaged(runs / r) for _, r in Index(runs).held("run"))
+
+
+def _unmanaged(folder: Path) -> bool:  # a run folder with no `SEALED` is not counted
+    if not (folder / "SEALED").is_file():
+        return False
+    manifest = json.loads((folder / "manifest.json").read_text(encoding="utf-8"))
+    return bool(manifest.get("retention") == "unmanaged")
 
 
 def _or(value: object) -> str:  # an undeclared coverage key is shown as unknown, not 0
