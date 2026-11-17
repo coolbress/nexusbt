@@ -20,6 +20,7 @@ import pytest
 import yaml
 
 from nexusbt.compute import _crosssection as xs
+from nexusbt.compute import _kernels as k
 from nexusbt.contracts import TiebreakPolicy
 from nexusbt.data import Calendar, DataConfig, open_snapshot
 from nexusbt.testing.synth import make_snapshot, read
@@ -89,12 +90,12 @@ def test_T11_ties() -> None:  # noqa: N802 - spec 10.1's name
     mask, groups = np.ones(len(x), dtype=bool), np.zeros(len(x), dtype=np.int32)
     tie = xs.tie_order(ids, TiebreakPolicy.ID)
     found: dict[str, Any] = {
-        f"rank_{name}": xs.rank(x, mask, groups, tie, code, True)[0]
-        for name, code in (("ordinal", xs.ORDINAL), ("average", xs.AVERAGE), ("min", xs.MIN),
-                           ("max", xs.MAX), ("dense", xs.DENSE))
+        f"rank_{name}": k.rank(x, mask, groups, tie, code, k.ASCENDING)[0]
+        for name, code in (("ordinal", k.ORDINAL), ("average", k.AVERAGE), ("min", k.MIN),
+                           ("max", k.MAX), ("dense", k.DENSE))
     }  # fmt: skip
-    found["rank_ordinal_desc"] = xs.rank(x, mask, groups, tie, xs.ORDINAL, False)[0]
-    found["in_top2"], tied, _ = xs.select(x, mask, groups, tie, 2, largest=True)
+    found["rank_ordinal_desc"] = k.rank(x, mask, groups, tie, k.ORDINAL, k.DESCENDING)[0]
+    found["in_top2"], tied, _ = k.select(x, mask, groups, tie, 2, k.DESCENDING)
     for row in case["expected"]:
         i = ids.index(row["instrument_id"])
         assert row["n_tied_at_cutoff"] == tied
@@ -112,7 +113,7 @@ def test_G_TIME_LATE_target() -> None:  # noqa: N802 - spec 10.1's name
     rows = [r for r in case["expected"] if r["target"] is not None]
     for row in rows:
         x = np.array([row["a_sma3"], row["b_sma3"]], dtype=np.float64)
-        picked, _, _ = xs.select(x, mask, groups, tie, 1, largest=True)
+        picked, _, _ = k.select(x, mask, groups, tie, 1, k.DESCENDING)
         assert [ids[i] for i in np.flatnonzero(picked)] == [row["target"]]
     assert [r["target"] for r in rows] == ["KR:T00002", "KR:T00002", "KR:T00001"]
 

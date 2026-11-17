@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 
 from nexusbt.compute import _crosssection as xs
+from nexusbt.compute import _kernels as k
 from nexusbt.contracts import TiebreakPolicy
 
 pytestmark = pytest.mark.unit
@@ -25,11 +26,11 @@ def test_reduction_in_instrument_id_order() -> None:
     ids = ["A", "C", "B"]
     x = np.array([1e16, -1e16, 1.0])  # by id: A 1e16, B 1, C -1e16
     mask, groups = everyone(3)
-    out, unknown = xs.demean(x, mask, groups, xs.sorted_order(ids))
+    out, unknown = k.demean(x, mask, groups, xs.sorted_order(ids))
     assert out.tolist() == [1e16, -1e16, 1.0]  # mean 0.0 exactly
     assert unknown == 0
     shuffled = [2, 0, 1]
-    again, _ = xs.demean(x[shuffled], mask, groups, xs.sorted_order([ids[i] for i in shuffled]))
+    again, _ = k.demean(x[shuffled], mask, groups, xs.sorted_order([ids[i] for i in shuffled]))
     assert again.tobytes() == out[shuffled].tobytes()
 
 
@@ -41,20 +42,20 @@ def test_zscore_ddof0_zero_var_nan() -> None:
     x = np.array([1.0, 2.0, 3.0, 6.0, 5.0, 5.0, 7.0, 100.0, NAN])
     mask = np.array([True] * 7 + [False, True])
     groups = np.array([0, 0, 0, 0, 1, 1, 2, 0, 0], dtype=np.int32)
-    out, _ = xs.zscore(x, mask, groups, xs.sorted_order(ids))
+    out, _ = k.zscore(x, mask, groups, xs.sorted_order(ids))
     sd = np.sqrt(14 / 4)
     assert out[:4].tolist() == [-2 / sd, -1 / sd, 0.0, 3 / sd]
     assert np.isnan(out[4:]).all()
     # 0.1 * 3 / 3 is not 0.1: the deviations are rounding, not spread, and still std = 0
-    out, _ = xs.zscore(np.full(3, 0.1), *everyone(3), xs.sorted_order(list("ABC")))
+    out, _ = k.zscore(np.full(3, 0.1), *everyone(3), xs.sorted_order(list("ABC")))
     assert np.isnan(out).all()
     rng = np.random.default_rng(7)
     x = rng.standard_normal(500) * 1e6
     ids = [f"KR:T{i:05d}" for i in range(500)]
     mask, groups = everyone(500)
-    out, _ = xs.zscore(x, mask, groups, xs.sorted_order(ids))
+    out, _ = k.zscore(x, mask, groups, xs.sorted_order(ids))
     p = rng.permutation(500)
-    again, _ = xs.zscore(x[p], mask, groups, xs.sorted_order([ids[i] for i in p]))
+    again, _ = k.zscore(x[p], mask, groups, xs.sorted_order([ids[i] for i in p]))
     assert again.tobytes() == out[p].tobytes()
 
 
@@ -64,7 +65,7 @@ def test_unknown_group_counted() -> None:
     x = np.array([1.0, 2.0, 3.0, 4.0, 5.0, NAN])
     mask = np.array([True, True, True, True, False, True])
     groups = np.array([0, -1, 0, -1, -1, -1], dtype=np.int32)
-    out, unknown = xs.demean(x, mask, groups, xs.sorted_order(list("ABCDEF")))
+    out, unknown = k.demean(x, mask, groups, xs.sorted_order(list("ABCDEF")))
     assert unknown == 2
     assert out[[0, 2]].tolist() == [-1.0, 1.0]
     assert np.isnan(out[[1, 3, 4, 5]]).all()
@@ -83,8 +84,8 @@ def test_rank_ordinal_uses_tiebreak_key(policy: TiebreakPolicy, expected: list[i
     x = np.ones(3)
     mask, groups = everyone(3)
     tie = xs.tie_order(TIED, policy)
-    for ascending in (True, False):
-        out, _ = xs.rank(x, mask, groups, tie, xs.ORDINAL, ascending)
+    for direction in (k.ASCENDING, k.DESCENDING):
+        out, _ = k.rank(x, mask, groups, tie, k.ORDINAL, direction)
         assert out.tolist() == expected
 
 
@@ -97,21 +98,21 @@ def test_top_stable_ties() -> None:
     mask = np.ones(8, dtype=bool)
     groups = np.array([0, 0, 0, 0, 0, 0, 1, 1], dtype=np.int32)
     tie = xs.tie_order(ids, TiebreakPolicy.ID)
-    picked, tied, _ = xs.select(x, mask, groups, tie, 3, largest=True)
+    picked, tied, _ = k.select(x, mask, groups, tie, 3, k.DESCENDING)
     assert sorted(ids[i] for i in np.flatnonzero(picked)) == ["A", "B", "E", "G", "H"]
     assert tied == 3  # A, B taken, D (4.0) left out; group 1 has two, both taken
-    picked, tied, _ = xs.select(x, mask, groups, tie, 4, largest=True)
+    picked, tied, _ = k.select(x, mask, groups, tie, 4, k.DESCENDING)
     assert sorted(ids[i] for i in np.flatnonzero(picked)) == ["A", "B", "D", "E", "G", "H"]
     assert tied == 0  # the cutoff falls between 4.0 and 1.0
-    picked, tied, _ = xs.select(x, mask, groups, tie, 1, largest=False)
+    picked, tied, _ = k.select(x, mask, groups, tie, 1, k.ASCENDING)
     assert sorted(ids[i] for i in np.flatnonzero(picked)) == ["C", "H"]
     assert tied == 0
     p = np.array([3, 7, 0, 5, 1, 6, 2, 4])
-    again, tied, _ = xs.select(x[p], mask, groups[p], tie[p], 3, largest=True)
-    assert again.tolist() == xs.select(x, mask, groups, tie, 3, largest=True)[0][p].tolist()
+    again, tied, _ = k.select(x[p], mask, groups[p], tie[p], 3, k.DESCENDING)
+    assert again.tolist() == k.select(x, mask, groups, tie, 3, k.DESCENDING)[0][p].tolist()
     assert tied == 3
     with pytest.raises(ValueError, match="at least zero"):
-        xs.select(x, mask, groups, tie, -1, largest=True)
+        k.select(x, mask, groups, tie, -1, k.DESCENDING)
 
 
 def test_quantiles_preserve_ties() -> None:
@@ -120,6 +121,6 @@ def test_quantiles_preserve_ties() -> None:
     three 2.0 share a bucket, so the buckets hold 1, 3 and 2 cells; missing is -1."""
     x = np.array([2.0, 6.0, 1.0, 2.0, NAN, 5.0, 2.0])
     mask, groups = everyone(7)
-    codes, _ = xs.quantiles(x, mask, groups, xs.sorted_order(list("ABCDEFG")), 3)
+    codes, _ = k.quantiles(x, mask, groups, xs.sorted_order(list("ABCDEFG")), 3)
     assert codes.tolist() == [2, 3, 1, 2, -1, 3, 2]
     assert codes.dtype == np.int32

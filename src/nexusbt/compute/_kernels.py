@@ -18,6 +18,9 @@ import numpy.typing as npt
 from nexusbt.compute import _elem
 
 F64 = npt.NDArray[np.float64]
+I64 = npt.NDArray[np.int64]
+Mask = npt.NDArray[np.bool_]
+Codes = npt.NDArray[np.int32]
 
 #: Integer codes of the one-argument transcendental functions, for `elementwise`: each code is
 #: its function's position in `_UNARY`.
@@ -63,3 +66,125 @@ def power(base: F64, exponent: F64) -> F64:
     """`base ** exponent` element by element, with the compiled function."""
     found: F64 = _elem.power(base, exponent)
     return found
+
+
+# Cross-section kernels (5.4.2, 5.4.3) take one market's (or `across_markets`') cells at one
+# decision in memory order: the values `x`, the `mask` (true where the cell is in the term's
+# domain), the group codes `groups` (all 0 without a `groupby`, -1 where the group is unknown)
+# and either `order`, the memory positions in ascending `instrument_id` order, or `tie`, each
+# cell's place in the tie-break key's order (`_crosssection` builds both from the ids). A cell
+# is in its group's cross-section when its mask is true, its value finite and its group known.
+# Reductions gather the cells in `order` and left-fold them (5.3.10 (3), ADR-0019), so a
+# shuffled memory order gives the same bits (INV-04). Each kernel also returns how many cells
+# it left out for an unknown group (`UnknownGroup`, 3.3).
+
+#: The `rank` methods of 3.3, and the two directions of `rank` and of a selection.
+ORDINAL, AVERAGE, MIN, MAX, DENSE = _METHODS = (0, 1, 2, 3, 4)
+ASCENDING, DESCENDING = 0, 1
+
+
+def _sections(x: F64, mask: Mask, groups: Codes, order: I64) -> tuple[list[I64], int]:
+    """Each known group's cross-section, its memory positions in `order`; and the number of
+    cells left out for an unknown group."""
+    seq = order[(mask & np.isfinite(x))[order]]
+    codes = groups[seq]
+    unknown = int(np.count_nonzero(codes < 0))
+    return [seq[codes == g] for g in np.unique(codes[codes >= 0])], unknown
+
+
+def _mean(values: F64) -> float:
+    return fold_sum(values) / len(values)
+
+
+def _ordered(x: F64, seq: I64, tie: I64, direction: int) -> tuple[I64, I64, I64, I64]:
+    """The cells of `seq` by score in `direction`, equal scores by ascending tie place; and for
+    each, the first and last place (1-based) of its run of equal scores and the run's number."""
+    if direction not in (ASCENDING, DESCENDING):
+        raise ValueError(f"no direction has code {direction}")
+    scores = -x[seq] if direction == DESCENDING else x[seq]
+    found = seq[np.lexsort((tie[seq], scores))]
+    sorted_scores = x[found]
+    starts = np.flatnonzero(np.r_[True, sorted_scores[1:] != sorted_scores[:-1]])
+    run = np.searchsorted(starts, np.arange(len(found)), side="right") - 1
+    ends = np.r_[starts[1:], len(found)]
+    return found, starts[run] + 1, ends[run], run
+
+
+def demean(x: F64, mask: Mask, groups: Codes, order: I64) -> tuple[F64, int]:
+    """`x - mean` within each group (5.4.2); NaN outside the cross-section."""
+    out = np.full(len(x), np.nan)
+    sections, unknown = _sections(x, mask, groups, order)
+    for seq in sections:
+        out[seq] = x[seq] - _mean(x[seq])
+    return out, unknown
+
+
+def zscore(x: F64, mask: Mask, groups: Codes, order: I64) -> tuple[F64, int]:
+    """`(x - mean) / std` within each group, std with ddof=0 by two passes (5.3.10 (2)); all NaN
+    where std is 0 or the group has fewer than two cells (5.4.2). Equal values have std 0 even
+    when the folded mean misses them by a rounding (0.1 three times)."""
+    out = np.full(len(x), np.nan)
+    sections, unknown = _sections(x, mask, groups, order)
+    for seq in sections:
+        if len(seq) < 2 or x[seq].min() == x[seq].max():
+            continue
+        deviation = x[seq] - _mean(x[seq])
+        std = np.sqrt(_mean(deviation * deviation))
+        if std > 0:
+            out[seq] = deviation / std
+    return out, unknown
+
+
+def rank(
+    x: F64, mask: Mask, groups: Codes, tie: I64, method: int, direction: int
+) -> tuple[F64, int]:
+    """Ranks 1..n within each group (5.4.2), 1 the smallest, or the largest when `DESCENDING`.
+    `ORDINAL` breaks ties by ascending tie place; `AVERAGE`, `MIN`, `MAX` and `DENSE` are
+    scipy's `rankdata`."""
+    if method not in _METHODS:
+        raise ValueError(f"no rank method has code {method}")
+    out = np.full(len(x), np.nan)
+    sections, unknown = _sections(x, mask, groups, np.argsort(tie))
+    for seq in sections:
+        found, lo, hi, run = _ordered(x, seq, tie, direction)
+        if method == ORDINAL:
+            out[found] = np.arange(1, len(found) + 1)
+        elif method == AVERAGE:
+            out[found] = (lo + hi) / 2
+        else:
+            out[found] = {MIN: lo, MAX: hi, DENSE: run + 1}[method]
+    return out, unknown
+
+
+def select(
+    x: F64, mask: Mask, groups: Codes, tie: I64, n: int, direction: int
+) -> tuple[Mask, int, int]:
+    """`top(n)` when `DESCENDING`, `bottom(n)` when `ASCENDING` (5.4.2, 3.7): the first n of each
+    group by score, equal scores by ascending tie place, all of them when fewer are finite. Also
+    `n_tied_at_cutoff`: the size of each tie group straddling a cutoff (the score of the last one
+    taken, when one with that score is left out), summed over the groups."""
+    if n < 0:
+        raise ValueError(f"a selection takes at least zero cells, not {n}")
+    picked, tied = np.zeros(len(x), dtype=bool), 0
+    sections, unknown = _sections(x, mask, groups, np.argsort(tie))
+    for seq in sections:
+        found, lo, hi, _ = _ordered(x, seq, tie, direction)
+        picked[found[:n]] = True
+        if 0 < n < len(found) and hi[n - 1] > n:
+            tied += int(hi[n - 1] - lo[n - 1] + 1)
+    return picked, tied, unknown
+
+
+def quantiles(x: F64, mask: Mask, groups: Codes, order: I64, bins: int) -> tuple[Codes, int]:
+    """Tie-preserving quantiles (5.4.3): for each cell, with its mean rank r among the group's
+    n cells, `min(bins, max(1, ceil(r * bins / n)))`, 1..bins; -1 outside the cross-section.
+    Integer arithmetic on 2r, so no rounding moves a cell across a bucket edge."""
+    if bins < 1:
+        raise ValueError(f"quantiles need at least one bin, not {bins}")
+    out = np.full(len(x), -1, dtype=np.int32)
+    sections, unknown = _sections(x, mask, groups, order)
+    for seq in sections:
+        found, lo, hi, _ = _ordered(x, seq, np.argsort(order), ASCENDING)
+        twice_r, twice_n = lo + hi, 2 * len(found)
+        out[found] = np.clip(-(-twice_r * bins // twice_n), 1, bins)
+    return out, unknown
