@@ -448,6 +448,26 @@ def read(root: Path, name: str) -> pa.Table:
     return pa.concat_tables([pq.read_table(Path(root) / f["path"]) for f in ds["files"]])
 
 
+def write_actions(root: Path, rows: Sequence[Mapping[str, Any]]) -> None:
+    """Replace the package's `corporate_actions` with `rows` as written, such as a golden
+    case's events, and rewrite its hashes: dates and times as ISO text, a column a row leaves
+    out null, a column the generator does not write (`new_instrument_id`) left out."""
+    manifest = json.loads((root / "tds.json").read_text(encoding="utf-8"))
+    (entry,) = (d for d in manifest["datasets"] if d["kind"] == "corporate_actions")
+    parse = {pa.date32(): dt.date.fromisoformat,
+             CA.field("ts_effective").type: lambda v: dt.datetime.fromisoformat(v)}  # fmt: skip
+    table = pa.Table.from_pylist(
+        [{f.name: parse.get(f.type, lambda v: v)(r[f.name]) if r.get(f.name) is not None
+          else None for f in CA} for r in rows], schema=CA,
+    )  # fmt: skip
+    (file,) = entry["files"]
+    file.update(pk._write(root, file["path"], entry["name"], table))
+    (root / "tds.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    done = pk._tds("hash", str(root), "--write")
+    if done.returncode != 0:
+        raise RuntimeError(f"tds hash --write {root} exited {done.returncode}: {done.stderr}")
+
+
 def a001(actions: pa.Table, bars: pa.Table) -> int | None:
     """TDS 5.11's A001 count: bars whose `cum_factor_*` step from the instrument's previous bar
     is not, to 1e-12 relative, the product of the price factors effective after that bar and

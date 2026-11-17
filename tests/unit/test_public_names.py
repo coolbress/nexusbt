@@ -68,6 +68,7 @@ BUILT = {
     *(f"nexusbt.data.Snapshot.{m}" for m in ("profiles", "capabilities", "fallbacks")),  # #233
     "nexusbt.data.Snapshot.calendar",  # T1.3 (#235)
     "nexusbt.data.Snapshot.market_block",  # T1.4 (#236)
+    "nexusbt.data.Snapshot.actions",  # T1.8 (#241)
 }
 
 #: 6.6, the classes whose kind is block or fail: the sub-errors of `NexusBTError`. The warnings
