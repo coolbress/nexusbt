@@ -20,6 +20,7 @@ from nexusbt.contracts import (
     SnapshotError,
     VerifyPolicy,
 )
+from nexusbt.data._actions import resolved_actions
 from nexusbt.data._block import MarketBlock as MarketBlock
 from nexusbt.data._block import build_block
 from nexusbt.data._calendar import Calendar as Calendar
@@ -231,7 +232,8 @@ class Snapshot:
         raise NotImplementedError
 
     def actions(self, market: str, cutoff: object) -> ResolvedActions:
-        raise NotImplementedError
+        """`market`'s corporate-action chains as known at `cutoff` (5.3.3a)."""
+        return resolved_actions(self._manifest, market, cutoff)
 
     def events(self, market: str, start: object, end: object) -> EventTables:
         raise NotImplementedError
