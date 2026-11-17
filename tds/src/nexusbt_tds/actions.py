@@ -67,6 +67,7 @@ class Resolution:
     terms_pending: bool = False
     late_discovered: bool = False
     effects: Effects = Effects()
+    affects: str | None = None  # the version's adjusted series: C_split, C_total or none (5.11)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -142,6 +143,7 @@ def _resolve(chain_id: str, versions: list[Row], cutoff: dt.datetime | None) -> 
         ts_known=_ts_known(row), ts_terms=_ts_terms(row), effective=effective,
         stale_announced=row["status"] == "announced" and after, terms_pending=pending,
         late_discovered=_ts_known(first) > first["ts_effective"], effects=effects,
+        affects=row.get("affects"),
     )  # fmt: skip
 
 
