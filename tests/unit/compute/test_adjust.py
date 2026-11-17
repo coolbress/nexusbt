@@ -25,7 +25,9 @@ V2 = V1 | {"event_id": "CA-2", "revision_of": "CA-1", "ts_announced": "2020-01-0
            "share_factor": 4.0}  # fmt: skip
 
 
-def windows(at: Path, events: list[dict[str, Any]], days: list[dt.date]) -> dict[Any, Any]:
+def windows(
+    at: Path, events: list[dict[str, Any]], days: list[dt.date], basis: str = "split"
+) -> dict[Any, Any]:
     """Row 4's 3-row window of KR:T00001's closes with `events`, at the start of each day."""
     root = make_snapshot(at, preset="tiny", markets=("KR",))
     write_actions(root, events)
@@ -35,7 +37,7 @@ def windows(at: Path, events: list[dict[str, Any]], days: list[dt.date]) -> dict
     found = {}
     for day in days:
         actions = snapshot.actions("KR", dt.datetime.combine(day, dt.time(), dt.UTC))
-        cells, _ = adjusted_window(raw, 4, 3, actions, ("KR:T00001",), ts_open, "split")
+        cells, _ = adjusted_window(raw, 4, 3, actions, ("KR:T00001",), ts_open, basis)
         found[day] = cells[:, 0].tolist()
     return found
 
@@ -57,3 +59,15 @@ def test_late_terms_leave_the_event_out_until_published(tmp_path: Path) -> None:
         dt.date(2020, 1, 8): [104.0, 53.0, 54.0],  # effective, terms pending: not in the window
         dt.date(2020, 1, 9): [52.0, 53.0, 54.0],
     }
+
+
+def test_cash_dividend_moves_total_not_split(tmp_path: Path) -> None:
+    """5.3.3: `C_split` multiplies `split_and_total` events only, `C_total` every event."""
+    cash = V1 | {"kind": "cash_dividend", "ratio_num": None, "ratio_den": None,
+                 "ratio_new_per_old": None, "cash_per_share": 2.08, "currency": "KRW",
+                 "gross_or_net": "gross", "price_factor": 0.98, "share_factor": 1.0,
+                 "affects": "total_only", "factor_method": "cash_prev_close",
+                 "pay_date_status": "estimated"}  # fmt: skip
+    day = [dt.date(2020, 1, 9)]
+    assert windows(tmp_path / "s", [cash], day, "split")[day[0]] == [104.0, 53.0, 54.0]
+    assert windows(tmp_path / "t", [cash], day, "total")[day[0]] == [101.92, 53.0, 54.0]
