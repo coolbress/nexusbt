@@ -12,8 +12,11 @@ import pytest
 
 import nexusbt as nx
 from nexusbt import api
-from nexusbt.artifacts import Index
+from nexusbt.api import _begin_run
+from nexusbt.artifacts import Index, RunStore
 from nexusbt.cli.main import main
+from nexusbt.contracts import PinsPolicy
+from nexusbt.data import DataConfig, open_snapshot
 from nexusbt.testing._synth_package import _write
 from nexusbt.testing.synth import make_snapshot, read
 from nexusbt_tds.hash import write_hashes
@@ -22,10 +25,7 @@ from nexusbt_tds.hash import write_hashes
 @pytest.fixture(scope="module")
 def snap(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """A data root whose `LATEST` names one tiny package (4.2)."""
-    root = tmp_path_factory.mktemp("root")
-    make_snapshot(root / "s1", preset="tiny", snapshot_id="s1")
-    (root / "LATEST").write_text("s1\n", encoding="utf-8")
-    return root
+    return _root(tmp_path_factory.mktemp("root"), "s1")
 
 
 @pytest.fixture
@@ -117,22 +117,39 @@ def test_publishing_marker(
     assert len(out.splitlines()) == 1
 
 
+def _root(path: Path, snapshot_id: str) -> Path:
+    make_snapshot(path / snapshot_id, preset="tiny", snapshot_id=snapshot_id)
+    (path / "LATEST").write_text(f"{snapshot_id}\n", encoding="utf-8")
+    return path
+
+
+def _sealed(root: Path, runs: Path, pins: PinsPolicy) -> str:
+    """A run begun on `root`'s snapshot as `api` begins one (4.4 step 6), sealed at once."""
+    cfg = DataConfig(path=root, pins=pins)
+    return _begin_run(RunStore(runs), open_snapshot(cfg), cfg, "backtest", "pin").seal().run_id
+
+
 def test_pins_not_visible_line(
     tmp_path: Path, project: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """R3-17: a run pinned in the index only, its root pin unwritten, is the one counted."""
-    root = tmp_path / "root"
-    make_snapshot(root / "s1", preset="tiny", snapshot_id="s1")
-    (root / "LATEST").write_text("s1\n", encoding="utf-8")
-    assert "pins not visible to producer: 0 runs" in doctor(root, capsys)  # no runs/ yet
-    index = Index(project / "runs")  # `[runs] dir`'s default
-    for run in ("seen", "unseen", "released"):
-        index.pin("s1", run)
-    (root / "PINS" / "s1").mkdir(parents=True)
-    (root / "PINS" / "s1" / "seen").touch()  # the root pin `_begin_run` writes when it can
-    index.release("s1", "released")
-    assert main(["doctor"]) == 0
-    assert "pins not visible to producer: 1 runs" in capsys.readouterr().out.splitlines()
+    """R3-17, #465 Decisions: N is the runs holding an unreleased pin whose sealed manifest says
+    `retention: unmanaged`, whichever data root `nexusbt.toml` names now."""
+    first, second = _root(tmp_path / "a", "s1"), _root(tmp_path / "b", "s2")
+    line = "pins not visible to producer: {} runs (root pin not written)"
+    assert line.format(0) in doctor(first, capsys)  # no runs/ yet
+    runs = project / "runs"  # `[runs] dir`'s default
+    _sealed(first, runs, PinsPolicy.INDEX_ROOT)  # its root pin is first's PINS/s1/<run_id>
+    _sealed(second, runs, PinsPolicy.INDEX)  # `retention: unmanaged`: the producer cannot see it
+    second.chmod(0o555)  # no PINS/ can be made: the root pin fails, E30
+    try:
+        with pytest.warns(UserWarning, match="root pin not written"):
+            _sealed(second, runs, PinsPolicy.INDEX_ROOT)
+    finally:
+        second.chmod(0o755)
+    Index(runs).release("s2", _sealed(second, runs, PinsPolicy.INDEX))  # released: not counted
+    Index(runs).pin("s2", "running")  # no sealed manifest: not counted
+    (project / "nexusbt.toml").unlink()
+    assert line.format(2) in doctor(second, capsys).splitlines()  # nexusbt.toml now names b
 
 
 def feature_panel(root: Path, *values: str) -> None:
@@ -161,10 +178,11 @@ def test_stubs_line(
 ) -> None:  # fmt: skip
     """3.2 [R-04, R-22]: after `nexusbt stubs` the stubs are current; once the snapshot gains a
     `Panel` column the stub lacks, `doctor` says they are stale and how to rewrite them."""
-    package = make_snapshot(tmp_path / "pkg", preset="tiny")
+    root = _root(tmp_path / "root", "s1")
+    package = root / "s1"
     feature_panel(package, "momentum")
     monkeypatch.setattr(api, "_STUBS", tmp_path / "datasets.pyi")  # not the tracked file
-    assert main(["init", "--data-root", str(package)]) == 0
+    assert main(["init", "--data-root", str(root)]) == 0
     assert main(["stubs"]) == 0
     assert "momentum: BoundColumn" in (tmp_path / "datasets.pyi").read_text(encoding="utf-8")
     capsys.readouterr()
