@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import yaml
 
 pytestmark = pytest.mark.examples
 
@@ -31,3 +32,26 @@ def test_show_grid_prints_the_month_ends_of_2019() -> None:
     every = [line.split(": ")[1] for line in lines if line.startswith("every(5) from")]
     assert every == ["2019-01-03, 2019-01-10, 2019-01-17, 2019-01-24, 2019-01-31"] * 2
     assert lines[-1].endswith("True")
+
+
+def test_show_adjustment_prints_the_golden_windows() -> None:
+    """T1.8's "Done means" (#241): the T-07 windows across a split and a reverse split, NaN
+    before a null `price_factor` with the `AdjustmentUnavailable` count of T-15, and an
+    amended split ratio giving another window at a later reference time."""
+    command = [sys.executable, str(ROOT / "examples" / "dev" / "show_adjustment.py")]
+    done = subprocess.run(command, capture_output=True, text=True, check=True)  # noqa: S603
+    lines = done.stdout.splitlines()
+    cases = ROOT / "tests" / "golden" / "cases"
+    t07 = yaml.safe_load((cases / "T-07.yaml").read_text())["expected"]
+    for row in (r for r in t07 if r["window"] == 3):
+        cells = [float(x) for x in row["adjusted_window"]]
+        assert f"{row['session']}  window {cells}  mean {row['sma']}" in lines
+    for row in yaml.safe_load((cases / "T-15.yaml").read_text())["expected"]:
+        cells = [float(x) for x in row["adjusted_window"]]
+        assert (f"{row['session']}  window {cells}  nanmean {row['sma3']}"
+                f"  AdjustmentUnavailable {row['adjustment_unavailable']}") in lines  # fmt: skip
+    assert lines[-3:] == [
+        "window of 2020-01-08 known at 2019-12-01: [104.0, 53.0, 54.0]",  # as traded
+        "window of 2020-01-08 known at 2019-12-31: [52.0, 53.0, 54.0]",  # 2 for 1
+        "window of 2020-01-08 known at 2020-01-09: [26.0, 53.0, 54.0]",  # amended: 4 for 1
+    ]
