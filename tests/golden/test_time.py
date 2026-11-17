@@ -19,6 +19,8 @@ import pyarrow.parquet as pq
 import pytest
 import yaml
 
+from nexusbt.compute import _crosssection as xs
+from nexusbt.contracts import TiebreakPolicy
 from nexusbt.data import Calendar, DataConfig, open_snapshot
 from nexusbt.testing.synth import make_snapshot, read
 from nexusbt_tds.hash import write_hashes
@@ -75,6 +77,44 @@ def reached(calendar: Calendar, available: str) -> str:
     """The first session whose `ready` reaches `available` (5.1.2: `ts_available <= ready`)."""
     at = np.datetime64(instant(available).replace(tzinfo=None), "us")
     return str(calendar.dates[np.searchsorted(calendar.ready, at)])
+
+
+def test_T11_ties() -> None:  # noqa: N802 - spec 10.1's name
+    """T-11: ranks and `top(2)` of six cells in a shuffled memory order under `tiebreak = "id"`
+    (3.7, 5.4.2, INV-04)."""
+    case = yaml.safe_load((CASES / "T-11.yaml").read_text())
+    assert case["input"]["tiebreak"] == TiebreakPolicy.ID
+    ids = [c["instrument_id"] for c in case["input"]["scores"]]
+    x = np.array([c["score"] for c in case["input"]["scores"]], dtype=np.float64)
+    mask, groups = np.ones(len(x), dtype=bool), np.zeros(len(x), dtype=np.int32)
+    tie = xs.tie_order(ids, TiebreakPolicy.ID)
+    found: dict[str, Any] = {
+        f"rank_{name}": xs.rank(x, mask, groups, tie, code, True)[0]
+        for name, code in (("ordinal", xs.ORDINAL), ("average", xs.AVERAGE), ("min", xs.MIN),
+                           ("max", xs.MAX), ("dense", xs.DENSE))
+    }  # fmt: skip
+    found["rank_ordinal_desc"] = xs.rank(x, mask, groups, tie, xs.ORDINAL, False)[0]
+    found["in_top2"], tied, _ = xs.select(x, mask, groups, tie, 2, largest=True)
+    for row in case["expected"]:
+        i = ids.index(row["instrument_id"])
+        assert row["n_tied_at_cutoff"] == tied
+        for column, values in found.items():
+            assert values[i] == row[column] or (math.isnan(values[i]) and math.isnan(row[column]))
+
+
+def test_G_TIME_LATE_target() -> None:  # noqa: N802 - spec 10.1's name
+    """G-TIME-LATE's targets B, B, A: `top(1)` of the table's `SMA(3)` values at s, s+1 and s+2,
+    never the look-ahead's A (decision 2026-11-10, #356)."""
+    case = yaml.safe_load((CASES / "G-TIME-LATE.yaml").read_text())
+    ids = ["KR:T00001", "KR:T00002"]
+    tie = xs.tie_order(ids, TiebreakPolicy.HASH)
+    mask, groups = np.ones(2, dtype=bool), np.zeros(2, dtype=np.int32)
+    rows = [r for r in case["expected"] if r["target"] is not None]
+    for row in rows:
+        x = np.array([row["a_sma3"], row["b_sma3"]], dtype=np.float64)
+        picked, _, _ = xs.select(x, mask, groups, tie, 1, largest=True)
+        assert [ids[i] for i in np.flatnonzero(picked)] == [row["target"]]
+    assert [r["target"] for r in rows] == ["KR:T00002", "KR:T00002", "KR:T00001"]
 
 
 def test_T20_late_bar_ready_delay(tmp_path: Path) -> None:  # noqa: N802 - spec 10.1's name

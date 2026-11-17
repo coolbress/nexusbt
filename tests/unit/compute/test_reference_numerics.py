@@ -9,7 +9,7 @@ from typing import Any
 import numpy as np
 import pytest
 
-from nexusbt.compute import _elem, _kernels
+from nexusbt.compute import _crosssection, _elem, _kernels
 
 pytestmark = pytest.mark.unit
 
@@ -62,7 +62,7 @@ def test_window_sum_refuses_a_window_or_row_it_cannot_read(
 
 def test_no_numpy_pairwise_in_reference() -> None:
     """5.3.10 (4): the reference kernels sum with an explicit loop, never a numpy reduction."""
-    for module in (_kernels, _elem):
+    for module in (_kernels, _elem, _crosssection):
         assert pairwise_calls(Path(str(module.__file__)).read_text()) == []
     source = "np.sum(x)\nx.mean(axis=0)\nnp.add.reduce(x)\nnp.var(x)\nsum(x)\na @ b"
     assert pairwise_calls(source) == ["np.sum", "x.mean", "np.add.reduce", "np.var", "sum", "@"]
