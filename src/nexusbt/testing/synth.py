@@ -464,7 +464,7 @@ def write_actions(root: Path, rows: Sequence[Mapping[str, Any]]) -> None:
     file.update(pk._write(root, file["path"], entry["name"], table))
     (root / "tds.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     done = pk._tds("hash", str(root), "--write")
-    if done.returncode != 0:
+    if done.returncode != 0:  # pragma: no cover - only a broken `tds` install fails here
         raise RuntimeError(f"tds hash --write {root} exited {done.returncode}: {done.stderr}")
 
 

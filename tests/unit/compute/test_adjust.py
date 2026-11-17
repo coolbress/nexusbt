@@ -8,8 +8,10 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import pytest
 
 from nexusbt.compute._kernels_ref import adjusted_window
+from nexusbt.contracts import ResolvedActions
 from nexusbt.data import DataConfig, open_snapshot
 from nexusbt.testing.synth import make_snapshot, write_actions
 
@@ -40,6 +42,14 @@ def windows(
         cells, _ = adjusted_window(raw, 4, 3, actions, ("KR:T00001",), ts_open, basis)
         found[day] = cells[:, 0].tolist()
     return found
+
+
+def test_adjusted_window_refuses_an_unknown_basis_or_rows_outside() -> None:
+    raw, none = np.ones((3, 1)), ResolvedActions({})
+    with pytest.raises(ValueError, match="basis is one of"):
+        adjusted_window(raw, 2, 3, none, ("KR:T00001",), np.array([], "datetime64[us]"), "open")
+    with pytest.raises(ValueError, match="are not all rows"):
+        adjusted_window(raw, 2, 4, none, ("KR:T00001",), np.array([], "datetime64[us]"), "split")
 
 
 def test_revision_changes_window_by_cutoff(tmp_path: Path) -> None:
