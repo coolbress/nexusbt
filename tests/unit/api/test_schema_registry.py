@@ -115,3 +115,5 @@ def test_stubs_current_without_a_snapshot(tmp_path: Path, monkeypatch: pytest.Mo
     changed.write_text("class Panel(metaclass=_Snapshot):\n    momentum: BoundColumn\n")
     monkeypatch.setattr(api, "_STUBS", changed)
     assert not stubs_current(None, load_config(None))
+    monkeypatch.setattr(api, "_STUBS", tmp_path / "missing.pyi")
+    assert not stubs_current(None, load_config(None))  # stale, not an error

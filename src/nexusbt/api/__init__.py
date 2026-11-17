@@ -284,8 +284,9 @@ def stubs(path: Path | None = None) -> Path:
 
 def stubs_current(snapshot: Snapshot | None, cfg: Config) -> bool:
     """`doctor`'s stubs line (3.2, 3.10): whether `_stubs/datasets.pyi` on disk is what `stubs`
-    would write for `snapshot`; with no snapshot, for the fixed columns alone."""
-    return _STUBS.read_text(encoding="utf-8") == _stub(snapshot, cfg)
+    would write for `snapshot`; with no snapshot, for the fixed columns alone. A missing file
+    is stale: `stubs` writes it."""
+    return _STUBS.is_file() and _STUBS.read_text(encoding="utf-8") == _stub(snapshot, cfg)
 
 
 def _stub(snapshot: Snapshot | None, cfg: Config) -> str:
