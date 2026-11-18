@@ -43,7 +43,7 @@ What is given up, knowingly:
 
 What rests on it:
 
-- The plan (5.3.2): each node is computed once on each row the plan gives it, and the executor does not plan and compute again for each decision (#240).
+- The plan (5.3.2) and its shared nodes: as the owner decided on #240 (2026-11-16), each node is computed once on each row the plan gives it, and the executor does not plan and compute again for each decision.
 - The L1 cache's value shape (5.3.9): a node's values by row, valid for every later reader because a row's values do not change once frozen.
-- #499's refusal (decided 2026-11-18): a term whose degree is known and is not 0, such as `Price.close.latest`, keeps through `shift(k ≥ 1)` or as a `Factor` input of a window of two rows or more the value each row gave it, adjusted as of that row, so across a split the earlier row stands on another share basis; the graph build refuses that input (E17) instead of reading it silently.
+- The refusal #499 decided on 2026-11-18, not yet in the spec or the engine: a term whose degree is known and is not 0, such as `Price.close.latest`, keeps through `shift(k ≥ 1)` or as a `Factor` input of a window of two rows or more the value each row gave it, adjusted as of that row, so across a split the earlier row stands on another share basis; #499 has the graph build refuse that input (E17) instead of reading it silently.
 - `tests/unit/compute/test_executor.py::test_cutoff_hides_late_cells` pins the three terms of the table above.
