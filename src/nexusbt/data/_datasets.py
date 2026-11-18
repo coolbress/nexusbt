@@ -68,7 +68,7 @@ def _ambiguous(data: Mapping[str, Any], kind: str, names: Sequence[str]) -> Capa
         where=f"snapshot {data.get('snapshot_id')} datasets",
         why="the engine chooses a dataset by its kind and parameters, never by its place in "
             "datasets[], and cannot choose between these (4.3)",
-        fix=f"keep only one of {', '.join(names)} in the package", more="spec 4.3; #547",
+        fix=f"keep only one of {', '.join(names)} in the package", more="spec 4.3",
         layer=layer(data, names[0]),
     )  # fmt: skip
 
