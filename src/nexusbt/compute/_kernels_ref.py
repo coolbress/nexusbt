@@ -62,6 +62,17 @@ def _annualized(window: F64) -> F64:
     return _kernels.window_annualized_volatility(window, 252.0)
 
 
+def _ewma(window: F64) -> F64:
+    """`EWMA` with the decay rate 0.5: its weights are constants, so each rate has the class."""
+    return _kernels.window_ewma(window, _kernels.ewma_weights(len(window), 0.5))
+
+
+def _vwap(window: F64) -> F64:
+    """`VWAP` over a price window with volume 1 in each row: the volume, a weight that appears
+    above and below the line, leaves the class as the price window gives it."""
+    return _kernels.window_vwap(window, np.ones_like(window))
+
+
 #: The registered kernels by name: a built-in factor's by its term's operator name (3.4), which
 #: `pipeline.factors.ADJUSTMENT` declares the same class for. `AverageDollarVolume` reads the
 #: window of `close * volume`, a value, so it is invariant (3.4).
@@ -76,6 +87,10 @@ REGISTERED: Mapping[str, Registered] = MappingProxyType(
         "RollingStd": Registered(
             lambda window: _kernels.window_nanstd(window, 1), AdjustmentClass.DEGREE_1
         ),
+        "ExponentialWeightedMovingAverage": Registered(_ewma, AdjustmentClass.DEGREE_1),
+        "VWAP": Registered(_vwap, AdjustmentClass.DEGREE_1),
+        "RSI": Registered(_kernels.window_rsi, AdjustmentClass.DEGREE_0),
+        "MaxDrawdown": Registered(_kernels.window_max_drawdown, AdjustmentClass.DEGREE_0),
     }
 )
 

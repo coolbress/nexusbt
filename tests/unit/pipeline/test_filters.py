@@ -15,9 +15,10 @@ import pytest
 from nexusbt.compute import _crosssection as xs
 from nexusbt.compute import _kernels as k
 from nexusbt.compute._executor import execute
+from nexusbt.compute._screen import screened
 from nexusbt.contracts import TiebreakPolicy
 from nexusbt.data._block import MarketBlock
-from nexusbt.pipeline import BoundColumn, Term, graph_hash
+from nexusbt.pipeline import BoundColumn, Pipeline, Term, graph_hash
 from nexusbt.pipeline.factors import SimpleMovingAverage
 
 pytestmark = pytest.mark.unit
@@ -210,3 +211,29 @@ def test_tiebreak_orders_equal_scores() -> None:
     assert values([CLOSE.latest.rank()], x)[0] == [1.0, 4.0, 5.0, 6.0, 3.0, 2.0]
     by_id = values([CLOSE.latest.rank()], x, tiebreak=TiebreakPolicy.ID)[0]
     assert by_id == [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+
+
+def test_pipeline_screen_unknown_false() -> None:
+    """`Pipeline(screen=)` keeps the rows where the screen is true; unknown is false there
+    (5.4.1, R3-13): I1 is halted at row 1, so its unknown `~(close > 10_000)` drops it."""
+    x = block(close=[[12_000.0, 8_000.0, 9_000.0], [12_000.0, N, 7_000.0]],
+              open=[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])  # fmt: skip
+    pipe = Pipeline({"open": OPEN.latest}, screen=~(CLOSE.latest > 10_000))
+    terms = [*pipe.columns.values(), *([pipe.screen] if pipe.screen else [])]
+    ready = (x.dates + np.timedelta64(16, "h")).astype("datetime64[us]")
+    kept = screened(pipe, execute(terms, [0, 1], [(0, 1)], lambda a, b: x, ready))
+    assert list(kept) == ["open"]
+    assert kept["open"].to_pydict() == {
+        "row": [0, 0, 1],
+        "instrument_id": ["I1", "I2", "I2"],
+        "value": [2.0, 3.0, 6.0],
+    }
+    unscreened = Pipeline({"open": OPEN.latest})
+    whole = screened(unscreened, execute([OPEN.latest], [1], [(0, 1)], lambda a, b: x, ready))
+    assert whole["open"]["value"].to_pylist() == [4.0, 5.0, 6.0]
+    apart = {**execute(terms[1:], [0, 1], [(0, 1)], lambda a, b: x, ready),
+             **execute(terms[:1], [1], [(0, 1)], lambda a, b: x, ready)}  # fmt: skip
+    with pytest.raises(ValueError, match="'open' and the screen list different cells"):
+        screened(pipe, apart)
+    with pytest.raises(ValueError, match=r"not given these terms of the pipeline: \['screen'\]"):
+        screened(pipe, execute(terms[:1], [1], [(0, 1)], lambda a, b: x, ready))
