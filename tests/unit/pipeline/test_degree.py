@@ -3,6 +3,7 @@ or, as a `Factor` input, to a window of two rows or more is E17 when the graph i
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -21,6 +22,7 @@ from nexusbt.pipeline import Factor, Pipeline, Price, Term, bind, graph_hash
 from nexusbt.pipeline._degree import ZERO, degree_of
 
 NO_SNAPSHOT_COLUMNS = SchemaRegistry(columns={}, labels={})
+ROOT = Path(__file__).resolve().parents[3]
 
 
 def _last(x: Any) -> Any:
@@ -76,9 +78,13 @@ def test_e1_fix_agrees_with_the_refusal() -> None:
     fix = caught.value.parts["fix"]
     assert "for a price level" in fix
     assert "inputs=[Price.close]" in fix
+    assert nx.LookAheadError.example().parts["fix"] == fix  # 6.6's example, the same words
+    for spec in ("engine-spec-v3.4.md", "engine-spec-v3.4.ko.md"):
+        assert f'"{fix}"' in (ROOT / "docs" / "spec" / spec).read_text(encoding="utf-8")
     check(Returns(2))
     check(window_of(2, Price.close))
     check(Returns(2).shift(1))
+    check((Price.close.latest / Price.open.latest).shift(1))
     with pytest.raises(nx.TermDomainError):
         check(Price.close.latest.shift(1))
 
