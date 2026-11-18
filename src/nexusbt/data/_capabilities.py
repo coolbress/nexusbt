@@ -35,6 +35,10 @@ NEEDS = {
     "backtest": ("instruments", "bars", "corporate_actions", "calendar_sessions"),
     "grid": ("instruments",),  # limit, stop, exit and price limits: F-15
 }
+#: The kinds a feature reads without needing them: two of one turn it off all the same (4.3,
+#: #551), where none takes the feature's fallback.
+READS = {f: needs + {"grid": ("market_rules", "classifications")}.get(f, ())
+         for f, needs in NEEDS.items()}  # fmt: skip
 #: 4.3's profile table: the profiles the v1 engine reads.
 SUPPORTED = frozenset({
     "tds:minimal-daily@1.0", "tds:equity-daily-core@1.0", "tds:equity-daily-research@1.0",
@@ -118,12 +122,12 @@ def decide(
                     for f in found if f.code == "TDS-V011")  # fmt: skip
     taken["backtest"] += [FallbackRecord("F-16", str(d), m, n) for (d, m), n in years.items()]
     taken["grid"] += _no_grid(folder, kinds, rules, by_market, market_of)
-    twice = doubled(data)  # two or more left: off, never by a fallback (4.3, #547)
-    for f, needs in NEEDS.items():
-        lacking[f] += [k for k in twice if k in needs and k not in lacking[f]]
+    twice = doubled(data)  # two or more left: off, never by a fallback (4.3, #547, #551)
+    for f, reads in READS.items():
+        lacking[f] += [k for k in twice if k in reads and k not in lacking[f]]
     on = frozenset(f for f in NEEDS if not lacking[f])
     if required is not None and (refused := [f for f in sorted(required.features) if lacking[f]]):
-        for kind in dict.fromkeys(k for f in refused for k in NEEDS[f]):
+        for kind in dict.fromkeys(k for f in refused for k in READS[f]):
             dataset(data, kind)  # two or more left: E18 naming each (4.3)
         raise _not_in_snapshot(data, {f: lacking[f] for f in refused})
     wanted = NEEDS.keys() if required is None else required.features

@@ -1,5 +1,5 @@
-"""Which dataset of a kind the engine reads (spec 4.3, #547): chosen by its `kind`, and where a
-parameter tells datasets of that kind apart by that parameter, never by its place in
+"""Which dataset of a kind the engine reads (spec 4.3, #547, #551): chosen by its `kind`, and
+where parameters tell datasets of that kind apart by those parameters, never by its place in
 `datasets[]`, since TDS 3.1 lets a package hold several datasets of one kind."""
 
 from __future__ import annotations
@@ -9,17 +9,20 @@ from typing import Any
 
 from nexusbt.contracts import CapabilityError
 
-#: The parameter that tells datasets of a kind apart, and the value the engine reads.
-TOLD_APART = {"bars": ("freq", "1d")}  # daily bars (4.6); minute bars are not read in v1
+#: The parameters that tell datasets of a kind apart, each to the value the engine reads and
+#: the values it reads as that one: session daily bars (4.6). Minute bars are not read in v1,
+#: nor `utc_day` daily bars (TDS 9.4); a `bars` dataset with no `bar_time` is read as `session`,
+#: the engine's rule where TDS 5.5 names no default (4.3, #551).
+TOLD_APART = {"bars": {"freq": ("1d", ("1d",)), "bar_time": ("session", ("session", None))}}
 
 Dataset = Mapping[str, Any]
 
 
 def left(data: Mapping[str, Any], kind: str) -> list[Dataset]:
-    """The datasets of `kind` that carry the parameter value the engine reads, in list order."""
-    param = TOLD_APART.get(kind)
-    return [d for d in _datasets(data) if d.get("kind") == kind and (
-        param is None or (d.get("params") or {}).get(param[0]) == param[1])]  # fmt: skip
+    """The datasets of `kind` that carry the parameter values the engine reads, in list order."""
+    told = TOLD_APART.get(kind, {})
+    return [d for d in _datasets(data) if d.get("kind") == kind and all(
+        (d.get("params") or {}).get(p) in read for p, (_, read) in told.items())]  # fmt: skip
 
 
 def chosen(data: Mapping[str, Any]) -> dict[str, Dataset]:
@@ -48,8 +51,8 @@ def needed(data: Mapping[str, Any], kind: str) -> Dataset:
     """`dataset`, where the read needs it: none left is E18 as a missing dataset (4.3)."""
     found = dataset(data, kind)
     if found is None:
-        param = TOLD_APART.get(kind)
-        shown = f"{kind} ({param[0]}={param[1]})" if param else kind
+        told = TOLD_APART.get(kind, {})
+        shown = f"{kind} ({', '.join(f'{p}={v}' for p, (v, _) in told.items())})" if told else kind
         raise CapabilityError(
             what=f"no {shown} dataset in snapshot {data.get('snapshot_id')}",
             where=f"snapshot {data.get('snapshot_id')} datasets",
@@ -61,10 +64,10 @@ def needed(data: Mapping[str, Any], kind: str) -> Dataset:
 
 
 def _ambiguous(data: Mapping[str, Any], kind: str, names: Sequence[str]) -> CapabilityError:
-    param = TOLD_APART.get(kind)
-    told = f" with params.{param[0]} = {param[1]}" if param else ""
+    params = " and ".join(f"params.{p} = {v}" for p, (v, _) in TOLD_APART.get(kind, {}).items())
     return CapabilityError(
-        what=f"{len(names)} datasets of kind {kind}{told}: {', '.join(names)}",
+        what=f"{len(names)} datasets of kind {kind}{f' with {params}' if params else ''}: "
+             f"{', '.join(names)}",
         where=f"snapshot {data.get('snapshot_id')} datasets",
         why="the engine chooses a dataset by its kind and parameters, never by its place in "
             "datasets[], and cannot choose between these (4.3)",
