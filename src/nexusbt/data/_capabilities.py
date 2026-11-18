@@ -22,6 +22,8 @@ from nexusbt.contracts import (
     FallbacksPolicy,
     SnapshotError,
 )
+from nexusbt.data._datasets import chosen, dataset, doubled
+from nexusbt.data._datasets import layer as _layer
 from nexusbt_tds.check import Finding
 from nexusbt_tds.manifest import Manifest
 
@@ -90,7 +92,7 @@ def decide(
     A requested feature the package cannot give is E18; with no request every feature the
     package can give is on. A fallback is E30 under `warn` and E14 under `fail`."""
     data = manifest.data
-    kinds = {d["kind"]: d for d in reversed(data["datasets"])}  # the first of each kind
+    kinds = chosen(data)  # a kind with none or two or more left is missing (4.3, #547)
     bars = kinds.get("bars")
     by_market = bars["coverage"]["by_market"] if bars else {}
     lacking = {f: [k for k in needs if k not in kinds] for f, needs in NEEDS.items()}
@@ -116,8 +118,12 @@ def decide(
                     for f in found if f.code == "TDS-V011")  # fmt: skip
     taken["backtest"] += [FallbackRecord("F-16", str(d), m, n) for (d, m), n in years.items()]
     taken["grid"] += _no_grid(folder, kinds, rules, by_market, market_of)
-    on = frozenset(f for f in NEEDS if not lacking[f])
+    for f, needs in NEEDS.items():  # two or more left: off, never by a fallback (4.3, #547)
+        lacking[f] += [k for k in doubled(data) if k in needs and k not in lacking[f]]
+    on =frozenset(f for f in NEEDS if not lacking[f])
     if required is not None and (refused := [f for f in sorted(required.features) if lacking[f]]):
+        for kind in dict.fromkeys(k for f in refused for k in NEEDS[f]):
+            dataset(data, kind)  # two or more left: E18 naming each (4.3)
         raise _not_in_snapshot(data, {f: lacking[f] for f in refused})
     wanted = NEEDS.keys() if required is None else required.features
     used = list(dict.fromkeys(r for f in sorted(wanted) if f in on for r in taken[f]))
@@ -239,12 +245,6 @@ def _no_grid(
         sourced |= {market_of.get(i) for i, c in zip(ids, codes, strict=True) if c in named}
     return [FallbackRecord("F-15", "market_rules", m, int(by_market.get(m, {}).get(
         "instruments", 0))) for m in bare if m not in sourced]  # fmt: skip
-
-
-def _layer(data: Mapping[str, Any], dataset: str) -> str:
-    producer = data.get("producer")
-    name = str(producer.get("name", "-")) if isinstance(producer, dict) else "-"
-    return f"data — snapshot {data['snapshot_id']} / {dataset} / column - / producer {name}"
 
 
 def _warning(data: Mapping[str, Any], records: Sequence[FallbackRecord]) -> DataProfileWarning:

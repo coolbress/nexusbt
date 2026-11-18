@@ -14,6 +14,7 @@ import pyarrow.parquet as pq
 
 from nexusbt.contracts import ID_COLUMN as ID
 from nexusbt.contracts import ResolvedActions
+from nexusbt.data._datasets import dataset
 from nexusbt_tds.actions import resolve
 
 if TYPE_CHECKING:
@@ -23,9 +24,8 @@ if TYPE_CHECKING:
 def resolved_actions(manifest: Manifest, market: str, cutoff: object) -> ResolvedActions:
     """The chains of `market`'s instruments at `cutoff`: an aware datetime, a numpy
     `datetime64` in UTC (as `Calendar.ready`), or None for the whole package (+inf)."""
-    kinds = {d["kind"]: d for d in reversed(manifest.datasets)}  # the first of each kind
-    events = _rows(manifest, kinds.get("corporate_actions"))
-    instruments = _rows(manifest, kinds.get("instruments"))
+    events = _rows(manifest, dataset(manifest.data, "corporate_actions"))
+    instruments = _rows(manifest, dataset(manifest.data, "instruments"))
     if events is None or instruments is None:
         return ResolvedActions({})
     ids = instruments.filter(pc.equal(instruments["market"], market))[ID]
