@@ -40,6 +40,7 @@ def check(name: str) -> None:
             if expected is None:
                 assert t < rows - 1, (case["term"], t)  # warm-up: no full window yet
                 continue
+            assert t >= rows - 1, (case["term"], t)  # a value only once the window is full
             found = REGISTERED[op].kernel(x[t - rows + 1 : t + 1, None])[0]
             assert found == pytest.approx(expected, abs=5e-7, nan_ok=True), (case["term"], t)
 
