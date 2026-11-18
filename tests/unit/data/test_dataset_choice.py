@@ -19,7 +19,9 @@ import pytest
 
 from nexusbt.contracts import CapabilityError, VerifyPolicy
 from nexusbt.data import CapabilityRequest, DataConfig, MarketBlock, Snapshot, open_snapshot
+from nexusbt.data._l0 import l0_key
 from nexusbt.testing.synth import make_snapshot
+from nexusbt_tds import read_manifest
 from nexusbt_tds.hash import write_hashes
 
 pytestmark = pytest.mark.unit
@@ -111,6 +113,14 @@ def test_daily_block_does_not_depend_on_dataset_order(tiny: Path, tmp_path: Path
             np.testing.assert_array_equal(got.values[field], want.values[field])
         np.testing.assert_array_equal(got.obs_status, want.obs_status)
         assert warned == base_warned, first
+
+
+def test_l0_key_does_not_depend_on_dataset_order(tiny: Path, tmp_path: Path) -> None:
+    """#547: the L0 key hashes the daily bars (5.3.9), whichever place `bars_1m` takes."""
+    want = l0_key(read_manifest(tiny), "KR", "close", 2020, "strict")
+    for first in (True, False):
+        root = rewritten(tiny, tmp_path / f"first={first}", minute_bars(first))
+        assert l0_key(read_manifest(root), "KR", "close", 2020, "strict") == want, first
 
 
 def without_daily_bars(root: Path, data: Manifest) -> None:
