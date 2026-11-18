@@ -435,7 +435,7 @@ from nexusbt.factors import (Returns, DailyReturns, SimpleMovingAverage, SMA,
 | `open, high, low, close` | float64 | 현지 통화/주 | 분할·병합·주식배당만 t 기준 조정: `raw[s]·C_split[t]/C_split[s]`. `open/high/low`가 없는 패키지는 NaN(4.5 F-01) |
 | `close_tr` | float64 | 현지 통화/주 | 분할 + 현금배당 t 기준 조정(총수익 경로): `raw[s]·C_total[t]/C_total[s]`. t의 판단 시점에 금액이 공개 안 된 배당은 넣지 않음(5.3.4) |
 | `close_unadjusted` | float64 | 현지 통화/주 | 원가격 그대로 |
-| `volume` | float64 | 주 | `vol[s]·Q[t]/Q[s]`, `Q[x] = Π_{e ≤ x} share_factor_e`(해석기의 수량 계수 누적, 5.3.3a). 순수 분할에서는 `C_split[s]/C_split[t]`와 같다 [RV-C03] |
+| `volume` | float64 | 주 | `vol[s]·Q[t]/Q[s]`, `Q[x] = Π_{e ≤ x} share_factor_e`, `affects = split_and_total` 사건에 대해(해석기의 수량 계수 누적, 5.3.3a; 5.3.3). 순수 분할에서는 `C_split[s]/C_split[t]`와 같다 [RV-C03] |
 | `volume_unadjusted` | float64 | 주 | 원 거래량 |
 | `value_traded` | float64 | 현지 통화 | 원 거래대금(조정 불필요) |
 | `shares_out` | float64 | 주 | TDS `share_counts` 시점 조회(5.3.5a): 행 s 기준 공개된 마지막 수 `n` (그 `as_of_date` = a)를 `n·Q[t]/Q[a]`로 t 기준에 맞춤 [TDS-D9, TDS-Q4, RV-C03] |
@@ -466,9 +466,9 @@ from nexusbt.factors import (Returns, DailyReturns, SimpleMovingAverage, SMA,
 | `rank(method="ordinal", ascending=True, mask=None, groupby=None, across_markets=False)` | Factor | 단면 순위 1..n. `method ∈ {"ordinal","average","min","max","dense"}`. `ordinal` 동률은 `[portfolio] tiebreak`의 열쇠(기본 고정 소금 해시, 3.7; `"id"`·zipline 프리셋·대조는 `instrument_id` 오름차순) [11.4.4, R3-12] |
 | `zscore(mask=None, groupby=None, across_markets=False)` | Factor | (x−평균)/모표준편차(ddof=0). 분산 0 → NaN |
 | `demean(mask=None, groupby=None, across_markets=False)` | Factor | x − 평균 |
-| `winsorize(min_percentile, max_percentile, mask=None, groupby=None, across_markets=False)` | Factor | 분위 경계로 자름(선형 보간 분위) |
+| `winsorize(min_percentile, max_percentile, mask=None, groupby=None, across_markets=False)` | Factor | 분위 경계로 자름(선형 보간 분위); `min_percentile`, `max_percentile`은 비율, `0 ≤ min ≤ max ≤ 1`(1%는 0.01) (결정 2026-11-18, #244) |
 | `top(N, mask=None, groupby=None, across_markets=False)` / `bottom(...)` | Filter | 점수 내림(오름)차순 + 동률 열쇠(3.7)로 많아야 N개 [R3-12] |
-| `percentile_between(min_percentile, max_percentile, mask=None, across_markets=False)` | Filter | 백분위 [min, max] 안 (양끝 포함) |
+| `percentile_between(min_percentile, max_percentile, mask=None, across_markets=False)` | Filter | 백분위 [min, max] 안 (양끝 포함), 0..100 척도: `0 ≤ min ≤ max ≤ 100` (결정 2026-11-18, #244) |
 | `pct_rank(higher_is_better=True, mask=None, groupby=None, na="drop", across_markets=False)` | Factor | 단면 백분위 0~100(100 = 가장 좋음, 동률은 평균 순위). `na`: `"drop"`(결측은 NaN, 기본), `"bottom"`(결측을 가장 나쁜 값 바로 아래 동률로 넣고 계산), `"middle"`(결측 칸 = 50, 나머지는 유효 칸만으로). `drop`이 아니면 결측 칸에 값을 주는 **명시적** 대체 연산이라 INV-12와 맞고 매니페스트·`explain`에 남는다 [V31-25] |
 | `quantiles(bins, mask=None, groupby=None, across_markets=False)`, `quartiles()`, `quintiles()`, `deciles()` | Classifier | 동률 보존 분위(5.4.3) |
 | `isnan()`, `notnan()`, `isfinite()`, `isnull()`, `notnull()` | Filter | |
@@ -524,7 +524,7 @@ zipline 3.2.1과 같은 이름은 zipline의 결측 규칙과 **입력 의미**�
 | `MaxDrawdown(W, inputs=[Price.close_tr])` | `max((cummax(x)−x)/cummax(x))` | NaN 무시 | 1 | – | W−1 | 0차 |
 | `Latest`(= `col.latest`) | `x[-1]` | | | | 0 | 칼럼 표 |
 
-조정 등급(5.3.3): 0차 동차 = 종목별 스칼라 곱에 불변, 1차 = 스칼라 배로 변함, 불변 = 원값 그대로. 등급은 커널 등록 때 선언하고 P-ADJ 성질 시험(무작위 스칼라)으로 증명한다.
+조정 등급(5.3.3): 0차 동차 = 종목별 스칼라 곱에 불변, 1차 = 스칼라 배로 변함, 불변 = 원값 그대로. 등급은 커널 등록 때 선언하고 P-ADJ 성질 시험(무작위 스칼라)으로 증명한다. 커널의 지름길은 참조와 같이 5.1.2의 행별 보임 마스크를 거친 창을 읽는다(5.3.3, "보임").
 
 모든 내장 팩터는 등록 커널이고 5.3.10의 수치 규칙(합의 순서, BLAS·`fastmath` 금지, 초월 함수 등급)을 따른다. `EWMA` 가중치 `decay^k`는 커널 밖에서 한 번 계산해 상수 배열로 넘기고, `Returns`·`RSI`처럼 나눗셈만 쓰는 커널은 산술 등급, 로그를 쓰는 커널(`log()`, `log1p()`, 스프레드 추정)은 초월 등급이다 [RV-C11]. 표의 `nanmean`·`nanstd`·`nansum`은 "NaN을 뺀 값들을 행 오름차순으로 왼쪽부터 더한 합"으로 정의한다(numpy 함수의 짝 합 순서가 아님) [SC-03]. 모든 내장 팩터는 자기 창 안 자료만의 함수다(무한 재귀 없음; `EWMA`는 유한 창 가중평균) — 그래서 시작일 불변(INV-14)이 선다 [SC-04].
 
@@ -1454,14 +1454,15 @@ class DecisionContext:
 6. `across_markets=True` 항과 다른 시장의 `Market.series` 항 [V31-13]: 판단마다 시장들의 `row_m(d)` 값을 모아 계산한다. 결과는 판단 격자 위의 값이고 시장 축으로 돌아가지 않는다. 그런 항을 창·`shift` 입력으로 쓰면 그래프를 만들 때 `TermDomainError`(오류 E17).
 
 #### 5.3.3 조정 [D3, R-18, C2, INV-11]
-정의: 효력 세션 e의 가격 배수 `m_e` = 해석기(5.3.3a)가 그 사건에 대해 낸 가격 계수(원천은 TDS `corporate_actions.price_factor`, 식은 TDS 5.11), `C[x] = Π_{e ≤ x} m_e`(앞으로 누적, 상장 첫 세션 `C = 1`; TDS `cum_factor_*`와 같은 뜻 [TDS-D9]). split 계수 `C_split`은 `affects = split_and_total` 사건만, total 계수 `C_total`은 모든 사건(`affects ≠ none`)의 곱이다. 수량 계수 `Q[x] = Π_{e ≤ x} q_e`(`q_e` = 해석기의 수량 효과 `share_factor`; 거래량·주식 수·보유 수량에 씀). 기준 가격 `B[s] = raw[s] / C[s]`. 패키지의 `cum_factor_*`는 해석기 결과와 같을 때만 지름길로 쓰고(검사 `TDS-A001`이 최신 해석판과의 맞춤을 보장), 없으면 사건에서 만든다(4.5 F-04). `price_factor` null 사건은 4.6 끝의 규칙.
+정의: 효력 세션 e의 가격 배수 `m_e` = 해석기(5.3.3a)가 그 사건에 대해 낸 가격 계수(원천은 TDS `corporate_actions.price_factor`, 식은 TDS 5.11), `C[x] = Π_{e ≤ x} m_e`(앞으로 누적, 상장 첫 세션 `C = 1`; TDS `cum_factor_*`와 같은 뜻 [TDS-D9]). split 계수 `C_split`은 `affects = split_and_total` 사건만, total 계수 `C_total`은 모든 사건(`affects ≠ none`)의 곱이다. 수량 계수 `Q[x] = Π_{e ≤ x} q_e`(`q_e` = 해석기의 수량 효과 `share_factor`; 거래량·주식 수·보유 수량에 씀). 거래량의 `Q`는 `affects = split_and_total` 사건의 `q_e`만 곱한다. 5.3.4가 수량 사건이 움직이는 계열에 거래량을 넣는 것과 같다: `total_only`나 `none` 사건은 `share_factor`가 null이어도 거래량을 그대로 둔다(결정 2026-11-18, #241). 기준 가격 `B[s] = raw[s] / C[s]`. 패키지의 `cum_factor_*`는 해석기 결과와 같을 때만 지름길로 쓰고(검사 `TDS-A001`이 최신 해석판과의 맞춤을 보장), 없으면 사건에서 만든다(4.5 F-04). `price_factor` null 사건은 4.6 끝의 규칙.
 
 - **참조 의미(정답)**: 계산일 t 창의 s ≤ t 값 = `raw[s] · Π_{s < e ≤ t, e 사용 가능} m_e`. 사용 가능한 사건이 t까지 모두면 `= raw[s]·C[t]/C[s] = B[s]·C[t]`.
 - **참조 구현** (`compute._kernels_ref.adjusted_window`): 행 t마다 창 `B[t−W+1..t] · C[t]`(가격, split 또는 total 계수), 거래량은 `vol[s]·Q[t]/Q[s]`. 5.3.4의 대기 사건이나 기준 시각에 따라 해석판이 다른 사건(정정·취소)이 있는 칸은 해석기 결과의 사건 목록으로 곱을 직접 계산한다. 사용자 창 함수는 항상 이 창을 받는다.
 - **등록 커널 지름길**: 커널은 조정 등급(3.4 표)을 선언한다.
   - 0차 동차: `B`(또는 `B`의 거래량 판)로 계산한 결과 = 정답. 행마다 곱셈 없음.
-  - 1차 동차: `B`로 계산한 결과 행 t에 `C[t]`를 곱한다(거래량이면 기준 `vol[s]/Q[s]`로 계산한 결과에 `Q[t]`를 곱한다, 3.4 `volume` 행과 같이).
-  - 불변: 원값으로 계산.
+  - 1차 동차: `B`로 계산한 결과 행 t에 `C[t]`를 곱한다(거래량이면 기준 `vol[s]/Q[s]`로 계산한 결과에 `Q[t]`를 곱한다, 3.2 `volume` 행과 같이).
+  - 불변: 원값으로 계산. 창이 `price_factor`가 없는 사건을 건너면, 그 사건 앞 칸은 참조와 같이 여전히 NaN이다(4.6, INV-12)(결정 2026-11-18, #241; `tests/property/test_adjust.py::test_P_ADJ_kernel_classes`가 확인).
+  - **보임**: 모든 지름길은 5.1.2의 행별 보임 마스크를 거친 창을 읽는다: `ts_available`이 `ready_m(t)`보다 늦은 칸은 참조 구현에서와 똑같이 지름길에서도 NaN이므로, 늦은 칸이 있는 데이터에서도 지름길 = 참조다(결정 2026-11-17, #241; `tests/property/test_adjust.py::test_P_ADJ_kernel_classes`가 확인하며, 그 무작위 늦은 칸은 두 경로 모두에서 NaN).
   - 그 밖(문턱값, 비선형 섞임, 가격 수준 순위): 지름길 없음. 참조 경로로 계산한다.
 - **증명 의무**: 등록 커널마다 P-ADJ 성질 시험(무작위 사건·무작위 종목별 스칼라)이 지름길 = 참조 구현(상대 1e-12; 대수적으로 같은 변환은 비트가 같다고 약속하지 않음)을 확인한다. 통과하지 못한 커널은 등록할 수 없다 [RV-C11].
 
