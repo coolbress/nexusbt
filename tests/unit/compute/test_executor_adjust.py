@@ -168,6 +168,19 @@ def test_latest_and_factor_input_windows_are_not_adjusted(tmp_path: Path) -> Non
     assert (got[3, graph_hash(latest)], got[3, graph_hash(over)]) == (53.0, (102 + 104 + 53) / 3)
 
 
+def test_rolling_over_a_term_across_a_split(tmp_path: Path) -> None:
+    """`nx.ops.rolling` reads a `Factor`, never a column (`Price.close` is a TypeError), so its
+    window holds the term's values as each row gave them (5.1.2): across the split at row 3 the
+    mean of close/open is (1.04 + 1.06 + 1.08) / 3, row 2's ratio not halved."""
+    with pytest.raises(TypeError, match="a Factor"):
+        nx.ops.rolling(BoundColumn.of("Price", "close"), 3)  # type: ignore[arg-type]
+    columns = {"close": [100.0, 102.0, 104.0, 53.0, 54.0], "open": [100.0] * 3 + [50.0] * 2}
+    ratio = BoundColumn.of("Price", "close").latest / BoundColumn.of("Price", "open").latest
+    term = nx.ops.rolling(ratio, 3).mean()
+    found = Axis(tmp_path, [SPLIT], columns).run([term], [4])[4, graph_hash(term)]
+    assert found == pytest.approx(1.06)
+
+
 def test_a_column_of_another_dataset_is_not_adjusted(tmp_path: Path) -> None:
     """The table of 3.2 is `Price`'s: a `Panel` column's window across the split is as stored."""
 

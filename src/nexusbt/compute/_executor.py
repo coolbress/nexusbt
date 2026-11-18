@@ -240,7 +240,8 @@ class _Chunk:
         if term.op in _factors.KERNELS:  # 3.4; NaN while the window starts before the axis
             if t - (size := _factors.rows(term)) + 1 < 0:
                 return np.full(n, np.nan)
-            raw = REGISTERED[term.op].adjustment is AdjustmentClass.INVARIANT
+            kernel = REGISTERED.get(term.op)  # `rolling` reads only terms, so it has no class
+            raw = kernel is not None and kernel.adjustment is AdjustmentClass.INVARIANT
             found = _factors.value(term, [self.window(i, t, size, raw) for i in inputs])
             return np.where(self.domain(term, t), found, np.nan)
         if term.op in _SECTION:
