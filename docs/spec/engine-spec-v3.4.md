@@ -2474,7 +2474,7 @@ Layers (`layers.toml`, [R4-15]): E1·E2·E4·E5·E7·E8·E17·E24·E29·E32·E34
 
 | Code | Class | Kind | Condition | Message core (what / fix) |
 |---|---|---|---|---|
-| E1 | `LookAheadError` | block | `shift(k<0)`; truncation probe difference | "The value on {d} changed when data after {d} was removed" / "use .shift(k) with k ≥ 1, nx.ops.rolling(...), or window style" + limitation paragraph |
+| E1 | `LookAheadError` | block | `shift(k<0)`; truncation probe difference | "The value on {d} changed when data after {d} was removed" / "use .shift(k) with k ≥ 1 or nx.ops.rolling(...) on a return or a ratio; for a price level, a built-in factor such as Returns(...) or @nx.factor(window=..., inputs=[Price.close]), which read the column on today's basis" + limitation paragraph |
 | E2 | `LabelLeakError` | block | a label node reaches a decision input (outside the `evaluate(target=)` and `ml.factor(label=)` ports, 5.3.11 [R4-23]) | "Label.{x} is a forward-looking label" / "remove it from the signal; test it with nx.evaluate(f, target=Label.{x})" |
 | E3 | `PointInTimeError` | block | external data without `known_on` | "dataset '{name}' has no known_on column" / "from_parquet(path, key=[...], known_on='published_at') or known_on='date' (recorded as an assumption)" |
 | E4 | `SurvivorshipWarning` | warning | a fixed list all currently listed, period > 3 years | "a fixed list of {n} securities is used from {start} to {end}; {k} delisted included" / "nx.universe('KR') & ... .top(n) or index_members('KOSPI200'); keep with survivorship_ok='reason'" |
