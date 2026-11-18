@@ -7,6 +7,9 @@ package version follows the `tds_version` it checks (`1.0.x`), tagged
 ## [Unreleased]
 
 ### Added
+- `tds_draft` in `tds.json` (TDS 4.2, 10.5): the date of the draft text a package follows,
+  `2026-11-18`; `tds manifest build` and `tds import csv` write it, and a value that is not a
+  `YYYY-MM-DD` date is TDS-M001. It is not in the semantic hash
 - `actions.Resolution.affects`: the chosen version's `affects`, so the engine picks the events
   of `C_split` and `C_total` from the resolver's result (spec 5.3.3)
 - `tds check --level full` judges TDS-V032: a gap in `sequence` within each group a `trades`,
