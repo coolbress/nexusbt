@@ -137,3 +137,46 @@ def test_unknown_codes_refused() -> None:
         k.rank(x, mask, groups, tie, 5, k.ASCENDING)
     with pytest.raises(ValueError, match="at least one bin, not 0"):
         k.quantiles(x, mask, groups, tie, 0)
+
+
+def test_winsorize_clips_at_linear_quantiles() -> None:
+    """5.4.2: `clip(x, q_a, q_b)` with numpy's linear quantiles, a and b fractions of 0..1
+    (#244, Decisions 2026-11-18). Of 1, 2, 3, 4, 100 the 0.1 quantile sits 0.4 of the way from
+    1 to 2, 1.4, and the 0.9 one 0.6 of the way from 4 to 100, 61.6; per group, NaN outside."""
+    x = np.array([100.0, 3.0, NAN, 1.0, 4.0, 2.0, 7.0, 5.0])
+    mask = np.array([True, True, True, True, True, True, True, False])
+    groups = np.array([0, 0, 0, 0, 0, 0, -1, 1], dtype=np.int32)
+    found, unknown = k.winsorize(x, mask, groups, 0.1, 0.9)
+    assert found.tolist()[:6] == pytest.approx([61.6, 3.0, NAN, 1.4, 4.0, 2.0], nan_ok=True)
+    assert np.isnan(found[6:]).all()  # unknown group; masked out
+    assert unknown == 1
+    middle, _ = k.winsorize(x, mask, groups, 0.5, 0.5)  # min == max: all to the median
+    assert middle.tolist()[:6] == pytest.approx([3.0, 3.0, NAN, 3.0, 3.0, 3.0], nan_ok=True)
+    shuffle = np.array([5, 2, 7, 0, 3, 6, 1, 4])
+    again, _ = k.winsorize(x[shuffle], mask[shuffle], groups[shuffle], 0.1, 0.9)
+    assert again.tobytes() == found[shuffle].tobytes()
+
+
+@pytest.mark.parametrize(("low", "high"), [(1.0, 99.0), (0.01, 1.5), (-0.1, 0.5), (0.6, 0.4)])
+def test_winsorize_refuses_bounds_outside_fractions(low: float, high: float) -> None:
+    mask, groups = everyone(2)
+    with pytest.raises(ValueError, match=r"fractions 0 <= min <= max <= 1 \(1% is 0.01\)"):
+        k.winsorize(np.array([1.0, 2.0]), mask, groups, low, high)
+
+
+def test_percentile_between_includes_both_ends() -> None:
+    """5.4.2: `p = 100 (r - 1) / (n - 1)` with the mean rank r, `a <= p <= b`, a and b on
+    0..100. Scores 10, 20, 20, 40, 50 have r = 1, 2.5, 2.5, 4, 5 and p = 0, 37.5, 37.5, 75,
+    100; a single cell has p = 100; outside the cross-section, never between."""
+    x = np.array([40.0, 20.0, NAN, 10.0, 50.0, 20.0, 30.0])
+    mask = np.array([True, True, True, True, True, True, False])
+    assert k.percentile_between(x, mask, 37.5, 75.0).tolist() == [
+        True, True, False, False, False, True, False]  # fmt: skip
+    assert k.percentile_between(x, mask, 0.0, 0.0).tolist() == [
+        False, False, False, True, False, False, False]  # fmt: skip
+    one = np.array([5.0])
+    assert k.percentile_between(one, np.array([True]), 100.0, 100.0).tolist() == [True]
+    assert k.percentile_between(one, np.array([True]), 0.0, 99.0).tolist() == [False]
+    for low, high in [(10.0, 101.0), (-1.0, 50.0), (60.0, 50.0)]:
+        with pytest.raises(ValueError, match="0 <= min <= max <= 100"):
+            k.percentile_between(x, mask, low, high)
