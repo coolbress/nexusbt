@@ -319,7 +319,8 @@ def test_kernel_seam_signatures_arrow_only() -> None:
               "window_nansum_mean", "window_nanstd", "window_annualized_volatility"}  # fmt: skip
     cross_section = {"demean", "zscore", "winsorize", "rank", "select", "percentile_between",
                      "quantiles"}  # fmt: skip
-    assert set(seam_callables(_kernels)) == window | cross_section
+    three_valued = {"compare", "codes_in", "kleene_and", "kleene_or", "kleene_all", "kleene_any"}
+    assert set(seam_callables(_kernels)) == window | cross_section | three_valued
     assert seam_violations(_kernels) == []
 
     def ok(x: npt.NDArray[np.float64], w: int) -> tuple[npt.NDArray[np.int64], float]:
