@@ -159,7 +159,9 @@ def test_inf_result_is_nan() -> None:
     same(run(factors.Returns(2), close_tr=[0, 10, 20]), [NAN, NAN, 1.0])
 
 
-def test_built_in_mask_waits_for_the_filter_executor() -> None:
-    masked = factors.SMA(3, mask=BoundColumn.of("Price", "close").latest > 0)
-    with pytest.raises(NotImplementedError, match="mask"):
-        run(masked, close=[1, 2, 3])
+def test_built_in_mask_is_its_domain() -> None:
+    """A built-in factor's `mask` is its domain (3.3; #245): `SMA(2)` of 1, 2, 3, 0.5 is NaN,
+    1.5, 2.5, 1.75, and NaN at the last row, where the close is not above 1.5."""
+    masked = factors.SMA(2, mask=BoundColumn.of("Price", "close").latest > 1.5)
+    found = run(masked, close=[1, 2, 3, 0.5])
+    assert np.array_equal(found, [np.nan, 1.5, 2.5, np.nan], equal_nan=True)

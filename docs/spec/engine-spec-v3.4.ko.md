@@ -461,7 +461,7 @@ from nexusbt.factors import (Returns, DailyReturns, SimpleMovingAverage, SMA,
 
 | 서명 | 결과 | 뜻 |
 |---|---|---|
-| `+ - * / ** -x`, `abs()`, `log()`, `log1p()`, `exp()`, `sqrt()` | Factor | 원소 연산. NaN은 퍼짐, 0으로 나누기 → NaN + 진단 `DivisionByZero` 건수 [C7] |
+| `+ - * / ** -x`, `abs()`, `log()`, `log1p()`, `exp()`, `sqrt()` | Factor | 원소 연산. NaN은 퍼짐, 0으로 나누기 → NaN + 진단 `DivisionByZero` 건수 [C7], 다른 까닭으로 결과가 ±inf → NaN + 진단 `InfiniteResult` 건수 (5.4.1) |
 | `< <= > >= == !=` (Factor 또는 스칼라와) | Filter | 입력이 NaN이면 **모름**(최종 사용처에서 거짓; `~`를 해도 모름) [V31-21] |
 | `rank(method="ordinal", ascending=True, mask=None, groupby=None, across_markets=False)` | Factor | 단면 순위 1..n. `method ∈ {"ordinal","average","min","max","dense"}`. `ordinal` 동률은 `[portfolio] tiebreak`의 열쇠(기본 고정 소금 해시, 3.7; `"id"`·zipline 프리셋·대조는 `instrument_id` 오름차순) [11.4.4, R3-12] |
 | `zscore(mask=None, groupby=None, across_markets=False)` | Factor | (x−평균)/모표준편차(ddof=0). 분산 0 → NaN |
@@ -471,7 +471,7 @@ from nexusbt.factors import (Returns, DailyReturns, SimpleMovingAverage, SMA,
 | `percentile_between(min_percentile, max_percentile, mask=None, across_markets=False)` | Filter | 백분위 [min, max] 안 (양끝 포함), 0..100 척도: `0 ≤ min ≤ max ≤ 100` (결정 2026-11-18, #244) |
 | `pct_rank(higher_is_better=True, mask=None, groupby=None, na="drop", across_markets=False)` | Factor | 단면 백분위 0~100(100 = 가장 좋음, 동률은 평균 순위). `na`: `"drop"`(결측은 NaN, 기본), `"bottom"`(결측을 가장 나쁜 값 바로 아래 동률로 넣고 계산), `"middle"`(결측 칸 = 50, 나머지는 유효 칸만으로). `drop`이 아니면 결측 칸에 값을 주는 **명시적** 대체 연산이라 INV-12와 맞고 매니페스트·`explain`에 남는다 [V31-25] |
 | `quantiles(bins, mask=None, groupby=None, across_markets=False)`, `quartiles()`, `quintiles()`, `deciles()` | Classifier | 동률 보존 분위(5.4.3) |
-| `isnan()`, `notnan()`, `isfinite()`, `isnull()`, `notnull()` | Filter | |
+| `isnan()`, `notnan()`, `isfinite()`, `isnull()`, `notnull()` | Filter | `isfinite()`는 `notnan()`과 같게 답한다: Factor의 값은 유한수 아니면 NaN이다(5.4.1). 이름은 zipline의 것(ADR 0001) |
 | `fillna(value: float | Factor)` | Factor | 유일한 명시적 대체 [INV-12] |
 | `clip(lower=None, upper=None)` | Factor | |
 | `shift(k: int)` | Factor | 그 종목 시장 축에서 k세션 전 값. `k < 0`이면 그래프 만들 때 `LookAheadError`(오류 E1). `k = 0`은 그대로. `k ≥ 1`이면 차수(3.4)가 알려져 있고 0이 아닌 입력은 그래프 만들 때 `TermDomainError`(오류 E17) |
@@ -480,7 +480,7 @@ from nexusbt.factors import (Returns, DailyReturns, SimpleMovingAverage, SMA,
 | `downsample(freq)` | – | v1에 없음 → `CapabilityError` |
 
 - `mask`: 그 항의 계산 영역. 마스크 밖 칸은 결과가 NaN(Filter는 모름). 위쪽 입력 계산에는 영향 없음 [11.4.4]. **기본 도메인**(mask가 없을 때 단면에 드는 칸) = 그 시장 블록의 칸 = `asset_class = equity ∧ is_synthetic = false ∧ 그 세션에 상장 존재`. 지수는 단면에 들지 않고 벤치마크 경로와 시장 수준 계열 `Market.series`(3.2)로만 읽는다 [V31-13]. 엔진은 Strategy의 `universe`를 위쪽 항에 몰래 마스크로 넣지 않는다; 마스크 없는 단면 연산이 Strategy 신호 경로에 있으면 정적 검사가 알림 E34를 낸다 [RV-Q06].
-- `groupby`: Classifier. 결측 그룹(−1)인 칸은 빼고 그 수를 진단 `UnknownGroup`으로 센다 [11.4.4].
+- `groupby`: Classifier. 결측 그룹(−1)인 칸은 빼고 그 수를 그 항에서 진단 `UnknownGroup`으로 센다(5.4.1) [11.4.4].
 - 단면 연산은 **시장마다 따로** 계산한다(시장 = 암묵 그룹) [A-03]. `across_markets=True`면 판단 하나의 모든 시장 단면을 모아 계산하고, 이 항은 창·`shift`의 입력이 될 수 없다(`TermDomainError`, 오류 E17). 통화 단위 항에 `across_markets=True` 단면 연산을 걸면 `UnitError`(오류 E5) — `.to(ccy)` 뒤나 비율이면 된다 [R-19].
 
 **Filter 메서드**: `& | ~`(Kleene 3값: 거짓 & 모름 = 거짓, 참 | 모름 = 참, `~`모름 = 모름, 나머지 모름 [V31-21]; `isnan()`·`notnan()`·`notnull()`의 결과는 늘 참/거짓), `if_else(if_true: Factor, if_false: Factor) -> Factor`(조건이 모름이면 NaN), `all(window: int) -> Filter`(지난 window 세션 모두 참; Kleene — 거짓이 하나라도 있으면 거짓, 아니고 모름이 있으면 모름), `any(window: int) -> Filter`(참이 하나라도 있으면 참, 아니고 모름이 있으면 모름), `.as_factor() -> Factor`(참 1.0 / 거짓 0.0 / 모름 NaN), `fillna(value: bool) -> Filter`(모름 칸을 정한 값으로; 유일한 명시적 Filter 대체, INV-12) [R3-13].
@@ -547,6 +547,7 @@ nx.run_pipeline(pipeline: Pipeline, *, start: str | date, end: str | date, freq:
 ```
 
 - 결과 `PipelineResult.table`: Arrow 표 `(market: str, session_date: date32, decision_ts: timestamp[us,UTC], instrument_id: str, <columns…>)`, 정렬 `(session_date, market, instrument_id)`. `screen`이 거짓이거나 모름인 행은 없다(모름 = 거짓) [R3-13]. `.to_polars()`, `.to_pandas()`(선택 의존).
+- `PipelineResult.term_diagnostics`: 5.4.1의 건수를 시장·세션·항마다 담은, 5.4.1이 정한 표.
 - `start`가 세션이 아니면 시장마다 다음 세션으로, `end`는 이전 세션으로 맞추고 알림(오류 E9)을 낸다 [설계 3.5 오류 E9].
 - `freq="daily"`의 판단 격자 = 각 시장의 모든 세션(market_local). 여러 시장이면 시장별 행을 쌓는다.
 
@@ -893,7 +894,7 @@ warnings {n} (run.warnings) · data fallbacks {k} · reconciled: {yes|NO}
 | 4 | 어떤 위험을 졌나 | `exposures` | 롱·숏 노출은 면, gross·net 노출은 선; 통화별 노출 | `exposures.parquet`(5.7 노출, V31-LS-10), 5.6.9 | 숏을 들지 않은 실행이면 숏 면; 통화가 하나인 실행이면 통화별 차트 |
 | 5 | 무엇이 수익을 먹었나 | `attribution` | 비용 분해 표(수수료, 세금, 스프레드, 충격, 차입, 환전)와 직접 비용·경로 효과; 시나리오 표(비용 민감도, 용량); "cost tiers" 표; 1년 이동 Sharpe와 1년 이동 벤치마크 초과 수익 차트, "rolling" 분위 표 | `attribution.parquet`(T3.14), 비용 끌림과 비용 민감도(5.7); 이동 차트의 점 하나는 최근 일 수익 252개의 5.7 Sharpe(또는 5.7 산술 연 초과 수익)이고 평가일마다 점 하나; "rolling" 표는 5.7 이동 창(V31-26) | 일 수익이 252개보다 적으면 이동 차트(`rolling 1y: n/a (run shorter than 252 valuation days)`); 벤치마크가 없으면 초과 차트; 숏이 없으면 차입 행; T6.18 전에는 "rolling" 표 |
 | 6 | 거래가 될 수 있었나 | `execution` | 주문 줄과 막힌 날 건수; 원인별 목표 차이 분해; "trades"·"execution" 표 | `orders` 줄(3.9), 목표 차이·체결 품질(5.7, V31-14), `trades.parquet`(V31-20) | 빠지지 않음; `trades.parquet`가 생기기 전에는 "trades" 표 |
-| 7 | 데이터가 충분했나 | `data` | 연도별 유니버스 크기, 필드별 커버리지, 보유 중 상장폐지 요약; 정확 비율이 없거나 의심스러워 뺀 종목의 연도별 표(뺀 종목 수, 유니버스 대비 비율, 영향받은 판단 수)와 `ca_exclusions.parquet` 목록(5.6.1) [#150] | `coverage.parquet`(5.9.1; `n_excluded_by_reason`의 `ca_ratio_*` 키를 `n_universe`에 대어), `ca_exclusions.parquet`, `exits while held`·`hypothetical exits` 줄; `survivorship.parquet`(연도별 유니버스 크기, 상장폐지 수와 보유 중 상장폐지 수, 종료가치의 NAV 비중과 그 lo/hi)와 `coverage_fields.parquet`(필드별 커버리지: 값 있음, 낡음, 아직 공개 전, 결측; 5.9.1이 주기로 읽지 않는 `freq` 값은 값마다 한 번 [#394]), 둘 다 5.9.1 [#160] | 실행이 그 표를 갖지 않은 부분마다, 한 줄에 이름을 적음; 그런 사건이 없는 실행이면 제외 표 |
+| 7 | 데이터가 충분했나 | `data` | 연도별 유니버스 크기, 필드별 커버리지, 보유 중 상장폐지 요약; 정확 비율이 없거나 의심스러워 뺀 종목의 연도별 표(뺀 종목 수, 유니버스 대비 비율, 영향받은 판단 수)와 `ca_exclusions.parquet` 목록(5.6.1) [#150]; `term_diagnostics`의 항별 합계(5.4.1) | `coverage.parquet`(5.9.1; `n_excluded_by_reason`의 `ca_ratio_*` 키를 `n_universe`에 대어), `ca_exclusions.parquet`, `exits while held`·`hypothetical exits` 줄; `survivorship.parquet`(연도별 유니버스 크기, 상장폐지 수와 보유 중 상장폐지 수, 종료가치의 NAV 비중과 그 lo/hi)와 `coverage_fields.parquet`(필드별 커버리지: 값 있음, 낡음, 아직 공개 전, 결측; 5.9.1이 주기로 읽지 않는 `freq` 값은 값마다 한 번 [#394]), 둘 다 5.9.1 [#160] | 실행이 그 표를 갖지 않은 부분마다, 한 줄에 이름을 적음; 그런 사건이 없는 실행이면 제외 표 |
 | 8 | 믿을 수 있나 | `hygiene` | 첫 화면 hygiene 상자(6.3a, T6.22)의 사본이 아니라 그 뒤의 근거: 기록된 시도 범위(study, cohort, `cohort_sha256`, 6.2)와 시도 기록; 그다음 가정 줄(3.9) | 6.3a, 6.2, `assumptions` 줄 | 빠지지 않음; T6.22 전에는 시도 줄과 가정 줄만 |
 
 **FactorReport의 `report.html`**은 페이지 틀(맨 위의 첫 화면, 맨 끝의 hygiene 줄과 가정 줄)과 아래 시각 규칙을 같이 쓰고, 칸은 자기 것을 이 순서로 둔다: `summary`(FactorReport 줄), `ic`(IC 계열), `quantiles`(분위 누적 수익, 가중·리밸런스·비용 조건을 차트에 적음), `by_year`(연도별 IC 막대), `turnover`, `coverage`, `hygiene`, `assumptions`. n/a 규칙도 같다.
@@ -1616,7 +1617,9 @@ class DecisionContext:
 ### 5.4 결측과 단면 연산
 
 #### 5.4.1 결측 규칙 [C7, INV-12]
-- 산술은 NaN을 퍼뜨린다. `x/0` → NaN(+ 진단 건수). `inf`는 NaN으로 바꾸고 센다.
+- 산술은 NaN을 퍼뜨린다. **Factor의 값은 모든 항에서 유한수 아니면 NaN이다** (결정 2026-11-18, #536): 항의 결과가 ±inf가 될 칸(`x/0`, 넘침, `log(0)`, 사용자 함수의 출력)은 그 항의 값이 NaN이다. 그래서 어떤 항도 `inf`를 읽지 않고, 비교와 `isfinite()`도 `inf`를 만나지 않는다.
+- 진단 셋이 칸을 센다. 칸 하나는 그 값을 만든 항과 행에서 한 번만 센다(그 NaN을 읽는 항은 다시 세지 않고, 여러 열이 같이 쓰는 노드는 한 번 센다): `DivisionByZero`는 나누는 수가 0이고 나뉘는 수가 NaN이 아닌 나눗셈 칸, `InfiniteResult`는 다른 까닭으로 결과가 ±inf였던 칸, `UnknownGroup`은 그 항의 도메인에서 그룹이 −1인 칸(3.3 `groupby`).
+- 건수는 표 하나 `term_diagnostics`로 결과와 같이 간다. 열은 이 순서로 `market: str`, `session_date: date32`, `term: str`(`explain`이 쓰는 대로), `diagnostic: str`, `n: int64`이고, (시장, 세션, 항, 진단)마다 `n > 0`인 행이 하나씩이며, `PipelineResult.table`(3.5)과 같이 `(session_date, market, term, diagnostic)`으로 정렬한다. 셀 것이 없으면 그 열들을 가진 빈 표다. `run_pipeline`의 `PipelineResult.term_diagnostics`가 이 표를 들고, 저장한 실행은 실행 폴더에 `term_diagnostics.parquet`로 남기며(5.9.1), 보고서 질문 7이 항마다 합계를 찍는다(3.9). 로그 줄도 아니고 `coverage.parquet`의 열도 아니다.
 - Filter [V31-21]: 값과 유효 마스크를 같이 든다. NaN 비교 → 모름. `~f`: 값 반전, 유효 그대로(모름은 모름). `&`·`|`: Kleene 3값(거짓 & 모름 = 거짓, 참 | 모름 = 참, 나머지 모름). 최종 사용처(`universe`, `top`/`bottom`의 후보, `mask`, `screen`)에서 모름 = 거짓. 그래서 `~(Price.close.latest > 10_000)`은 정지로 종가가 없는 종목을 **넣지 않는다**(v3는 넣었다: qlib#2119와 같은 결과). `isnan()`·`notnan()`·`isfinite()`·`isnull()`·`notnull()`은 언제나 유효. `explain`은 모름을 "unknown (input NaN: {column})"으로 보인다. zipline과 다른 점(zipline은 `~`가 결측을 참으로 바꿈)은 `KNOWN_DIFFERENCES.md`. **모름이 섞인 연산** [R3-13]: `all/any(window)`는 Kleene(3.3), `as_factor()`는 모름 → NaN, Classifier 결측(−1) 비교는 모름, `if_else`는 모름 → NaN, `Pipeline(screen=)`의 모름 = 거짓. 명시적 대체는 `Filter.fillna(bool)`뿐이다. **함정 알림**: 실행 중 한 판단·시장에서 유니버스 Filter의 모름 비율(모름 / 상장 존재 칸)이 50%를 넘으면 `UnknownFilterNotice`(E39)를 판단 수와 잎 Filter 이름으로 한 번 낸다(예: 미국 2019-08-23 전 `~Trad.halted`는 `status_known = false`라 모두 모름 → 유니버스가 빔; fix `(~Trad.halted).fillna(True)`). 잎 Filter마다 모름 건수는 `coverage.parquet`의 `n_unknown_by_leaf`.
 - 최종 선택(`top`, 포트폴리오)은 유한한 점수만 본다.
 - 대체는 `fillna`, `ops.where`, `ops.coalesce`로만. 내장 팩터의 결측 규칙은 3.4 표.
@@ -2100,6 +2103,7 @@ runs/<run_id>/
   coverage.parquet         decision_id, year, market, term, n_present, n_universe, n_excluded_by_reason(json), n_microcap_excluded, n_signal_nan, n_target_not_held, n_na_filled, n_tied_at_cutoff, target_gap, gap_by_cause(json), rounding_gap, n_zero_lot_targets, n_suppressed_small, n_suppressed_band, n_band_entry_skipped, n_held_missing_score, n_unknown_by_leaf(json)  [SC-23, V31-14, V31-25, V31-29, V31-06, V31-17, R3-13, R3-20]
   survivorship.parquet     year, market, n_universe, n_excluded_by_reason(json), n_microcap_excluded, n_delisted, n_delisted_held, n_observed, n_policy, n_unobserved, terminal_value_base, terminal_value_long_base, terminal_value_short_base, terminal_value_lo_base, terminal_value_hi_base, nav_share, nav_share_lo, nav_share_hi  (열은 아래) [#160, #394]
   coverage_fields.parquet  year, market, dataset, field, freq, required_by_universe, n_universe_rows, n_value, n_stale, n_not_yet_published, n_missing, share_value  (열은 아래) [#160]
+  term_diagnostics.parquet market, session_date, term, diagnostic, n — 5.4.1의 건수, 그 절이 정한 표
   trades.parquet           trade_id, sleeve, instrument_id, side(long|short), status(closed|open), ts_open, ts_close, qty_max, avg_entry, avg_exit, legs, realized_minor, unrealized_minor(open), costs_minor, distributions_minor, borrow_minor, exit_reason(rebalance|exit:<rule>|delisted|merger|override|ca_unverified_exit [#150]), sessions_held, mae, mfe(진입·청산 봉의 극값은 빼고 계산, "daily-bar approximation" 표시 [R3-20])  [V31-20]
   ca_exclusions.parquet    (5.6.1 R7-01이 종목을 뺐을 때만) sleeve_id, instrument_id, event_id, cause(ca_ratio_missing|ca_ratio_unverified|ca_ratio_disagrees), v_e, ts_effective, excluded_from, excluded_to, held_qty, price_basis(last_valid_close|null), basis_session, exit_price, pnl_minor, costs_minor, trade_id(nullable)  [#150]
   offsets.parquet          (offsets일 때만) offset, cagr, sharpe, mdd, turnover  [V31-26]
