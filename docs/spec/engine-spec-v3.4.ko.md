@@ -466,9 +466,9 @@ from nexusbt.factors import (Returns, DailyReturns, SimpleMovingAverage, SMA,
 | `rank(method="ordinal", ascending=True, mask=None, groupby=None, across_markets=False)` | Factor | 단면 순위 1..n. `method ∈ {"ordinal","average","min","max","dense"}`. `ordinal` 동률은 `[portfolio] tiebreak`의 열쇠(기본 고정 소금 해시, 3.7; `"id"`·zipline 프리셋·대조는 `instrument_id` 오름차순) [11.4.4, R3-12] |
 | `zscore(mask=None, groupby=None, across_markets=False)` | Factor | (x−평균)/모표준편차(ddof=0). 분산 0 → NaN |
 | `demean(mask=None, groupby=None, across_markets=False)` | Factor | x − 평균 |
-| `winsorize(min_percentile, max_percentile, mask=None, groupby=None, across_markets=False)` | Factor | 분위 경계로 자름(선형 보간 분위) |
+| `winsorize(min_percentile, max_percentile, mask=None, groupby=None, across_markets=False)` | Factor | 분위 경계로 자름(선형 보간 분위); `min_percentile`, `max_percentile`은 비율, `0 ≤ min ≤ max ≤ 1`(1%는 0.01) (결정 2026-11-18, #244) |
 | `top(N, mask=None, groupby=None, across_markets=False)` / `bottom(...)` | Filter | 점수 내림(오름)차순 + 동률 열쇠(3.7)로 많아야 N개 [R3-12] |
-| `percentile_between(min_percentile, max_percentile, mask=None, across_markets=False)` | Filter | 백분위 [min, max] 안 (양끝 포함) |
+| `percentile_between(min_percentile, max_percentile, mask=None, across_markets=False)` | Filter | 백분위 [min, max] 안 (양끝 포함), 0..100 척도: `0 ≤ min ≤ max ≤ 100` (결정 2026-11-18, #244) |
 | `pct_rank(higher_is_better=True, mask=None, groupby=None, na="drop", across_markets=False)` | Factor | 단면 백분위 0~100(100 = 가장 좋음, 동률은 평균 순위). `na`: `"drop"`(결측은 NaN, 기본), `"bottom"`(결측을 가장 나쁜 값 바로 아래 동률로 넣고 계산), `"middle"`(결측 칸 = 50, 나머지는 유효 칸만으로). `drop`이 아니면 결측 칸에 값을 주는 **명시적** 대체 연산이라 INV-12와 맞고 매니페스트·`explain`에 남는다 [V31-25] |
 | `quantiles(bins, mask=None, groupby=None, across_markets=False)`, `quartiles()`, `quintiles()`, `deciles()` | Classifier | 동률 보존 분위(5.4.3) |
 | `isnan()`, `notnan()`, `isfinite()`, `isnull()`, `notnull()` | Filter | |
