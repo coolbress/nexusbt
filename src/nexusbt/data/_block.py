@@ -16,6 +16,7 @@ import pyarrow.parquet as pq
 from nexusbt.contracts import ID_COLUMN as ID
 from nexusbt.contracts import SnapshotError
 from nexusbt.data._calendar import bars_availability
+from nexusbt.data._datasets import needed
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
@@ -75,14 +76,14 @@ def build_block(
         raise ValueError(f"overlap {overlap} is negative; it counts rows before the sessions")
     start = max(0, first - overlap)
     dates = calendar.dates[start : last + 1]
-    kinds = {d["kind"]: d for d in reversed(manifest.datasets)}  # the first of each kind
-    ids, listed, delisted = _axis(manifest, kinds["instruments"], calendar.market, given)
+    bars = needed(manifest.data, "bars")  # by kind and freq=1d, never by list order (4.3)
+    instruments = needed(manifest.data, "instruments")
+    ids, listed, delisted = _axis(manifest, instruments, calendar.market, given)
     n, shape = len(ids), (len(dates), len(ids))
     exists = (listed[None, :] <= dates[:, None]) & ~(delisted[None, :] < dates[:, None])
     values = {f: np.full(shape, np.nan) for f in fields}
     status = np.full(shape, -1, dtype=np.int8)
     available = np.full(shape, np.datetime64("NaT", "us"))
-    bars = kinds["bars"]
     source, _ = bars_availability(bars, str(manifest.data["snapshot_id"]))
     wanted = [ID, "session_date", "close", *fields]
     optional = [*_OPTIONAL, *([source] if source != "ts_close" else [])]  # ts_close: calendar's
