@@ -15,6 +15,7 @@ import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
 from nexusbt.contracts import CapabilityError, ConfigError, SessionNotice, SnapshotError
+from nexusbt.data._datasets import dataset
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
@@ -101,13 +102,12 @@ def read_calendar(manifest: Manifest, market: str) -> Calendar:
     """The calendar of `market` from `calendar_sessions`, in session order; without rows for
     its `calendar_id`, the sessions of exchange_calendars over the bars' period (4.5 F-02)."""
     calendar_id = str(manifest.data["markets"][market]["calendar_id"])
-    kinds = {d["kind"]: d for d in reversed(manifest.datasets)}  # the first of each kind
-    held = kinds.get("calendar_sessions", {}).get("files", [])
+    held = (dataset(manifest.data, "calendar_sessions") or {}).get("files", [])
     tables = [pq.read_table(manifest.root / f["path"]) for f in held]
     rows = pa.concat_tables(tables) if tables else None
     if rows is not None:
         rows = rows.filter(pc.equal(rows["calendar_id"], calendar_id)).sort_by("session_date")
-    bars = kinds.get("bars")
+    bars = dataset(manifest.data, "bars")
     _, delay = bars_availability(bars, str(manifest.data["snapshot_id"]))
     delta = np.timedelta64(delay, "us")
     if rows is None or not len(rows):
