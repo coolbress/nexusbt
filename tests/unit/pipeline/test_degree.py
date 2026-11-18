@@ -85,6 +85,7 @@ def test_e1_fix_agrees_with_the_refusal() -> None:
     check(window_of(2, Price.close))
     check(Returns(2).shift(1))
     check((Price.close.latest / Price.open.latest).shift(1))
+    check(nx.ops.rolling(Returns(2), 3).mean())
     with pytest.raises(nx.TermDomainError):
         check(Price.close.latest.shift(1))
 
