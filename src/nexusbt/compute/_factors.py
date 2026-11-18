@@ -29,9 +29,26 @@ KERNELS: Mapping[str, Callable[[F64, Mapping[str, Any]], F64]] = {
         x, p["annualization_factor"]
     ),
     "RollingStd": lambda x, _: _kernels.window_nanstd(x, 1),
+    "rolling": lambda x, p: _rolling(x, p["how"], p["min_periods"]),
+}
+#: `nx.ops.rolling`'s operations (3.3) over the finite cells of a term's values.
+ROLLING: Mapping[str, Callable[[F64], F64]] = {
+    "mean": _kernels.window_nanmean,
+    "sum": _kernels.window_nansum,
+    "std": lambda x: _kernels.window_nanstd(x, 1),
+    "min": _kernels.window_nanmin,
+    "max": _kernels.window_nanmax,
+    "median": _kernels.window_nanmedian,
 }
 #: Rows a factor reads beyond its W: `AnnualizedVolatility` takes W returns, so W + 1 prices.
 EXTRA = {"AnnualizedVolatility": 1}
+
+
+def _rolling(x: F64, how: str, min_periods: int) -> F64:
+    """A rolling operation's value where the window holds `min_periods` finite cells, else NaN."""
+    enough = np.count_nonzero(np.isfinite(x), axis=0) >= min_periods
+    found: F64 = np.where(enough, ROLLING[how](x), np.nan)
+    return found
 
 
 def rows(term: Term) -> int:
