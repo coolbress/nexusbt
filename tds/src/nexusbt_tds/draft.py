@@ -27,7 +27,7 @@ import pyarrow.parquet as pq
 
 from .check import TIMELESS
 from .hash import HASH_SPEC, HashError, _lines, dataset_hashes, file_sha256, spill_folder
-from .manifest import MANIFEST, Manifest, ManifestError
+from .manifest import MANIFEST, TDS_DRAFT, Manifest, ManifestError
 from .schemas.verify import dictionary_schemas, load_schemas
 
 _TODO = {
@@ -151,7 +151,7 @@ def build_manifest(path: Path) -> Manifest:
     created = dt.datetime.now(dt.UTC).replace(microsecond=0)
     draft = {
         "TODO": [f"{field}: {what}" for field, what in todo.items()],
-        "tds_version": "1.0", "name": root.resolve().name,
+        "tds_version": "1.0", "tds_draft": TDS_DRAFT, "name": root.resolve().name,
         "created": created.isoformat().replace("+00:00", "Z"),
         "snapshot_id": created.strftime("%Y%m%d-%H%M%S"),
         "producer": {"name": "nexusbt-tds manifest build", "version": version("nexusbt-tds")},

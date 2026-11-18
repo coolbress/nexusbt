@@ -5,6 +5,7 @@
   "type": "object",
   "required": ["tds_version", "name", "created", "snapshot_id", "producer", "profiles", "id_namespaces", "markets", "datasets", "hashes", "writer"],
   "properties": {
+    "tds_draft": {"$ref": "#/$defs/date"},
     "producer": {"type": "object"},
     "profiles": {"type": "array", "items": {"type": "string"}},
     "id_namespaces": {"type": "object"},
