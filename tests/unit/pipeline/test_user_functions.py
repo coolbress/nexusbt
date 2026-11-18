@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import functools
 import importlib.util
+import sys
 import traceback
 import warnings
 from collections.abc import Sequence
@@ -256,12 +257,20 @@ def score(close):
 def user_module(at: Path, name: str, inner: str = "2") -> Any:
     """A strategy file of the user's project, imported as a module: `score` calls `_helper`,
     which calls `_inner`, whose body has `inner` in it."""
+    return load(at, name, USER_FILE.format(inner=inner))
+
+
+def load(at: Path, name: str, text: str) -> Any:
+    """`text` as a file of the user's project, imported as the module `name` (listed in
+    `sys.modules`, as `import` lists it, under a name unique to `at`)."""
     path = at / f"{name}.py"
-    path.write_text(USER_FILE.format(inner=inner))
-    spec = importlib.util.spec_from_file_location(name, path)
+    path.write_text(text)
+    unique = f"{name}_{abs(hash(str(at)))}"
+    spec = importlib.util.spec_from_file_location(unique, path)
     assert spec is not None
     assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)
+    sys.modules[unique] = module
     spec.loader.exec_module(module)
     return module
 
@@ -294,6 +303,8 @@ def test_keyword_binding_makes_a_new_factor() -> None:
     bind(mom63, SchemaRegistry(columns={}, labels={}))
     with pytest.raises(TypeError, match="_momentum takes no keyword 'm'"):
         mom(m=1)
+    with pytest.raises(TypeError, match="_momentum takes no keyword 'close'"):
+        mom(close=3)  # the window of an input, not a parameter
     with pytest.raises(TypeError, match="constant-like"):
         mom(n=np.int64(63))
     with pytest.raises(TypeError, match="only a user function"):
@@ -337,3 +348,38 @@ def test_global_array_read_E24_disables_l1() -> None:  # noqa: N802 - spec 10.1'
     assert l1_disabled(weighted)
     assert l1_disabled(weighted.rank() + pure)  # a node below it
     assert not l1_disabled(pure.rank())
+
+
+SETTINGS = """
+import functools
+import numpy as np
+
+W = np.array([1.0])
+LIMIT = {limit}
+SCALE = functools.partial(np.multiply, W)
+
+class Cfg:
+    W = np.array([1.0])
+    LIMIT = {limit}
+
+def score(close):  # reads `cfg`, set from outside: the project module above, as `import`
+    return close[-1] * cfg.{read} + cfg.LIMIT
+"""
+
+
+def test_reads_through_a_project_module_or_class(tmp_path: Path) -> None:
+    """6.5 (6) through a module or a class of the project: a constant attribute is in the hash
+    (`cfg.LIMIT = 10 → 20` changes it), an array attribute, a class's array and a callable
+    object holding an array (`functools.partial`) are E24."""
+    hashes = []
+    for limit in (10, 20):
+        cfg = load(tmp_path, f"settings_{limit}", SETTINGS.format(limit=limit, read="LIMIT"))
+        cfg.cfg = cfg
+        hashes.append(graph_hash(nx.factor(window=2, inputs=[CLOSE])(cfg.score)))
+    assert hashes[0] != hashes[1]
+    for read, shown in (("W[0]", "cfg.W"), ("Cfg.W[0]", "cfg.Cfg.W"),
+                        ("SCALE(1.0)[0]", "cfg.SCALE")):  # fmt: skip
+        cfg = load(tmp_path, "settings", SETTINGS.format(limit=10, read=read))
+        cfg.cfg = cfg
+        with pytest.warns(UserWarning, match=f"reads global .*'{shown}'"):
+            assert l1_disabled(nx.factor(window=2, inputs=[CLOSE])(cfg.score))

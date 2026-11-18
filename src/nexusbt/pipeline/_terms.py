@@ -7,6 +7,8 @@ one reads no data (2.5); its hash is fixed when it is built, so `a - b` and `b -
 from __future__ import annotations
 
 import ast
+import dis
+import functools
 import hashlib
 import inspect
 import json
@@ -160,7 +162,9 @@ class Factor(Term):
         if self.op != "user" or fn is None:
             raise TypeError(f"only a user function's Factor takes keyword values, not {self.op}")
         named = (inspect.Parameter.KEYWORD_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
-        taken = {n for n, p in inspect.signature(fn).parameters.items() if p.kind in named}
+        windows = len(self.inputs)  # the first parameters are the inputs' windows
+        listed = list(inspect.signature(fn).parameters.values())[windows:]
+        taken = {p.name for p in listed if p.kind in named}
         for name, value in values.items():
             if name not in taken:
                 raise TypeError(f"{fn.__name__} takes no keyword {name!r}")
@@ -443,9 +447,11 @@ _FILE_READS = frozenset({"open", "load", "loadtxt", "genfromtxt", "fromfile", "m
 
 
 def _in_project(value: object) -> TypeGuard[FunctionType]:
-    if not isinstance(value, FunctionType):
-        return False
-    path = Path(value.__code__.co_filename)
+    return isinstance(value, FunctionType) and _project_file(value.__code__.co_filename)
+
+
+def _project_file(file: str) -> bool:
+    path = Path(file)
     return path.is_absolute() and not any(path.is_relative_to(p) for p in _OUTSIDE)
 
 
@@ -461,7 +467,7 @@ def _reads(fn: FunctionType) -> _Reads:
         if id(f) in seen:
             continue
         seen.add(id(f))
-        names = list(_names(f.__code__))
+        names, attrs = _loads(f.__code__)
         values = {n: f.__globals__[n] for n in names if n in f.__globals__}
         for name, cell in zip(f.__code__.co_freevars, f.__closure__ or (), strict=True):
             try:
@@ -469,27 +475,56 @@ def _reads(fn: FunctionType) -> _Reads:
             except ValueError:  # an empty cell: its value would be missing from the hash
                 raise TypeError(f"{name}, read by {f.__name__}, has no value yet") from None
         prefix = "" if f is fn else f"{f.__qualname__}:"
-        for name, value in values.items():
+        reads, spaces = sorted(values.items()), set[int]()
+        while reads:
+            name, value = reads.pop()
             if _constant(value):
                 found[prefix + name] = value
             elif _in_project(value):
                 todo.append(value)
-            elif isinstance(value, ModuleType):  # `helpers.score(...)`: the module's attributes
-                todo += [a for n in names if _in_project(a := getattr(value, n, None))]
-            elif not callable(value):  # an array, a list, a dict, a DataFrame
+            elif isinstance(value, ModuleType | type):  # `cfg.LIMIT`: a project namespace's
+                if _project_space(value) and id(value) not in spaces:
+                    spaces.add(id(value))
+                    reads += [(f"{name}.{a}", getattr(value, a)) for a in sorted(attrs)
+                              if hasattr(value, a)]  # fmt: skip
+            elif _held(value):  # an array, a list, a dict, a DataFrame, an object holding one
                 impure.add(name)
-        unbound = [n for n in names if n not in values]  # builtins and attributes
-        impure.update(n for n in unbound if n in _FILE_READS or n.startswith("read_"))
+        impure.update(n for n in names if n not in values and n in _FILE_READS)  # `open`
+        impure.update(a for a in attrs if a in _FILE_READS or a.startswith("read_"))
         helpers += [] if f is fn else [f]
     ordered = sorted(helpers, key=lambda h: h.__qualname__)
     return _Reads(tuple(ordered), tuple(sorted(found.items())), tuple(sorted(impure)))
 
 
-def _names(code: CodeType) -> Iterator[str]:
-    yield from code.co_names
+def _loads(code: CodeType) -> tuple[set[str], set[str]]:
+    """The global names the code (and the code nested in it) loads, and the attribute names;
+    `co_names` holds both together."""
+    names, attrs = set[str](), set[str]()
+    for op in dis.get_instructions(code):
+        if op.opname in ("LOAD_GLOBAL", "LOAD_NAME"):
+            names.add(op.argval)
+        elif op.opname in ("LOAD_ATTR", "LOAD_METHOD"):
+            attrs.add(op.argval)
     for const in code.co_consts:
         if isinstance(const, CodeType):
-            yield from _names(const)
+            inner = _loads(const)
+            names |= inner[0]
+            attrs |= inner[1]
+    return names, attrs
+
+
+def _project_space(value: ModuleType | type) -> bool:
+    """A module or a class defined in a file of the project."""
+    module = value if isinstance(value, ModuleType) else sys.modules.get(value.__module__)
+    file = getattr(module, "__file__", None)
+    return file is not None and _project_file(file)
+
+
+def _held(value: object) -> bool:
+    """Data a function reads that the hash cannot hold: anything not callable, and a callable
+    that carries data, a `functools.partial` or an instance of a project class."""
+    carries = isinstance(value, functools.partial) or _project_space(type(value))
+    return not callable(value) or carries
 
 
 def _constant(value: object) -> bool:
