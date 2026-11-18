@@ -54,6 +54,64 @@ def window_sum(values: F64, window: int, rows: npt.NDArray[np.int64]) -> F64:
     return out
 
 
+# The built-in factors' window kernels (3.4) take one `(W, N)` window, row t last, and return
+# `(N,)`. `nanmean`, `nanstd` and `nansum` are "the sum of the non-NaN values added from the left
+# in ascending row order" (3.4); a variance is two passes, the mean first (5.3.10 (2)).
+
+
+def _finite_fold(x: F64) -> tuple[F64, npt.NDArray[np.int64]]:
+    """Per column, the left fold of the finite cells and their count."""
+    seen = np.isfinite(x)
+    acc, n = np.zeros(x.shape[1]), np.zeros(x.shape[1], dtype=np.int64)
+    for r in range(len(x)):
+        acc = acc + np.where(seen[r], x[r], 0.0)
+        n = n + seen[r]
+    return acc, n
+
+
+def window_returns(x: F64) -> F64:
+    """`Returns`: `x[-1]/x[0] - 1`, NaN when either end is NaN."""
+    found: F64 = x[-1] / x[0] - 1.0
+    return found
+
+
+def window_nanmean(x: F64) -> F64:
+    """`SimpleMovingAverage`, `AverageTradedValue`: the mean of the finite cells; NaN when none."""
+    acc, n = _finite_fold(x)
+    found: F64 = np.where(n > 0, acc / np.maximum(n, 1), np.nan)
+    return found
+
+
+def window_nansum_mean(x: F64) -> F64:
+    """`AverageDollarVolume`: the finite cells' sum over all W rows, a NaN counting as 0."""
+    acc, _ = _finite_fold(x)
+    found: F64 = acc / len(x)
+    return found
+
+
+def window_nanstd(x: F64, ddof: int) -> F64:
+    """`RollingStd` (ddof 1): the finite cells' standard deviation; NaN with `ddof` or fewer.
+    Equal cells have 0 even when the folded mean misses them by a rounding, as in `zscore`."""
+    acc, n = _finite_fold(x)
+    deviation = x - acc / np.maximum(n, 1)
+    squares, _ = _finite_fold(deviation * deviation)
+    low, high = np.full(x.shape[1], np.inf), np.full(x.shape[1], -np.inf)
+    for r in range(len(x)):  # NaN is skipped by fmin and fmax; an infinite cell is not finite
+        finite = np.where(np.isfinite(x[r]), x[r], np.nan)
+        low, high = np.fmin(low, finite), np.fmax(high, finite)
+    equal = low == high
+    found: F64 = np.where(n > ddof, np.sqrt(squares / np.maximum(n - ddof, 1)), np.nan)
+    return np.where(equal & (n > ddof), 0.0, found)
+
+
+def window_annualized_volatility(x: F64, annualization_factor: float) -> F64:
+    """`AnnualizedVolatility` over W + 1 prices: the W daily returns' standard deviation with
+    ddof 0, times `sqrt(annualization_factor)`; NaN when no return is finite."""
+    daily: F64 = x[1:] / x[:-1] - 1.0
+    found: F64 = window_nanstd(daily, 0) * np.sqrt(annualization_factor)
+    return found
+
+
 def elementwise(code: int, x: F64) -> F64:
     """`log`, `log1p` or `exp` of each element, by its code, with the compiled function."""
     if not 0 <= code < len(_UNARY):
