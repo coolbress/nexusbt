@@ -63,6 +63,7 @@ uv build                                       # build
 CI runs each of these as a separate check, plus a secret scan and CodeQL.
 Pass them locally first. The list of required checks is the repository's
 ruleset, so it is not repeated here.
+A merged change is taken back out as [`docs/how-to/undo-a-merged-change.md`](docs/how-to/undo-a-merged-change.md) says.
 
 ## Releasing
 
