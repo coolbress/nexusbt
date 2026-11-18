@@ -313,6 +313,7 @@ def test_keyword_binding_makes_a_new_factor() -> None:
 
 WEIGHTS = np.array([0.5, 2.0])
 THRESHOLD = 10
+nanmean = 7  # the name of an attribute `_pure` reads (`np.nanmean`), not a global it reads
 
 
 def _weighted(close: Any) -> Any:
@@ -345,6 +346,7 @@ def test_global_array_read_E24_disables_l1() -> None:  # noqa: N802 - spec 10.1'
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         pure = nx.factor(window=2, inputs=[CLOSE])(_pure)
+    assert dict(pure.params)["captured"] == (("THRESHOLD", 10),)  # not ("nanmean", 7)
     assert l1_disabled(weighted)
     assert l1_disabled(weighted.rank() + pure)  # a node below it
     assert not l1_disabled(pure.rank() + pure)  # a node read twice is walked once
