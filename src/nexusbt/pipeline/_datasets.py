@@ -76,6 +76,7 @@ def bind(graph: Term | Pipeline, registry: SchemaRegistry) -> None:
     A label read through `Panel` is E2 (8.4); a term of known non-zero degree fed to `shift` or
     a window is E17 (3.3, 3.4); a user function is called once on `(W, 3)` windows of 1.0, so a
     row before its window or a result of another shape is E8 before any data is read (6.5 (5))."""
+    __tracebackhide__ = True  # down to a user function (R-42)
     check_degrees(_roots(graph))
     names, leaks = _snapshot_columns(registry)
     for term in _terms(graph):

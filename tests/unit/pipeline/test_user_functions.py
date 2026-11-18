@@ -88,21 +88,54 @@ def test_user_exception_keeps_user_frame() -> None:
     wrapped and not chained, and the frames a reader sees go from the caller straight to the
     user's line: the engine's are hidden (`__tracebackhide__`)."""
     lookup = nx.factor(window=2, inputs=[CLOSE])(_lookup)
-    with pytest.raises(KeyError) as caught:
-        plain([lookup], [3], 4)
-    error = caught.value
-    assert error.args == ("b",)
-    assert error.__cause__ is None
-    assert not error.__suppress_context__
-    tb, shown = error.__traceback__, []
-    while tb is not None:
-        if not tb.tb_frame.f_locals.get("__tracebackhide__"):
-            shown.append(traceback.extract_tb(tb, limit=1)[0])
-        tb = tb.tb_next
-    assert [frame.name for frame in shown] == [
-        "test_user_exception_keeps_user_frame", "plain", "_lookup",
-    ]  # fmt: skip
-    assert shown[-1].line == 'return {"a": close[-1]}["b"]  # the user\'s own mistake'
+    registry = SchemaRegistry(columns={}, labels={})
+    for caller, where in ((lambda: plain([lookup], [3], 4), "plain"),
+                          (lambda: bind(lookup, registry), None)):  # fmt: skip
+        with pytest.raises(KeyError) as caught:
+            caller()
+        error = caught.value
+        assert error.args == ("b",)
+        assert error.__cause__ is None
+        assert not error.__suppress_context__
+        tb, shown = error.__traceback__, []
+        while tb is not None:
+            if not tb.tb_frame.f_locals.get("__tracebackhide__"):
+                shown.append(traceback.extract_tb(tb, limit=1)[0])
+            tb = tb.tb_next
+        assert [frame.name for frame in shown] == [
+            "test_user_exception_keeps_user_frame", "<lambda>", *([where] if where else []),
+            "_lookup",
+        ]  # fmt: skip
+        assert shown[-1].line == 'return {"a": close[-1]}["b"]  # the user\'s own mistake'
+
+
+def _is_up(close: Any) -> Any:
+    return close[-1] > close[0]
+
+
+def test_a_result_of_another_dtype_is_E8() -> None:  # noqa: N802 - E8 is a code
+    """5.3.7: `@nx.factor` returns float64; a bool result is E8, not a Factor of 1.0 and 0.0."""
+    up = nx.factor(window=2, inputs=[CLOSE])(_is_up)
+    with pytest.raises(nx.WindowError, match=r"returned bool \(2,\), not float64 \(2,\)"):
+        plain([up], [3], 4)
+
+
+def _scaled(by: Any) -> Term:
+    def scaled(close: Any) -> Any:
+        return close[-1] * by[0]
+
+    return nx.factor(window=2, inputs=[CLOSE])(scaled)
+
+
+def test_one_hash_for_two_functions_is_refused() -> None:
+    """Two user terms whose functions differ only in a non-constant value they read have one
+    graph hash (6.5 (6) hashes constants only), so one run cannot tell them apart: it refuses
+    them rather than give both the values of one. Built twice from the same values, they run."""
+    with pytest.raises(ValueError, match="scaled"):
+        plain([_scaled(np.array([1.0])), _scaled(np.array([2.0]))], [3], 4)
+    by = np.array([2.0])
+    got = plain([_scaled(by), _scaled(by)], [3], 4)
+    assert got[graph_hash(_scaled(by))]["value"].to_pylist() == [206.0, 2006.0]
 
 
 def _width(close: Any) -> Any:

@@ -35,7 +35,7 @@ from nexusbt.compute._plan import plan
 from nexusbt.contracts import ID_COLUMN, ResolvedActions, TiebreakPolicy
 from nexusbt.data._block import MarketBlock
 from nexusbt.pipeline import Classifier, Factor, Filter, Term, graph_hash
-from nexusbt.pipeline._terms import call_user
+from nexusbt.pipeline._terms import call_user, same_function
 
 _log = logging.getLogger("nexusbt.compute")
 
@@ -117,6 +117,7 @@ def execute(
     __tracebackhide__ = True
     wanted = np.unique(np.fromiter(decisions, dtype=np.int64))
     _check(spans, wanted)
+    _one_function_per_hash(terms, functions or {})
     terms = list({graph_hash(t): t for t in terms}.values())  # a term listed twice is one node
     if columns := [dict(t.params)["column"] for t in terms if t.op == "column"]:
         raise ValueError(f"a column is read through a term, such as `.latest`: {columns}")
@@ -141,6 +142,25 @@ def execute(
             parts[graph_hash(term)].append(chunk.frame(term, mine))
     empty = _frame([], [], [])
     return {key: pa.concat_tables(found) if found else empty for key, found in parts.items()}
+
+
+def _one_function_per_hash(terms: Sequence[Term], given: Mapping[str, Any]) -> None:
+    """A node is computed once for its graph hash, so two user terms of one hash whose functions
+    differ in a value the hash does not hold (6.5 (6)) are refused, not given one's values."""
+    seen: dict[str, Term] = {}
+    todo = list(terms)
+    while todo:
+        term = todo.pop()
+        key = graph_hash(term)
+        if key in seen:
+            first = seen[key].function
+            if key not in given and not same_function(first, term.function):
+                name = dict(term.params)["function"]
+                why = "read different non-constant values; pass them as inputs or constants"
+                raise ValueError(f"two user terms {name} share one graph hash but {why}")
+            continue
+        seen[key] = term
+        todo += [*term.inputs, *(v for _, v in term.params if isinstance(v, Term))]
 
 
 def _check(spans: Sequence[tuple[int, int]], wanted: npt.NDArray[np.int64]) -> None:

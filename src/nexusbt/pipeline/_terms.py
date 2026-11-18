@@ -305,11 +305,30 @@ def call_user(
         column = names[0] if len(term.inputs) == 1 and names else "an input"
         raise _window_error(name, at, f"reads {column}[{k}] but window={window}",
                             f"@nx.factor(window={needed}, ...)") from error  # fmt: skip
-    if got.shape != (n,) or got.dtype.kind not in "biuf":
+    if got.shape != (n,) or got.dtype != np.float64:
         at = _user_line().split(" in ")[0]
         raise _window_error(name, at, f"returned {got.dtype} {got.shape}, not float64 ({n},)",
-                            "return one number for each column of the window")  # fmt: skip
-    return got.astype(np.float64)
+                            "return one float64 number for each column of the window")  # fmt: skip
+    return got
+
+
+def same_function(a: Callable[..., Any] | None, b: Callable[..., Any] | None) -> bool:
+    """Whether two user terms of one graph hash run the same computation: one code, one module,
+    and the same values in their closures and defaults, a non-constant one the same object (the
+    hash holds only the constant ones, 6.5 (6))."""
+    if a is b:
+        return True
+    if not isinstance(a, FunctionType) or not isinstance(b, FunctionType):
+        return False
+    if a.__code__ is not b.__code__ or a.__globals__ is not b.__globals__:
+        return False
+
+    def read(f: FunctionType) -> list[Any]:
+        cells = [c.cell_contents for c in f.__closure__ or ()]
+        return [*cells, *(f.__defaults__ or ()), *(f.__kwdefaults__ or {}).values()]
+
+    pairs = zip(read(a), read(b), strict=True)
+    return all(x is y or (_constant(x) and x == y) for x, y in pairs)
 
 
 def _window_error(name: str, at: str, what: str, fix: str) -> WindowError:
