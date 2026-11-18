@@ -435,7 +435,7 @@ from nexusbt.factors import (Returns, DailyReturns, SimpleMovingAverage, SMA,
 | `open, high, low, close` | float64 | 현지 통화/주 | 분할·병합·주식배당만 t 기준 조정: `raw[s]·C_split[t]/C_split[s]`. `open/high/low`가 없는 패키지는 NaN(4.5 F-01) |
 | `close_tr` | float64 | 현지 통화/주 | 분할 + 현금배당 t 기준 조정(총수익 경로): `raw[s]·C_total[t]/C_total[s]`. t의 판단 시점에 금액이 공개 안 된 배당은 넣지 않음(5.3.4) |
 | `close_unadjusted` | float64 | 현지 통화/주 | 원가격 그대로 |
-| `volume` | float64 | 주 | `vol[s]·Q[t]/Q[s]`, `Q[x] = Π_{e ≤ x} share_factor_e`(해석기의 수량 계수 누적, 5.3.3a). 순수 분할에서는 `C_split[s]/C_split[t]`와 같다 [RV-C03] |
+| `volume` | float64 | 주 | `vol[s]·Q[t]/Q[s]`, `Q[x] = Π_{e ≤ x} share_factor_e`, `affects = split_and_total` 사건에 대해(해석기의 수량 계수 누적, 5.3.3a; 5.3.3). 순수 분할에서는 `C_split[s]/C_split[t]`와 같다 [RV-C03] |
 | `volume_unadjusted` | float64 | 주 | 원 거래량 |
 | `value_traded` | float64 | 현지 통화 | 원 거래대금(조정 불필요) |
 | `shares_out` | float64 | 주 | TDS `share_counts` 시점 조회(5.3.5a): 행 s 기준 공개된 마지막 수 `n` (그 `as_of_date` = a)를 `n·Q[t]/Q[a]`로 t 기준에 맞춤 [TDS-D9, TDS-Q4, RV-C03] |
@@ -1454,7 +1454,7 @@ class DecisionContext:
 6. `across_markets=True` 항과 다른 시장의 `Market.series` 항 [V31-13]: 판단마다 시장들의 `row_m(d)` 값을 모아 계산한다. 결과는 판단 격자 위의 값이고 시장 축으로 돌아가지 않는다. 그런 항을 창·`shift` 입력으로 쓰면 그래프를 만들 때 `TermDomainError`(오류 E17).
 
 #### 5.3.3 조정 [D3, R-18, C2, INV-11]
-정의: 효력 세션 e의 가격 배수 `m_e` = 해석기(5.3.3a)가 그 사건에 대해 낸 가격 계수(원천은 TDS `corporate_actions.price_factor`, 식은 TDS 5.11), `C[x] = Π_{e ≤ x} m_e`(앞으로 누적, 상장 첫 세션 `C = 1`; TDS `cum_factor_*`와 같은 뜻 [TDS-D9]). split 계수 `C_split`은 `affects = split_and_total` 사건만, total 계수 `C_total`은 모든 사건(`affects ≠ none`)의 곱이다. 수량 계수 `Q[x] = Π_{e ≤ x} q_e`(`q_e` = 해석기의 수량 효과 `share_factor`; 거래량·주식 수·보유 수량에 씀). 거래량의 `Q`는 `affects = split_and_total` 사건의 `q_e`만 곱한다. 5.3.4가 수량 사건이 움직이는 계열에 거래량을 넣는 것과 같다: `total_only`나 `none` 사건은 `share_factor`가 null이어도 거래량을 그대로 둔다(결정 2026-11-18, #241; `tests/golden/test_time.py::test_T07_split_reverse_split_windows`가 확인). 기준 가격 `B[s] = raw[s] / C[s]`. 패키지의 `cum_factor_*`는 해석기 결과와 같을 때만 지름길로 쓰고(검사 `TDS-A001`이 최신 해석판과의 맞춤을 보장), 없으면 사건에서 만든다(4.5 F-04). `price_factor` null 사건은 4.6 끝의 규칙.
+정의: 효력 세션 e의 가격 배수 `m_e` = 해석기(5.3.3a)가 그 사건에 대해 낸 가격 계수(원천은 TDS `corporate_actions.price_factor`, 식은 TDS 5.11), `C[x] = Π_{e ≤ x} m_e`(앞으로 누적, 상장 첫 세션 `C = 1`; TDS `cum_factor_*`와 같은 뜻 [TDS-D9]). split 계수 `C_split`은 `affects = split_and_total` 사건만, total 계수 `C_total`은 모든 사건(`affects ≠ none`)의 곱이다. 수량 계수 `Q[x] = Π_{e ≤ x} q_e`(`q_e` = 해석기의 수량 효과 `share_factor`; 거래량·주식 수·보유 수량에 씀). 거래량의 `Q`는 `affects = split_and_total` 사건의 `q_e`만 곱한다. 5.3.4가 수량 사건이 움직이는 계열에 거래량을 넣는 것과 같다: `total_only`나 `none` 사건은 `share_factor`가 null이어도 거래량을 그대로 둔다(결정 2026-11-18, #241). 기준 가격 `B[s] = raw[s] / C[s]`. 패키지의 `cum_factor_*`는 해석기 결과와 같을 때만 지름길로 쓰고(검사 `TDS-A001`이 최신 해석판과의 맞춤을 보장), 없으면 사건에서 만든다(4.5 F-04). `price_factor` null 사건은 4.6 끝의 규칙.
 
 - **참조 의미(정답)**: 계산일 t 창의 s ≤ t 값 = `raw[s] · Π_{s < e ≤ t, e 사용 가능} m_e`. 사용 가능한 사건이 t까지 모두면 `= raw[s]·C[t]/C[s] = B[s]·C[t]`.
 - **참조 구현** (`compute._kernels_ref.adjusted_window`): 행 t마다 창 `B[t−W+1..t] · C[t]`(가격, split 또는 total 계수), 거래량은 `vol[s]·Q[t]/Q[s]`. 5.3.4의 대기 사건이나 기준 시각에 따라 해석판이 다른 사건(정정·취소)이 있는 칸은 해석기 결과의 사건 목록으로 곱을 직접 계산한다. 사용자 창 함수는 항상 이 창을 받는다.
