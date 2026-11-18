@@ -110,8 +110,9 @@ def test_edges_of_the_filter_terms() -> None:
         values([CLOSE.latest.quantiles(2).startswith("A")], block(close=[[1.0]]))
     with pytest.raises(NotImplementedError, match="across_markets=True is run_pipeline's"):
         values([CLOSE.latest.rank(across_markets=True)], block(close=[[1.0]]))
-    with pytest.raises(NotImplementedError, match="Classifier names come with its code table"):
-        values([CLOSE.latest.quantiles(2).eq("x")], block(close=[[1.0]]))
+    for name in ("x", True):  # a name, and a bool, which is an int to Python but no code
+        with pytest.raises(NotImplementedError, match="Classifier names come with its code"):
+            values([CLOSE.latest.quantiles(2).eq(name)], block(close=[[1.0]]))
     with pytest.raises(ValueError, match="no comparison has code 6"):
         k.compare(6, np.zeros(1), np.zeros(1))
 

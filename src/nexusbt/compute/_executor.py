@@ -271,7 +271,7 @@ class _Chunk:
         if isinstance(inputs[0], Classifier) and term.op in ("eq", "element_of"):
             p = dict(term.params)
             wanted = (p["value"],) if term.op == "eq" else tuple(p["values"])
-            if not all(isinstance(v, int) for v in wanted):  # a code table's names: T2.3's
+            if not all(type(v) is int for v in wanted):  # names (T2.3) and bools are no codes
                 raise NotImplementedError(f"Classifier names come with its code table: {wanted}")
             codes = _codes(self.cell(inputs[0], t))
             return _cells(*_kernels.codes_in(codes, np.array(wanted, dtype=np.int32)))
