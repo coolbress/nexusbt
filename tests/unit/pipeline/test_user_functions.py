@@ -235,6 +235,7 @@ def test_window_is_asof_adjusted(tmp_path: Path) -> None:
     assert got[4, graph_hash(first)] == 50.0
 
 
+#: A file of the user's project: `score` calls `_helper`, which calls `_inner` (`{inner}`).
 USER_FILE = """
 import numpy as np
 import nexusbt as nx
@@ -254,15 +255,8 @@ def score(close):
 """
 
 
-def user_module(at: Path, name: str, inner: str = "2") -> Any:
-    """A strategy file of the user's project, imported as a module: `score` calls `_helper`,
-    which calls `_inner`, whose body has `inner` in it."""
-    return load(at, name, USER_FILE.format(inner=inner))
-
-
 def load(at: Path, name: str, text: str) -> Any:
-    """`text` as a file of the user's project, imported as the module `name` (listed in
-    `sys.modules`, as `import` lists it, under a name unique to `at`)."""
+    """`text` as a file of the user's project, imported (and in `sys.modules`, as `import` does)."""
     path = at / f"{name}.py"
     path.write_text(text)
     unique = f"{name}_{abs(hash(str(at)))}"
@@ -276,23 +270,19 @@ def load(at: Path, name: str, text: str) -> Any:
 
 
 def test_source_hash_includes_helpers(tmp_path: Path) -> None:
-    """6.5 (6): the helpers a user function calls inside the project, followed through
-    `co_names` to any depth, go into its source hash, so changing a helper's body changes the
-    hash; the same files give the same hash."""
-    same = [user_module(tmp_path, f"same_{i}").score for i in range(2)]
+    """6.5 (6): the helpers a user function calls inside the project, followed to any depth,
+    go into its source hash, so changing a helper's body changes the hash; the same files give
+    the same hash."""
+    same = [load(tmp_path, f"same_{i}", USER_FILE.format(inner=2)).score for i in range(2)]
     assert graph_hash(same[0]) == graph_hash(same[1])
-    changed = user_module(tmp_path, "changed", inner="5").score
+    changed = load(tmp_path, "changed", USER_FILE.format(inner=5)).score
     assert graph_hash(changed) != graph_hash(same[0])
-    looped = [nx.factor(window=2, inputs=[CLOSE])(_calls_a_recursive_helper) for _ in "ab"]
-    assert graph_hash(looped[0]) == graph_hash(looped[1])  # a recursive helper is walked once
+    looped = [nx.factor(window=2, inputs=[CLOSE])(_halve) for _ in "ab"]
+    assert graph_hash(looped[0]) == graph_hash(looped[1])  # a recursive function walked once
 
 
-def _halve(x: Any, k: int) -> Any:
-    return x if k == 0 else _halve(x / 2, k - 1)
-
-
-def _calls_a_recursive_helper(close: Any) -> Any:
-    return _halve(close[-1], 3)
+def _halve(close: Any, k: int = 3) -> Any:
+    return close[-1] if k == 0 else _halve(close / 2, k - 1)
 
 
 def _momentum(close: Any, *, n: int = 21) -> Any:

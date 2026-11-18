@@ -427,9 +427,8 @@ def _holds(node: ast.Lambda, at: tuple[int, int]) -> bool:
 
 @dataclass(frozen=True, slots=True)
 class _Reads:
-    """What a user function reads (6.5 (6)): the helpers it calls inside the project, to any
-    depth; the constant-like values (a helper's under `qualname:name`), which go into the hash;
-    and the non-constant ones and file reads, E24's (`impure`)."""
+    """What a user function reads (6.5 (6)): its project helpers, to any depth; the constant-like
+    values (a helper's as `qualname:name`), hashed; the rest and file reads, E24's (`impure`)."""
 
     helpers: tuple[FunctionType, ...]
     captured: tuple[tuple[str, Any], ...]
