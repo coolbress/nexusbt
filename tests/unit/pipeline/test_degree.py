@@ -9,8 +9,16 @@ import pytest
 
 import nexusbt as nx
 from nexusbt.contracts import SchemaRegistry
-from nexusbt.factors import Returns
+from nexusbt.factors import (
+    SMA,
+    AnnualizedVolatility,
+    AverageDollarVolume,
+    AverageTradedValue,
+    Returns,
+    RollingStd,
+)
 from nexusbt.pipeline import Factor, Pipeline, Price, Term, bind, graph_hash
+from nexusbt.pipeline._degree import ZERO, degree_of
 
 NO_SNAPSHOT_COLUMNS = SchemaRegistry(columns={}, labels={})
 
@@ -73,6 +81,7 @@ def test_a_window_of_one_row_takes_a_price_level() -> None:
         (Price.close.latest / Price.open.latest * Price.high.latest).shift(1),
         (-Price.close.latest).shift(3).shift(1),
         Price.close.latest.log() - Price.close.latest.log().shift(1),  # the log return
+        (Returns(2) * Price.close.latest).shift(1),  # degree 0 times a price level: 1
     ],
 )
 def test_terms_that_keep_the_row_basis_are_refused(term: Factor) -> None:
@@ -97,8 +106,7 @@ def test_terms_that_keep_the_row_basis_are_refused(term: Factor) -> None:
         (Price.close.latest**0).shift(1),
         (Price.close.latest.sqrt().sqrt() ** 4 / Price.close.latest).shift(1),  # 1/4 * 4 - 1
         (Price.close.latest / Price.close.latest).shift(1),  # one node read twice
-        (Returns(2) * Price.close.latest).shift(1),  # a built-in factor has no degree yet
-        (Returns(2) ** 2).shift(1),
+        (Returns(2) ** 2).shift(1),  # Returns: degree 0 over a column
         (Price.close.latest.log() * Price.close.latest).shift(1),  # a size not known
     ],
 )
@@ -136,6 +144,46 @@ def test_the_message_follows_the_degree_not_the_first_column() -> None:
     with pytest.raises(nx.TermDomainError) as caught:
         check(Price.shares_out.latest.shift(2))
     assert "unadjusted" not in caught.value.parts["fix"]  # no raw share count to name
+
+
+@pytest.mark.parametrize(
+    ("term", "refused"),
+    [
+        ((Price.close.latest / SMA(20)).shift(1), False),  # 1 - 1 = 0
+        (SMA(20).shift(5), True),  # degree 1 over close
+        (SMA(5, inputs=[SMA(20)]), True),  # a price level into a window of 5 rows
+        (SMA(5, inputs=[Returns(2)]).shift(1), False),  # degree 1 over degree 0
+    ],
+    ids=["ratio to SMA", "SMA shifted", "SMA of SMA", "SMA of Returns shifted"],
+)
+def test_built_in_factor_degree_is_its_kernel_class(term: Factor, refused: bool) -> None:
+    """#242, Decisions 2026-11-18 (#513's Decision on #499): a built-in factor's term has its
+    kernel's class applied to its input (3.4), read from `pipeline.factors.ADJUSTMENT`."""
+    if refused:
+        with pytest.raises(nx.TermDomainError) as caught:
+            check(term)
+        assert caught.value.code == "E17"
+    else:
+        check(term)
+
+
+@pytest.mark.parametrize(
+    ("term", "degree"),
+    [
+        (AverageDollarVolume(20), ZERO),
+        (AverageTradedValue(20), ZERO),
+        (AnnualizedVolatility(20), ZERO),
+        (RollingStd(20), (1, 0)),
+        (SMA(20, inputs=[Price.volume]), (0, 1)),
+        (Returns(2, inputs=[nx.factor(window=1, inputs=[Price.close])(_last)]), None),
+    ],
+    ids=["ADV", "ATV", "volatility", "RollingStd", "SMA of volume", "Returns of no degree"],
+)
+def test_each_built_in_class_gives_its_degree(term: Factor, degree: Any) -> None:
+    """3.4: degree 1 gives the input's degree; degree 0 and invariant give 0 over a column or a
+    degree-0 input, and no degree over an input with no degree."""
+    ins = [degree_of(t, []) if not isinstance(t, Factor) else None for t in term.inputs]
+    assert degree_of(term, ins) == degree
 
 
 def test_a_deep_chain_is_refused_with_e17_not_a_recursion_error() -> None:

@@ -15,6 +15,7 @@ from typing import Literal
 from nexusbt.contracts import TermDomainError
 
 from ._terms import BoundColumn, Factor, Term, _user_line
+from .factors import ADJUSTMENT
 
 type Degree = tuple[Fraction, Fraction] | Literal["some"] | None
 
@@ -86,7 +87,26 @@ def degree_of(term: Term, ins: list[Degree]) -> Degree:
         return SOME if ins[1] not in (ZERO, None) else None
     if op == "sqrt":
         return _scaled(ins[0], Fraction(1, 2))
-    return None  # a built-in factor, a user function, `if_else`: no rule gives a degree yet
+    if op in ADJUSTMENT:
+        return _built_in(term, ins)
+    return None  # a user function, `if_else`: no rule gives a degree yet
+
+
+def _built_in(term: Term, ins: list[Degree]) -> Degree:
+    """3.4: a built-in factor's kernel class applied to its input. A degree-1 kernel gives its
+    input's degree; a degree-0 or invariant kernel gives 0 over a column or a degree-0 input,
+    and no degree over an input with no degree."""
+    pairs = list(zip(term.inputs, ins, strict=True))
+    if ADJUSTMENT[term.op] == "homogeneous of degree 1":
+        over = [_column(t) if isinstance(t, BoundColumn) else d for t, d in pairs]
+        return over[0] if len(over) == 1 else None
+    return ZERO if all(isinstance(t, BoundColumn) or d == ZERO for t, d in pairs) else None
+
+
+def _column(column: BoundColumn) -> Degree:
+    """A column read by a window has the degree its `.latest` has."""
+    params = dict(column.params)
+    return ADJUSTED.get(params["column"]) if params["dataset"] == "Price" else None
 
 
 def _product(a: Degree, b: Degree, sign: int) -> Degree:
