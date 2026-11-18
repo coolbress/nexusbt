@@ -68,6 +68,59 @@ def power(base: F64, exponent: F64) -> F64:
     return found
 
 
+# Three-valued kernels (3.3, 5.4.1, V31-21): a Filter is two boolean arrays of one shape, its
+# `value` and its `valid` mask; a cell is unknown where it is not valid, and its value there is
+# false, so a result's value is true only where the cell is known to be true.
+
+#: The comparison codes of `compare`: `<`, `<=`, `>`, `>=`, `==`, `!=`.
+LT, LE, GT, GE, EQ, NE = range(6)
+_COMPARE = (np.less, np.less_equal, np.greater, np.greater_equal, np.equal, np.not_equal)
+
+
+def compare(code: int, x: F64, y: F64) -> tuple[Mask, Mask]:
+    """`x <op> y` by its code; unknown where either side is NaN."""
+    if not 0 <= code < len(_COMPARE):
+        raise ValueError(f"no comparison has code {code}")
+    valid = ~(np.isnan(x) | np.isnan(y))
+    value: Mask = _COMPARE[code](x, y) & valid
+    return value, valid
+
+
+def codes_in(codes: Codes, wanted: Codes) -> tuple[Mask, Mask]:
+    """A Classifier's codes in `wanted` (`eq`, `element_of`); unknown on the missing code -1."""
+    valid = codes != -1
+    value: Mask = np.isin(codes, wanted) & valid
+    return value, valid
+
+
+def kleene_and(a: Mask, a_ok: Mask, b: Mask, b_ok: Mask) -> tuple[Mask, Mask]:
+    """`a & b`: false when either is known false, true when both are known true, else unknown."""
+    true = a & a_ok & b & b_ok
+    return true, true | (a_ok & ~a) | (b_ok & ~b)
+
+
+def kleene_or(a: Mask, a_ok: Mask, b: Mask, b_ok: Mask) -> tuple[Mask, Mask]:
+    """`a | b`: true when either is known true, false when both are known false, else unknown."""
+    true = (a & a_ok) | (b & b_ok)
+    return true, true | (a_ok & ~a & b_ok & ~b)
+
+
+def kleene_all(value: Mask, valid: Mask) -> tuple[Mask, Mask]:
+    """`kleene_and` of a `(W, N)` window's rows, per column: `Filter.all(W)`."""
+    out, ok = np.ones(value.shape[1], dtype=bool), np.ones(value.shape[1], dtype=bool)
+    for r in range(value.shape[0]):
+        out, ok = kleene_and(out, ok, value[r], valid[r])
+    return out, ok
+
+
+def kleene_any(value: Mask, valid: Mask) -> tuple[Mask, Mask]:
+    """`kleene_or` of a `(W, N)` window's rows, per column: `Filter.any(W)`."""
+    out, ok = np.zeros(value.shape[1], dtype=bool), np.ones(value.shape[1], dtype=bool)
+    for r in range(value.shape[0]):
+        out, ok = kleene_or(out, ok, value[r], valid[r])
+    return out, ok
+
+
 # Cross-section kernels (5.4.2, 5.4.3) take one market's (or `across_markets`') cells at one
 # decision in memory order: the values `x`, the `mask` (true where the cell is in the term's
 # domain), the group codes `groups` (all 0 without a `groupby`, -1 where the group is unknown)
