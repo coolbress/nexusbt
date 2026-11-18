@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Iterable, Mapping, Sequence
+from dataclasses import dataclass
 from functools import cached_property
 from typing import Any
 
@@ -29,8 +30,9 @@ import pyarrow as pa
 from nexusbt.compute import _factors, _kernels
 from nexusbt.compute._chunks import schedule
 from nexusbt.compute._crosssection import sorted_order, tie_order
+from nexusbt.compute._kernels_ref import REGISTERED, AdjustmentClass, adjusted_window
 from nexusbt.compute._plan import plan
-from nexusbt.contracts import ID_COLUMN, TiebreakPolicy
+from nexusbt.contracts import ID_COLUMN, ResolvedActions, TiebreakPolicy
 from nexusbt.data._block import MarketBlock
 from nexusbt.pipeline import Classifier, Factor, Filter, Term, graph_hash
 
@@ -73,6 +75,23 @@ _TESTS: Mapping[str, Callable[[F64], npt.NDArray[np.bool_]]] = {
     "notnull": lambda x: ~np.isnan(x),
     "isfinite": np.isfinite,
 }
+#: Each `Price` column's adjustment basis, the table of 3.2 (5.3.3); None, the value as stored.
+_BASIS: Mapping[str, str | None] = {
+    **dict.fromkeys(("open", "high", "low", "close"), "split"),
+    "close_tr": "total",
+    "volume": "volume",
+    **dict.fromkeys(("close_unadjusted", "volume_unadjusted", "value_traded", "market_cap")),
+}
+
+
+@dataclass(frozen=True, slots=True)
+class Actions:
+    """A market's corporate actions as the executor reads them (5.3.3, 5.3.3a): `at(c)` is
+    `Snapshot.actions(market, c)`, called with row t's `ready[t]` (5.3.4); `ts_open` the axis's
+    session opens, indexed as `ready` is, placing each event at its first session."""
+
+    at: Callable[[np.datetime64], ResolvedActions]
+    ts_open: npt.NDArray[np.datetime64]
 
 
 def execute(
@@ -83,12 +102,16 @@ def execute(
     ready: npt.NDArray[np.datetime64],
     functions: Mapping[str, Callable[..., Any]] | None = None,
     tiebreak: TiebreakPolicy = TiebreakPolicy.HASH,
+    *,
+    actions: Actions | None = None,
 ) -> dict[str, pa.Table]:
     """Each term's values at the decision rows, as `(row, instrument_id, value)` sorted by row
     and instrument, for the instruments listed at the row; keyed by the term's graph hash.
     `spans` are the chunks, `(first, last)` axis rows in order and apart, holding every
     decision; `ready[r]` is row r's freeze time; `tiebreak` the `[portfolio] tiebreak` key of
-    an ordinal `rank`, `top` and `bottom` (3.7)."""
+    an ordinal `rank`, `top` and `bottom` (3.7). A window over a column is adjusted as of its
+    row with `actions` (5.3.3). `actions=None` is the caller's statement that this axis has no
+    corporate actions, not a switch that turns the adjustment off."""
     wanted = np.unique(np.fromiter(decisions, dtype=np.int64))
     _check(spans, wanted)
     terms = list({graph_hash(t): t for t in terms}.values())  # a term listed twice is one node
@@ -107,7 +130,7 @@ def execute(
             continue
         rows = plan(terms, mine, sessions=len(ready)).rows
         low = min([first, *(int(r[0]) for r in rows.values() if r.size)])
-        chunk = _Chunk(read(low, last), low, ready, functions or {}, tiebreak)
+        chunk = _Chunk(read(low, last), low, ready, functions or {}, tiebreak, actions)
         with np.errstate(all="ignore"):  # IEEE results (inf, NaN), as numpy gives them
             for term, dropped in order:
                 chunk.compute(term, rows[graph_hash(term)])
@@ -140,10 +163,12 @@ class _Chunk:
         ready: npt.NDArray[np.datetime64],
         functions: Mapping[str, Callable[..., Any]],
         tiebreak: TiebreakPolicy,
+        actions: Actions | None,
     ) -> None:
         self.block, self.low, self.ready, self.functions = block, low, ready, functions
         self.tiebreak, self.unknown = tiebreak, 0  # `UnknownGroup` cells of the term computed
         self.values: dict[str, F64] = {}
+        self.actions, self.resolved = actions, dict[int, ResolvedActions]()
 
     @cached_property
     def tie(self) -> npt.NDArray[np.int64]:
@@ -155,16 +180,32 @@ class _Chunk:
         """The columns in ascending `instrument_id` order (5.3.10 (3))."""
         return sorted_order(self.block.instrument_ids)
 
-    def window(self, term: Term, t: int, size: int) -> F64:
-        """`term` on rows `t-size+1..t` as row t reads it: column cells seen by `ready(t)`, a
-        term's values as it gave them at each row; a new array."""
+    def window(self, term: Term, t: int, size: int, raw: bool = False) -> F64:
+        """`term` on rows `t-size+1..t` as row t reads it: column cells seen by `ready(t)` and
+        adjusted as of t (5.3.3), a term's values as it gave them at each row, never adjusted
+        again (5.1.2); a new array. `raw`, for an invariant kernel (3.4): the cells as traded,
+        NaN where the adjustment leaves them NaN (4.6)."""
         a, b = t - size + 1 - self.low, t + 1 - self.low
         if term.op != "column":
             return self.values[graph_hash(term)][a:b].copy()
-        cells = self.block.values[dict(term.params)["column"]][a:b]
+        params = dict(term.params)
+        cells = self.block.values[params["column"]][a:b]
         seen = self.block.ts_available[a:b] <= self.ready[t]  # NaT, no bar, is never seen
         found: F64 = np.where(seen, cells, np.nan)
-        return found
+        if size == 1 or self.actions is None:  # no event e has t < e <= t
+            return found
+        basis = _basis(params)
+        if basis is None:
+            return found
+        if t not in self.resolved:  # the actions as known at row t's reference time (5.3.4)
+            self.resolved[t] = self.actions.at(self.ready[t])
+        ts_open = self.actions.ts_open[a + self.low : b + self.low]
+        adjusted, _ = adjusted_window(found, size - 1, size, self.resolved[t],  # 4.6's count: #249
+                                      self.block.instrument_ids, ts_open, basis)  # fmt: skip
+        if raw:
+            as_traded: F64 = np.where(np.isnan(adjusted), np.nan, found)
+            return as_traded
+        return adjusted
 
     def cell(self, term: Term, t: int) -> F64:
         found: F64 = self.window(term, t, 1)[0]
@@ -199,7 +240,9 @@ class _Chunk:
         if term.op in _factors.KERNELS:  # 3.4; NaN while the window starts before the axis
             if t - (size := _factors.rows(term)) + 1 < 0:
                 return np.full(n, np.nan)
-            found = _factors.value(term, [self.window(i, t, size) for i in inputs])
+            kernel = REGISTERED.get(term.op)  # `rolling` reads only terms, so it has no class
+            raw = kernel is not None and kernel.adjustment is AdjustmentClass.INVARIANT
+            found = _factors.value(term, [self.window(i, t, size, raw) for i in inputs])
             return np.where(self.domain(term, t), found, np.nan)
         if term.op in _SECTION:
             return self.section(term, t)
@@ -316,6 +359,15 @@ class _Chunk:
         if isinstance(term, Classifier):
             return _frame(rows[r], ids, pa.array(_codes(cells), pa.int32()))
         return _frame(rows[r], ids, cells)
+
+
+def _basis(params: Mapping[str, Any]) -> str | None:
+    """The column's basis in the table of 3.2; a column of another dataset is not a price."""
+    if params["dataset"] != "Price":
+        return None
+    if params["column"] not in _BASIS:  # `shares_out`: n·Q[t]/Q[a] from its `as_of_date` a
+        raise NotImplementedError(f"a window of Price.{params['column']} comes with 5.3.5a")
+    return _BASIS[params["column"]]
 
 
 def _truth(cells: F64) -> tuple[npt.NDArray[np.bool_], npt.NDArray[np.bool_]]:
