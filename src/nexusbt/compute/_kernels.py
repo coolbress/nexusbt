@@ -112,6 +112,37 @@ def window_annualized_volatility(x: F64, annualization_factor: float) -> F64:
     return found
 
 
+def window_nansum(x: F64) -> F64:
+    """`nx.ops.rolling(...).sum()`: the finite cells' left fold; 0 when none."""
+    acc, _ = _finite_fold(x)
+    return acc
+
+
+def window_nanmin(x: F64) -> F64:
+    """`nx.ops.rolling(...).min()`: the smallest finite cell; NaN when none."""
+    low = np.full(x.shape[1], np.nan)
+    for r in range(len(x)):  # fmin skips NaN; an infinite cell is not finite
+        low = np.fmin(low, np.where(np.isfinite(x[r]), x[r], np.nan))
+    return low
+
+
+def window_nanmax(x: F64) -> F64:
+    """`nx.ops.rolling(...).max()`: the largest finite cell; NaN when none."""
+    found: F64 = -window_nanmin(-x)
+    return found
+
+
+def window_nanmedian(x: F64) -> F64:
+    """`nx.ops.rolling(...).median()`: the finite cells' middle one, or the mean of the middle
+    two; NaN when none."""
+    n = np.count_nonzero(np.isfinite(x), axis=0)
+    ordered = np.sort(np.where(np.isfinite(x), x, np.nan), axis=0)  # NaN sorts last
+    cols = np.arange(x.shape[1])
+    low, high = ordered[np.maximum(n - 1, 0) // 2, cols], ordered[n // 2 - (n == 0), cols]
+    found: F64 = np.where(n > 0, (low + high) / 2, np.nan)
+    return found
+
+
 def ewma_weights(window: int, decay_rate: float) -> F64:
     """`EWMA`'s weights `decay_rate ** (W-1-i)` for rows i = 0..W-1, row t last with weight 1;
     computed once with the compiled `pow` and passed to `window_ewma` as a constant (3.4)."""
