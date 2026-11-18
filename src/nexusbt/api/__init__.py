@@ -267,15 +267,30 @@ def schema_registry(snapshot: Snapshot, cfg: Config) -> SchemaRegistry:
     return SchemaRegistry(*dataset_columns(snapshot), panels["feature"], panels["label"])
 
 
+#: The stub file 3.2 names, which `stubs` writes and `stubs_current` reads.
+_STUBS = Path(__file__).parents[1] / "_stubs" / "datasets.pyi"
+
+
 def stubs(path: Path | None = None) -> Path:
     """`nexusbt stubs` (3.10): rewrite `_stubs/datasets.pyi` (or `path`) with the columns of
     the snapshot `[data]` names, or with the fixed columns alone when it names none."""
-    cfg, registry = config(), None
+    cfg, snapshot = config(), None
     if cfg.values["data"]["path"] or cfg.values["data"]["root"]:
-        registry = schema_registry(open_snapshot(DataConfig.from_config(cfg)), cfg)
-    path = path or Path(__file__).parents[1] / "_stubs" / "datasets.pyi"
-    path.write_text(pipeline.stub_source(registry), encoding="utf-8")
+        snapshot = open_snapshot(DataConfig.from_config(cfg))
+    path = path or _STUBS
+    path.write_text(_stub(snapshot, cfg), encoding="utf-8")
     return path
+
+
+def stubs_current(snapshot: Snapshot | None, cfg: Config) -> bool:
+    """`doctor`'s stubs line (3.2, 3.10): whether `_stubs/datasets.pyi` on disk is what `stubs`
+    would write for `snapshot`; with no snapshot, for the fixed columns alone. A missing file
+    is stale: `stubs` writes it."""
+    return _STUBS.is_file() and _STUBS.read_text(encoding="utf-8") == _stub(snapshot, cfg)
+
+
+def _stub(snapshot: Snapshot | None, cfg: Config) -> str:
+    return pipeline.stub_source(schema_registry(snapshot, cfg) if snapshot is not None else None)
 
 
 def _begin_run(
