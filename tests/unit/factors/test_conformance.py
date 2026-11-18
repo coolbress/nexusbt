@@ -170,6 +170,8 @@ def test_ewma_weights_precomputed(monkeypatch: pytest.MonkeyPatch) -> None:
     assert all(w is seen[0] for w in seen)
     assert seen[0].tolist() == [0.25, 0.5, 1.0]
     assert not seen[0].flags.writeable
+    with pytest.raises(ValueError, match="at least one row"):
+        _kernels.ewma_weights(0, 0.5)
 
 
 def test_vwap_nan_rule() -> None:
