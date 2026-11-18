@@ -10,15 +10,20 @@ import ast
 import hashlib
 import inspect
 import json
+import re
 import sys
 import textwrap
+import traceback
 from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import CodeType, FunctionType, MappingProxyType
 from typing import Any, Literal
 
-from nexusbt.contracts import CapabilityError, LookAheadError
+import numpy as np
+import numpy.typing as npt
+
+from nexusbt.contracts import CapabilityError, LookAheadError, WindowError
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -26,6 +31,9 @@ class Term:
     op: str
     inputs: tuple[Term, ...] = ()
     params: tuple[tuple[str, Any], ...] = ()
+    #: A user term's function (3.3 `@nx.factor`); its source and constants are in `params`, so
+    #: it is not hashed again.
+    function: Callable[..., Any] | None = field(default=None, kw_only=True, repr=False)
     _key: str = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -248,8 +256,8 @@ def factor(
     mask: Filter | None = None,
     dtype: Literal["float64"] = "float64",
 ) -> Callable[[Callable[..., Any]], Factor]:
-    """3.3 `@nx.factor`: the node and its hash (source and captured constants); running it is
-    T1.12's."""
+    """3.3 `@nx.factor`: the node, its hash (source and captured constants) and the function
+    the executor runs on its windows (5.3.7)."""
 
     def wrap(fn: Callable[..., Any]) -> Factor:
         if not isinstance(fn, FunctionType):
@@ -259,12 +267,62 @@ def factor(
         except (OSError, SyntaxError) as error:
             what = f"@nx.factor cannot read the source of {fn.__name__}; its source goes into the"
             raise TypeError(f"{what} term's hash, so define it with `def` in a file") from error
-        return _node(
-            Factor, "user", *inputs, window=window, mask=mask, dtype=dtype, function=fn.__name__,
-            source=hashlib.sha256(source.encode()).hexdigest(), captured=_captured(fn),
-        )  # fmt: skip
+        digest = hashlib.sha256(source.encode()).hexdigest()
+        params = {"window": window, "mask": mask, "dtype": dtype, "function": fn.__name__,
+                  "source": digest, "captured": _captured(fn)}  # fmt: skip
+        return Factor("user", tuple(inputs), tuple(params.items()), function=fn)
 
     return wrap
+
+
+_OUT_OF_WINDOW = re.compile(r"index (-?\d+) is out of bounds for axis 0 with size (\d+)")
+
+
+def call_user(
+    term: Term, windows: Sequence[Any], n: int, fn: Callable[..., Any] | None = None
+) -> npt.NDArray[np.float64]:
+    """A user term's function (`fn`, else the one it was built from) on its input windows
+    (5.3.7), its result as float64 `(n,)`. A row before the window is `WindowError` (E8)
+    suggesting the window it needs, as is a result of another shape or of a non-numeric dtype;
+    any other exception is the user's, as raised, through frames hidden from its traceback
+    (`__tracebackhide__`, R-42), as the executor's on the way here are."""
+    __tracebackhide__ = True
+    params, fn = dict(term.params), fn or term.function
+    if fn is None:
+        raise ValueError(f"no function given for the user term {params['function']}")
+    name, window = params["function"], params["window"]
+    try:
+        got = np.asarray(fn(*windows))
+    except IndexError as error:
+        found = _OUT_OF_WINDOW.fullmatch(str(error))
+        if found is None or int(found[2]) != window:
+            raise
+        k = int(found[1])
+        needed = -k if k < 0 else k + 1
+        frame = traceback.extract_tb(error.__traceback__)[-1]
+        at = f"{Path(frame.filename).name}:{frame.lineno}"
+        names = list(inspect.signature(fn).parameters)
+        column = names[0] if len(term.inputs) == 1 and names else "an input"
+        raise _window_error(name, at, f"reads {column}[{k}] but window={window}",
+                            f"@nx.factor(window={needed}, ...)") from error  # fmt: skip
+    if got.shape != (n,) or got.dtype.kind not in "biuf":
+        at = _user_line().split(" in ")[0]
+        raise _window_error(name, at, f"returned {got.dtype} {got.shape}, not float64 ({n},)",
+                            "return one number for each column of the window")  # fmt: skip
+    return got.astype(np.float64)
+
+
+def _window_error(name: str, at: str, what: str, fix: str) -> WindowError:
+    return WindowError(
+        what=f"{name} {what}",
+        where=f"factor {name}",
+        why="the function's window is the rows and shape the engine loads for it",
+        fix=fix,
+        more="spec 3.3 and 5.3.7 (windows)",
+        layer=f"your code — {at} in {name}",
+        at=at,
+        subject=name,
+    )
 
 
 def _source(fn: FunctionType) -> str:

@@ -10,9 +10,9 @@ value k sessions earlier"), so a row's values, once frozen, are not changed by d
 late (5.1.2). A value depends on its own window of the block alone, so the values do not depend
 on the chunking (INV-03).
 
-A user window function (5.3.7) gets, for each input, the `(W, N_alive)` window of the instruments
-listed at the row, and returns `(N_alive,)`. The caller gives each user node's function by its
-graph hash; how `@nx.factor` binds it, and its errors, are T1.12's.
+A user window function (5.3.7) gets, for each input, the `(W, N)` window of the instruments in
+its domain at the row (listed, and its `mask` true), and returns `(N,)`. It is the function the
+term was built from, unless the caller gives another by its graph hash.
 """
 
 from __future__ import annotations
@@ -35,6 +35,7 @@ from nexusbt.compute._plan import plan
 from nexusbt.contracts import ID_COLUMN, ResolvedActions, TiebreakPolicy
 from nexusbt.data._block import MarketBlock
 from nexusbt.pipeline import Classifier, Factor, Filter, Term, graph_hash
+from nexusbt.pipeline._terms import call_user
 
 _log = logging.getLogger("nexusbt.compute")
 
@@ -111,15 +112,15 @@ def execute(
     decision; `ready[r]` is row r's freeze time; `tiebreak` the `[portfolio] tiebreak` key of
     an ordinal `rank`, `top` and `bottom` (3.7). A window over a column is adjusted as of its
     row with `actions` (5.3.3). `actions=None` is the caller's statement that this axis has no
-    corporate actions, not a switch that turns the adjustment off."""
+    corporate actions, not a switch that turns the adjustment off. A user function's exception
+    comes out as raised, the frames down to it hidden (`__tracebackhide__`, 6.6, R-42)."""
+    __tracebackhide__ = True
     wanted = np.unique(np.fromiter(decisions, dtype=np.int64))
     _check(spans, wanted)
     terms = list({graph_hash(t): t for t in terms}.values())  # a term listed twice is one node
     if columns := [dict(t.params)["column"] for t in terms if t.op == "column"]:
         raise ValueError(f"a column is read through a term, such as `.latest`: {columns}")
     order = schedule(terms)  # inputs first, with the nodes each one's computing lets go
-    if any(t.op == "user" and dict(t.params)["mask"] is not None for t, _ in order):
-        raise NotImplementedError("a user function's mask comes with T1.12")
     if any(dict(t.params).get("across_markets") for t, _ in order):
         why = "it gathers several markets' blocks, and the executor computes one market's"
         raise NotImplementedError(f"across_markets=True is run_pipeline's: {why}")
@@ -212,6 +213,7 @@ class _Chunk:
         return found
 
     def compute(self, term: Term, rows: npt.NDArray[np.int64]) -> None:
+        __tracebackhide__ = True  # down to a user function (R-42)
         out = np.full((len(self.block.dates), len(self.block.instrument_ids)), np.nan)
         self.unknown = 0
         for t in rows.tolist():  # 5.4.1: a value is finite or NaN, at the term that produced it
@@ -223,6 +225,7 @@ class _Chunk:
             _log.debug("UnknownGroup: %s left out %d cell(s)", name, self.unknown)
 
     def row(self, term: Term, t: int) -> F64:
+        __tracebackhide__ = True  # down to a user function (R-42)
         params, inputs, n = dict(term.params), term.inputs, len(self.block.instrument_ids)
         if term.op == "constant":
             return np.full(n, params["value"])
@@ -292,18 +295,14 @@ class _Chunk:
         return out
 
     def user(self, term: Term, t: int) -> F64:
-        params, out = dict(term.params), np.full(len(self.block.instrument_ids), np.nan)
-        fn = self.functions.get(graph_hash(term))
-        if fn is None:
-            raise ValueError(f"no function given for the user term {params['function']}")
-        size = params["window"]
+        __tracebackhide__ = True  # down to a user function (R-42)
+        out, size = np.full(len(self.block.instrument_ids), np.nan), dict(term.params)["window"]
         if t - size + 1 < 0:
             return out  # the window starts before the axis: nothing is there to read
-        alive = self.block.exists[t - self.low]
-        got = np.asarray(fn(*(self.window(i, t, size)[:, alive] for i in term.inputs)), np.float64)
-        if got.shape != (int(alive.sum()),):
-            raise ValueError(f"{params['function']} returned {got.shape}, not ({alive.sum()},)")
-        out[alive] = got
+        inside = self.domain(term, t)  # 3.3 `mask`: the columns the function computes on
+        windows = [self.window(i, t, size)[:, inside] for i in term.inputs]
+        out[inside] = call_user(term, windows, int(inside.sum()),
+                                self.functions.get(graph_hash(term)))  # fmt: skip
         return out
 
     def filter(self, term: Term, t: int) -> F64:
