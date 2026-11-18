@@ -501,7 +501,7 @@ def f(close: np.ndarray, *, n: int = 21) -> np.ndarray: ...
 - `col.latest`는 항이다: 행 s의 값은 행 s에서 정해진다(5.1.2). 각 칸을 t에 알려진 대로 보아야 하는 창은 `col.latest`가 아니라 칼럼 자체를 입력으로 받는다(`inputs=[col]`).
 - `@nx.filter`는 bool `(n_alive,)`, `@nx.classifier`는 int 또는 str `(n_alive,)`를 반환한다.
 - 함수가 `window`보다 앞 행을 인덱싱하면 numpy가 `IndexError`를 내고, 엔진은 그것을 `WindowError`(오류 E8)로 바꾸어 "`window=<필요한 값>`"을 제안한다(필요한 값 = 음수 인덱스의 절댓값). 그 밖의 사용자 예외는 원래 예외와 사용자 파일:줄을 그대로 보인다 [R-42].
-- `nx.ops.rolling(x: Factor, window: int, min_periods: int | None = None).{mean,sum,std,min,max,median}()`: 항상 뒤만 보는 이동 연산(`std`는 ddof=1, `min_periods` 기본 = window) [설계 3.5].
+- `nx.ops.rolling(x: Factor, window: int, min_periods: int | None = None).{mean,sum,std,min,max,median}()`: 항상 뒤만 보는 이동 연산(`std`는 ddof=1, `min_periods` 기본 = window) [설계 3.5]. `1 ≤ min_periods ≤ window`; `min_periods`는 축 위에 온전히 놓인 창의 유한한 칸을 세고, 축의 첫 행보다 앞에서 시작하는 창은 `min_periods`와 상관없이 NaN이다(INV-03, INV-14) (결정 2026-11-18, #243).
 - `nx.ops.where(cond: Filter, a, b)`, `nx.ops.coalesce(*factors)`: 명시적 대체.
 - `nx.ops.composite(terms: Mapping[Factor, float], *, higher_is_better: Mapping[Factor, bool] | None = None, na: Literal["drop","bottom","middle"] = "drop", mask=None, groupby=None) -> Factor` [V31-25]: 각 항을 `pct_rank(na=…)`로 바꾼 뒤 가중 합(가중치 합으로 나눔) → 다시 `pct_rank`(0~100). 중첩 가능(항 자리에 다른 `composite`). Portfolio123 순위 시스템의 "NA Negative/Neutral"에 해당하는 동작을 이름 붙은 명시적 연산으로 둔다. 결측 대체로 남은 종목 수는 `coverage.parquet`의 `n_na_filled`.
 
@@ -528,7 +528,7 @@ zipline 3.2.1과 같은 이름은 zipline의 결측 규칙과 **입력 의미**�
 
 **항의 차수** (오류 E17의 거부만 읽는다(3.3, 6.6); 결정 2026-11-18, #513). 그래프를 만들 때 그래프를 돌며 항마다 차수 0, 0이 아닌 차수, 차수 없음 가운데 하나를 준다. 차수는 5.3.3의 두 계수, 가격 계수 `C`와 수량 계수 `Q`로 센다.
 - `open`, `high`, `low`, `close`, `close_tr`의 `.latest`는 가격 계수 1차, `volume`, `shares_out`의 `.latest`는 수량 계수 1차(3.2 표가 t 기준으로 조정하는 칼럼). `close_unadjusted`, `volume_unadjusted`, `value_traded`, `market_cap`의 `.latest`는 0차.
-- 내장 팩터의 항: 그 커널의 등급을 입력에 적용한다. 1차 커널은 입력의 차수를 주고, 0차·불변 커널은 칼럼이나 0차 입력 위에서 0, 차수 없는 입력 위에서 차수 없음을 준다.
+- 내장 팩터의 항: 그 커널의 등급을 입력에 적용한다. 1차 커널은 입력의 차수를 주고, `VWAP`은 가격 입력의 차수를 주며(거래량은 분자와 분모에 함께 있는 가중치) (결정 2026-11-18, #243), 0차·불변 커널은 칼럼이나 0차 입력 위에서 0, 차수 없는 입력 위에서 차수 없음을 준다.
 - 상수: 0. `-x`, `abs(x)`, `x * c`, `x / c`: x와 같다. `x * y`, `x / y`: 같은 계수의 차수끼리 더하고 뺀다; 가격 계수와 수량 계수 둘 다에 차수가 있는 결과는 차수 없음. `x + y`, `x - y`, `x.fillna(y)`: 둘이 같이 가진 차수, 아니면 차수 없음(y가 상수이고 x가 0이 아닌 차수면 다음 줄). `x ** p`, `x.sqrt()`: x의 차수에 p, 2분의 1을 곱한다. `x.shift(k)`: x와 같다.
 - 0이 아닌 차수의 항 하나와 상수만의 다른 수치 함수(`log()`, `log1p()`, `exp()`, `x + c`, `clip`, `fillna(c)`)는 0이 아닌 차수다. 그런 항 둘을 합친 것(`Price.close.latest.log() - Price.open.latest.log()`)은 차수 없음.
 - Filter와 Classifier는 거부하지 않는다. 횡단면 결과는 0차 입력 위에서 0, 아니면 차수 없음. 사용자 함수의 결과와 `Fund`, `Panel`, `Macro.series`, `Market.series`, `Events` 항은 차수 없음.
