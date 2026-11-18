@@ -13,10 +13,12 @@ from keyword import iskeyword
 from types import MappingProxyType
 from typing import Any, ClassVar
 
+import numpy as np
+
 from nexusbt.contracts import ENGINE_COLUMNS, ColumnNameError, LabelLeakError, SchemaRegistry
 
 from ._degree import check_degrees
-from ._terms import BoundColumn, Classifier, Filter, Pipeline, Term, _node, _user_line
+from ._terms import BoundColumn, Classifier, Filter, Pipeline, Term, _node, _user_line, call_user
 
 #: `instruments` columns known only after the fact (3.2, RV-C08, INV-01): never a `Meta` column.
 _HINDSIGHT = ("delisted_on", "last_session", "name")
@@ -72,11 +74,15 @@ def bind(graph: Term | Pipeline, registry: SchemaRegistry) -> None:
     """2.5: check the graph's `Panel` and `Label` columns against the snapshot's registry (E7).
 
     A label read through `Panel` is E2 (8.4); a term of known non-zero degree fed to `shift` or
-    a window is E17 (3.3, 3.4)."""
+    a window is E17 (3.3, 3.4); a user function is called once on `(W, 3)` windows of 1.0, so a
+    row before its window or a result of another shape is E8 before any data is read (6.5 (5))."""
+    __tracebackhide__ = True  # down to a user function (R-42)
     check_degrees(_roots(graph))
     names, leaks = _snapshot_columns(registry)
     for term in _terms(graph):
         params = dict(term.params)
+        if term.op == "user":
+            call_user(term, [np.ones((params["window"], 3))] * len(term.inputs), 3)
         known = names.get(params["dataset"]) if term.op == "column" else None
         if known is not None and params["column"] not in known:
             if params["dataset"] == "Panel" and params["column"] in leaks:

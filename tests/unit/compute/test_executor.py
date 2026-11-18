@@ -13,6 +13,7 @@ import pyarrow as pa
 import pytest
 
 from nexusbt.compute._executor import execute
+from nexusbt.contracts import WindowError
 from nexusbt.data._block import MarketBlock
 from nexusbt.pipeline import BoundColumn, Factor, Term, factor, graph_hash
 
@@ -155,11 +156,11 @@ def test_cutoff_hides_late_cells() -> None:
         assert bits(before[graph_hash(t)]) == bits(after[graph_hash(t)])
 
 
-def test_unknown_term_and_missing_function_are_refused() -> None:
+def test_unknown_term_and_bad_chunks_are_refused() -> None:
+    """A user term needs no function from the caller: it runs the one it was built from
+    (`tests/unit/pipeline/test_user_functions.py`)."""
     with pytest.raises(NotImplementedError, match="no `pct_rank` term"):
         run([CLOSE.latest.pct_rank()], [50], [(0, 199)], block())
-    with pytest.raises(ValueError, match="no function given"):
-        execute([sma(3, CLOSE)], [50], [(0, 199)], reader(block(), []), READY)
     with pytest.raises(ValueError, match=r"outside every chunk: \[250\]"):
         run([CLOSE.latest], [50, 250], [(0, 199)], block())
     with pytest.raises(ValueError, match="in order and apart"):
@@ -170,18 +171,15 @@ def test_unknown_term_and_missing_function_are_refused() -> None:
 
 def test_edges_a_run_meets() -> None:
     """A chunk with no decisions reads nothing; an element function runs compiled; a user window
-    before the axis start is NaN; a user mask and a wrong-shaped return are refused."""
+    before the axis start is NaN; a wrong-shaped return is E8 (5.3.7)."""
     whole, reads = block(), list[tuple[int, int]]()
     logged = CLOSE.latest.log()
     found = run([logged, sma(3, CLOSE)], [1, 60], [(0, 49), (50, 99), (100, 199)], whole, reads)
     assert [r for r in reads if r[1] == 199] == []  # the last chunk holds no decision
     assert found[graph_hash(logged)]["value"][0].as_py() == np.log(whole.values["close"][1, 0])
     assert np.isnan(found[graph_hash(sma(3, CLOSE))]["value"][0].as_py())  # row 1 of window 3
-    masked = factor(3, [CLOSE], mask=CLOSE.latest > 0.0)(_mean)
-    with pytest.raises(NotImplementedError, match=r"mask comes with T1\.12"):
-        execute([masked], [50], [(0, 199)], reader(whole, []), READY, {graph_hash(masked): _mean})
     wide = sma(3, CLOSE)
-    with pytest.raises(ValueError, match=r"returned \(1,\), not \(3,\)"):
+    with pytest.raises(WindowError, match=r"returned float64 \(1,\), not float64 \(3,\)"):
         execute([wide], [50], [(0, 199)], reader(whole, []), READY, {graph_hash(wide): _first})
 
 
