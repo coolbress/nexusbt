@@ -19,8 +19,12 @@ import pyarrow.parquet as pq
 import pytest
 import yaml
 
+from nexusbt.compute import _crosssection as xs
+from nexusbt.compute import _kernels as k
+from nexusbt.compute._kernels_ref import adjusted_window
+from nexusbt.contracts import TiebreakPolicy
 from nexusbt.data import Calendar, DataConfig, open_snapshot
-from nexusbt.testing.synth import make_snapshot, read
+from nexusbt.testing.synth import make_snapshot, read, write_actions
 from nexusbt_tds.hash import write_hashes
 
 pytestmark = pytest.mark.golden
@@ -77,6 +81,44 @@ def reached(calendar: Calendar, available: str) -> str:
     return str(calendar.dates[np.searchsorted(calendar.ready, at)])
 
 
+def test_T11_ties() -> None:  # noqa: N802 - spec 10.1's name
+    """T-11: ranks and `top(2)` of six cells in a shuffled memory order under `tiebreak = "id"`
+    (3.7, 5.4.2, INV-04)."""
+    case = yaml.safe_load((CASES / "T-11.yaml").read_text())
+    assert case["input"]["tiebreak"] == TiebreakPolicy.ID
+    ids = [c["instrument_id"] for c in case["input"]["scores"]]
+    x = np.array([c["score"] for c in case["input"]["scores"]], dtype=np.float64)
+    mask, groups = np.ones(len(x), dtype=bool), np.zeros(len(x), dtype=np.int32)
+    tie = xs.tie_order(ids, TiebreakPolicy.ID)
+    found: dict[str, Any] = {
+        f"rank_{name}": k.rank(x, mask, groups, tie, code, k.ASCENDING)[0]
+        for name, code in (("ordinal", k.ORDINAL), ("average", k.AVERAGE), ("min", k.MIN),
+                           ("max", k.MAX), ("dense", k.DENSE))
+    }  # fmt: skip
+    found["rank_ordinal_desc"] = k.rank(x, mask, groups, tie, k.ORDINAL, k.DESCENDING)[0]
+    found["in_top2"], tied, _ = k.select(x, mask, groups, tie, 2, k.DESCENDING)
+    for row in case["expected"]:
+        i = ids.index(row["instrument_id"])
+        assert row["n_tied_at_cutoff"] == tied
+        for column, values in found.items():
+            assert values[i] == row[column] or (math.isnan(values[i]) and math.isnan(row[column]))
+
+
+def test_G_TIME_LATE_target() -> None:  # noqa: N802 - spec 10.1's name
+    """G-TIME-LATE's targets B, B, A: `top(1)` of the table's `SMA(3)` values at s, s+1 and s+2,
+    never the look-ahead's A (decision 2026-11-10, #356)."""
+    case = yaml.safe_load((CASES / "G-TIME-LATE.yaml").read_text())
+    ids = ["KR:T00001", "KR:T00002"]
+    tie = xs.tie_order(ids, TiebreakPolicy.HASH)
+    mask, groups = np.ones(2, dtype=bool), np.zeros(2, dtype=np.int32)
+    rows = [r for r in case["expected"] if r["target"] is not None]
+    for row in rows:
+        x = np.array([row["a_sma3"], row["b_sma3"]], dtype=np.float64)
+        picked, _, _ = k.select(x, mask, groups, tie, 1, k.DESCENDING)
+        assert [ids[i] for i in np.flatnonzero(picked)] == [row["target"]]
+    assert [r["target"] for r in rows] == ["KR:T00002", "KR:T00002", "KR:T00001"]
+
+
 def test_T20_late_bar_ready_delay(tmp_path: Path) -> None:  # noqa: N802 - spec 10.1's name
     case = yaml.safe_load((CASES / "T-20.yaml").read_text())
     calendar, rows = measured(package(case, tmp_path / "t20"))
@@ -101,3 +143,45 @@ def test_G_TIME_LATE_ready_and_late_bar(tmp_path: Path) -> None:  # noqa: N802 -
     earlier, _ = measured(package(case, tmp_path / "earlier", until="2020-01-07T06:30:00Z"))
     assert len(read(tmp_path / "earlier", "bars_1d")) < len(read(tmp_path / "later", "bars_1d"))
     assert (earlier.ready == calendar.ready).all()
+
+
+def windows(case: dict[str, Any], at: Path, basis: str, column: str = "close") -> Any:
+    """For each expected row, the case's window of KR:T00001 adjusted on `basis` with the
+    events `Snapshot.actions` resolves at the row's `ready` (5.3.3), and the pairs it crossed."""
+    root = make_snapshot(at, preset="tiny", markets=("KR",))
+    write_actions(root, case["corporate_actions"])
+    snapshot = open_snapshot(DataConfig(path=root))
+    calendar = snapshot.calendar("KR")
+    values = np.array([[float(b[column])] for b in case["bars"]])
+    days = [str(d) for d in calendar.dates[: len(values)]]
+    assert days == [b["session_date"] for b in case["bars"]]
+    for row in case["expected"]:
+        t = days.index(row["session"])
+        yield row, *adjusted_window(values, t, row.get("window", 3), snapshot.actions(
+            "KR", calendar.ready[t]), ("KR:T00001",), calendar.ts_open, basis)  # fmt: skip
+
+
+def test_T07_split_reverse_split_windows(tmp_path: Path) -> None:  # noqa: N802 - spec 10.1's name
+    case = yaml.safe_load((CASES / "T-07.yaml").read_text())
+    prices = windows(case, tmp_path / "close", "split")
+    volumes = windows(case, tmp_path / "volume", "volume", "volume")
+    for (row, cells, crossed), (_, volume, _) in zip(prices, volumes, strict=True):
+        assert cells[:, 0].tolist() == pytest.approx(row["adjusted_window"], rel=1e-12)
+        assert np.mean(cells) == pytest.approx(row["sma"], rel=1e-12)
+        assert volume[:, 0].tolist() == pytest.approx(row["volume_window"], rel=1e-12)
+        assert not crossed
+
+
+def test_T15_unavailable_factor_masks_window(tmp_path: Path) -> None:  # noqa: N802 - spec 10.1's name
+    case = yaml.safe_load((CASES / "T-15.yaml").read_text())
+    pairs: set[tuple[str, str]] = set()  # the run's `AdjustmentUnavailable` pairs so far (4.6)
+    for basis in ("split", "total"):  # a spinoff is in both classes: the same rows
+        pairs.clear()
+        for row, cells, crossed in windows(case, tmp_path / basis, basis):
+            pairs |= crossed
+            expected = np.array(row["adjusted_window"], dtype=float)
+            np.testing.assert_array_equal(cells[:, 0], expected)  # NaN where NaN, no 1.0
+            assert np.nanmean(cells) == pytest.approx(row["sma3"], rel=1e-12)
+            assert len(pairs) == row["adjustment_unavailable"]
+        print(f"{basis}: AdjustmentUnavailable {len(pairs)} {sorted(pairs)}")
+        assert pairs == {("KR:T00001", "CA-T15-1")}

@@ -7,6 +7,8 @@ package version follows the `tds_version` it checks (`1.0.x`), tagged
 ## [Unreleased]
 
 ### Added
+- `actions.Resolution.affects`: the chosen version's `affects`, so the engine picks the events
+  of `C_split` and `C_total` from the resolver's result (spec 5.3.3)
 - `tds check --level full` judges TDS-V032: a gap in `sequence` within each group a `trades`,
   `quotes` or `book_deltas` dataset declares with `params.sequence_consecutive_within`, one
   warning per group; a dataset with no declaration has nothing to judge, so V032 is no longer

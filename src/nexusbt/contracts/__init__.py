@@ -367,8 +367,42 @@ class SchemaRegistry:
     label: str = "label_monthly"
 
 
+class ActionEffects(Protocol):
+    """The price and quantity effects of a resolved version; None is "none" (5.3.3a 5)."""
+
+    @property
+    def price_factor(self) -> float | None: ...
+    @property
+    def share_factor(self) -> float | None: ...
+
+
+class Resolution(Protocol):
+    """One chain at a cutoff, as the resolver gives it (5.3.3a): `event_id` None while no
+    version is known; `effects` empty unless `effective`, amounts empty while `terms_pending`."""
+
+    @property
+    def chain_id(self) -> str: ...
+    @property
+    def instrument_id(self) -> str: ...
+    @property
+    def event_id(self) -> str | None: ...
+    @property
+    def ts_effective(self) -> dt.datetime | None: ...
+    @property
+    def effective(self) -> bool: ...
+    @property
+    def terms_pending(self) -> bool: ...
+    @property
+    def affects(self) -> str | None: ...
+    @property
+    def effects(self) -> ActionEffects: ...
+
+
 @dataclass(frozen=True, slots=True)
-class ResolvedActions: ...
+class ResolvedActions:
+    """`Snapshot.actions(market, cutoff)` (5.3.3a): the market's chains by chain id, ascending."""
+
+    chains: Mapping[str, Resolution]
 
 
 @dataclass(frozen=True, slots=True)
