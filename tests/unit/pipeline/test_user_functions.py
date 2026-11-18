@@ -283,6 +283,16 @@ def test_source_hash_includes_helpers(tmp_path: Path) -> None:
     assert graph_hash(same[0]) == graph_hash(same[1])
     changed = user_module(tmp_path, "changed", inner="5").score
     assert graph_hash(changed) != graph_hash(same[0])
+    looped = [nx.factor(window=2, inputs=[CLOSE])(_calls_a_recursive_helper) for _ in "ab"]
+    assert graph_hash(looped[0]) == graph_hash(looped[1])  # a recursive helper is walked once
+
+
+def _halve(x: Any, k: int) -> Any:
+    return x if k == 0 else _halve(x / 2, k - 1)
+
+
+def _calls_a_recursive_helper(close: Any) -> Any:
+    return _halve(close[-1], 3)
 
 
 def _momentum(close: Any, *, n: int = 21) -> Any:
@@ -347,7 +357,7 @@ def test_global_array_read_E24_disables_l1() -> None:  # noqa: N802 - spec 10.1'
         pure = nx.factor(window=2, inputs=[CLOSE])(_pure)
     assert l1_disabled(weighted)
     assert l1_disabled(weighted.rank() + pure)  # a node below it
-    assert not l1_disabled(pure.rank())
+    assert not l1_disabled(pure.rank() + pure)  # a node read twice is walked once
 
 
 SETTINGS = """
