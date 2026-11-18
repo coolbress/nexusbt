@@ -179,6 +179,7 @@ def test_M015_warns_of_an_experimental_dataset_and_otherwise_passes(tmp_path: Pa
         ("2027-01-05", ["TDS-M017"]),  # a newer text than the checker knows
         (None, ["TDS-M017"]),  # no tds_draft: a text from before 2026-11-18
         ("v1.4", ["TDS-M001"]),  # not a date: the schema's, and no second finding
+        ("null", ["TDS-M001"]),  # a JSON null is a value that is not a date, not a missing field
     ],
 )
 def test_M017_a_package_of_another_draft_text_warns(
@@ -189,7 +190,7 @@ def test_M017_a_package_of_another_draft_text_warns(
         if draft is None:
             m.pop("tds_draft")
         else:
-            m["tds_draft"] = draft
+            m["tds_draft"] = None if draft == "null" else draft
 
     result = check(write(tmp_path / "pkg", change), level="manifest")
     assert [f.code for f in (*result.errors, *result.warnings)] == found

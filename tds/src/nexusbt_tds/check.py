@@ -344,8 +344,8 @@ def _check_manifest(m: Manifest, only: Sequence[str] | None) -> Iterable[Finding
         yield Finding("TDS-M014", "error", f"unknown hash_spec {spec!r}")
     draft = data.get("tds_draft")  # TDS 10.5 (#529); a value that is no date is M001's
     dated = isinstance(draft, str) and re.fullmatch(DATE, draft) is not None
-    if draft is None or (dated and draft != TDS_DRAFT):
-        said = "no tds_draft (a text before 2026-11-18)" if draft is None else f"tds_draft {draft}"
+    if (missing := "tds_draft" not in data) or (dated and draft != TDS_DRAFT):
+        said = "no tds_draft (a text before 2026-11-18)" if missing else f"tds_draft {draft}"
         yield Finding("TDS-M017", "warning", f"{said}; this checker implements {TDS_DRAFT}")
     markets, editions = data.get("markets"), data.get("editions")
     values = editions.get("values") if isinstance(editions, dict) else None
