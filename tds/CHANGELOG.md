@@ -7,6 +7,8 @@ package version follows the `tds_version` it checks (`1.0.x`), tagged
 ## [Unreleased]
 
 ### Added
+- TDS-M017 (W) at every level: a `tds.json` with no `tds_draft`, or one naming another draft
+  text than the checker implements (TDS 10.5); a package written before it still passes
 - `tds_draft` in `tds.json` (TDS 4.2, 10.5): the date of the draft text a package follows,
   `2026-11-18`; `tds manifest build` and `tds import csv` write it, and a value that is not a
   `YYYY-MM-DD` date is TDS-M001. It is not in the semantic hash

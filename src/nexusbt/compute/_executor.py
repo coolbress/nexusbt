@@ -24,12 +24,12 @@ import numpy as np
 import numpy.typing as npt
 import pyarrow as pa
 
-from nexusbt.compute import _kernels
+from nexusbt.compute import _factors, _kernels
 from nexusbt.compute._chunks import schedule
 from nexusbt.compute._plan import plan
 from nexusbt.contracts import ID_COLUMN
 from nexusbt.data._block import MarketBlock
-from nexusbt.pipeline import Term, graph_hash
+from nexusbt.pipeline import Factor, Filter, Term, graph_hash
 
 F64 = npt.NDArray[np.float64]
 #: The block of the axis rows `first..last`, both included.
@@ -51,6 +51,17 @@ _UNARY: Mapping[str, Callable[[F64], F64]] = {
     "log": lambda x: _kernels.elementwise(_kernels.LOG, x),
     "log1p": lambda x: _kernels.elementwise(_kernels.LOG1P, x),
     "exp": lambda x: _kernels.elementwise(_kernels.EXP, x),
+}
+_COMPARE = {"lt": _kernels.LT, "le": _kernels.LE, "gt": _kernels.GT, "ge": _kernels.GE,
+            "eq": _kernels.EQ, "ne": _kernels.NE}  # fmt: skip
+_KLEENE = {"and": _kernels.kleene_and, "or": _kernels.kleene_or}
+#: A Factor's tests that are never unknown (5.4.1); a float's null is NaN.
+_TESTS: Mapping[str, Callable[[F64], npt.NDArray[np.bool_]]] = {
+    "isnan": np.isnan,
+    "isnull": np.isnan,
+    "notnan": lambda x: ~np.isnan(x),
+    "notnull": lambda x: ~np.isnan(x),
+    "isfinite": np.isfinite,
 }
 
 
@@ -74,6 +85,8 @@ def execute(
     order = schedule(terms)  # inputs first, with the nodes each one's computing lets go
     if any(t.op == "user" and dict(t.params)["mask"] is not None for t, _ in order):
         raise NotImplementedError("a user function's mask comes with T1.12")
+    if any(t.op in _factors.KERNELS and dict(t.params)["mask"] is not None for t, _ in order):
+        raise NotImplementedError("a built-in factor's mask comes with the Filter executor")
     parts: dict[str, list[pa.Table]] = {graph_hash(t): [] for t in terms}
     for first, last in spans:
         mine = wanted[(wanted >= first) & (wanted <= last)]
@@ -153,6 +166,18 @@ class _Chunk:
             return _UNARY[term.op](self.cell(inputs[0], t))
         if term.op == "user":
             return self.user(term, t)
+        if term.op in _factors.KERNELS:  # 3.4; NaN while the window starts before the axis
+            if t - (size := _factors.rows(term)) + 1 < 0:
+                return np.full(n, np.nan)
+            return _factors.value(term, [self.window(i, t, size) for i in inputs])
+        if isinstance(term, Filter):
+            return self.filter(term, t)
+        if term.op == "as_factor":  # true 1.0, false 0.0, unknown NaN: the cells as held
+            return self.cell(inputs[0], t)
+        if term.op == "if_else":  # NaN where the condition is unknown
+            value, valid = _truth(self.cell(inputs[0], t))
+            picked = np.where(value, self.cell(inputs[1], t), self.cell(inputs[2], t))
+            return np.where(valid, picked, np.nan)
         raise NotImplementedError(f"the reference executor has no `{term.op}` term yet")
 
     def user(self, term: Term, t: int) -> F64:
@@ -170,13 +195,55 @@ class _Chunk:
         out[alive] = got
         return out
 
+    def filter(self, term: Term, t: int) -> F64:
+        """A Filter's cells at row t, held as 1.0, 0.0 and NaN for unknown (`_cells`)."""
+        inputs = term.inputs
+        if term.op in _COMPARE and isinstance(inputs[0], Factor):
+            x, y = self.cell(inputs[0], t), self.cell(inputs[1], t)
+            return _cells(*_kernels.compare(_COMPARE[term.op], x, y))
+        if term.op in _KLEENE:
+            a, b = _truth(self.cell(inputs[0], t)), _truth(self.cell(inputs[1], t))
+            return _cells(*_KLEENE[term.op](*a, *b))
+        if term.op in _TESTS and isinstance(inputs[0], Factor):
+            value = _TESTS[term.op](self.cell(inputs[0], t))
+            return _cells(value, np.ones_like(value))
+        if term.op in ("all", "any"):
+            size, fold = dict(term.params)["window"], getattr(_kernels, f"kleene_{term.op}")
+            if t - size + 1 < 0:  # the window starts before the axis: nothing is known there
+                return np.full(len(self.block.instrument_ids), np.nan)
+            return _cells(*fold(*_truth(self.window(inputs[0], t, size))))
+        if term.op == "not":
+            value, valid = _truth(self.cell(inputs[0], t))
+            return _cells(~value & valid, valid)
+        if term.op == "fillna":  # the only explicit fill (INV-12): unknown cells take the value
+            value, valid = _truth(self.cell(inputs[0], t))
+            return _cells(value | (~valid & dict(term.params)["value"]), np.ones_like(valid))
+        raise NotImplementedError(f"the reference executor has no `{term.op}` term yet")
+
     def frame(self, term: Term, rows: npt.NDArray[np.int64]) -> pa.Table:
         local = rows - self.low
         r, c = np.nonzero(self.block.exists[local])
         ids = np.asarray(self.block.instrument_ids, dtype=object)[c]
-        return _frame(rows[r], ids, self.values[graph_hash(term)][local[r], c])
+        cells = self.values[graph_hash(term)][local[r], c]
+        if isinstance(term, Filter):  # null where unknown: Arrow's validity bitmap is the mask
+            value, valid = _truth(cells)
+            return _frame(rows[r], ids, pa.array(value, pa.bool_(), mask=~valid))
+        return _frame(rows[r], ids, cells)
+
+
+def _truth(cells: F64) -> tuple[npt.NDArray[np.bool_], npt.NDArray[np.bool_]]:
+    """A Filter's held cells as the kernels' value and validity mask."""
+    return cells == 1.0, ~np.isnan(cells)
+
+
+def _cells(value: npt.NDArray[np.bool_], valid: npt.NDArray[np.bool_]) -> F64:
+    """A Filter's value and validity mask held as one float array, so its windows, `shift` and
+    the chunk's release of values work as a Factor's do."""
+    found: F64 = np.where(valid, value.astype(np.float64), np.nan)
+    return found
 
 
 def _frame(rows: Any, ids: Any, values: Any) -> pa.Table:
     row, instrument = pa.array(rows, pa.int64()), pa.array(ids, pa.string())
-    return pa.table({"row": row, ID_COLUMN: instrument, "value": pa.array(values, pa.float64())})
+    value = values if isinstance(values, pa.Array) else pa.array(values, pa.float64())
+    return pa.table({"row": row, ID_COLUMN: instrument, "value": value})

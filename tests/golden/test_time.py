@@ -21,9 +21,12 @@ import yaml
 
 from nexusbt.compute import _crosssection as xs
 from nexusbt.compute import _kernels as k
+from nexusbt.compute._executor import execute
 from nexusbt.compute._kernels_ref import adjusted_window
 from nexusbt.contracts import TiebreakPolicy
 from nexusbt.data import Calendar, DataConfig, open_snapshot
+from nexusbt.data._block import MarketBlock
+from nexusbt.pipeline import BoundColumn, graph_hash
 from nexusbt.testing.synth import make_snapshot, read, write_actions
 from nexusbt_tds.hash import write_hashes
 
@@ -102,6 +105,76 @@ def test_T11_ties() -> None:  # noqa: N802 - spec 10.1's name
         assert row["n_tied_at_cutoff"] == tied
         for column, values in found.items():
             assert values[i] == row[column] or (math.isnan(values[i]) and math.isnan(row[column]))
+
+
+def _cells(found: tuple[Any, Any]) -> list[bool | None]:
+    """A kernel's value and validity mask as the case writes them, None for unknown."""
+    return [bool(v) if ok else None for v, ok in zip(*found, strict=True)]
+
+
+def _tri(cells: list[Any]) -> list[Any]:
+    return [None if c == "unknown" else c for c in cells]
+
+
+def test_T24_filter_unknown() -> None:  # noqa: N802 - spec 10.1's name
+    """T-24: every row of the three-valued table through the kernels, from the case's inputs,
+    and the `Price` rows through the reference executor (5.4.1, 3.3; #245 Decisions 2026-11-18:
+    the executor reads no `Meta` or `Trad` column yet)."""
+    case = yaml.safe_load((CASES / "T-24.yaml").read_text())
+    given = case["input"]
+    prev, close = (np.array(given[k], dtype=np.float64) for k in ("close_prev", "close"))
+    table = list(dict.fromkeys(s for s in given["sector"] if s is not None))
+    codes = np.array([-1 if s is None else table.index(s) for s in given["sector"]], np.int32)
+    halted = _tri(given["halted"])
+    stop = (np.array([h is True for h in halted]), np.array([h is not None for h in halted]))
+    up0, up = k.compare(k.GT, prev, np.full(3, 1e4)), k.compare(k.GT, close, np.full(3, 1e4))
+    ok = (~stop[0] & stop[1], stop[1])
+    nan = (np.isnan(close), np.ones(3, dtype=bool))
+    filled = (ok[0] | ~ok[1], np.ones(3, dtype=bool))
+    windows = (np.stack([up0[0], up[0]]), np.stack([up0[1], up[1]]))
+    found = {
+        "Price.close.latest > 10000": up,
+        "~(Price.close.latest > 10000)": (~up[0] & up[1], up[1]),
+        "(Price.close.latest > 10000) | Price.close.latest.isnan()": k.kleene_or(*up, *nan),
+        "(Price.close.latest > 10000).all(2)": k.kleene_all(*windows),
+        "(Price.close.latest > 10000).any(2)": k.kleene_any(*windows),
+        'Meta.sector.eq("x")': k.codes_in(codes, np.array([table.index("x")], np.int32)),
+        "~Trad.halted": ok,
+        "(~Trad.halted).fillna(True)": filled,
+        "(Price.close.latest > 10000) & ~Trad.halted": k.kleene_and(*up, *ok),
+    }
+    rows = {row["term"]: row for row in case["expected"]}
+    for term, cells in found.items():
+        assert _cells(cells) == _tri(rows[term]["values"]), term
+        assert [c is True for c in _cells(cells)] == rows[term]["final"], term
+    factor = rows["(Price.close.latest > 10000).as_factor()"]["values"]
+    assert np.array_equal(np.where(up[1], up[0], np.nan), factor, equal_nan=True)
+    _t24_executor(prev, close, rows)
+
+
+def _t24_executor(prev: Any, close: Any, rows: dict[str, Any]) -> None:
+    """The `Price` rows of T-24 through the executor: the session before d is row 0, d row 1."""
+    x = BoundColumn.of("Price", "close").latest
+    up = x > 10_000
+    terms = {"Price.close.latest > 10000": up, "~(Price.close.latest > 10000)": ~up,
+             "(Price.close.latest > 10000) | Price.close.latest.isnan()": up | x.isnan(),
+             "(Price.close.latest > 10000).all(2)": up.all(2),
+             "(Price.close.latest > 10000).any(2)": up.any(2),
+             "(Price.close.latest > 10000).as_factor()": up.as_factor()}  # fmt: skip
+    dates = np.datetime64("2020-01-01") + np.arange(2).astype("timedelta64[D]")
+    ready = (dates + np.timedelta64(16, "h")).astype("datetime64[us]")
+    shape, ids = (2, 3), ("KR:T00001", "KR:T00002", "KR:T00003")
+    seen = np.broadcast_to(ready[:, None], shape).copy()
+    whole = MarketBlock("KR", dates, 0, ids, {"close": np.stack([prev, close])},
+                        np.ones(shape, bool), np.zeros(shape, np.int8), seen)  # fmt: skip
+    found = execute(list(terms.values()), [1], [(0, 1)], lambda a, b: whole, ready)
+    for name, term in terms.items():
+        got = found[graph_hash(term)]["value"].to_pylist()
+        want = rows[name]["values"]
+        if name.endswith("as_factor()"):
+            assert np.array_equal(np.array(got), np.array(want), equal_nan=True)
+        else:
+            assert got == _tri(want), name
 
 
 def test_G_TIME_LATE_target() -> None:  # noqa: N802 - spec 10.1's name
