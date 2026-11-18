@@ -68,6 +68,21 @@ def test_a_window_of_one_row_takes_a_price_level() -> None:
     check(Returns(1, inputs=[Price.close.latest]))
 
 
+def test_e1_fix_agrees_with_the_refusal() -> None:
+    """#243 Decisions 2026-11-18: E1's fix sends a price level to what E17 lets through, a
+    built-in factor or a window over the column, and `.shift(k ≥ 1)` to a return or ratio."""
+    with pytest.raises(nx.LookAheadError) as caught:
+        Price.close.latest.shift(-1)
+    fix = caught.value.parts["fix"]
+    assert "for a price level" in fix
+    assert "inputs=[Price.close]" in fix
+    check(Returns(2))
+    check(window_of(2, Price.close))
+    check(Returns(2).shift(1))
+    with pytest.raises(nx.TermDomainError):
+        check(Price.close.latest.shift(1))
+
+
 @pytest.mark.parametrize(
     "term",
     [

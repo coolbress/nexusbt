@@ -350,7 +350,9 @@ def _look_ahead(k: int) -> LookAheadError:
         what=f"shift({k}) reads a value from after the computation day ({-k} session(s) later)",
         where=f"term shift({k})",
         why="a term may read only values known on its own day; a later value is not known yet",
-        fix="use .shift(k) with k ≥ 1, nx.ops.rolling(...), or window style",
+        fix="use .shift(k) with k ≥ 1 or nx.ops.rolling(...) on a return or a ratio; for a price"
+        " level, a built-in factor such as Returns(...) or @nx.factor(window=...,"
+        " inputs=[Price.close]), which read the column on today's basis",
         more="spec 3.3 shift and 6.5 check 1",
         layer=f"your code — {line}",
         at=line.split(" in ")[0],
