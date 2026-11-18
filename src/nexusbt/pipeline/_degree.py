@@ -8,7 +8,7 @@ worked out on one walk and not kept on the terms, so building a term and its has
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from fractions import Fraction
 from typing import Literal
 
@@ -115,7 +115,7 @@ def _refused(term: Term, child: Factor, degree: Degree) -> TermDomainError:
     has a raw twin, the value as it traded, over an adjusted `Price` column of the input's
     factor (the first one read, depth first)."""
     factor = (0 if degree[0] else 1) if isinstance(degree, tuple) else None
-    column = _column(child, factor) or ("volume" if factor == 1 else "close")
+    column = next(_columns(child, factor), "volume" if factor == 1 else "close")
     noun = {ADJUSTED["close"]: "price level", ADJUSTED["volume"]: "share count"}.get(
         degree, "value"
     )
@@ -144,9 +144,9 @@ def _refused(term: Term, child: Factor, degree: Degree) -> TermDomainError:
     )
 
 
-def _column(term: Term, factor: int | None) -> str | None:
-    """The first adjusted `Price` column the term reads in `factor` (0 price, 1 quantity,
-    None either)."""
+def _columns(term: Term, factor: int | None) -> Iterator[str]:
+    """The adjusted `Price` columns the term reads in `factor` (0 price, 1 quantity, None
+    either), depth first."""
     todo = [term]
     while todo:
         node = todo.pop()
@@ -154,9 +154,8 @@ def _column(term: Term, factor: int | None) -> str | None:
         price = isinstance(node, BoundColumn) and params["dataset"] == "Price"
         found = ADJUSTED.get(params["column"]) if price else None
         if isinstance(found, tuple) and found != ZERO and (factor is None or found[factor]):
-            return str(params["column"])
+            yield str(params["column"])
         todo += reversed(node.inputs)
-    return None
 
 
 _INFIX = {"add": "+", "sub": "-", "mul": "*", "div": "/", "pow": "**"}

@@ -27,7 +27,7 @@ def check(term: Term) -> None:
     bind(term, NO_SNAPSHOT_COLUMNS)
 
 
-def test_a_price_level_through_shift_is_E17() -> None:  # noqa: N802 - the code's name
+def test_a_price_level_through_shift_is_e17() -> None:
     term = Price.close.latest.shift(1)
     with pytest.raises(nx.TermDomainError) as caught:
         check(term)
@@ -50,7 +50,7 @@ def test_the_refusal_is_on_the_walk_not_in_the_constructor() -> None:
     [Returns(2, inputs=[Price.close.latest]), window_of(2, Price.close.latest)],
     ids=["Returns", "user window"],
 )
-def test_a_price_level_into_a_window_of_two_rows_is_E17(term: Factor) -> None:  # noqa: N802
+def test_a_price_level_into_a_window_of_two_rows_is_e17(term: Factor) -> None:
     with pytest.raises(nx.TermDomainError, match="cannot feed a window of 2 rows"):
         check(term)
 
@@ -96,6 +96,10 @@ def test_terms_that_keep_the_row_basis_are_refused(term: Factor) -> None:
         Price.close.latest.rank().shift(1).rank(),  # a cross-section of a price: no degree
         (Price.close.latest**0).shift(1),
         (Price.close.latest.sqrt().sqrt() ** 4 / Price.close.latest).shift(1),  # 1/4 * 4 - 1
+        (Price.close.latest / Price.close.latest).shift(1),  # one node read twice
+        (Returns(2) * Price.close.latest).shift(1),  # a built-in factor has no degree yet
+        (Returns(2) ** 2).shift(1),
+        (Price.close.latest.log() * Price.close.latest).shift(1),  # a size not known
     ],
 )
 def test_terms_of_degree_zero_or_no_degree_pass(term: Factor) -> None:
@@ -134,7 +138,7 @@ def test_the_message_follows_the_degree_not_the_first_column() -> None:
     assert "unadjusted" not in caught.value.parts["fix"]  # no raw share count to name
 
 
-def test_a_deep_chain_is_refused_with_E17_not_a_recursion_error() -> None:  # noqa: N802
+def test_a_deep_chain_is_refused_with_e17_not_a_recursion_error() -> None:
     term = Price.close.latest
     for _ in range(1000):
         term = term + 1.0
