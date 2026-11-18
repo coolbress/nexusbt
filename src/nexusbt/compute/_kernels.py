@@ -143,6 +143,59 @@ def window_nanmedian(x: F64) -> F64:
     return found
 
 
+def ewma_weights(window: int, decay_rate: float) -> F64:
+    """`EWMA`'s weights `decay_rate ** (W-1-i)` for rows i = 0..W-1, row t last with weight 1;
+    computed once with the compiled `pow` and passed to `window_ewma` as a constant (3.4)."""
+    if window < 1:
+        raise ValueError(f"a window has at least one row, not {window}")
+    exponents = np.arange(window - 1, -1, -1, dtype=np.float64)
+    found: F64 = _elem.power(np.full(window, float(decay_rate)), exponents)
+    found.flags.writeable = False
+    return found
+
+
+def window_ewma(x: F64, weights: F64) -> F64:
+    """`EWMA`: `sum(x * w) / sum(w)`, each a left fold in row order; NaN when any cell is NaN."""
+    acc, total = np.zeros(x.shape[1]), fold_sum(weights)
+    for r in range(len(x)):
+        acc = acc + x[r] * weights[r]
+    found: F64 = acc / total
+    return found
+
+
+def window_vwap(close: F64, volume: F64) -> F64:
+    """`VWAP`: `sum(close * volume) / sum(volume)` over the rows whose close and volume are both
+    finite; NaN with no such pair or when their volume sums to 0 (3.4, #278)."""
+    pair = np.isfinite(close) & np.isfinite(volume)
+    paid, n = _finite_fold(np.where(pair, close * volume, np.nan))
+    traded, _ = _finite_fold(np.where(pair, volume, np.nan))
+    some = (n > 0) & (traded != 0)
+    found: F64 = np.where(some, paid / np.where(some, traded, 1.0), np.nan)
+    return found
+
+
+def window_rsi(x: F64) -> F64:
+    """`RSI`: with `d` the W - 1 differences, `up` the mean of `max(d, 0)` and `dn` that of
+    `-min(d, 0)`, each over the finite differences (a clipped 0 counts); `100 - 100/(1 + up/dn)`,
+    as zipline: 100 when only `dn` is 0, NaN when both are."""
+    d = x[1:] - x[:-1]
+    up, dn = window_nanmean(np.maximum(d, 0.0)), np.abs(window_nanmean(np.minimum(d, 0.0)))
+    with np.errstate(divide="ignore", invalid="ignore"):
+        found: F64 = 100.0 - 100.0 / (1.0 + up / dn)
+    return found
+
+
+def window_max_drawdown(x: F64) -> F64:
+    """`MaxDrawdown`: the largest `(peak - x) / peak` over the finite cells, `peak` the running
+    maximum of the finite cells up to the row; NaN when no cell is finite."""
+    peak, worst = np.full(x.shape[1], np.nan), np.full(x.shape[1], np.nan)
+    for r in range(len(x)):  # fmax skips NaN; an infinite cell is not finite
+        finite = np.where(np.isfinite(x[r]), x[r], np.nan)
+        peak = np.fmax(peak, finite)
+        worst = np.fmax(worst, (peak - finite) / peak)
+    return worst
+
+
 def elementwise(code: int, x: F64) -> F64:
     """`log`, `log1p` or `exp` of each element, by its code, with the compiled function."""
     if not 0 <= code < len(_UNARY):

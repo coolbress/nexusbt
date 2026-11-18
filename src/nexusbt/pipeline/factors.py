@@ -6,6 +6,7 @@ operator name with the class `ADJUSTMENT` declares here (3.4, 5.3.3).
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping, Sequence
 from types import MappingProxyType
 
@@ -23,6 +24,10 @@ ADJUSTMENT: Mapping[str, str] = MappingProxyType(
         "AverageTradedValue": "invariant",
         "AnnualizedVolatility": "homogeneous of degree 0",
         "RollingStd": "homogeneous of degree 1",
+        "ExponentialWeightedMovingAverage": "homogeneous of degree 1",
+        "VWAP": "homogeneous of degree 1",
+        "RSI": "homogeneous of degree 0",
+        "MaxDrawdown": "homogeneous of degree 0",
     }
 )
 
@@ -89,3 +94,63 @@ def RollingStd(  # noqa: N802 - the 3.4 name
     """3.4 `RollingStd(W, inputs)`: the standard deviation (ddof 1) of the finite cells; the
     default input is `Price.close`, as for the other price-level factors (3.4)."""
     return _node(Factor, "RollingStd", *_price("close", inputs), window=window, mask=mask)
+
+
+class _EWMA:
+    """3.4 `ExponentialWeightedMovingAverage(W, decay_rate, inputs)`, alias `EWMA`:
+    `average(x, weights=decay_rate ** (W-1-i))`, any NaN -> NaN; the default input is
+    `Price.close`, as for the other price-level factors (3.4). The `from_` forms give the
+    decay rate as zipline's do."""
+
+    def __call__(
+        self, window: int, decay_rate: float, inputs: Inputs = None, *, mask: Filter | None = None
+    ) -> Factor:
+        found = _price("close", inputs)
+        return _node(Factor, "ExponentialWeightedMovingAverage", *found, window=window,
+                     decay_rate=float(decay_rate), mask=mask)  # fmt: skip
+
+    def from_span(
+        self, window: int, span: float, inputs: Inputs = None, *, mask: Filter | None = None
+    ) -> Factor:
+        """`decay_rate = 1 - 2 / (span + 1)`."""
+        return self(window, 1.0 - 2.0 / (span + 1.0), inputs, mask=mask)
+
+    def from_halflife(
+        self, window: int, halflife: float, inputs: Inputs = None, *, mask: Filter | None = None
+    ) -> Factor:
+        """`decay_rate = exp(log(0.5) / halflife)`."""
+        return self(window, math.exp(math.log(0.5) / halflife), inputs, mask=mask)
+
+    def from_center_of_mass(
+        self,
+        window: int,
+        center_of_mass: float,
+        inputs: Inputs = None,
+        *,
+        mask: Filter | None = None,
+    ) -> Factor:
+        """`decay_rate = 1 - 1 / (1 + center_of_mass)`."""
+        return self(window, 1.0 - 1.0 / (1.0 + center_of_mass), inputs, mask=mask)
+
+
+ExponentialWeightedMovingAverage = EWMA = _EWMA()
+
+
+def VWAP(window: int, *, mask: Filter | None = None) -> Factor:  # noqa: N802 - the 3.4 name
+    """3.4 `VWAP(W)`: `sum(close * volume) / sum(volume)` over the rows where both are finite."""
+    close, volume = BoundColumn.of("Price", "close"), BoundColumn.of("Price", "volume")
+    return _node(Factor, "VWAP", close, volume, window=window, mask=mask)
+
+
+def RSI(  # noqa: N802 - the 3.4 name
+    window: int = 15, inputs: Inputs = None, *, mask: Filter | None = None
+) -> Factor:
+    """3.4 `RSI(W=15, inputs=[Price.close_tr])`: `100 - 100/(1 + up/dn)` over W - 1 changes."""
+    return _node(Factor, "RSI", *_price("close_tr", inputs), window=window, mask=mask)
+
+
+def MaxDrawdown(  # noqa: N802 - the 3.4 name
+    window: int, inputs: Inputs = None, *, mask: Filter | None = None
+) -> Factor:
+    """3.4 `MaxDrawdown(W, inputs=[Price.close_tr])`: `max((cummax(x) - x) / cummax(x))`."""
+    return _node(Factor, "MaxDrawdown", *_price("close_tr", inputs), window=window, mask=mask)
