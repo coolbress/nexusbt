@@ -698,6 +698,7 @@ CASES: dict[str, tuple[Change, Change]] = {
         ),
     ),
     "TDS-M016": (_processed("2024-01-02"), _processed("2024-01-01")),  # rows after it (#192)
+    "TDS-M017": (_keep, _set("tds_draft", "2026-11-13")),  # an older draft text (#529)
     "TDS-S001": (_bars(ts_end=TS), _bars(session_date=None)),
     "TDS-S002": (_keep, _bars(close=pa.array(["10.0"]))),
     "TDS-S003": (
@@ -866,7 +867,7 @@ CASES: dict[str, tuple[Change, Change]] = {
 FAILS: dict[str, tuple[str | None, ...]] = {
     **dict.fromkeys([
         "TDS-M001", "TDS-M002", "TDS-M003", "TDS-M005", "TDS-M007", "TDS-M008", "TDS-R008",
-        "TDS-H003",
+        "TDS-H003", "TDS-M017",
     ], (None,)),
     **dict.fromkeys([
         "TDS-M004", "TDS-M006", "TDS-M009", "TDS-M010", "TDS-M011", "TDS-M012", "TDS-M013",

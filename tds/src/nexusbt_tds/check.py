@@ -1,6 +1,6 @@
 """`check(path, *, level, ...) -> CheckResult`: the levels manifest, schema and full (TDS 8.2).
 
-The `manifest` level reads `tds.json`, file sizes and the schema files' `status` (M001~M016);
+The `manifest` level reads `tds.json`, file sizes and the schema files' `status` (M001~M017);
 the `schema` level adds the
 Parquet footers and statistics and the `dictionary/` tables, no data rows (S001~S010, T006, part
 of D002, and of M008 the columns a profile names); the `full` level adds, so far, S006, S007
@@ -33,6 +33,7 @@ import pyarrow.parquet as pq
 from .manifest import (
     MANIFEST,
     MANIFEST_SCHEMA,
+    TDS_DRAFT,
     Manifest,
     ManifestError,
     read_manifest,
@@ -341,6 +342,11 @@ def _check_manifest(m: Manifest, only: Sequence[str] | None) -> Iterable[Finding
     spec = hashes.get("hash_spec") if isinstance(hashes, dict) else None
     if spec is not None and not (isinstance(spec, str) and spec in HASH_SPECS):
         yield Finding("TDS-M014", "error", f"unknown hash_spec {spec!r}")
+    draft = data.get("tds_draft")  # TDS 10.5 (#529); a value that is no date is M001's
+    dated = isinstance(draft, str) and re.fullmatch(DATE, draft) is not None
+    if (missing := "tds_draft" not in data) or (dated and draft != TDS_DRAFT):
+        said = "no tds_draft (a text before 2026-11-18)" if missing else f"tds_draft {draft}"
+        yield Finding("TDS-M017", "warning", f"{said}; this checker implements {TDS_DRAFT}")
     markets, editions = data.get("markets"), data.get("editions")
     values = editions.get("values") if isinstance(editions, dict) else None
     declared: dict[str, set[str]] = {
