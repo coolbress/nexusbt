@@ -18,7 +18,7 @@ from nexusbt.compute._executor import Actions, execute
 from nexusbt.contracts import SchemaRegistry
 from nexusbt.data import DataConfig, open_snapshot
 from nexusbt.data._block import MarketBlock
-from nexusbt.pipeline import BoundColumn, Term, bind, graph_hash
+from nexusbt.pipeline import BoundColumn, Factor, Term, bind, graph_hash
 from nexusbt.testing.synth import make_snapshot, write_actions
 
 ID = "KR:T00001"
@@ -136,6 +136,38 @@ def test_one_hash_for_two_functions_is_refused() -> None:
     by = np.array([2.0])
     got = plain([_scaled(by), _scaled(by)], [3], 4)
     assert got[graph_hash(_scaled(by))]["value"].to_pylist() == [206.0, 2006.0]
+    copies = [_copy_a(), _copy_b()]  # one source written twice: one hash, one computation
+    assert graph_hash(copies[0]) == graph_hash(copies[1])
+    assert plain(copies, [3], 4)[graph_hash(copies[0])]["value"].to_pylist() == [103.0, 1003.0]
+
+
+def _copy_a() -> Term:
+    def last(close: Any) -> Any:
+        return close[-1]
+
+    return nx.factor(window=2, inputs=[CLOSE])(last)
+
+
+def _copy_b() -> Term:
+    def last(close: Any) -> Any:
+        return close[-1]
+
+    return nx.factor(window=2, inputs=[CLOSE])(last)
+
+
+def _list_index(close: Any) -> Any:
+    return close[-1] + [0.0][5]
+
+
+def test_an_index_error_outside_the_window_is_the_users() -> None:
+    """3.3: only a row before the window is E8; another `IndexError` is the user's, as raised.
+    A user term built without a function (by hand, not by `@nx.factor`) is refused."""
+    with pytest.raises(IndexError, match="list index out of range"):
+        plain([nx.factor(window=2, inputs=[CLOSE])(_list_index)], [3], 4)
+    built = nx.factor(window=2, inputs=[CLOSE])(_first)
+    bare = Factor(built.op, built.inputs, built.params)
+    with pytest.raises(ValueError, match="no function given for the user term _first"):
+        plain([bare], [3], 4)
 
 
 def _width(close: Any) -> Any:
