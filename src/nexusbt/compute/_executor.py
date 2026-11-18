@@ -265,16 +265,8 @@ class _Chunk:
     def filter(self, term: Term, t: int) -> F64:
         """A Filter's cells at row t, held as 1.0, 0.0 and NaN for unknown (`_cells`)."""
         inputs = term.inputs
-        if isinstance(inputs[0], Classifier) and term.op in ("isnull", "notnull"):
-            missing = _codes(self.cell(inputs[0], t)) == -1  # always valid (3.3)
-            return _cells(missing if term.op == "isnull" else ~missing, np.ones_like(missing))
-        if isinstance(inputs[0], Classifier) and term.op in ("eq", "element_of"):
-            p = dict(term.params)
-            wanted = (p["value"],) if term.op == "eq" else tuple(p["values"])
-            if not all(type(v) is int for v in wanted):  # names (T2.3) and bools are no codes
-                raise NotImplementedError(f"Classifier names come with its code table: {wanted}")
-            codes = _codes(self.cell(inputs[0], t))
-            return _cells(*_kernels.codes_in(codes, np.array(wanted, dtype=np.int32)))
+        if isinstance(inputs[0], Classifier):
+            return self.codes_test(term, t)
         if term.op in _COMPARE and isinstance(inputs[0], Factor):
             x, y = self.cell(inputs[0], t), self.cell(inputs[1], t)
             return _cells(*_kernels.compare(_COMPARE[term.op], x, y))
@@ -296,6 +288,21 @@ class _Chunk:
             value, valid = _truth(self.cell(inputs[0], t))
             return _cells(value | (~valid & dict(term.params)["value"]), np.ones_like(valid))
         raise NotImplementedError(f"the reference executor has no `{term.op}` term yet")
+
+    def codes_test(self, term: Term, t: int) -> F64:
+        """A Filter of a Classifier's codes at row t (3.3, R3-13): `isnull` and `notnull` are
+        always valid; `eq` and `element_of` are unknown on the missing code -1."""
+        codes = _codes(self.cell(term.inputs[0], t))
+        if term.op in ("isnull", "notnull"):
+            missing = codes == -1
+            return _cells(missing if term.op == "isnull" else ~missing, np.ones_like(missing))
+        if term.op not in ("eq", "element_of"):
+            raise NotImplementedError(f"the reference executor has no `{term.op}` term yet")
+        p = dict(term.params)
+        wanted = (p["value"],) if term.op == "eq" else tuple(p["values"])
+        if not all(type(v) is int for v in wanted):  # names (T2.3) and bools are no codes
+            raise NotImplementedError(f"Classifier names come with its code table: {wanted}")
+        return _cells(*_kernels.codes_in(codes, np.array(wanted, dtype=np.int32)))
 
     def frame(self, term: Term, rows: npt.NDArray[np.int64]) -> pa.Table:
         local = rows - self.low
