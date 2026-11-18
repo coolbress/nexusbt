@@ -15,7 +15,7 @@ classifiers = ["Typing :: Typed"]
 # exact; it brings pandas with it (#58 Decisions). numba: 0.68.1 (2.2's 0.68.0 raised by #507),
 # exact, for the compiled element functions of 5.3.10 2a (T1.7b, #240).
 dependencies = ["nexusbt-tds>=1.0,<2", "pyarrow>=26.0.0,<27", "numpy>=2.5.3,<2.6",
-                "exchange-calendars==4.13.2", "numba==0.68.1"]
+                "exchange-calendars==4.13.3", "numba==0.68.1"]
 
 [project.scripts]
 nexusbt = "nexusbt.cli.main:main"
