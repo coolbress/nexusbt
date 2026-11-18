@@ -154,3 +154,40 @@ def MaxDrawdown(  # noqa: N802 - the 3.4 name
 ) -> Factor:
     """3.4 `MaxDrawdown(W, inputs=[Price.close_tr])`: `max((cummax(x) - x) / cummax(x))`."""
     return _node(Factor, "MaxDrawdown", *_price("close_tr", inputs), window=window, mask=mask)
+
+
+#: Each built-in factor's numerics class (5.3.10 2a): every kernel is of the arithmetic class;
+#: `EWMA`'s power weights are the transcendental class, computed once outside the kernel.
+NUMERICS: Mapping[str, str] = MappingProxyType(
+    dict.fromkeys(ADJUSTMENT, "arithmetic")
+    | {
+        "ExponentialWeightedMovingAverage": "arithmetic (weights decay^k: transcendental,"
+        " computed once outside the kernel)"
+    }
+)
+
+
+def table() -> str:
+    """`nx.describe(nx.factors)` (T1.10): the 12 built-in factors of 3.4, each with the input it
+    reads when none is given, its adjustment class and its numerics class."""
+    built = {
+        "Returns(W)": Returns(2),
+        "DailyReturns()": DailyReturns(),
+        "SimpleMovingAverage(W), SMA": SMA(2),
+        "ExponentialWeightedMovingAverage(W, decay_rate), EWMA": EWMA(2, 0.5),
+        "AverageDollarVolume(W)": AverageDollarVolume(2),
+        "AverageTradedValue(W, ccy=None)": AverageTradedValue(2),
+        "AnnualizedVolatility(W=252, annualization_factor=252)": AnnualizedVolatility(),
+        "RollingStd(W)": RollingStd(2),
+        "VWAP(W)": VWAP(2),
+        "RSI(W=15)": RSI(),
+        "MaxDrawdown(W)": MaxDrawdown(2),
+    }
+    rows = [("factor", "default input", "adjustment class", "numerics class")]
+    for name, term in built.items():
+        read = ", ".join(f"Price.{dict(c.params)['column']}" for c in term.inputs)
+        rows.append((name, read, ADJUSTMENT[term.op], NUMERICS[term.op]))
+    rows.append(("Latest (col.latest)", "a column", "the column table", "-"))
+    widths = [max(len(row[i]) for row in rows) for i in range(4)]
+    lines = [" | ".join(map(str.ljust, row, widths)).rstrip() for row in rows]
+    return "\n".join([lines[0], "-+-".join("-" * w for w in widths), *lines[1:]])

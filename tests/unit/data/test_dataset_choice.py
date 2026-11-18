@@ -1,5 +1,6 @@
-"""Which dataset of a kind the engine reads (spec 4.3, #547): by `kind`, and for `bars` by
-`params.freq = 1d`, never by its place in `datasets[]`; two or more left is E18."""
+"""Which dataset of a kind the engine reads (spec 4.3, #547, #551): by `kind`, and for `bars`
+by `params.freq = 1d` and `params.bar_time = session` (none read as session), never by its
+place in `datasets[]`; two or more left is E18."""
 
 from __future__ import annotations
 
@@ -14,10 +15,11 @@ from typing import Any
 
 import numpy as np
 import pyarrow as pa
+import pyarrow.compute as pc
 import pyarrow.parquet as pq
 import pytest
 
-from nexusbt.contracts import CapabilityError, VerifyPolicy
+from nexusbt.contracts import CapabilityError, DecimalRatioPolicy, VerifyPolicy
 from nexusbt.data import CapabilityRequest, DataConfig, MarketBlock, Snapshot, open_snapshot
 from nexusbt.data._l0 import l0_key
 from nexusbt.testing.synth import make_snapshot
@@ -134,7 +136,8 @@ def test_no_daily_bars_is_e18_where_bars_are_read(tiny: Path, tmp_path: Path) ->
     and reading the daily block, or requesting `price`, is E18 (spec 4.3)."""
     root = rewritten(tiny, tmp_path / "minute", without_daily_bars)
     snap, _ = opened(root)
-    with pytest.raises(CapabilityError, match=r"no bars \(freq=1d\) dataset") as raised:
+    missing = r"no bars \(freq=1d, bar_time=session\) dataset"
+    with pytest.raises(CapabilityError, match=missing) as raised:
         first_session(snap)
     assert raised.value.code == "E18"
     with pytest.raises(CapabilityError, match="price needs bars"):
@@ -183,3 +186,120 @@ def test_two_of_a_kind_is_e18_naming_both(tiny: Path, tmp_path: Path, name: str)
     assert f"keep only one of {name}, {name}_b in the package" in str(raised.value)
     with pytest.raises(CapabilityError, match=both):
         open_snapshot(DataConfig(path=root), required=CapabilityRequest(frozenset({feature})))
+
+
+def bar_time(value: str | None) -> Callable[[Path, Manifest], None]:
+    """`bars_1d` with `params.bar_time = value`, or without the param for None (#551)."""
+
+    def change(root: Path, data: Manifest) -> None:
+        params = entry(data, "bars_1d")["params"]
+        params.pop("bar_time")
+        if value is not None:
+            params["bar_time"] = value
+
+    return change
+
+
+def utc_day_copy(first: bool) -> Callable[[Path, Manifest], None]:
+    """A copy of `bars_1d` as `bars_1d_b` with `bar_time = utc_day` and every price doubled,
+    listed before or after it: TDS 9.4's `ohlcv-1d` beside the session bars (#551)."""
+
+    def change(root: Path, data: Manifest) -> None:
+        doubled("bars_1d")(root, data)
+        again = entry(data, "bars_1d_b")
+        again["params"] = {**again["params"], "bar_time": "utc_day"}
+        for f in again["files"]:
+            table = pq.read_table(part := root / f["path"])
+            for price in ("open", "high", "low", "close"):
+                at = table.schema.get_field_index(price)
+                table = table.set_column(at, price, pc.multiply(table[price], 2.0))
+            pq.write_table(table, part)
+            f |= {"bytes": part.stat().st_size}
+        if first:
+            data["datasets"].remove(again)
+            data["datasets"].insert(data["datasets"].index(entry(data, "bars_1d")), again)
+
+    return change
+
+
+def test_daily_bars_without_bar_time_are_session_bars(tiny: Path, tmp_path: Path) -> None:
+    """#551: a daily bars dataset with no `bar_time` is read as session bars, the engine's rule
+    where TDS 5.5 names no default (spec 4.3): the block is the declared package's."""
+    want = first_session(opened(tiny)[0])
+    snap, _ = opened(rewritten(tiny, tmp_path / "absent", bar_time(None)))
+    np.testing.assert_array_equal(first_session(snap).values["close"], want.values["close"])
+
+
+def test_daily_bars_with_null_bar_time_are_session_bars(tiny: Path, tmp_path: Path) -> None:
+    """#551's Outcome left this untested: an explicit `"bar_time": null` is not a value (TDS
+    5.5), so the engine reads it as it reads a missing one, as session bars (spec 4.3)."""
+
+    def null(root: Path, data: Manifest) -> None:
+        entry(data, "bars_1d")["params"]["bar_time"] = None
+
+    want = first_session(opened(tiny)[0])
+    snap, _ = opened(rewritten(tiny, tmp_path / "null", null))
+    np.testing.assert_array_equal(first_session(snap).values["close"], want.values["close"])
+
+
+def test_utc_day_bars_alone_are_no_daily_bars(tiny: Path, tmp_path: Path) -> None:
+    """#551: `bar_time = utc_day` daily bars (TDS 9.4) are not session bars: reading the daily
+    block, or requesting `price`, is E18 as a missing dataset (spec 4.3)."""
+    root = rewritten(tiny, tmp_path / "utc", bar_time("utc_day"))
+    snap, _ = opened(root)
+    with pytest.raises(CapabilityError, match=r"no bars \(freq=1d") as raised:
+        first_session(snap)
+    assert raised.value.code == "E18"
+    with pytest.raises(CapabilityError, match="price needs bars"):
+        open_snapshot(DataConfig(path=root), required=CapabilityRequest(frozenset({"price"})))
+
+
+@pytest.mark.parametrize("first", [True, False])
+def test_session_bars_are_read_beside_utc_day_bars(tiny: Path, tmp_path: Path, first: bool) -> None:
+    """#551: with session and `utc_day` daily bars, in either order, the package opens and
+    reads the session ones (spec 4.3)."""
+    want = first_session(opened(tiny)[0])
+    snap, _ = opened(rewritten(tiny, tmp_path / "both", utc_day_copy(first)))
+    np.testing.assert_array_equal(first_session(snap).values["close"], want.values["close"])
+
+
+def ratio(num: int | None, den: int | None, copies: int) -> Callable[[Path, Manifest], None]:
+    """The split's exact ratio rewritten to `num`/`den` (#551), in `copies` of the dataset."""
+
+    def change(root: Path, data: Manifest) -> None:
+        for f in entry(data, "corporate_actions")["files"]:
+            table = pq.read_table(part := root / f["path"])
+            rows = [r | {"ratio_num": num, "ratio_den": den} for r in table.to_pylist()]
+            pq.write_table(pa.Table.from_pylist(rows, schema=table.schema), part)
+            f |= {"bytes": part.stat().st_size}
+            f.pop("sha256", None)
+        if copies == 2:
+            doubled("corporate_actions")(root, data)
+
+    return change
+
+
+@pytest.fixture(scope="module")
+def split(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    event = {"dataset": "corporate_actions", "instrument_id": "KR:T00001", "kind": "split",
+             "ex_date": "2020-01-07", "ratio_new_per_old": 2.0}  # fmt: skip
+    root = tmp_path_factory.mktemp("split") / "snap"
+    return make_snapshot(root, preset="tiny", markets=("KR",), events=[event])
+
+
+def test_ratio_check_reads_the_chosen_actions_only(split: Path, tmp_path: Path) -> None:
+    """#551: the ratio check at open reads the one `corporate_actions` dataset the engine
+    chooses: one copy without its exact ratio is one exclusion; two copies leave none chosen
+    (4.3), so no event counts at all, let alone twice, and a malformed ratio in both is the
+    E18 of the feature that reads them, not an E13 at open."""
+    one = rewritten(split, tmp_path / "one", ratio(None, None, copies=1))
+    assert [e.event_id for e in open_snapshot(DataConfig(path=one)).ca_exclusions] == [
+        "KR:E000001"]  # fmt: skip
+    two = rewritten(split, tmp_path / "two", ratio(None, None, copies=2))
+    assert open_snapshot(DataConfig(path=two)).ca_exclusions == ()
+    literal = open_snapshot(DataConfig(path=two, decimal_ratio=DecimalRatioPolicy.LITERAL))
+    assert not [a for a in literal.assumptions if "literally" in a]
+    bad = rewritten(split, tmp_path / "bad", ratio(0, 1, copies=2))
+    open_snapshot(DataConfig(path=bad))  # no E13: neither copy is read
+    with pytest.raises(CapabilityError, match="corporate_actions, corporate_actions_b"):
+        open_snapshot(DataConfig(path=bad), required=CapabilityRequest(frozenset({"adjusted"})))

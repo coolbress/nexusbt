@@ -7,6 +7,7 @@ import json
 import os
 import re
 import shutil
+import warnings
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -470,10 +471,12 @@ def rule(rule_id: str, market: str = "KR", kind: str = "tick_band") -> dict[str,
 def gridded(
     at: Path, ticks: dict[str, tuple[float | None, str | None]] | None = None,
     rules: Rows | None = None, codes: dict[str, tuple[str, dt.date]] | None = None,
+    twice: str | None = None,
 ) -> Path:  # fmt: skip
     """The tiny KR and ZZ package without tick information (ZZ: the generic pack, no grid),
     given `instruments` tick columns (`ticks`: id → (tick_size, tick_rule_id), the rest null),
-    these `market_rules` rows, and `classifications` tick_rule_id rows (id → (code, from))."""
+    these `market_rules` rows, and `classifications` tick_rule_id rows (id → (code, from));
+    the dataset of kind `twice` is written again as `<kind>_b`, listed after it (#551)."""
     path = make_snapshot(at, preset="tiny", markets=("KR", "ZZ"), degrade=["no_tick_info"])
 
     def change(data: dict[str, Any]) -> None:
@@ -492,13 +495,13 @@ def gridded(
                        "source": "test"} for i, (code, start) in (codes or {}).items()]  # fmt: skip
         for kind, rows, schema in (("market_rules", rules, RULES),
                                    ("classifications", classified, None)):  # fmt: skip
-            if rows:
-                (path / kind).mkdir()
-                part = path / kind / "p.parquet"
-                pq.write_table(pa.Table.from_pylist(rows, schema), part)
+            for name in (kind, f"{kind}_b") if kind == twice else (kind,) if rows else ():
+                (path / name).mkdir()
+                part = path / name / "p.parquet"
+                pq.write_table(pa.Table.from_pylist(rows or [], schema), part)
                 data["datasets"].append({
-                    "name": kind, "kind": kind, "path": kind, "schema_version": "1.0",
-                    "coverage": {}, "files": [{"path": f"{kind}/p.parquet", "rows": len(rows),
+                    "name": name, "kind": kind, "path": name, "schema_version": "1.0",
+                    "coverage": {}, "files": [{"path": f"{name}/p.parquet", "rows": len(rows or []),
                                                "bytes": part.stat().st_size}]})  # fmt: skip
 
     edit_manifest(path, change)
@@ -537,6 +540,26 @@ def test_unusable_grid_source_is_f15(tmp_path: Path, source: Any) -> None:
     with pytest.warns(UserWarning, match="price grid = currency minor unit for ZZ"):
         s = open_snapshot(DataConfig(path=path, allow_untested=True), required=GRID)
     assert s.fallbacks == [FallbackRecord("F-15", "market_rules", "ZZ", 6)]
+
+
+@pytest.mark.parametrize("source", [
+    {"rules": [rule("zz-band", market="ZZ")], "twice": "market_rules"},
+    {"codes": {ZZ1: ("zz-tick", START)}, "rules": [rule("zz-tick")], "twice": "classifications"},
+], ids=["market_rules", "classifications"])  # fmt: skip
+def test_two_grid_sources_of_a_kind_leave_grid_off(tmp_path: Path, source: Any) -> None:
+    """#551: `grid` reads `market_rules` and `classifications` without needing them; two of
+    either leave it off with no F-15, and requesting it is E18 naming both (spec 4.3)."""
+    path = gridded(tmp_path / "t", **source)
+    kind = source["twice"]
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")  # no F-15 warning (E30)
+        s = open_snapshot(DataConfig(path=path, allow_untested=True))
+    assert "grid" not in s.capabilities.features
+    assert s.fallbacks == []
+    with pytest.raises(CapabilityError, match=rf"{kind}, {kind}_b") as raised:
+        open_snapshot(DataConfig(path=path, allow_untested=True), required=GRID)
+    assert raised.value.code == "E18"
+    assert f"keep only one of {kind}, {kind}_b in the package" in str(raised.value)
 
 
 def test_bar_outside_synthesized_calendar_is_r003(tmp_path: Path) -> None:

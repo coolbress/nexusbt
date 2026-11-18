@@ -12,6 +12,7 @@ import pyarrow.parquet as pq
 
 from nexusbt.contracts import ID_COLUMN as ID
 from nexusbt.contracts import AccountingDataError, DecimalRatioPolicy
+from nexusbt.data._datasets import chosen
 from nexusbt_tds.actions import SPLIT_LIKE
 from nexusbt_tds.adjustments import SHARE_KINDS
 from nexusbt_tds.keys import listed
@@ -108,8 +109,9 @@ def _visible(r: dict[str, Any]) -> dt.datetime:
 
 
 def _rows(manifest: Manifest, kind: str, columns: Sequence[str]) -> Iterator[dict[str, Any]]:
-    """`columns` of each row of the datasets of `kind`, None where a file lacks the column."""
-    for ds in (d for d in manifest.datasets if d.get("kind") == kind):
+    """`columns` of each row of the one dataset of `kind` the engine reads, None where a file
+    lacks the column; none with no such dataset or two or more (4.3, #551)."""
+    if (ds := chosen(manifest.data).get(kind)) is not None:
         for rel, parts in listed(manifest.root, ds):
             path = manifest.root / rel
             present = [c for c in columns if c in pq.read_schema(path).names]
