@@ -3,6 +3,7 @@ or, as a `Factor` input, to a window of two rows or more is E17 when the graph i
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -22,6 +23,7 @@ from nexusbt.pipeline import Factor, Pipeline, Price, Term, bind, graph_hash
 from nexusbt.pipeline._degree import ZERO, degree_of
 
 NO_SNAPSHOT_COLUMNS = SchemaRegistry(columns={}, labels={})
+ROOT = Path(__file__).resolve().parents[3]
 
 
 def _last(x: Any) -> Any:
@@ -67,6 +69,26 @@ def test_a_price_level_into_a_window_of_two_rows_is_e17(term: Factor) -> None:
 def test_a_window_of_one_row_takes_a_price_level() -> None:
     check(window_of(1, Price.close.latest))
     check(Returns(1, inputs=[Price.close.latest]))
+
+
+def test_e1_fix_agrees_with_the_refusal() -> None:
+    """#243 Decisions 2026-11-18: E1's fix sends a price level to what E17 lets through, a
+    built-in factor or a window over the column, and `.shift(k ≥ 1)` to a return or ratio."""
+    with pytest.raises(nx.LookAheadError) as caught:
+        Price.close.latest.shift(-1)
+    fix = caught.value.parts["fix"]
+    assert "for a price level" in fix
+    assert "inputs=[Price.close]" in fix
+    assert nx.LookAheadError.example().parts["fix"] == fix  # 6.6's example, the same words
+    for spec in ("engine-spec-v3.4.md", "engine-spec-v3.4.ko.md"):
+        assert f'"{fix}"' in (ROOT / "docs" / "spec" / spec).read_text(encoding="utf-8")
+    check(Returns(2))
+    check(window_of(2, Price.close))
+    check(Returns(2).shift(1))
+    check((Price.close.latest / Price.open.latest).shift(1))
+    check(nx.ops.rolling(Returns(2), 3).mean())
+    with pytest.raises(nx.TermDomainError):
+        check(Price.close.latest.shift(1))
 
 
 @pytest.mark.parametrize(
