@@ -34,6 +34,27 @@ def test_show_grid_prints_the_month_ends_of_2019() -> None:
     assert lines[-1].endswith("True")
 
 
+def test_show_ties_prints_both_tiebreak_orders_and_equal_zscore_bits() -> None:
+    """T1.11's "Done means" (#244): three equal scores ranked 1, 2, 3 in `instrument_id` order
+    with `tiebreak="id"` and in T-27's order with the default hash; `zscore` the same bits
+    under a shuffled memory order."""
+    command = [sys.executable, str(ROOT / "examples" / "dev" / "show_ties.py")]
+    done = subprocess.run(command, capture_output=True, text=True, check=True)  # noqa: S603
+    lines = done.stdout.splitlines()
+    t27 = yaml.safe_load((ROOT / "tests" / "golden" / "cases" / "T-27.yaml").read_text())
+    for policy, column in (("id", "id_order"), ("hash", "hash_order")):
+        ranked = sorted(t27["expected"], key=lambda row: row["instrument_id"])
+        cells = "  ".join(f"{row['instrument_id']} {row[column]}" for row in ranked)
+        assert f'rank(method="ordinal"), tiebreak="{policy}":  {cells}' in lines
+    held = lines[-4].removeprefix("left fold in memory order: in id order ").split(", shuffled ")
+    assert held[0] != held[1]  # the data is one whose sum the memory order moves
+    in_id_order, shuffled = (line.split()[-1] for line in lines[-3:-1])
+    assert lines[-3].startswith("zscore sha256, columns in instrument_id order:")
+    assert lines[-2].startswith("zscore sha256, columns shuffled:")
+    assert in_id_order == shuffled
+    assert lines[-1] == "zscore bit-identical under the shuffle: True"
+
+
 def test_show_adjustment_prints_the_golden_windows() -> None:
     """T1.8's "Done means" (#241): the T-07 windows across a split and a reverse split, NaN
     before a null `price_factor` with the `AdjustmentUnavailable` count of T-15, and an
