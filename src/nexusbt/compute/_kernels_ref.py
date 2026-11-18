@@ -57,9 +57,26 @@ def _total(window: F64) -> F64:
     return found
 
 
-#: The registered kernels by name; T1.9 adds the built-in factors' (3.4).
+def _annualized(window: F64) -> F64:
+    """`AnnualizedVolatility` with 3.4's default factor 252."""
+    return _kernels.window_annualized_volatility(window, 252.0)
+
+
+#: The registered kernels by name: a built-in factor's by its term's operator name (3.4), which
+#: `pipeline.factors.ADJUSTMENT` declares the same class for. `AverageDollarVolume` reads the
+#: window of `close * volume`, a value, so it is invariant (3.4).
 REGISTERED: Mapping[str, Registered] = MappingProxyType(
-    {"window_sum": Registered(_total, AdjustmentClass.DEGREE_1)}
+    {
+        "window_sum": Registered(_total, AdjustmentClass.DEGREE_1),
+        "Returns": Registered(_kernels.window_returns, AdjustmentClass.DEGREE_0),
+        "SimpleMovingAverage": Registered(_kernels.window_nanmean, AdjustmentClass.DEGREE_1),
+        "AverageDollarVolume": Registered(_kernels.window_nansum_mean, AdjustmentClass.INVARIANT),
+        "AverageTradedValue": Registered(_kernels.window_nanmean, AdjustmentClass.INVARIANT),
+        "AnnualizedVolatility": Registered(_annualized, AdjustmentClass.DEGREE_0),
+        "RollingStd": Registered(
+            lambda window: _kernels.window_nanstd(window, 1), AdjustmentClass.DEGREE_1
+        ),
+    }
 )
 
 

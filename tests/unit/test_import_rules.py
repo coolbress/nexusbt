@@ -315,7 +315,8 @@ def test_kernel_seam_signatures_arrow_only() -> None:
     """2.4 [R3-26]: `nx.compute._kernels` exchanges only arrays, scalars and integer codes."""
     from nexusbt.compute import _kernels
 
-    window = {"elementwise", "fold_sum", "power", "window_sum"}
+    window = {"elementwise", "fold_sum", "power", "window_sum", "window_returns", "window_nanmean",
+              "window_nansum_mean", "window_nanstd", "window_annualized_volatility"}  # fmt: skip
     cross_section = {"demean", "zscore", "winsorize", "rank", "select", "percentile_between",
                      "quantiles"}  # fmt: skip
     assert set(seam_callables(_kernels)) == window | cross_section
