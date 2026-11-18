@@ -118,9 +118,10 @@ def decide(
                     for f in found if f.code == "TDS-V011")  # fmt: skip
     taken["backtest"] += [FallbackRecord("F-16", str(d), m, n) for (d, m), n in years.items()]
     taken["grid"] += _no_grid(folder, kinds, rules, by_market, market_of)
-    for f, needs in NEEDS.items():  # two or more left: off, never by a fallback (4.3, #547)
-        lacking[f] += [k for k in doubled(data) if k in needs and k not in lacking[f]]
-    on =frozenset(f for f in NEEDS if not lacking[f])
+    twice = doubled(data)  # two or more left: off, never by a fallback (4.3, #547)
+    for f, needs in NEEDS.items():
+        lacking[f] += [k for k in twice if k in needs and k not in lacking[f]]
+    on = frozenset(f for f in NEEDS if not lacking[f])
     if required is not None and (refused := [f for f in sorted(required.features) if lacking[f]]):
         for kind in dict.fromkeys(k for f in refused for k in NEEDS[f]):
             dataset(data, kind)  # two or more left: E18 naming each (4.3)

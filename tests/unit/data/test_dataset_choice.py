@@ -17,15 +17,8 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from nexusbt.contracts import CapabilityError
-from nexusbt.data import (
-    CapabilityRequest,
-    DataConfig,
-    MarketBlock,
-    Snapshot,
-    VerifyPolicy,
-    open_snapshot,
-)
+from nexusbt.contracts import CapabilityError, VerifyPolicy
+from nexusbt.data import CapabilityRequest, DataConfig, MarketBlock, Snapshot, open_snapshot
 from nexusbt.testing.synth import make_snapshot
 from nexusbt_tds.hash import write_hashes
 
@@ -50,6 +43,7 @@ def rewritten(source: Path, at: Path, change: Callable[[Path, Manifest], None]) 
 
 
 def entry(data: Manifest, name: str) -> Manifest:
+    found: Manifest
     (found,) = (d for d in data["datasets"] if d["name"] == name)
     return found
 
