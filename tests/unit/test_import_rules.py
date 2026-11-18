@@ -316,7 +316,9 @@ def test_kernel_seam_signatures_arrow_only() -> None:
     from nexusbt.compute import _kernels
 
     window = {"elementwise", "fold_sum", "power", "window_sum", "window_returns", "window_nanmean",
-              "window_nansum_mean", "window_nanstd", "window_annualized_volatility"}  # fmt: skip
+              "window_nansum_mean", "window_nanstd", "window_annualized_volatility",
+              "ewma_weights", "window_ewma", "window_vwap", "window_rsi",
+              "window_max_drawdown"}  # fmt: skip
     cross_section = {"demean", "zscore", "winsorize", "rank", "select", "percentile_between",
                      "quantiles"}  # fmt: skip
     three_valued = {"compare", "codes_in", "kleene_and", "kleene_or", "kleene_all", "kleene_any"}
