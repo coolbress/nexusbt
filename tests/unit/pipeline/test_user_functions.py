@@ -5,7 +5,9 @@ a user exception as the user raised it."""
 from __future__ import annotations
 
 import functools
+import importlib.util
 import traceback
+import warnings
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -19,6 +21,7 @@ from nexusbt.contracts import SchemaRegistry
 from nexusbt.data import DataConfig, open_snapshot
 from nexusbt.data._block import MarketBlock
 from nexusbt.pipeline import BoundColumn, Factor, Term, bind, graph_hash
+from nexusbt.pipeline._terms import l1_disabled
 from nexusbt.testing.synth import make_snapshot, write_actions
 
 ID = "KR:T00001"
@@ -109,6 +112,26 @@ def test_user_exception_keeps_user_frame() -> None:
         assert shown[-1].line == 'return {"a": close[-1]}["b"]  # the user\'s own mistake'
 
 
+def test_user_exception_carries_layer_and_fix_notes() -> None:
+    """6.6 "User function exceptions": the executor adds the `layer` line at the user's line
+    and a `fix` line naming an instrument and the row's date to reproduce it (`add_note`, the
+    helper of T0.4b, #52), the exception still the user's."""
+    stale = nx.factor(window=2, inputs=[CLOSE])(_stale)
+    with pytest.raises(RuntimeError) as caught:
+        plain([stale], [3], 4)
+    assert caught.value.args == ("stale state",)
+    line = _stale.__code__.co_firstlineno + 1
+    assert caught.value.__notes__ == [
+        f"  layer  your code — test_user_functions.py:{line} in _stale",
+        f"  fix    check _stale at test_user_functions.py:{line}; reproduce with"
+        f" nx.explain(strategy, '{ID}', '2020-01-04')",
+    ]
+
+
+def _stale(close: Any) -> Any:
+    raise RuntimeError("stale state")  # no hint in errors/hints.toml: the general sentence
+
+
 def _is_up(close: Any) -> Any:
     return close[-1] > close[0]
 
@@ -124,7 +147,8 @@ def _scaled(by: Any) -> Term:
     def scaled(close: Any) -> Any:
         return close[-1] * by[0]
 
-    return nx.factor(window=2, inputs=[CLOSE])(scaled)
+    with pytest.warns(UserWarning, match=r"\[E24\]"):  # a closure over an array is E24 too
+        return nx.factor(window=2, inputs=[CLOSE])(scaled)
 
 
 def test_one_hash_for_two_functions_is_refused() -> None:
@@ -208,3 +232,108 @@ def test_window_is_asof_adjusted(tmp_path: Path) -> None:
     got = run(tmp_path, [first], [2, 4], [100.0, 100.0, 100.0, 50.0, 50.0], [SPLIT])
     assert got[2, graph_hash(first)] == 100.0
     assert got[4, graph_hash(first)] == 50.0
+
+
+USER_FILE = """
+import numpy as np
+import nexusbt as nx
+from nexusbt.pipeline import BoundColumn
+
+LIMIT = 3
+
+def _inner(x):
+    return x * {inner}
+
+def _helper(x):
+    return _inner(x) + LIMIT
+
+@nx.factor(window=2, inputs=[BoundColumn.of("Price", "close")])
+def score(close):
+    return _helper(close[-1])
+"""
+
+
+def user_module(at: Path, name: str, inner: str = "2") -> Any:
+    """A strategy file of the user's project, imported as a module: `score` calls `_helper`,
+    which calls `_inner`, whose body has `inner` in it."""
+    path = at / f"{name}.py"
+    path.write_text(USER_FILE.format(inner=inner))
+    spec = importlib.util.spec_from_file_location(name, path)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_source_hash_includes_helpers(tmp_path: Path) -> None:
+    """6.5 (6): the helpers a user function calls inside the project, followed through
+    `co_names` to any depth, go into its source hash, so changing a helper's body changes the
+    hash; the same files give the same hash."""
+    same = [user_module(tmp_path, f"same_{i}").score for i in range(2)]
+    assert graph_hash(same[0]) == graph_hash(same[1])
+    changed = user_module(tmp_path, "changed", inner="5").score
+    assert graph_hash(changed) != graph_hash(same[0])
+
+
+def _momentum(close: Any, *, n: int = 21) -> Any:
+    return close[-1] / close[-1 - n] - 1
+
+
+def test_keyword_binding_makes_a_new_factor() -> None:
+    """3.3: `f(n=63)` is a new Factor whose value is in the graph hash and in the call; the
+    same binding twice is one hash; a name the function does not take, a value that is not
+    constant-like, and calling a Factor that is not a user function are refused."""
+    mom = nx.factor(window=70, inputs=[CLOSE])(_momentum)
+    mom63 = mom(n=63)
+    assert isinstance(mom63, Factor)
+    assert graph_hash(mom63) == graph_hash(mom(n=63)) != graph_hash(mom)
+    got = plain([mom, mom63], [69], 70)
+    assert got[graph_hash(mom63)]["value"].to_pylist()[0] == pytest.approx(169 / 106 - 1)
+    assert got[graph_hash(mom)]["value"].to_pylist()[0] == pytest.approx(169 / 148 - 1)
+    bind(mom63, SchemaRegistry(columns={}, labels={}))
+    with pytest.raises(TypeError, match="_momentum takes no keyword 'm'"):
+        mom(m=1)
+    with pytest.raises(TypeError, match="constant-like"):
+        mom(n=np.int64(63))
+    with pytest.raises(TypeError, match="only a user function"):
+        CLOSE.latest(n=1)
+
+
+WEIGHTS = np.array([0.5, 2.0])
+THRESHOLD = 10
+
+
+def _weighted(close: Any) -> Any:
+    return close[-1] * WEIGHTS[0] + THRESHOLD
+
+
+def _from_file(close: Any) -> Any:
+    with open("weights.txt") as f:  # the call 6.5 (6) names
+        return close[-1] * float(f.read())
+
+
+def _pure(close: Any) -> Any:
+    return np.nanmean(close, axis=0) + THRESHOLD
+
+
+def test_global_array_read_E24_disables_l1() -> None:  # noqa: N802 - spec 10.1's name
+    """6.5 (6), 5.3.7, 5.3.9: reading a global array, or opening a file, is
+    `ImpureFunctionWarning` (E24) naming the function and the global, and turns off the L1 cache
+    of that node and of the nodes that read it; a constant global (`THRESHOLD`) and numpy's
+    functions are not E24, and a graph without such a node keeps L1."""
+    with pytest.warns(UserWarning, match=r"\[E24\]") as caught:
+        weighted = nx.factor(window=2, inputs=[CLOSE])(_weighted)
+    (warning,) = caught
+    text = str(warning.message)
+    assert text.startswith("ImpureFunctionWarning [E24]")
+    assert "_weighted reads global 'WEIGHTS'; the engine cannot check what it contains" in text
+    assert "L1 cache disabled for node _weighted" in text
+    with pytest.warns(UserWarning, match="_from_file reads global 'open'"):
+        nx.factor(window=2, inputs=[CLOSE])(_from_file)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        pure = nx.factor(window=2, inputs=[CLOSE])(_pure)
+    assert l1_disabled(weighted)
+    assert l1_disabled(weighted.rank() + pure)  # a node below it
+    assert not l1_disabled(pure.rank())

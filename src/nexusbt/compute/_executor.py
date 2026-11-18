@@ -32,7 +32,13 @@ from nexusbt.compute._chunks import schedule
 from nexusbt.compute._crosssection import sorted_order, tie_order
 from nexusbt.compute._kernels_ref import REGISTERED, AdjustmentClass, adjusted_window
 from nexusbt.compute._plan import plan
-from nexusbt.contracts import ID_COLUMN, ResolvedActions, TiebreakPolicy
+from nexusbt.contracts import (
+    ID_COLUMN,
+    NexusBTError,
+    ResolvedActions,
+    TiebreakPolicy,
+    _note_user_exception,
+)
 from nexusbt.data._block import MarketBlock
 from nexusbt.pipeline import Classifier, Factor, Filter, Term, graph_hash
 from nexusbt.pipeline._terms import call_user, same_function
@@ -321,8 +327,15 @@ class _Chunk:
             return out  # the window starts before the axis: nothing is there to read
         inside = self.domain(term, t)  # 3.3 `mask`: the columns the function computes on
         windows = [self.window(i, t, size)[:, inside] for i in term.inputs]
-        out[inside] = call_user(term, windows, int(inside.sum()),
-                                self.functions.get(graph_hash(term)))  # fmt: skip
+        fn = self.functions.get(graph_hash(term), term.function)
+        try:
+            out[inside] = call_user(term, windows, int(inside.sum()), fn)
+        except Exception as error:  # 6.6: the user's exception, noted and re-raised as it is
+            if not isinstance(error, NexusBTError) and fn is not None:
+                ids = np.asarray(self.block.instrument_ids, dtype=object)[inside]
+                first, date = str(ids[0]) if ids.size else "-", str(self.block.dates[t - self.low])
+                _note_user_exception(error, fn, instrument_id=first, date=date)
+            raise
         return out
 
     def filter(self, term: Term, t: int) -> F64:

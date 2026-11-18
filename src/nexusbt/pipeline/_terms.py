@@ -12,18 +12,20 @@ import inspect
 import json
 import re
 import sys
+import sysconfig
 import textwrap
 import traceback
+import warnings
 from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from types import CodeType, FunctionType, MappingProxyType
-from typing import Any, Literal
+from types import CodeType, FunctionType, MappingProxyType, ModuleType
+from typing import Any, Literal, TypeGuard
 
 import numpy as np
 import numpy.typing as npt
 
-from nexusbt.contracts import CapabilityError, LookAheadError, WindowError
+from nexusbt.contracts import CapabilityError, ImpureFunctionWarning, LookAheadError, WindowError
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -151,6 +153,23 @@ class Factor(Term):
     def to(self, ccy: str) -> Factor: return _node(Factor, "to", self, ccy=ccy)
     # fmt: on
 
+    def __call__(self, **values: Any) -> Factor:
+        """3.3: a user function with keyword parameters bound, `f(n=63)`, a new Factor; the
+        values are in its graph hash and are passed to the function when it runs."""
+        fn = self.function
+        if self.op != "user" or fn is None:
+            raise TypeError(f"only a user function's Factor takes keyword values, not {self.op}")
+        named = (inspect.Parameter.KEYWORD_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+        taken = {n for n, p in inspect.signature(fn).parameters.items() if p.kind in named}
+        for name, value in values.items():
+            if name not in taken:
+                raise TypeError(f"{fn.__name__} takes no keyword {name!r}")
+            if not _constant(value):
+                raise TypeError(f"{name}={value!r}: a bound value is constant-like (6.5 (6))")
+        params = dict(self.params)
+        params["bound"] = tuple(sorted({**dict(params.get("bound", ())), **values}.items()))
+        return Factor(self.op, self.inputs, tuple(params.items()), function=fn)
+
     def downsample(self, freq: str) -> Factor:
         raise CapabilityError(
             what=f"downsample({freq!r}) is not in v1",
@@ -262,17 +281,48 @@ def factor(
     def wrap(fn: Callable[..., Any]) -> Factor:
         if not isinstance(fn, FunctionType):
             raise TypeError(f"@nx.factor decorates a function, not {type(fn).__name__}")
-        try:
-            source = _source(fn)
-        except (OSError, SyntaxError) as error:
-            what = f"@nx.factor cannot read the source of {fn.__name__}; its source goes into the"
-            raise TypeError(f"{what} term's hash, so define it with `def` in a file") from error
-        digest = hashlib.sha256(source.encode()).hexdigest()
+        reads = _reads(fn)
+        source = "".join(f"\n{h.__qualname__}\n{_readable(h)}" for h in reads.helpers)
+        digest = hashlib.sha256((_readable(fn) + source).encode()).hexdigest()
         params = {"window": window, "mask": mask, "dtype": dtype, "function": fn.__name__,
-                  "source": digest, "captured": _captured(fn)}  # fmt: skip
+                  "source": digest, "captured": reads.captured}  # fmt: skip
+        if reads.impure:
+            warnings.warn(str(_impure(fn.__name__, reads.impure)), stacklevel=2)
         return Factor("user", tuple(inputs), tuple(params.items()), function=fn)
 
     return wrap
+
+
+def _impure(name: str, globals_: Sequence[str]) -> ImpureFunctionWarning:
+    line = _user_line()
+    shown = ", ".join(repr(g) for g in globals_)
+    return ImpureFunctionWarning(
+        what=f"{name} reads global {shown}; the engine cannot check what it contains",
+        where=f"function {name}",
+        why=f"a hidden input breaks reruns and checks; L1 cache disabled for node {name} and the"
+        " nodes that read it",
+        fix=f"pass {shown} as an input, or as a constant (int, float, str, bool, None, or a tuple"
+        " or frozenset of them), whose value goes into the hash",
+        more="spec 3.7, 5.3.7 and 6.5 (6)",
+        layer=f"your code — {line}",
+        at=line.split(" in ")[0],
+        subject=name,
+    )
+
+
+def l1_disabled(term: Term) -> bool:
+    """5.3.9, 6.5 (6): whether the L1 cache is off for `term`: it, or a node it reads, is a user
+    function that reads a non-constant global or a file (E24)."""
+    todo, seen = [term], set[str]()
+    while todo:
+        node = todo.pop()
+        if node._key in seen:
+            continue
+        seen.add(node._key)
+        if isinstance(node.function, FunctionType) and _reads(node.function).impure:
+            return True
+        todo += [*node.inputs, *(v for _, v in node.params if isinstance(v, Term))]
+    return False
 
 
 _OUT_OF_WINDOW = re.compile(r"index (-?\d+) is out of bounds for axis 0 with size (\d+)")
@@ -292,7 +342,7 @@ def call_user(
         raise ValueError(f"no function given for the user term {params['function']}")
     name, window = params["function"], params["window"]
     try:
-        got = np.asarray(fn(*windows))
+        got = np.asarray(fn(*windows, **dict(params.get("bound", ()))))
     except IndexError as error:
         found = _OUT_OF_WINDOW.fullmatch(str(error))
         if found is None or int(found[2]) != window:
@@ -340,6 +390,14 @@ def _window_error(name: str, at: str, what: str, fix: str) -> WindowError:
     )
 
 
+def _readable(fn: FunctionType) -> str:
+    try:
+        return _source(fn)
+    except (OSError, SyntaxError) as error:
+        what = f"@nx.factor cannot read the source of {fn.__name__}; its source goes into the"
+        raise TypeError(f"{what} term's hash, so define it with `def` in a file") from error
+
+
 def _source(fn: FunctionType) -> str:
     """5.3.9 canonical source: the AST dump of the function's own node, so comments and spacing do
     not count. A lambda's source line may hold other lambdas: its node is the innermost Lambda
@@ -363,17 +421,68 @@ def _holds(node: ast.Lambda, at: tuple[int, int]) -> bool:
     return (body.lineno, body.col_offset) <= at < end
 
 
-def _captured(fn: FunctionType) -> tuple[tuple[str, Any], ...]:
-    """6.5 (6): the constant-like globals, closure cells and defaults the function reads."""
-    found = {n: fn.__globals__[n] for n in _names(fn.__code__) if n in fn.__globals__}
+@dataclass(frozen=True, slots=True)
+class _Reads:
+    """What a user function reads (6.5 (6)): the helpers it calls inside the project, to any
+    depth; the constant-like values (a helper's under `qualname:name`), which go into the hash;
+    and the non-constant ones and file reads, E24's (`impure`)."""
+
+    helpers: tuple[FunctionType, ...]
+    captured: tuple[tuple[str, Any], ...]
+    impure: tuple[str, ...]
+
+
+#: Code outside the project: the engine, the standard library and the installed packages.
+_INSTALLED = ("stdlib", "platstdlib", "purelib", "platlib")
+_OUTSIDE = (
+    Path(__file__).parents[1],
+    *(Path(p) for k, p in sysconfig.get_paths().items() if k in _INSTALLED),
+)
+#: Names that open a file (6.5 (6)): `open`, `np.load` and the like, `pd.read_*`, `pl.read_*`.
+_FILE_READS = frozenset({"open", "load", "loadtxt", "genfromtxt", "fromfile", "memmap"})
+
+
+def _in_project(value: object) -> TypeGuard[FunctionType]:
+    if not isinstance(value, FunctionType):
+        return False
+    path = Path(value.__code__.co_filename)
+    return path.is_absolute() and not any(path.is_relative_to(p) for p in _OUTSIDE)
+
+
+def _reads(fn: FunctionType) -> _Reads:
     params = inspect.signature(fn).parameters.values()
-    found |= {f"{p.name}=": p.default for p in params if p.default is not p.empty}
-    for name, cell in zip(fn.__code__.co_freevars, fn.__closure__ or (), strict=True):
-        try:
-            found[name] = cell.cell_contents
-        except ValueError:  # an empty cell: its value would be missing from the hash
-            raise TypeError(f"{name}, read by {fn.__name__}, has no value yet") from None
-    return tuple(sorted((n, v) for n, v in found.items() if _constant(v)))
+    found = {f"{p.name}=": p.default for p in params
+             if p.default is not p.empty and _constant(p.default)}  # fmt: skip
+    helpers: list[FunctionType] = []
+    impure: set[str] = set()
+    todo, seen = [fn], set[int]()
+    while todo:
+        f = todo.pop()
+        if id(f) in seen:
+            continue
+        seen.add(id(f))
+        names = list(_names(f.__code__))
+        values = {n: f.__globals__[n] for n in names if n in f.__globals__}
+        for name, cell in zip(f.__code__.co_freevars, f.__closure__ or (), strict=True):
+            try:
+                values[name] = cell.cell_contents
+            except ValueError:  # an empty cell: its value would be missing from the hash
+                raise TypeError(f"{name}, read by {f.__name__}, has no value yet") from None
+        prefix = "" if f is fn else f"{f.__qualname__}:"
+        for name, value in values.items():
+            if _constant(value):
+                found[prefix + name] = value
+            elif _in_project(value):
+                todo.append(value)
+            elif isinstance(value, ModuleType):  # `helpers.score(...)`: the module's attributes
+                todo += [a for n in names if _in_project(a := getattr(value, n, None))]
+            elif not callable(value):  # an array, a list, a dict, a DataFrame
+                impure.add(name)
+        unbound = [n for n in names if n not in values]  # builtins and attributes
+        impure.update(n for n in unbound if n in _FILE_READS or n.startswith("read_"))
+        helpers += [] if f is fn else [f]
+    ordered = sorted(helpers, key=lambda h: h.__qualname__)
+    return _Reads(tuple(ordered), tuple(sorted(found.items())), tuple(sorted(impure)))
 
 
 def _names(code: CodeType) -> Iterator[str]:

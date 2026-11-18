@@ -69,8 +69,9 @@ def test_captured_scalar_changes_hash(monkeypatch: pytest.MonkeyPatch) -> None:
     assert graph_hash(deco(lambda c: c[-1] > 1)) != graph_hash(deco(lambda c: c[-1] > 2))
     make: Any = lambda c: lambda d: d * 3  # noqa: E731 - a lambda whose body is a lambda
     assert graph_hash(deco(make)) != graph_hash(deco(make(0)))  # each picks its own node
-    table = [1, 2]  # not constant-like: left to T1.12's E24
-    assert dict(deco(lambda c: c > table[0]).params)["captured"] == ()
+    table = [1, 2]  # not constant-like: not in the hash, and E24 (T1.12)
+    with pytest.warns(UserWarning, match=r"\[E24\]"):
+        assert dict(deco(lambda c: c > table[0]).params)["captured"] == ()
     not_a_function: Any = len
     with pytest.raises(TypeError):
         deco(not_a_function)
