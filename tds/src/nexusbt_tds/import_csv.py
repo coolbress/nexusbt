@@ -28,7 +28,7 @@ import pyarrow.parquet as pq
 
 from ._mapping import read_mapping
 from .hash import write_hashes
-from .manifest import MANIFEST
+from .manifest import MANIFEST, TDS_DRAFT
 from .schemas.verify import SCHEMA_DIR
 
 _TOP = {"name", "snapshot_id", "profiles", "market", "id_namespaces", "datasets"}
@@ -83,7 +83,7 @@ def import_csv(mapping: Path, out: Path) -> Path:
     profiles = spec.get("profiles") or ["tds:minimal-daily@1.0"]
     created = dt.datetime.now(dt.UTC).replace(microsecond=0)
     manifest = {
-        "tds_version": "1.0", "name": spec.get("name", out.name),
+        "tds_version": "1.0", "tds_draft": TDS_DRAFT, "name": spec.get("name", out.name),
         "created": created.isoformat().replace("+00:00", "Z"),
         "snapshot_id": spec.get("snapshot_id", created.strftime("%Y%m%d-%H%M%S")),
         "producer": {"name": "nexusbt-tds import csv", "version": version("nexusbt-tds")},

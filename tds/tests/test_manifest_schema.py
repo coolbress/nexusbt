@@ -67,6 +67,14 @@ def test_every_type_the_schema_files_use_is_a_name_or_ts_us_ns() -> None:
     assert set(NAMES) == _IS.keys() - {"ts_us/ns"}  # what S002 knows
 
 
+def test_tds_draft_is_a_date(tmp_path: Path) -> None:
+    """TDS 4.2 (#529): the conformance packages name the text; a value that is no date is M001."""
+    assert build.base()[0]["tds_draft"] == "2026-11-18"
+    assert findings(tmp_path, lambda m: m.update(tds_draft="v1.4")) == [
+        ("TDS-M001", '$.tds_draft: "v1.4" does not match ^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+    ]
+
+
 def test_a_column_name_twice_in_a_dataset_is_M001(tmp_path: Path) -> None:
     twice = columns({"name": "close", "type": "f64"}, {"name": "close"})
     assert findings(tmp_path, twice) == [
