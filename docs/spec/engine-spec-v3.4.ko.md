@@ -2475,7 +2475,7 @@ primary, reference, diagnostics의 모든 값은 평가 기간과 `n_valid`/`n_t
 
 | 코드 | 클래스 | 종류 | 조건 | 메시지 핵심 (what / fix) |
 |---|---|---|---|---|
-| E1 | `LookAheadError` | 막음 | `shift(k<0)`; 자르기 탐침 차이 | "The value on {d} changed when data after {d} was removed" / "use .shift(k) with k ≥ 1, nx.ops.rolling(...), or window style" + 한계 문단 |
+| E1 | `LookAheadError` | 막음 | `shift(k<0)`; 자르기 탐침 차이 | "The value on {d} changed when data after {d} was removed" / "use .shift(k) with k ≥ 1 or nx.ops.rolling(...) on a return or a ratio; for a price level, a built-in factor such as Returns(...) or @nx.factor(window=..., inputs=[Price.close]), which read the column on today's basis" + 한계 문단 |
 | E2 | `LabelLeakError` | 막음 | 정답 노드가 판단 입력에 닿음(`evaluate(target=)`·`ml.factor(label=)` 포트 밖, 5.3.11 [R4-23]) | "Label.{x} is a forward-looking label" / "remove it from the signal; test it with nx.evaluate(f, target=Label.{x})" |
 | E3 | `PointInTimeError` | 막음 | 외부 자료 `known_on` 없음 | "dataset '{name}' has no known_on column" / "from_parquet(path, key=[...], known_on='published_at') or known_on='date' (recorded as an assumption)" |
 | E4 | `SurvivorshipWarning` | 경고 | 고정 목록이 모두 현재 상장, 기간 > 3년 | "a fixed list of {n} securities is used from {start} to {end}; {k} delisted included" / "nx.universe('KR') & ... .top(n) or index_members('KOSPI200'); keep with survivorship_ok='reason'" |
