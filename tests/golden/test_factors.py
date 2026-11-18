@@ -1,6 +1,7 @@
 """T-25 (spec 8.2, 3.4) for the built-in factors: each kernel over the windows of its
 `tests/golden/factors/<name>.yaml`, row by row, against the hand-calculated values. T1.9's seven
-read their registered kernel; T1.10's five read the kernel with the case's parameters."""
+read their registered kernel; T1.10's four read the kernel with the case's parameters, and
+`Latest` is `Price.close.latest` through the reference executor."""
 
 from __future__ import annotations
 
@@ -15,7 +16,10 @@ import pytest
 import yaml
 
 from nexusbt.compute import _kernels
+from nexusbt.compute._executor import execute
 from nexusbt.compute._kernels_ref import REGISTERED
+from nexusbt.data._block import MarketBlock
+from nexusbt.pipeline import Price, graph_hash
 
 pytestmark = pytest.mark.golden
 
@@ -39,8 +43,20 @@ CALL: dict[str, Callable[[str, list[F64]], F64]] = {
     "VWAP": lambda _, w: _kernels.window_vwap(w[0], w[1]),
     "RSI": lambda _, w: _kernels.window_rsi(w[0]),
     "MaxDrawdown": lambda _, w: _kernels.window_max_drawdown(w[0]),
-    "Latest": lambda _, w: w[0][-1],
+    "Latest": lambda _, w: _latest(w[0][:, 0]),
 }
+
+
+def _latest(close: F64) -> F64:
+    """`Price.close.latest` at the window's last row, through the reference executor."""
+    n = len(close)
+    dates = np.datetime64("2020-01-01") + np.arange(n).astype("timedelta64[D]")
+    ready = (dates + np.timedelta64(16, "h")).astype("datetime64[us]")
+    block = MarketBlock("XX", dates, 0, ("A",), {"close": close[:, None]}, np.ones((n, 1), bool),
+                        np.zeros((n, 1), np.int8), ready[:, None])  # fmt: skip
+    term = Price.close.latest
+    found = execute([term], [n - 1], [(0, n - 1)], lambda a, b: block, ready)
+    return np.array(found[graph_hash(term)]["value"].to_pylist(), dtype=np.float64)
 
 
 def check(name: str) -> None:

@@ -181,6 +181,16 @@ def test_vwap_nan_rule() -> None:
     same(found, [NAN, NAN, 11.5, 12.0, 12.0, NAN, NAN])
 
 
+def test_vwap_unmoved_by_a_volume_scalar() -> None:
+    """VWAP is degree 1 in price only (3.4): a per-instrument volume scalar q, a weight above
+    and below the line, leaves it as it is; P-ADJ's single window holds the volume at 1."""
+    rng = np.random.default_rng(0)
+    close, volume = rng.uniform(1, 100, (5, 2)), rng.uniform(1, 1e6, (5, 2))
+    q = np.array([0.25, 7.0])
+    np.testing.assert_allclose(_kernels.window_vwap(close, volume * q),
+                               _kernels.window_vwap(close, volume), rtol=1e-12)  # fmt: skip
+
+
 def test_rsi_nan_rule() -> None:
     """`100 - 100/(1 + up/dn)` of `close_tr`; a NaN change is left out, a clipped 0 counts;
     `dn` 0 -> 100, no change at all -> NaN, as zipline; warm-up W-1, W = 15 by default."""
