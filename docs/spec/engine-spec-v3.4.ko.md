@@ -474,7 +474,7 @@ from nexusbt.factors import (Returns, DailyReturns, SimpleMovingAverage, SMA,
 | `isnan()`, `notnan()`, `isfinite()`, `isnull()`, `notnull()` | Filter | |
 | `fillna(value: float | Factor)` | Factor | 유일한 명시적 대체 [INV-12] |
 | `clip(lower=None, upper=None)` | Factor | |
-| `shift(k: int)` | Factor | 그 종목 시장 축에서 k세션 전 값. `k < 0`이면 그래프 만들 때 `LookAheadError`(오류 E1). `k = 0`은 그대로 |
+| `shift(k: int)` | Factor | 그 종목 시장 축에서 k세션 전 값. `k < 0`이면 그래프 만들 때 `LookAheadError`(오류 E1). `k = 0`은 그대로. `k ≥ 1`이면 차수(3.4)가 알려져 있고 0이 아닌 입력은 그래프 만들 때 `TermDomainError`(오류 E17) |
 | `to(ccy: str)` | Factor | 단위가 통화인 칼럼만. 판단 시점에 공개된 환율(5.6.9). 통화 단위가 아니면 `UnitError`(오류 E5) |
 | `if_else(...)` | – | Filter 메서드(아래) |
 | `downsample(freq)` | – | v1에 없음 → `CapabilityError` |
@@ -497,7 +497,7 @@ def f(close: np.ndarray, *, n: int = 21) -> np.ndarray: ...
 ```
 
 - 장식된 이름은 Factor다. `f(n=63)`처럼 키워드 인자로 파라미터를 묶은 새 Factor를 만든다(값은 그래프 해시에 들어감).
-- 입력 창은 t 기준으로 올바르게 조정된 값이다(3.2 표). 사용자 함수에 조정 지름길을 쓰지 않는다 [C2].
+- `BoundColumn` 입력 창은 t 기준으로 올바르게 조정된 값이다(3.2 표). `Factor` 입력 창은 그 팩터가 행마다 낸 값 그대로다(5.1.2); 두 행 이상의 창에서 차수(3.4)가 알려져 있고 0이 아닌 `Factor` 입력은 그래프 만들 때 `TermDomainError`(오류 E17). 사용자 함수에 조정 지름길을 쓰지 않는다 [C2].
 - `col.latest`는 항이다: 행 s의 값은 행 s에서 정해진다(5.1.2). 각 칸을 t에 알려진 대로 보아야 하는 창은 `col.latest`가 아니라 칼럼 자체를 입력으로 받는다(`inputs=[col]`).
 - `@nx.filter`는 bool `(n_alive,)`, `@nx.classifier`는 int 또는 str `(n_alive,)`를 반환한다.
 - 함수가 `window`보다 앞 행을 인덱싱하면 numpy가 `IndexError`를 내고, 엔진은 그것을 `WindowError`(오류 E8)로 바꾸어 "`window=<필요한 값>`"을 제안한다(필요한 값 = 음수 인덱스의 절댓값). 그 밖의 사용자 예외는 원래 예외와 사용자 파일:줄을 그대로 보인다 [R-42].
@@ -525,6 +525,15 @@ zipline 3.2.1과 같은 이름은 zipline의 결측 규칙과 **입력 의미**�
 | `Latest`(= `col.latest`) | `x[-1]` | | | | 0 | 칼럼 표 |
 
 조정 등급(5.3.3): 0차 동차 = 종목별 스칼라 곱에 불변, 1차 = 스칼라 배로 변함, 불변 = 원값 그대로. 등급은 커널 등록 때 선언하고 P-ADJ 성질 시험(무작위 스칼라)으로 증명한다. 커널의 지름길은 참조와 같이 5.1.2의 행별 보임 마스크를 거친 창을 읽는다(5.3.3, "보임").
+
+**항의 차수** (오류 E17의 거부만 읽는다(3.3, 6.6); 결정 2026-11-18, #513). 그래프를 만들 때 그래프를 돌며 항마다 차수 0, 0이 아닌 차수, 차수 없음 가운데 하나를 준다. 차수는 5.3.3의 두 계수, 가격 계수 `C`와 수량 계수 `Q`로 센다.
+- `open`, `high`, `low`, `close`, `close_tr`의 `.latest`는 가격 계수 1차, `volume`, `shares_out`의 `.latest`는 수량 계수 1차(3.2 표가 t 기준으로 조정하는 칼럼). `close_unadjusted`, `volume_unadjusted`, `value_traded`, `market_cap`의 `.latest`는 0차.
+- 내장 팩터의 항: 그 커널의 등급을 입력에 적용한다. 1차 커널은 입력의 차수를 주고, 0차·불변 커널은 칼럼이나 0차 입력 위에서 0, 차수 없는 입력 위에서 차수 없음을 준다.
+- 상수: 0. `-x`, `abs(x)`, `x * c`, `x / c`: x와 같다. `x * y`, `x / y`: 같은 계수의 차수끼리 더하고 뺀다; 가격 계수와 수량 계수 둘 다에 차수가 있는 결과는 차수 없음. `x + y`, `x - y`, `x.fillna(y)`: 둘이 같이 가진 차수, 아니면 차수 없음(y가 상수이고 x가 0이 아닌 차수면 다음 줄). `x ** p`, `x.sqrt()`: x의 차수에 p, 2분의 1을 곱한다. `x.shift(k)`: x와 같다.
+- 0이 아닌 차수의 항 하나와 상수만의 다른 수치 함수(`log()`, `log1p()`, `exp()`, `x + c`, `clip`, `fillna(c)`)는 0이 아닌 차수다. 그런 항 둘을 합친 것(`Price.close.latest.log() - Price.open.latest.log()`)은 차수 없음.
+- Filter와 Classifier는 거부하지 않는다. 횡단면 결과는 0차 입력 위에서 0, 아니면 차수 없음. 사용자 함수의 결과와 `Fund`, `Panel`, `Macro.series`, `Market.series`, `Events` 항은 차수 없음.
+
+이 규칙이 차수를 주지 않는 항은 거부하지 않는다.
 
 모든 내장 팩터는 등록 커널이고 5.3.10의 수치 규칙(합의 순서, BLAS·`fastmath` 금지, 초월 함수 등급)을 따른다. `EWMA` 가중치 `decay^k`는 커널 밖에서 한 번 계산해 상수 배열로 넘기고, `Returns`·`RSI`처럼 나눗셈만 쓰는 커널은 산술 등급, 로그를 쓰는 커널(`log()`, `log1p()`, 스프레드 추정)은 초월 등급이다 [RV-C11]. 표의 `nanmean`·`nanstd`·`nansum`은 "NaN을 뺀 값들을 행 오름차순으로 왼쪽부터 더한 합"으로 정의한다(numpy 함수의 짝 합 순서가 아님) [SC-03]. 모든 내장 팩터는 자기 창 안 자료만의 함수다(무한 재귀 없음; `EWMA`는 유한 창 가중평균) — 그래서 시작일 불변(INV-14)이 선다 [SC-04].
 
@@ -1457,7 +1466,7 @@ class DecisionContext:
 정의: 효력 세션 e의 가격 배수 `m_e` = 해석기(5.3.3a)가 그 사건에 대해 낸 가격 계수(원천은 TDS `corporate_actions.price_factor`, 식은 TDS 5.11), `C[x] = Π_{e ≤ x} m_e`(앞으로 누적, 상장 첫 세션 `C = 1`; TDS `cum_factor_*`와 같은 뜻 [TDS-D9]). split 계수 `C_split`은 `affects = split_and_total` 사건만, total 계수 `C_total`은 모든 사건(`affects ≠ none`)의 곱이다. 수량 계수 `Q[x] = Π_{e ≤ x} q_e`(`q_e` = 해석기의 수량 효과 `share_factor`; 거래량·주식 수·보유 수량에 씀). 거래량의 `Q`는 `affects = split_and_total` 사건의 `q_e`만 곱한다. 5.3.4가 수량 사건이 움직이는 계열에 거래량을 넣는 것과 같다: `total_only`나 `none` 사건은 `share_factor`가 null이어도 거래량을 그대로 둔다(결정 2026-11-18, #241). 기준 가격 `B[s] = raw[s] / C[s]`. 패키지의 `cum_factor_*`는 해석기 결과와 같을 때만 지름길로 쓰고(검사 `TDS-A001`이 최신 해석판과의 맞춤을 보장), 없으면 사건에서 만든다(4.5 F-04). `price_factor` null 사건은 4.6 끝의 규칙.
 
 - **참조 의미(정답)**: 계산일 t 창의 s ≤ t 값 = `raw[s] · Π_{s < e ≤ t, e 사용 가능} m_e`. 사용 가능한 사건이 t까지 모두면 `= raw[s]·C[t]/C[s] = B[s]·C[t]`.
-- **참조 구현** (`compute._kernels_ref.adjusted_window`): 행 t마다 창 `B[t−W+1..t] · C[t]`(가격, split 또는 total 계수), 거래량은 `vol[s]·Q[t]/Q[s]`. 5.3.4의 대기 사건이나 기준 시각에 따라 해석판이 다른 사건(정정·취소)이 있는 칸은 해석기 결과의 사건 목록으로 곱을 직접 계산한다. 사용자 창 함수는 항상 이 창을 받는다.
+- **참조 구현** (`compute._kernels_ref.adjusted_window`): 행 t마다 창 `B[t−W+1..t] · C[t]`(가격, split 또는 total 계수), 거래량은 `vol[s]·Q[t]/Q[s]`. 5.3.4의 대기 사건이나 기준 시각에 따라 해석판이 다른 사건(정정·취소)이 있는 칸은 해석기 결과의 사건 목록으로 곱을 직접 계산한다. 사용자 창 함수는 `BoundColumn` 입력이면 항상 이 창을 받는다; `Factor` 입력은 그 팩터가 행마다 낸 값으로 읽는다(3.3).
 - **등록 커널 지름길**: 커널은 조정 등급(3.4 표)을 선언한다.
   - 0차 동차: `B`(또는 `B`의 거래량 판)로 계산한 결과 = 정답. 행마다 곱셈 없음.
   - 1차 동차: `B`로 계산한 결과 행 t에 `C[t]`를 곱한다(거래량이면 기준 `vol[s]/Q[s]`로 계산한 결과에 `Q[t]`를 곱한다, 3.2 `volume` 행과 같이).
@@ -2478,7 +2487,7 @@ primary, reference, diagnostics의 모든 값은 평가 기간과 `n_valid`/`n_t
 | E14 | `SnapshotError` | 실패 | 4.4 검사 실패(TDS 오류 코드), 경로 안전 위반, 지원 안 하는 필수 해석 규칙·닫힌 열거값(M014), 스냅숏 없음, 요구 프로필 모자람 + `fallbacks = "fail"` | 첫 TDS 코드·데이터셋·파일·열쇠·힌트, 코드별 건수, `producer.hints`의 그 코드 문장(있으면) / "tds check PATH --level full; nexusbt doctor --full" |
 | E15 | `ReplayError` | 실패 | rerun 의존(스냅숏·소스·잠금) 없음 | "snapshot {id} is not available" / "nx.rerun(id, new_snapshot=True) creates a new run" |
 | E16 | `ConfigError` | 실패 | toml·인자 검증 실패 | 키·값·허용 값 / 비슷한 키 |
-| E17 | `TermDomainError` | 실패 | `across_markets` 항을 창·shift 입력으로 | "{term} is a cross-market term and cannot feed a window" |
+| E17 | `TermDomainError` | 실패 | `across_markets` 항을 창·shift 입력으로; 차수(3.4)가 알려져 있고 0이 아닌 항을 `shift(k ≥ 1)`이나 두 행 이상의 창 입력으로 | "{term} is a cross-market term and cannot feed a window"; "Price.close.latest is a split-adjusted price level and cannot feed shift(1)" / "Returns(2, inputs=[Price.close]) for a return; @nx.factor(window=2, inputs=[Price.close]) to read the earlier price on today's basis; Price.close_unadjusted.latest.shift(1) for the price as it traded that day" |
 | E18 | `CapabilityError` | 실패 | v1 밖 기능(`engine="event"`, 기간 창, `style="panel"`, `history_mode="system"`, `downsample`, 예약 이름: `hold=`(T7.1 전), `size.kelly` [R4F-02], `portfolio.optimize`, `risk.ledoit_wolf`, `ml.importance`, `clock="utc:…"` (v3.3에서 `risk.group_caps`·`splits`·`time_stop`·`labels.triple_barrier`는 열림 [R4-28]), `[settlement]`의 다른 값), 스냅숏에 없는 자료 기능(4.3·4.5: `Fund.*` without `fundamentals_state`, 시가 없는 시장의 `at="open"`, 조정가 패키지의 backtest·경제 정답 등), 규칙 팩 없는 시장(`allow_untested` 없이) | "{feature} is not available in v1" 또는 "{dataset} not in snapshot; needed for {feature}" 또는 "no market rules pack for {market}; supported: {list}" / 대안 |
 | E19 | `DataAvailabilityError` | 실패(live) | 체결 세션이 워터마크 밖; 전략이 읽는 데이터셋이 판단 세션에 못 미침(5.9.6 규칙 4) | "the execution session {d} for {market} is not in snapshot {id} (complete through {w})" · 못 미치는 데이터셋마다 한 줄: "{dataset} for {market} ends at session {s}, before decision session {d} in snapshot {id}", 그 아래에 그래프가 그 데이터셋에서 읽는 항목·사건 종류마다 "  read by the strategy: {item}" / "run again after the next data refresh" |
 | E20 | `FxStaleError` | 실패(자금)·경고(`.to`) | 환율이 한도보다 묵음 | "latest USDKRW available at {ts} is {k} days old" / "[fx] max_stale_days_decision = {k} (recorded) or use a snapshot with newer fx_rates" [R4F-22] |
