@@ -12,6 +12,7 @@ import numpy as np
 import pyarrow as pa
 import pytest
 
+from nexusbt.compute import _kernels as k
 from nexusbt.compute._executor import execute
 from nexusbt.data._block import MarketBlock
 from nexusbt.pipeline import BoundColumn, Term, graph_hash
@@ -94,6 +95,17 @@ def test_all_any_kleene() -> None:
     every, some = values([up.all(2), up.any(2)], two)
     assert every == [True, False, U, False, False, False, U, False, U]
     assert some == [True, True, True, True, False, U, True, U, U]
+
+
+def test_edges_of_the_filter_terms() -> None:
+    """A window that starts before the axis is unknown, as a user window is NaN there (the spec
+    does not say; #535); a Filter term not built yet and a comparison code out of range are
+    refused."""
+    assert values([(CLOSE.latest > 0).all(3)], block(close=[[-1.0], [1.0]])) == [[U]]
+    with pytest.raises(NotImplementedError, match="no `top` term"):
+        values([CLOSE.latest.top(1)], block(close=[[1.0]]))
+    with pytest.raises(ValueError, match="no comparison has code 6"):
+        k.compare(6, np.zeros(1), np.zeros(1))
 
 
 def test_as_factor_unknown_nan() -> None:
