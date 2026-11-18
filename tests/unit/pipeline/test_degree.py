@@ -11,6 +11,7 @@ import nexusbt as nx
 from nexusbt.contracts import SchemaRegistry
 from nexusbt.factors import (
     SMA,
+    VWAP,
     AnnualizedVolatility,
     AverageDollarVolume,
     AverageTradedValue,
@@ -153,12 +154,22 @@ def test_the_message_follows_the_degree_not_the_first_column() -> None:
         (SMA(20).shift(5), True),  # degree 1 over close
         (SMA(5, inputs=[SMA(20)]), True),  # a price level into a window of 5 rows
         (SMA(5, inputs=[Returns(2)]).shift(1), False),  # degree 1 over degree 0
+        (VWAP(20).shift(1), True),  # the degree of its price input, close
+        ((Price.close.latest / VWAP(20)).shift(1), False),  # 1 - 1 = 0
     ],
-    ids=["ratio to SMA", "SMA shifted", "SMA of SMA", "SMA of Returns shifted"],
+    ids=[
+        "ratio to SMA",
+        "SMA shifted",
+        "SMA of SMA",
+        "SMA of Returns shifted",
+        "VWAP shifted",
+        "ratio to VWAP",
+    ],
 )
 def test_built_in_factor_degree_is_its_kernel_class(term: Factor, refused: bool) -> None:
     """#242, Decisions 2026-11-18 (#513's Decision on #499): a built-in factor's term has its
-    kernel's class applied to its input (3.4), read from `pipeline.factors.ADJUSTMENT`."""
+    kernel's class applied to its input (3.4), read from `pipeline.factors.ADJUSTMENT`; `VWAP`
+    has the degree of its price input (#243, Decisions 2026-11-18)."""
     if refused:
         with pytest.raises(nx.TermDomainError) as caught:
             check(term)
