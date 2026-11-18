@@ -15,6 +15,7 @@ from typing import Any, ClassVar
 
 from nexusbt.contracts import ENGINE_COLUMNS, ColumnNameError, LabelLeakError, SchemaRegistry
 
+from ._degree import check_degrees
 from ._terms import BoundColumn, Classifier, Filter, Pipeline, Term, _node, _user_line
 
 #: `instruments` columns known only after the fact (3.2, RV-C08, INV-01): never a `Meta` column.
@@ -70,7 +71,9 @@ class Label(metaclass=_Dataset): ...
 def bind(graph: Term | Pipeline, registry: SchemaRegistry) -> None:
     """2.5: check the graph's `Panel` and `Label` columns against the snapshot's registry (E7).
 
-    A label read through `Panel` is E2 (8.4)."""
+    A label read through `Panel` is E2 (8.4); a term of known non-zero degree fed to `shift` or
+    a window is E17 (3.3, 3.4)."""
+    check_degrees(_roots(graph))
     names, leaks = _snapshot_columns(registry)
     for term in _terms(graph):
         params = dict(term.params)
@@ -133,9 +136,7 @@ def _snapshot_columns(registry: SchemaRegistry) -> tuple[dict[str, list[str]], f
 
 def _terms(graph: Term | Pipeline) -> Iterator[Term]:
     """Every node once; a loop, as a long chain of operators is deeper than the call stack."""
-    todo = [graph] if isinstance(graph, Term) else [*graph.columns.values()]
-    if isinstance(graph, Pipeline) and graph.screen is not None:
-        todo.append(graph.screen)
+    todo = _roots(graph)
     seen: set[str] = set()
     while todo:
         term = todo.pop()
@@ -143,6 +144,12 @@ def _terms(graph: Term | Pipeline) -> Iterator[Term]:
             seen.add(term._key)
             yield term
             todo += [*term.inputs, *(v for _, v in term.params if isinstance(v, Term))]
+
+
+def _roots(graph: Term | Pipeline) -> list[Term]:
+    if isinstance(graph, Term):
+        return [graph]
+    return [*graph.columns.values(), *([] if graph.screen is None else [graph.screen])]
 
 
 def _label_leak(name: str) -> LabelLeakError:
