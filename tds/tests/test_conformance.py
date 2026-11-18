@@ -171,6 +171,34 @@ def test_M015_warns_of_an_experimental_dataset_and_otherwise_passes(tmp_path: Pa
     assert check(trades, level="manifest").warnings[0].severity == "warning"
 
 
+@pytest.mark.parametrize(
+    ("draft", "found"),
+    [
+        ("2026-11-18", []),  # the text this checker implements
+        ("2026-11-13", ["TDS-M017"]),  # an older text
+        ("2027-01-05", ["TDS-M017"]),  # a newer text than the checker knows
+        (None, ["TDS-M017"]),  # no tds_draft: a text from before 2026-11-18
+        ("v1.4", ["TDS-M001"]),  # not a date: the schema's, and no second finding
+    ],
+)
+def test_M017_a_package_of_another_draft_text_warns(
+    draft: str | None, found: list[str], tmp_path: Path
+) -> None:
+    # #529, TDS 10.5: a warning, so a package written before a rebuild still passes
+    def change(m: dict[str, Any], f: Any) -> None:
+        if draft is None:
+            m.pop("tds_draft")
+        else:
+            m["tds_draft"] = draft
+
+    result = check(write(tmp_path / "pkg", change), level="manifest")
+    assert [f.code for f in (*result.errors, *result.warnings)] == found
+    assert [w.code for w in result.warnings] == [c for c in found if c == "TDS-M017"]
+    fail = build.write(tmp_path / "fail", *build.package("TDS-M017", "fail"))
+    assert pairs(fail) == stated("TDS-M017") == [("TDS-M017", None)]
+    assert codes(build.write(tmp_path / "pass", *build.package("TDS-M017", "pass"))) == []
+
+
 def test_M016_rows_after_the_processed_through_session(tmp_path: Path) -> None:
     # #192, TDS 4.3: bars whose `last` is after the session they say they are processed through
     fail = build.write(tmp_path / "fail", *build.package("TDS-M016", "fail"))
