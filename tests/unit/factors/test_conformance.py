@@ -136,7 +136,8 @@ def test_rolling_std_nan_rule() -> None:
 @pytest.mark.parametrize(
     ("term", "name"),
     [(factors.SMA(3), "close"), (factors.AverageTradedValue(3), "value_traded"),
-     (factors.RollingStd(3), "close"), (factors.Returns(3), "close_tr")],
+     (factors.RollingStd(3), "close"), (factors.Returns(3), "close_tr"),
+     (factors.AnnualizedVolatility(3), "close_tr")],
 )  # fmt: skip
 def test_inf_cell_follows_the_nan_rule(term: Term, name: str) -> None:
     """5.4.1 "`inf` is turned into NaN": a window's `inf` cell gives what a NaN cell gives under
