@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 
 from nexusbt import factors
+from nexusbt.compute import _kernels
 from nexusbt.compute._executor import execute
 from nexusbt.compute._kernels_ref import REGISTERED
 from nexusbt.data._block import MarketBlock
@@ -28,6 +29,10 @@ BUILT = {
     "AverageTradedValue": factors.AverageTradedValue(20),
     "AnnualizedVolatility": factors.AnnualizedVolatility(),
     "RollingStd": factors.RollingStd(20),
+    "ExponentialWeightedMovingAverage": factors.EWMA(20, 0.9),
+    "VWAP": factors.VWAP(20),
+    "RSI": factors.RSI(),
+    "MaxDrawdown": factors.MaxDrawdown(20),
 }
 
 
@@ -68,6 +73,7 @@ def test_factor_classes_match_registered_kernels() -> None:
         assert ADJUSTMENT[term.op] == REGISTERED[term.op].adjustment, name
     assert graph_hash(factors.DailyReturns()) == graph_hash(factors.Returns(2))  # the same node
     assert factors.SMA is factors.SimpleMovingAverage
+    assert factors.EWMA is factors.ExponentialWeightedMovingAverage
 
 
 def test_returns_default_is_close_tr() -> None:
@@ -133,6 +139,77 @@ def test_rolling_std_nan_rule() -> None:
     same(found, [NAN, NAN, math.sqrt(2), math.sqrt(8), NAN])
 
 
+def test_ewma_nan_rule() -> None:
+    """`average(x, weights=decay^(W-1-i))` of `close`; any NaN -> NaN, minimum W; warm-up W-1.
+    Weights 0.25, 0.5, 1: (0.25 + 1 + 3) / 1.75."""
+    assert column(factors.EWMA(3, 0.5)) == "close"
+    found = run(factors.EWMA(3, 0.5), close=[1, 2, 3, NAN, 5, 6, 7])
+    same(found, [NAN, NAN, 4.25 / 1.75, NAN, NAN, NAN, (1.25 + 3 + 7) / 1.75])
+
+
+def test_ewma_from_forms() -> None:
+    """3.4's `.from_span/.from_halflife/.from_center_of_mass` give zipline's decay rates."""
+    rate = {f: dict(t.params)["decay_rate"] for f, t in [
+        ("span", factors.EWMA.from_span(3, 3)), ("halflife", factors.EWMA.from_halflife(3, 1)),
+        ("com", factors.EWMA.from_center_of_mass(3, 1))]}  # fmt: skip
+    assert rate == {"span": 0.5, "halflife": pytest.approx(0.5, abs=1e-15), "com": 0.5}
+
+
+def test_ewma_weights_precomputed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """3.4, INV-13: every row's kernel gets one constant, read-only weights array."""
+    seen: list[np.ndarray] = []
+    kernel = _kernels.window_ewma
+
+    def spy(x: np.ndarray, weights: np.ndarray) -> np.ndarray:
+        seen.append(weights)
+        return kernel(x, weights)
+
+    monkeypatch.setattr(_kernels, "window_ewma", spy)
+    run(factors.EWMA(3, 0.5), close=[1, 2, 3, 4, 5])
+    assert len(seen) == 3
+    assert all(w is seen[0] for w in seen)
+    assert seen[0].tolist() == [0.25, 0.5, 1.0]
+    assert not seen[0].flags.writeable
+    with pytest.raises(ValueError, match="at least one row"):
+        _kernels.ewma_weights(0, 0.5)
+
+
+def test_vwap_nan_rule() -> None:
+    """Pairs only (#278): a row with a NaN close or volume is out of both sums; no pair, or
+    the pairs' volume 0 -> NaN; warm-up W-1."""
+    term = factors.VWAP(3)
+    assert (column(term, 0), column(term, 1)) == ("close", "volume")
+    found = run(term, close=[10, NAN, 12, NAN, 11, NAN, NAN], volume=[100, 300, 300, 200, 0, 5, 5])
+    same(found, [NAN, NAN, 11.5, 12.0, 12.0, NAN, NAN])
+
+
+def test_vwap_unmoved_by_a_volume_scalar() -> None:
+    """VWAP is degree 1 in price only (3.4): a per-instrument volume scalar q, a weight above
+    and below the line, leaves it as it is; P-ADJ's single window holds the volume at 1."""
+    rng = np.random.default_rng(0)
+    close, volume = rng.uniform(1, 100, (5, 2)), rng.uniform(1, 1e6, (5, 2))
+    q = np.array([0.25, 7.0])
+    np.testing.assert_allclose(_kernels.window_vwap(close, volume * q),
+                               _kernels.window_vwap(close, volume), rtol=1e-12)  # fmt: skip
+
+
+def test_rsi_nan_rule() -> None:
+    """`100 - 100/(1 + up/dn)` of `close_tr`; a NaN change is left out, a clipped 0 counts;
+    `dn` 0 -> 100, no change at all -> NaN, as zipline; warm-up W-1, W = 15 by default."""
+    assert column(factors.RSI()) == "close_tr"
+    assert dict(factors.RSI().params)["window"] == 15
+    found = run(factors.RSI(4), close_tr=[10, 12, 11, 13, NAN, 14, 15, 15, 15, 15])
+    same(found, [NAN, NAN, NAN, 80.0, 100 - 100 / 3, 100.0, 100.0, 100.0, 100.0, NAN])
+
+
+def test_maxdd_nan_rule() -> None:
+    """`max((cummax(x) - x) / cummax(x))` of `close_tr`; NaN left out, minimum 1 (one cell
+    -> 0), all NaN -> NaN; warm-up W-1."""
+    assert column(factors.MaxDrawdown(3)) == "close_tr"
+    found = run(factors.MaxDrawdown(3), close_tr=[NAN, 12, 9, NAN, 6, NAN, NAN, NAN])
+    same(found, [NAN, NAN, 0.25, 0.25, 1 / 3, 0.0, 0.0, NAN])
+
+
 @pytest.mark.parametrize(
     ("term", "name"),
     [(factors.SMA(3), "close"), (factors.AverageTradedValue(3), "value_traded"),
@@ -159,7 +236,9 @@ def test_inf_result_is_nan() -> None:
     same(run(factors.Returns(2), close_tr=[0, 10, 20]), [NAN, NAN, 1.0])
 
 
-def test_built_in_mask_waits_for_the_filter_executor() -> None:
-    masked = factors.SMA(3, mask=BoundColumn.of("Price", "close").latest > 0)
-    with pytest.raises(NotImplementedError, match="mask"):
-        run(masked, close=[1, 2, 3])
+def test_built_in_mask_is_its_domain() -> None:
+    """A built-in factor's `mask` is its domain (3.3; #245): `SMA(2)` of 1, 2, 3, 0.5 is NaN,
+    1.5, 2.5, 1.75, and NaN at the last row, where the close is not above 1.5."""
+    masked = factors.SMA(2, mask=BoundColumn.of("Price", "close").latest > 1.5)
+    found = run(masked, close=[1, 2, 3, 0.5])
+    assert np.array_equal(found, [np.nan, 1.5, 2.5, np.nan], equal_nan=True)
