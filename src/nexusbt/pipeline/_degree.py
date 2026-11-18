@@ -94,12 +94,13 @@ def degree_of(term: Term, ins: list[Degree]) -> Degree:
 
 def _built_in(term: Term, ins: list[Degree]) -> Degree:
     """3.4: a built-in factor's kernel class applied to its input. A degree-1 kernel gives its
-    input's degree; a degree-0 or invariant kernel gives 0 over a column or a degree-0 input,
-    and no degree over an input with no degree."""
+    input's degree, `VWAP` its price input's (its volume, a weight above and below the line,
+    adds none); a degree-0 or invariant kernel gives 0 over a column or a degree-0 input, and no
+    degree over an input with no degree."""
     pairs = list(zip(term.inputs, ins, strict=True))
     if ADJUSTMENT[term.op] == "homogeneous of degree 1":
         over = [_column(t) if isinstance(t, BoundColumn) else d for t, d in pairs]
-        return over[0] if len(over) == 1 else None
+        return over[0] if len(over) == 1 or term.op == "VWAP" else None
     return ZERO if all(isinstance(t, BoundColumn) or d == ZERO for t, d in pairs) else None
 
 
