@@ -51,7 +51,7 @@ def check_degrees(roots: Iterable[Term]) -> None:
         for child, degree in zip(term.inputs, ins, strict=True):
             fed = term.op == "shift" or (isinstance(window, int) and window >= 2)
             if fed and isinstance(child, Factor) and degree not in (ZERO, None):
-                raise _refused(term, child)
+                raise _refused(term, child, degree)
         found[term._key] = degree_of(term, ins)
 
 
@@ -82,6 +82,8 @@ def degree_of(term: Term, ins: list[Degree]) -> Degree:
         return _product(ins[0], ins[1], _SIGN[op])
     if op == "pow" and term.inputs[1].op == "constant":
         return _scaled(ins[0], Fraction(dict(term.inputs[1].params)["value"]))
+    if op == "pow" and term.inputs[0].op == "constant":  # `c ** x`: a function of one term
+        return SOME if ins[1] not in (ZERO, None) else None
     if op == "sqrt":
         return _scaled(ins[0], Fraction(1, 2))
     return None  # a built-in factor, a user function, `if_else`: no rule gives a degree yet
@@ -108,20 +110,24 @@ def _scaled(x: Degree, p: Fraction) -> Degree:
     return (x[0] * p, x[1] * p) if isinstance(x, tuple) else SOME
 
 
-def _refused(term: Term, child: Factor) -> TermDomainError:
-    """The message names a return, the earlier value on today's basis and the value as it
-    traded, over the first adjusted `Price` column the input reads."""
-    column = _column(child) or "close"
-    quantity = ADJUSTED[column] == ADJUSTED["volume"]
-    noun = "share count" if quantity else "price level"
-    raw = f"{column}_unadjusted"
-    if raw not in ADJUSTED:
-        raw = "volume_unadjusted" if quantity else "close_unadjusted"
+def _refused(term: Term, child: Factor, degree: Degree) -> TermDomainError:
+    """The message names a return, the earlier value on today's basis and, where the column
+    has a raw twin, the value as it traded, over an adjusted `Price` column of the input's
+    factor (the first one read, depth first)."""
+    factor = (0 if degree[0] else 1) if isinstance(degree, tuple) else None
+    column = _column(child, factor) or ("volume" if factor == 1 else "close")
+    noun = {ADJUSTED["close"]: "price level", ADJUSTED["volume"]: "share count"}.get(
+        degree, "value"
+    )
     params = dict(term.params)
     shift = term.op == "shift"
     rows = params["k"] + 1 if shift else params["window"]
     feeds = f"shift({rows - 1})" if shift else f"a window of {rows} rows"
-    as_traded = f"Price.{raw}.latest.shift({rows - 1})" if shift else f"inputs=[Price.{raw}]"
+    raw = f"{column}_unadjusted"
+    as_traded = ""
+    if raw in ADJUSTED:
+        written = f"Price.{raw}.latest.shift({rows - 1})" if shift else f"inputs=[Price.{raw}]"
+        as_traded = f"; {written} for the value as it traded that day"
     line = _user_line()
     return TermDomainError(
         what=f"{text(child)} is a split-adjusted {noun} and cannot feed {feeds}",
@@ -130,7 +136,7 @@ def _refused(term: Term, child: Factor) -> TermDomainError:
         f" on another share basis and the split looks like a real change in the {noun}",
         fix=f"Returns({rows}, inputs=[Price.{column}]) for a return;"
         f" @nx.factor(window={rows}, inputs=[Price.{column}]) to read the earlier value on"
-        f" today's basis; {as_traded} for the value as it traded that day",
+        f" today's basis{as_traded}",
         more="spec 3.3 (shift, window inputs) and 3.4",
         layer=f"your code — {line}",
         at=line.split(" in ")[0],
@@ -138,14 +144,16 @@ def _refused(term: Term, child: Factor) -> TermDomainError:
     )
 
 
-def _column(term: Term) -> str | None:
-    """The first adjusted `Price` column the term reads, depth first."""
+def _column(term: Term, factor: int | None) -> str | None:
+    """The first adjusted `Price` column the term reads in `factor` (0 price, 1 quantity,
+    None either)."""
     todo = [term]
     while todo:
         node = todo.pop()
         params = dict(node.params)
         price = isinstance(node, BoundColumn) and params["dataset"] == "Price"
-        if price and ADJUSTED.get(params["column"]) != ZERO:
+        found = ADJUSTED.get(params["column"]) if price else None
+        if isinstance(found, tuple) and found != ZERO and (factor is None or found[factor]):
             return str(params["column"])
         todo += reversed(node.inputs)
     return None
@@ -154,9 +162,12 @@ def _column(term: Term) -> str | None:
 _INFIX = {"add": "+", "sub": "-", "mul": "*", "div": "/", "pow": "**"}
 
 
-def text(term: Term) -> str:
-    """The term as the person wrote it, near enough for an error's `what` and `where`."""
-    params, ins = dict(term.params), [text(t) for t in term.inputs]
+def text(term: Term, depth: int = 0) -> str:
+    """The term as the person wrote it, near enough for an error's `what` and `where`; past 40
+    nested operators, `…` (a chain deeper than the call stack would not print at all)."""
+    if depth > 40:
+        return "…"
+    params, ins = dict(term.params), [text(t, depth + 1) for t in term.inputs]
     if term.op == "column":
         return f"{params['dataset']}.{params['column']}"
     if term.op == "constant":

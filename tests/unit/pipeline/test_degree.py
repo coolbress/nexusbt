@@ -117,3 +117,26 @@ def test_the_message_names_three_things_to_write_and_the_whole_term() -> None:
         check((Price.volume.latest * 2).shift(3))
     assert caught.value.parts["where"] == "term (Price.volume.latest * 2).shift(3)"
     assert "Price.volume_unadjusted.latest.shift(3)" in caught.value.parts["fix"]
+
+
+def test_a_constant_raised_to_a_price_level_is_refused() -> None:
+    with pytest.raises(nx.TermDomainError):
+        check((2**Price.close.latest).shift(1))
+
+
+def test_the_message_follows_the_degree_not_the_first_column() -> None:
+    with pytest.raises(nx.TermDomainError) as caught:
+        check((Price.close.latest / Price.open.latest * Price.volume.latest).shift(1))
+    assert "split-adjusted share count" in caught.value.parts["what"]
+    assert "inputs=[Price.volume]" in caught.value.parts["fix"]
+    with pytest.raises(nx.TermDomainError) as caught:
+        check(Price.shares_out.latest.shift(2))
+    assert "unadjusted" not in caught.value.parts["fix"]  # no raw share count to name
+
+
+def test_a_deep_chain_is_refused_with_E17_not_a_recursion_error() -> None:  # noqa: N802
+    term = Price.close.latest
+    for _ in range(1000):
+        term = term + 1.0
+    with pytest.raises(nx.TermDomainError, match="…"):
+        check(term.shift(1))
