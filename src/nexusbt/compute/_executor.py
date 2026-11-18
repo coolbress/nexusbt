@@ -24,7 +24,7 @@ import numpy as np
 import numpy.typing as npt
 import pyarrow as pa
 
-from nexusbt.compute import _kernels
+from nexusbt.compute import _factors, _kernels
 from nexusbt.compute._chunks import schedule
 from nexusbt.compute._plan import plan
 from nexusbt.contracts import ID_COLUMN
@@ -74,6 +74,8 @@ def execute(
     order = schedule(terms)  # inputs first, with the nodes each one's computing lets go
     if any(t.op == "user" and dict(t.params)["mask"] is not None for t, _ in order):
         raise NotImplementedError("a user function's mask comes with T1.12")
+    if any(t.op in _factors.KERNELS and dict(t.params)["mask"] is not None for t, _ in order):
+        raise NotImplementedError("a built-in factor's mask comes with the Filter executor")
     parts: dict[str, list[pa.Table]] = {graph_hash(t): [] for t in terms}
     for first, last in spans:
         mine = wanted[(wanted >= first) & (wanted <= last)]
@@ -153,6 +155,10 @@ class _Chunk:
             return _UNARY[term.op](self.cell(inputs[0], t))
         if term.op == "user":
             return self.user(term, t)
+        if term.op in _factors.KERNELS:  # 3.4; NaN while the window starts before the axis
+            if t - (size := _factors.rows(term)) + 1 < 0:
+                return np.full(n, np.nan)
+            return _factors.value(term, [self.window(i, t, size) for i in inputs])
         raise NotImplementedError(f"the reference executor has no `{term.op}` term yet")
 
     def user(self, term: Term, t: int) -> F64:

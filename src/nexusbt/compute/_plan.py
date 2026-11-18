@@ -15,6 +15,7 @@ from dataclasses import dataclass
 import numpy as np
 import numpy.typing as npt
 
+from nexusbt.compute import _factors
 from nexusbt.pipeline import Term, graph_hash
 
 Rows = npt.NDArray[np.int64]
@@ -55,6 +56,8 @@ def _inputs(term: Term, rows: Rows) -> Iterator[tuple[Term, Rows]]:
     """Each input with the rows it is needed at; a mask or groupby keeps the node's own rows."""
     params = dict(term.params)
     window = params.get("window")
+    if term.op in _factors.EXTRA:  # 3.4: AnnualizedVolatility's W returns read W + 1 prices
+        window = _factors.rows(term)
     read = _cover(rows, window) if isinstance(window, int) and window > 1 else rows
     if term.op == "shift":
         read = rows - params["k"]
