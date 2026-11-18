@@ -81,3 +81,32 @@ def test_cash_dividend_moves_total_not_split(tmp_path: Path) -> None:
     day = [dt.date(2020, 1, 9)]
     assert windows(tmp_path / "s", [cash], day, "split")[day[0]] == [104.0, 53.0, 54.0]
     assert windows(tmp_path / "t", [cash], day, "total")[day[0]] == [101.92, 53.0, 54.0]
+
+
+#: A cash dividend on 2020-01-07 (row 3) whose quantity effect, against 5.3.3, is not 1.
+CASH = V1 | {"kind": "cash_dividend", "ratio_num": None, "ratio_den": None,
+             "ratio_new_per_old": None, "cash_per_share": 2.08, "currency": "KRW",
+             "gross_or_net": "gross", "price_factor": 0.98, "share_factor": 2.0,
+             "affects": "total_only", "factor_method": "cash_prev_close",
+             "pay_date_status": "estimated"}  # fmt: skip
+#: A symbol change on 2020-01-07 (row 3): `affects = none`, quantity effect 2 all the same.
+RENAME = V1 | {"kind": "symbol_change", "ratio_num": None, "ratio_den": None,
+               "ratio_new_per_old": None, "price_factor": None, "share_factor": 2.0,
+               "affects": "none", "factor_method": None,
+               "pay_date_status": "not_applicable"}  # fmt: skip
+DAY = dt.date(2020, 1, 9)
+
+
+@pytest.mark.parametrize("event", [CASH, RENAME], ids=["total_only", "none"])
+def test_volume_q_skips_events_other_than_split_and_total(
+    tmp_path: Path, event: dict[str, Any]
+) -> None:
+    """5.3.3 and the 3.2 `volume` row: `Q` multiplies the `q_e` of `split_and_total` events
+    only, so share_factor 2 on any other event leaves the volumes as traded, 104 not 208."""
+    assert windows(tmp_path, [event], [DAY], "volume")[DAY] == [104.0, 53.0, 54.0]
+
+
+def test_volume_q_skips_a_total_only_event_whose_share_factor_is_null(tmp_path: Path) -> None:
+    """A null `q_e` makes the cells before e NaN (4.6) only on an event `Q` multiplies."""
+    unknown = CASH | {"share_factor": None}
+    assert windows(tmp_path, [unknown], [DAY], "volume")[DAY] == [104.0, 53.0, 54.0]
