@@ -1,16 +1,20 @@
-"""T-25 (spec 8.2, 3.4) for T1.9's seven factors: each registered kernel over the windows of its
-`tests/golden/factors/<name>.yaml`, row by row, against the hand-calculated values."""
+"""T-25 (spec 8.2, 3.4) for the built-in factors: each kernel over the windows of its
+`tests/golden/factors/<name>.yaml`, row by row, against the hand-calculated values. T1.9's seven
+read their registered kernel; T1.10's five read the kernel with the case's parameters."""
 
 from __future__ import annotations
 
 import math
 import re
+from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
+import numpy.typing as npt
 import pytest
 import yaml
 
+from nexusbt.compute import _kernels
 from nexusbt.compute._kernels_ref import REGISTERED
 
 pytestmark = pytest.mark.golden
@@ -26,13 +30,25 @@ KERNEL = {
     "AnnualizedVolatility": ("AnnualizedVolatility", 1),
     "RollingStd": ("RollingStd", 0),
 }
+F64 = npt.NDArray[np.float64]
+#: T1.10's kernels, given the case's term and its input windows in the YAML's order.
+CALL: dict[str, Callable[[str, list[F64]], F64]] = {
+    "ExponentialWeightedMovingAverage": lambda term, w: _kernels.window_ewma(
+        w[0], _kernels.ewma_weights(len(w[0]), float(term.split("decay_rate=")[1].rstrip(")")))
+    ),
+    "VWAP": lambda _, w: _kernels.window_vwap(w[0], w[1]),
+    "RSI": lambda _, w: _kernels.window_rsi(w[0]),
+    "MaxDrawdown": lambda _, w: _kernels.window_max_drawdown(w[0]),
+    "Latest": lambda _, w: w[0][-1],
+}
 
 
 def check(name: str) -> None:
     doc = yaml.safe_load((FACTORS / f"{name}.yaml").read_text())
-    op, extra = KERNEL[name]
+    op, extra = KERNEL.get(name, (name, 0))
     for case in doc["cases"]:
-        window = int(m.group(1)) if (m := re.search(r"\((\d+)", case["term"])) else 2
+        found = re.search(r"\((\d+)", case["term"])
+        window = int(found.group(1)) if found else 1 if name == "Latest" else 2
         columns = [np.array(v, dtype=np.float64) for v in case["inputs"].values()]
         x = math.prod(columns, start=np.ones(len(columns[0])))  # close * volume for ADV
         rows = window + extra
@@ -41,8 +57,12 @@ def check(name: str) -> None:
                 assert t < rows - 1, (case["term"], t)  # warm-up: no full window yet
                 continue
             assert t >= rows - 1, (case["term"], t)  # a value only once the window is full
-            found = REGISTERED[op].kernel(x[t - rows + 1 : t + 1, None])[0]
-            assert found == pytest.approx(expected, abs=5e-7, nan_ok=True), (case["term"], t)
+            if name in CALL:
+                windows = [c[t - rows + 1 : t + 1, None] for c in columns]
+                value = CALL[name](case["term"], windows)[0]
+            else:
+                value = REGISTERED[op].kernel(x[t - rows + 1 : t + 1, None])[0]
+            assert value == pytest.approx(expected, abs=5e-7, nan_ok=True), (case["term"], t)
 
 
 def test_T25_Returns() -> None:  # noqa: N802 - spec 10.1's name
@@ -71,3 +91,23 @@ def test_T25_AnnualizedVolatility() -> None:  # noqa: N802 - spec 10.1's name
 
 def test_T25_RollingStd() -> None:  # noqa: N802 - spec 10.1's name
     check("RollingStd")
+
+
+def test_T25_ExponentialWeightedMovingAverage() -> None:  # noqa: N802 - spec 10.1's name
+    check("ExponentialWeightedMovingAverage")
+
+
+def test_T25_VWAP() -> None:  # noqa: N802 - spec 10.1's name
+    check("VWAP")
+
+
+def test_T25_RSI() -> None:  # noqa: N802 - spec 10.1's name
+    check("RSI")
+
+
+def test_T25_MaxDrawdown() -> None:  # noqa: N802 - spec 10.1's name
+    check("MaxDrawdown")
+
+
+def test_T25_Latest() -> None:  # noqa: N802 - spec 10.1's name
+    check("Latest")
