@@ -196,9 +196,12 @@ class Description:
 
 
 def describe(obj: object | None = None) -> Description:
-    """A term (3.3) for now: its node tree and structural hash; other objects with their tickets."""
+    """A term (3.3): its node tree and structural hash; `nexusbt.factors`: the built-in factors'
+    table (3.4, T1.10); other objects with their tickets."""
     if isinstance(obj, pipeline.Term):
         return Description(pipeline.describe_term(obj))
+    if getattr(obj, "__name__", None) in ("nexusbt.factors", "nexusbt.pipeline.factors"):
+        return Description(pipeline.factors.table())
     raise NotImplementedError
 
 
