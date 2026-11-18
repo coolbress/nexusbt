@@ -29,6 +29,7 @@ from nexusbt.data._capabilities import CapabilityRequest as CapabilityRequest
 from nexusbt.data._capabilities import DataCapabilities as DataCapabilities
 from nexusbt.data._capabilities import FallbackRecord as FallbackRecord
 from nexusbt.data._capabilities import _columns, _values, decide
+from nexusbt.data._datasets import chosen
 from nexusbt.data._ratios import RatioExclusion as RatioExclusion
 from nexusbt.data._ratios import check_ratios
 from nexusbt.data._schedule import Schedule as Schedule
@@ -346,7 +347,7 @@ def open_snapshot(
     caps, used, assumed = decide(folder, manifest, rules, result.warnings, required, cfg.fallbacks)
     warnings = Counter(f.code for f in result.warnings)
     decided = (result.profiles, caps, used)
-    bars = next((d for d in manifest.data["datasets"] if d["kind"] == "bars"), None)
+    bars = chosen(manifest.data).get("bars")  # the one daily bars dataset, or none (4.3)
     covered = (bars or {}).get("coverage", {}).get("by_market", {})
     daily = {m: DailyCoverage(e.get("first"), e.get("last"), e.get("instruments"), e.get("rows"))
              for m, e in covered.items()}  # fmt: skip

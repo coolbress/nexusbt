@@ -25,6 +25,7 @@ import pyarrow.parquet as pq
 from nexusbt.contracts import ID_COLUMN as ID
 from nexusbt.data._block import partition_values
 from nexusbt.data._calendar import read_calendar
+from nexusbt.data._datasets import dataset, needed
 from nexusbt_tds.actions import chain_digest
 from nexusbt_tds.hash import canonical_json, encode_table
 from nexusbt_tds.schemas.verify import load_schemas
@@ -50,15 +51,16 @@ def l0_key(manifest: Manifest, market: str, column: str, year: int, edition: str
     and the market's stable fields, the sha256 of the partition's files, the market's
     corporate-action chain digest to the year's end, the hash of the axis rows, and the
     market, column, year, edition, block version and engine version."""
-    kinds = {d["kind"]: d for d in reversed(manifest.datasets)}  # the first of each kind
-    bars, entry = kinds["bars"], manifest.data["markets"][market]
+    kinds = {k: d for k in ("corporate_actions", "calendar_sessions")
+             if (d := dataset(manifest.data, k)) is not None}  # fmt: skip
+    bars, entry = needed(manifest.data, "bars"), manifest.data["markets"][market]
     units = {c["name"]: c["unit"] for c in bars.get("columns", []) if "unit" in c}
     files = sorted(
         (f["path"], f.get("sha256") or _sha256(manifest.root / f["path"]))
         for f in bars["files"]
         if _holds(partition_values(f["path"], bars.get("partitioning", [])), market, year)
     )
-    instruments = _rows(manifest, kinds["instruments"])
+    instruments = _rows(manifest, needed(manifest.data, "instruments"))
     instruments = instruments.filter(pc.equal(instruments["market"], market))
     doc = {
         "resolution": {**{k: bars.get(k) for k in _DATASET_KEYS}, "units": units,
