@@ -230,6 +230,18 @@ def test_daily_bars_without_bar_time_are_session_bars(tiny: Path, tmp_path: Path
     np.testing.assert_array_equal(first_session(snap).values["close"], want.values["close"])
 
 
+def test_daily_bars_with_null_bar_time_are_session_bars(tiny: Path, tmp_path: Path) -> None:
+    """#551's Outcome left this untested: an explicit `"bar_time": null` is not a value (TDS
+    5.5), so the engine reads it as it reads a missing one, as session bars (spec 4.3)."""
+
+    def null(root: Path, data: Manifest) -> None:
+        entry(data, "bars_1d")["params"]["bar_time"] = None
+
+    want = first_session(opened(tiny)[0])
+    snap, _ = opened(rewritten(tiny, tmp_path / "null", null))
+    np.testing.assert_array_equal(first_session(snap).values["close"], want.values["close"])
+
+
 def test_utc_day_bars_alone_are_no_daily_bars(tiny: Path, tmp_path: Path) -> None:
     """#551: `bar_time = utc_day` daily bars (TDS 9.4) are not session bars: reading the daily
     block, or requesting `price`, is E18 as a missing dataset (spec 4.3)."""
