@@ -156,8 +156,8 @@ def test_cutoff_hides_late_cells() -> None:
 
 
 def test_unknown_term_and_missing_function_are_refused() -> None:
-    with pytest.raises(NotImplementedError, match="no `rank` term"):
-        run([CLOSE.latest.rank()], [50], [(0, 199)], block())
+    with pytest.raises(NotImplementedError, match="no `pct_rank` term"):
+        run([CLOSE.latest.pct_rank()], [50], [(0, 199)], block())
     with pytest.raises(ValueError, match="no function given"):
         execute([sma(3, CLOSE)], [50], [(0, 199)], reader(block(), []), READY)
     with pytest.raises(ValueError, match=r"outside every chunk: \[250\]"):
