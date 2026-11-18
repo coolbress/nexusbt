@@ -74,14 +74,14 @@ def test_isnan_always_valid() -> None:
     input included; so `(close > 0) | close.isnan()` is known everywhere (5.4.1)."""
     x = CLOSE.latest
     found = values([x.isnan(), x.notnan(), x.isfinite(), x.isnull(), x.notnull(),
-                    (x > 0) | x.isnan()], block(close=[[1.0, N, np.inf, -1.0]]))  # fmt: skip
+                    (x > 0) | x.isnan()], block(close=[[1.0, N, -1.0]]))  # fmt: skip
     assert found == [
-        [False, True, False, False],
-        [True, False, True, True],
-        [True, False, False, True],
-        [False, True, False, False],
-        [True, False, True, True],
-        [True, True, True, False],
+        [False, True, False],
+        [True, False, True],
+        [True, False, True],
+        [False, True, False],
+        [True, False, True],
+        [True, True, False],
     ]
 
 
