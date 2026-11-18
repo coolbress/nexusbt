@@ -18,7 +18,7 @@ import nexusbt as nx
 from nexusbt.compute._executor import Actions, execute
 from nexusbt.data import DataConfig, open_snapshot
 from nexusbt.data._block import MarketBlock
-from nexusbt.factors import SMA, AverageDollarVolume
+from nexusbt.factors import SMA, AverageDollarVolume, AverageTradedValue
 from nexusbt.pipeline import BoundColumn, Term, graph_hash
 from nexusbt.testing.synth import make_snapshot, write_actions
 
@@ -131,6 +131,17 @@ def test_each_column_on_its_basis(tmp_path: Path) -> None:
         "volume": pytest.approx([200, 200, 200, 100, 100]),
         "close_unadjusted": pytest.approx(raw),
     }
+
+
+def test_invariant_kernel_reads_values_as_traded(tmp_path: Path) -> None:
+    """3.4: `AverageDollarVolume` and `AverageTradedValue` are invariant, so across an event
+    whose price and quantity factors do not cancel (0.8 and 1) they read the values as traded:
+    `close * volume` 1000, not 880; `value_traded`, a column 3.2 does not adjust, 1000."""
+    spinoff = SPLIT | {"kind": "spinoff", "price_factor": 0.8, "share_factor": 1.0}
+    columns = {"close": [100.0] * 5, "volume": [10.0] * 5, "value_traded": [1000.0] * 5}
+    terms = [AverageDollarVolume(5), AverageTradedValue(5)]
+    got = Axis(tmp_path, [spinoff], columns).run(terms, [4])
+    assert [got[4, graph_hash(t)] for t in terms] == [1000.0, 1000.0]
 
 
 def test_pending_event_and_late_cell_in_one_window(tmp_path: Path) -> None:

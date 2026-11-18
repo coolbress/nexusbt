@@ -30,7 +30,7 @@ import pyarrow as pa
 from nexusbt.compute import _factors, _kernels
 from nexusbt.compute._chunks import schedule
 from nexusbt.compute._crosssection import sorted_order, tie_order
-from nexusbt.compute._kernels_ref import adjusted_window
+from nexusbt.compute._kernels_ref import REGISTERED, AdjustmentClass, adjusted_window
 from nexusbt.compute._plan import plan
 from nexusbt.contracts import ID_COLUMN, ResolvedActions, TiebreakPolicy
 from nexusbt.data._block import MarketBlock
@@ -180,10 +180,11 @@ class _Chunk:
         """The columns in ascending `instrument_id` order (5.3.10 (3))."""
         return sorted_order(self.block.instrument_ids)
 
-    def window(self, term: Term, t: int, size: int) -> F64:
+    def window(self, term: Term, t: int, size: int, raw: bool = False) -> F64:
         """`term` on rows `t-size+1..t` as row t reads it: column cells seen by `ready(t)` and
         adjusted as of t (5.3.3), a term's values as it gave them at each row, never adjusted
-        again (5.1.2); a new array."""
+        again (5.1.2); a new array. `raw`, for an invariant kernel (3.4): the cells as traded,
+        NaN where the adjustment leaves them NaN (4.6)."""
         a, b = t - size + 1 - self.low, t + 1 - self.low
         if term.op != "column":
             return self.values[graph_hash(term)][a:b].copy()
@@ -201,6 +202,9 @@ class _Chunk:
         ts_open = self.actions.ts_open[a + self.low : b + self.low]
         adjusted, _ = adjusted_window(found, size - 1, size, self.resolved[t],  # 4.6's count: #249
                                       self.block.instrument_ids, ts_open, basis)  # fmt: skip
+        if raw:
+            as_traded: F64 = np.where(np.isnan(adjusted), np.nan, found)
+            return as_traded
         return adjusted
 
     def cell(self, term: Term, t: int) -> F64:
@@ -236,7 +240,8 @@ class _Chunk:
         if term.op in _factors.KERNELS:  # 3.4; NaN while the window starts before the axis
             if t - (size := _factors.rows(term)) + 1 < 0:
                 return np.full(n, np.nan)
-            found = _factors.value(term, [self.window(i, t, size) for i in inputs])
+            raw = REGISTERED[term.op].adjustment is AdjustmentClass.INVARIANT
+            found = _factors.value(term, [self.window(i, t, size, raw) for i in inputs])
             return np.where(self.domain(term, t), found, np.nan)
         if term.op in _SECTION:
             return self.section(term, t)
