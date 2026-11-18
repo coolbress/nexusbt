@@ -168,6 +168,17 @@ def test_latest_and_factor_input_windows_are_not_adjusted(tmp_path: Path) -> Non
     assert (got[3, graph_hash(latest)], got[3, graph_hash(over)]) == (53.0, (102 + 104 + 53) / 3)
 
 
+def test_a_column_of_another_dataset_is_not_adjusted(tmp_path: Path) -> None:
+    """The table of 3.2 is `Price`'s: a `Panel` column's window across the split is as stored."""
+
+    def total(x: Any) -> Any:
+        return x.sum(axis=0)
+
+    axis = Axis(tmp_path, [SPLIT], {"x": [1.0, 2.0, 3.0, 4.0, 5.0]})
+    term = nx.factor(window=3, inputs=[BoundColumn.of("Panel", "x")])(total)
+    assert axis.run([term], [4], {graph_hash(term): total})[4, graph_hash(term)] == 12.0
+
+
 def test_shares_out_window_waits_for_5_3_5a(tmp_path: Path) -> None:
     axis = Axis(tmp_path, [SPLIT], {"shares_out": [1.0] * 5})
     with pytest.raises(NotImplementedError, match=r"5\.3\.5a"):
