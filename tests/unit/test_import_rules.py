@@ -317,7 +317,8 @@ def test_kernel_seam_signatures_arrow_only() -> None:
 
     window = {"elementwise", "fold_sum", "power", "window_sum", "window_returns", "window_nanmean",
               "window_nansum_mean", "window_nanstd", "window_annualized_volatility"}  # fmt: skip
-    cross_section = {"demean", "zscore", "rank", "select", "quantiles"}
+    cross_section = {"demean", "zscore", "winsorize", "rank", "select", "percentile_between",
+                     "quantiles"}  # fmt: skip
     assert set(seam_callables(_kernels)) == window | cross_section
     assert seam_violations(_kernels) == []
 

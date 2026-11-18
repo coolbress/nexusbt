@@ -193,6 +193,37 @@ def zscore(x: F64, mask: Mask, groups: Codes, order: I64) -> tuple[F64, int]:
     return out, unknown
 
 
+def winsorize(x: F64, mask: Mask, groups: Codes, low: float, high: float) -> tuple[F64, int]:
+    """`clip(x, q_low, q_high)` within each group, q numpy's linear quantiles (5.4.2), `low`
+    and `high` fractions with `0 <= low <= high <= 1`; NaN outside the cross-section. A
+    quantile sums nothing, so the memory order does not move it."""
+    if not 0 <= low <= high <= 1:
+        allowed = "fractions 0 <= min <= max <= 1 (1% is 0.01)"
+        raise ValueError(f"winsorize takes {allowed}, not {low}, {high}")
+    out = np.full(len(x), np.nan)
+    sections, unknown = _sections(x, mask, groups, np.arange(len(x)))
+    for seq in sections:
+        bounds = np.quantile(x[seq], [low, high], method="linear")
+        out[seq] = np.clip(x[seq], bounds[0], bounds[1])
+    return out, unknown
+
+
+def percentile_between(x: F64, mask: Mask, low: float, high: float) -> Mask:
+    """True where `low <= p <= high` (5.4.2), p = `100 (r - 1) / (n - 1)` with r the cell's
+    mean rank among the n cells, 100 when n = 1; `0 <= low <= high <= 100`. False outside the
+    cross-section."""
+    if not 0 <= low <= high <= 100:
+        raise ValueError(f"percentiles are 0 <= min <= max <= 100, not {low}, {high}")
+    out = np.zeros(len(x), dtype=bool)
+    every = np.zeros(len(x), dtype=np.int32)
+    for seq in _sections(x, mask, every, np.arange(len(x)))[0]:
+        found, lo, hi, _ = _ordered(x, seq, every.astype(np.int64), ASCENDING)
+        n = len(found)
+        p = 100 * (lo + hi - 2) / (2 * (n - 1)) if n > 1 else np.full(n, 100.0)
+        out[found] = (low <= p) & (p <= high)
+    return out
+
+
 def rank(
     x: F64, mask: Mask, groups: Codes, tie: I64, method: int, direction: int
 ) -> tuple[F64, int]:
