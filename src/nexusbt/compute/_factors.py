@@ -3,7 +3,9 @@
 The kernels are `_kernels`' (registered with their classes in `_kernels_ref.REGISTERED`); this
 module picks one by the term's operator and passes the term's parameters. An `inf` cell or
 result is NaN (5.4.1, "`inf` is turned into NaN and counted"): a window's `inf` cell follows its
-factor's NaN rule of 3.4. The count is not kept yet (#536).
+factor's NaN rule of 3.4. The executor makes every term's `inf` NaN where it stores the row
+(#536), so the result's rule here is the same one, applied again with the same value; a window's
+column cells come from the block and still pass through here. The count is #249's.
 """
 
 from __future__ import annotations
