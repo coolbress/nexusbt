@@ -173,8 +173,9 @@ class _Chunk:
     def compute(self, term: Term, rows: npt.NDArray[np.int64]) -> None:
         out = np.full((len(self.block.dates), len(self.block.instrument_ids)), np.nan)
         self.unknown = 0
-        for t in rows.tolist():
-            out[t - self.low] = self.row(term, t)
+        for t in rows.tolist():  # 5.4.1: a value is finite or NaN, at the term that produced it
+            found = self.row(term, t)
+            out[t - self.low] = np.where(np.isinf(found), np.nan, found)
         self.values[graph_hash(term)] = out
         if self.unknown:  # 3.3 `UnknownGroup`; where the diagnostic is kept is #536's question
             name = f"{term.op} {graph_hash(term)[:12]}"
