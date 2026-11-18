@@ -17,7 +17,9 @@ graph hash; how `@nx.factor` binds it, and its errors, are T1.12's.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Iterable, Mapping, Sequence
+from functools import cached_property
 from typing import Any
 
 import numpy as np
@@ -26,10 +28,13 @@ import pyarrow as pa
 
 from nexusbt.compute import _factors, _kernels
 from nexusbt.compute._chunks import schedule
+from nexusbt.compute._crosssection import sorted_order, tie_order
 from nexusbt.compute._plan import plan
-from nexusbt.contracts import ID_COLUMN
+from nexusbt.contracts import ID_COLUMN, TiebreakPolicy
 from nexusbt.data._block import MarketBlock
-from nexusbt.pipeline import Factor, Filter, Term, graph_hash
+from nexusbt.pipeline import Classifier, Factor, Filter, Term, graph_hash
+
+_log = logging.getLogger("nexusbt.compute")
 
 F64 = npt.NDArray[np.float64]
 #: The block of the axis rows `first..last`, both included.
@@ -55,6 +60,11 @@ _UNARY: Mapping[str, Callable[[F64], F64]] = {
 _COMPARE = {"lt": _kernels.LT, "le": _kernels.LE, "gt": _kernels.GT, "ge": _kernels.GE,
             "eq": _kernels.EQ, "ne": _kernels.NE}  # fmt: skip
 _KLEENE = {"and": _kernels.kleene_and, "or": _kernels.kleene_or}
+#: The cross-section terms (3.3, 5.4.2), computed over one market's block at a row.
+_SECTION = frozenset({"rank", "zscore", "demean", "winsorize", "top", "bottom",
+                      "percentile_between", "quantiles"})  # fmt: skip
+_RANK = {"ordinal": _kernels.ORDINAL, "average": _kernels.AVERAGE, "min": _kernels.MIN,
+         "max": _kernels.MAX, "dense": _kernels.DENSE}  # fmt: skip
 #: A Factor's tests that are never unknown (5.4.1); a float's null is NaN.
 _TESTS: Mapping[str, Callable[[F64], npt.NDArray[np.bool_]]] = {
     "isnan": np.isnan,
@@ -72,11 +82,13 @@ def execute(
     read: Read,
     ready: npt.NDArray[np.datetime64],
     functions: Mapping[str, Callable[..., Any]] | None = None,
+    tiebreak: TiebreakPolicy = TiebreakPolicy.HASH,
 ) -> dict[str, pa.Table]:
     """Each term's values at the decision rows, as `(row, instrument_id, value)` sorted by row
     and instrument, for the instruments listed at the row; keyed by the term's graph hash.
     `spans` are the chunks, `(first, last)` axis rows in order and apart, holding every
-    decision; `ready[r]` is row r's freeze time."""
+    decision; `ready[r]` is row r's freeze time; `tiebreak` the `[portfolio] tiebreak` key of
+    an ordinal `rank`, `top` and `bottom` (3.7)."""
     wanted = np.unique(np.fromiter(decisions, dtype=np.int64))
     _check(spans, wanted)
     terms = list({graph_hash(t): t for t in terms}.values())  # a term listed twice is one node
@@ -85,8 +97,9 @@ def execute(
     order = schedule(terms)  # inputs first, with the nodes each one's computing lets go
     if any(t.op == "user" and dict(t.params)["mask"] is not None for t, _ in order):
         raise NotImplementedError("a user function's mask comes with T1.12")
-    if any(t.op in _factors.KERNELS and dict(t.params)["mask"] is not None for t, _ in order):
-        raise NotImplementedError("a built-in factor's mask comes with the Filter executor")
+    if any(dict(t.params).get("across_markets") for t, _ in order):
+        why = "it gathers several markets' blocks, and the executor computes one market's"
+        raise NotImplementedError(f"across_markets=True is run_pipeline's: {why}")
     parts: dict[str, list[pa.Table]] = {graph_hash(t): [] for t in terms}
     for first, last in spans:
         mine = wanted[(wanted >= first) & (wanted <= last)]
@@ -94,7 +107,7 @@ def execute(
             continue
         rows = plan(terms, mine, sessions=len(ready)).rows
         low = min([first, *(int(r[0]) for r in rows.values() if r.size)])
-        chunk = _Chunk(read(low, last), low, ready, functions or {})
+        chunk = _Chunk(read(low, last), low, ready, functions or {}, tiebreak)
         with np.errstate(all="ignore"):  # IEEE results (inf, NaN), as numpy gives them
             for term, dropped in order:
                 chunk.compute(term, rows[graph_hash(term)])
@@ -126,9 +139,21 @@ class _Chunk:
         low: int,
         ready: npt.NDArray[np.datetime64],
         functions: Mapping[str, Callable[..., Any]],
+        tiebreak: TiebreakPolicy,
     ) -> None:
         self.block, self.low, self.ready, self.functions = block, low, ready, functions
+        self.tiebreak, self.unknown = tiebreak, 0  # `UnknownGroup` cells of the term computed
         self.values: dict[str, F64] = {}
+
+    @cached_property
+    def tie(self) -> npt.NDArray[np.int64]:
+        """Each column's place in the tie-break key's order (3.7)."""
+        return tie_order(self.block.instrument_ids, self.tiebreak)
+
+    @cached_property
+    def order(self) -> npt.NDArray[np.int64]:
+        """The columns in ascending `instrument_id` order (5.3.10 (3))."""
+        return sorted_order(self.block.instrument_ids)
 
     def window(self, term: Term, t: int, size: int) -> F64:
         """`term` on rows `t-size+1..t` as row t reads it: column cells seen by `ready(t)`, a
@@ -147,9 +172,13 @@ class _Chunk:
 
     def compute(self, term: Term, rows: npt.NDArray[np.int64]) -> None:
         out = np.full((len(self.block.dates), len(self.block.instrument_ids)), np.nan)
+        self.unknown = 0
         for t in rows.tolist():
             out[t - self.low] = self.row(term, t)
         self.values[graph_hash(term)] = out
+        if self.unknown:  # 3.3 `UnknownGroup`; where the diagnostic is kept is #536's question
+            name = f"{term.op} {graph_hash(term)[:12]}"
+            _log.debug("UnknownGroup: %s left out %d cell(s)", name, self.unknown)
 
     def row(self, term: Term, t: int) -> F64:
         params, inputs, n = dict(term.params), term.inputs, len(self.block.instrument_ids)
@@ -169,7 +198,10 @@ class _Chunk:
         if term.op in _factors.KERNELS:  # 3.4; NaN while the window starts before the axis
             if t - (size := _factors.rows(term)) + 1 < 0:
                 return np.full(n, np.nan)
-            return _factors.value(term, [self.window(i, t, size) for i in inputs])
+            found = _factors.value(term, [self.window(i, t, size) for i in inputs])
+            return np.where(self.domain(term, t), found, np.nan)
+        if term.op in _SECTION:
+            return self.section(term, t)
         if isinstance(term, Filter):
             return self.filter(term, t)
         if term.op == "as_factor":  # true 1.0, false 0.0, unknown NaN: the cells as held
@@ -179,6 +211,41 @@ class _Chunk:
             picked = np.where(value, self.cell(inputs[1], t), self.cell(inputs[2], t))
             return np.where(valid, picked, np.nan)
         raise NotImplementedError(f"the reference executor has no `{term.op}` term yet")
+
+    def domain(self, term: Term, t: int) -> npt.NDArray[np.bool_]:
+        """The term's cells at row t: the listed ones (3.3's default domain, the block's), and of
+        those the ones its `mask` is known true at, as unknown is false there (5.4.1)."""
+        inside: npt.NDArray[np.bool_] = self.block.exists[t - self.low]
+        if (mask := dict(term.params).get("mask")) is not None:
+            inside = inside & _truth(self.cell(mask, t))[0]  # the value is false where unknown
+        return inside
+
+    def section(self, term: Term, t: int) -> F64:
+        """A cross-section term at row t over the market's block (5.4.2), held as a Factor's,
+        a Filter's (unknown outside the domain, 3.3) or a Classifier's cells (`_codes`)."""
+        p, k, x = dict(term.params), _kernels, self.cell(term.inputs[0], t)
+        inside = self.domain(term, t)
+        by = p.get("groupby")
+        groups = _codes(self.cell(by, t)) if by is not None else np.zeros(len(x), np.int32)
+        if term.op in ("top", "bottom"):
+            way = k.DESCENDING if term.op == "top" else k.ASCENDING
+            picked, _, n = k.select(x, inside, groups, self.tie, p["N"], way)
+            self.unknown += n
+            return _cells(picked, inside)
+        if term.op == "percentile_between":
+            return _cells(k.percentile_between(x, inside, p["min"], p["max"]), inside)
+        if term.op == "rank":
+            way = k.ASCENDING if p["ascending"] else k.DESCENDING
+            out, n = k.rank(x, inside, groups, self.tie, _RANK[p["method"]], way)
+        elif term.op == "winsorize":
+            out, n = k.winsorize(x, inside, groups, p["min"], p["max"])
+        elif term.op == "quantiles":
+            codes, n = k.quantiles(x, inside, groups, self.order, p["bins"])
+            out = codes.astype(np.float64)
+        else:
+            out, n = getattr(k, term.op)(x, inside, groups, self.order)
+        self.unknown += n
+        return out
 
     def user(self, term: Term, t: int) -> F64:
         params, out = dict(term.params), np.full(len(self.block.instrument_ids), np.nan)
@@ -198,6 +265,16 @@ class _Chunk:
     def filter(self, term: Term, t: int) -> F64:
         """A Filter's cells at row t, held as 1.0, 0.0 and NaN for unknown (`_cells`)."""
         inputs = term.inputs
+        if isinstance(inputs[0], Classifier) and term.op in ("isnull", "notnull"):
+            missing = _codes(self.cell(inputs[0], t)) == -1  # always valid (3.3)
+            return _cells(missing if term.op == "isnull" else ~missing, np.ones_like(missing))
+        if isinstance(inputs[0], Classifier) and term.op in ("eq", "element_of"):
+            p = dict(term.params)
+            wanted = (p["value"],) if term.op == "eq" else tuple(p["values"])
+            if not all(isinstance(v, int) for v in wanted):  # a code table's names: T2.3's
+                raise NotImplementedError(f"Classifier names come with its code table: {wanted}")
+            codes = _codes(self.cell(inputs[0], t))
+            return _cells(*_kernels.codes_in(codes, np.array(wanted, dtype=np.int32)))
         if term.op in _COMPARE and isinstance(inputs[0], Factor):
             x, y = self.cell(inputs[0], t), self.cell(inputs[1], t)
             return _cells(*_kernels.compare(_COMPARE[term.op], x, y))
@@ -228,12 +305,20 @@ class _Chunk:
         if isinstance(term, Filter):  # null where unknown: Arrow's validity bitmap is the mask
             value, valid = _truth(cells)
             return _frame(rows[r], ids, pa.array(value, pa.bool_(), mask=~valid))
+        if isinstance(term, Classifier):
+            return _frame(rows[r], ids, pa.array(_codes(cells), pa.int32()))
         return _frame(rows[r], ids, cells)
 
 
 def _truth(cells: F64) -> tuple[npt.NDArray[np.bool_], npt.NDArray[np.bool_]]:
     """A Filter's held cells as the kernels' value and validity mask."""
     return cells == 1.0, ~np.isnan(cells)
+
+
+def _codes(cells: F64) -> npt.NDArray[np.int32]:
+    """A Classifier's held cells as its int32 codes, -1 the missing code (3.3); a Classifier is
+    held as its codes in a float array, as a Filter is (`_cells`)."""
+    return np.where(np.isnan(cells), -1, cells).astype(np.int32)
 
 
 def _cells(value: npt.NDArray[np.bool_], valid: npt.NDArray[np.bool_]) -> F64:
