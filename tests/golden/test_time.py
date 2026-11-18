@@ -19,6 +19,7 @@ import pyarrow.parquet as pq
 import pytest
 import yaml
 
+import nexusbt as nx
 from nexusbt.compute import _crosssection as xs
 from nexusbt.compute import _kernels as k
 from nexusbt.compute._executor import execute
@@ -26,6 +27,7 @@ from nexusbt.compute._kernels_ref import adjusted_window
 from nexusbt.contracts import TiebreakPolicy
 from nexusbt.data import Calendar, DataConfig, open_snapshot
 from nexusbt.data._block import MarketBlock
+from nexusbt.factors import SMA, Returns
 from nexusbt.pipeline import BoundColumn, graph_hash
 from nexusbt.testing.synth import make_snapshot, read, write_actions
 from nexusbt_tds.hash import write_hashes
@@ -216,6 +218,76 @@ def test_G_TIME_LATE_ready_and_late_bar(tmp_path: Path) -> None:  # noqa: N802 -
     earlier, _ = measured(package(case, tmp_path / "earlier", until="2020-01-07T06:30:00Z"))
     assert len(read(tmp_path / "earlier", "bars_1d")) < len(read(tmp_path / "later", "bars_1d"))
     assert (earlier.ready == calendar.ready).all()
+
+
+def _momentum_253(close: Any) -> Any:
+    """Form (b) of T-12, `@nx.factor(window=253)`: close[-22]/close[0] - 1 (5.3.7)."""
+    return close[-22] / close[0] - 1
+
+
+def test_T12_momentum_forms_equal() -> None:  # noqa: N802 - spec 10.1's name
+    """T-12: `Returns(232).shift(21)`, the 253-row window close[-22]/close[0] - 1 and the direct
+    P[t-21]/P[t-252] - 1 are one value at every row of the case, NaN where an end is NaN or
+    not in the data (3.4, 3.3, A-32); P[i] = 100 + i by hand, NaN at the halted row 240."""
+    case = yaml.safe_load((CASES / "T-12.yaml").read_text())
+    n = 263
+    p = np.arange(100, 100 + n, dtype=np.float64)
+    p[240] = np.nan
+    dates = np.datetime64("2020-01-01") + np.arange(n).astype("timedelta64[D]")
+    ready = (dates + np.timedelta64(16, "h")).astype("datetime64[us]")
+    cells = (np.ones((n, 1), bool), np.zeros((n, 1), np.int8), ready[:, None])
+    whole = MarketBlock("KR", dates, 0, ("KR:T00001",), {"close_tr": p[:, None]}, *cells)
+    close_tr = BoundColumn.of("Price", "close_tr")
+    shifted = Returns(232).shift(21)
+    window = nx.factor(window=253, inputs=[close_tr])(_momentum_253)
+    rows = [r["row"] for r in case["expected"]]
+    found = execute([shifted, window], rows, [(0, n - 1)], lambda a, b: whole, ready,
+                    {graph_hash(window): _momentum_253})  # fmt: skip
+    a, b = (found[graph_hash(t)]["value"].to_pylist() for t in (shifted, window))
+    for row, x, y in zip(case["expected"], a, b, strict=True):
+        t = row["row"]
+        direct = p[t - 21] / p[t - 252] - 1 if t >= 252 else np.nan
+        for value, name in ((x, "returns_232_shift_21"), (y, "window_253"), (direct, "direct")):
+            assert value == pytest.approx(row[name], abs=5e-7, nan_ok=True), (t, name)
+
+
+def _sma3_rows(case: dict[str, Any], root: Path, rows: list[str]) -> dict[str, list[float]]:
+    """`SMA(3)` of `close` for A and B at the case's `rows`, through the executor over the
+    snapshot's block: each cell's `ts_available` is the snapshot's, its close the case's."""
+    snapshot = open_snapshot(DataConfig(path=root))
+    calendar = snapshot.calendar("KR")
+    days = [str(d) for d in calendar.dates]
+    sessions = {r["row"]: r["session"] for r in case["expected"]}
+    last = days.index(sessions["s+2"])
+    whole = snapshot.market_block("KR", ["close"], calendar.dates[: last + 1])
+    close, ids = whole.values["close"].copy(), whole.instrument_ids
+    for bar in case["bars"]["rows"]:
+        close[days.index(bar["session_date"]), ids.index(bar["instrument_id"])] = bar["close"]
+    block = MarketBlock(whole.market, whole.dates, 0, whole.instrument_ids, {"close": close},
+                        whole.exists, whole.obs_status, whole.ts_available)  # fmt: skip
+    term = SMA(3)
+    wanted = [days.index(sessions[r]) for r in rows]
+    found = execute([term], wanted, [(0, last)], lambda a, b: block, calendar.ready[: last + 1])
+    table = found[graph_hash(term)].to_pylist()
+    return {i: [next(v["value"] for v in table if v["row"] == r and v["instrument_id"] == i)
+                for r in wanted] for i in ("KR:T00001", "KR:T00002")}  # fmt: skip
+
+
+def test_G_TIME_LATE_sma_values(tmp_path: Path) -> None:  # noqa: N802 - spec 10.1's name
+    """G-TIME-LATE's `SMA(3)`: A 10.5, 12, 15 at s, s+1, s+2, the late bar NaN at s and s+1
+    and read at its own position by s+2; rows s and s+1 the same with the snapshot published
+    before the late bar arrived (INV-02), never the look-ahead's 13, 14 (decision 2026-11-10)."""
+    case = yaml.safe_load((CASES / "G-TIME-LATE.yaml").read_text())
+    rows = ["s", "s+1", "s+2"]
+    table = {r["row"]: r for r in case["expected"]}
+    later = _sma3_rows(case, package(case, tmp_path / "later"), rows)
+    assert later["KR:T00001"] == pytest.approx([table[r]["a_sma3"] for r in rows])
+    assert later["KR:T00002"] == pytest.approx([table[r]["b_sma3"] for r in rows])
+    for r, value in zip(rows[:2], later["KR:T00001"], strict=False):  # not 13, 14
+        assert value != pytest.approx(table[r]["lookahead_a_sma3"])
+    before = package(case, tmp_path / "earlier", until="2020-01-07T06:30:00Z")
+    earlier = _sma3_rows(case, before, rows[:2])
+    assert earlier == {i: v[:2] for i, v in later.items()}
 
 
 def windows(case: dict[str, Any], at: Path, basis: str, column: str = "close") -> Any:
