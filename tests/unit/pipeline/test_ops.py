@@ -68,11 +68,15 @@ def test_rolling_operations() -> None:
 
 
 def test_rolling_arguments() -> None:
-    """`x` is a Factor; `1 <= window` and `0 <= min_periods <= window`."""
+    """`x` is a Factor; `window` and `min_periods` whole numbers, `1 <= min_periods <= window`,
+    so a float window cannot slip past #499's check (which reads an int window)."""
     with pytest.raises(TypeError, match="a Factor"):
         ops.rolling(Price.close, 3)
-    for window, least in ((0, None), (3, 4), (3, -1)):
-        with pytest.raises(ValueError, match="window"):
+    for window, least in ((3.0, None), (True, None), (3, 2.0)):
+        with pytest.raises(TypeError, match="whole numbers"):
+            ops.rolling(VALUE, window, min_periods=least)  # type: ignore[arg-type]
+    for window, least in ((0, None), (3, 4), (3, 0)):
+        with pytest.raises(ValueError, match="min_periods <= window"):
             ops.rolling(VALUE, window, min_periods=least)
 
 

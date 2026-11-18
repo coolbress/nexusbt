@@ -57,8 +57,10 @@ def rolling(x: Factor, window: int, min_periods: int | None = None) -> Rolling:
             " by a built-in factor or @nx.factor(window=..., inputs=[column])"
         )
     least = window if min_periods is None else min_periods
-    if not (window >= 1 and 0 <= least <= window):
-        raise ValueError(f"a rolling window takes 1 <= window and 0 <= min_periods <= window,"
+    if any(not isinstance(n, int) or isinstance(n, bool) for n in (window, least)):
+        raise TypeError(f"a rolling window takes whole numbers, not {window!r}, {least!r}")
+    if not 1 <= least <= window:
+        raise ValueError(f"a rolling window takes 1 <= min_periods <= window,"
                          f" not window={window}, min_periods={least}")  # fmt: skip
     return Rolling(x, window, least)
 
