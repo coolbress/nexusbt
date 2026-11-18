@@ -412,7 +412,7 @@ from nexusbt.factors import (Returns, DailyReturns, SimpleMovingAverage, SMA,
 
 | 분류 | 이름 |
 |---|---|
-| 항 | `Factor`, `Filter`, `Classifier`, `Pipeline`, `factor`, `filter`, `classifier`, `ops`(`ops.rolling`, `ops.where`, `ops.coalesce`, `ops.composite` [V31-25]) |
+| 항 | `Factor`, `Filter`, `Classifier`, `Pipeline`, `factor`, `filter`, `classifier`, `ops`(`ops.rolling`, `ops.where`, `ops.coalesce`, `ops.composite` [V31-25]), `factors`(3.4의 내장 팩터; 2.5) (결정 2026-11-18, #243) |
 | 데이터 | `Price`, `Fund`, `Meta`, `Panel`, `Label`, `Trad` [V31-30], `Market` [V31-13], `Macro`, `MacroTerm`, `Events`, `dataset.from_parquet`, `dataset.from_frame`, `Dataset`, `universe`, `universe.index_members` |
 | 전략 | `Strategy`, `param`, `monthly`, `weekly`, `daily`, `quarterly`, `annually`, `every`, `on_event`, `top`, `bottom`, `long_short` [V31-LS-02], `portfolio`(+ 사용자 블록 데코레이터 `portfolio` [R4-07]), `size`(5.5.1a), `sizer`, `risk`(5.5.2·5.5.2a 내장 블록 전부), `risk_rule` [R4-02, R4-05, R4-07], 사용자 블록 타입 `PortfolioContext`, `SizingContext`, `RiskContext`, `TargetView`, `RiskDecision`, `Scalar`, `execution`, `exits`(`exits.time_stop` 포함 [R4-10]), `ExitRule`, `costs`, `ml`(`ml.factor`, 5.3.11), `labels`(`labels.triple_barrier`, 5.8), `LabelTerm`, `splits`(`holdout`, `walk_forward`, `cpcv`, `cscv`, 6.3a) [R4-19, R4-23, R4-24] |
 | 함수 | `open` [V31-PUB-03], `evaluate`, `backtest`, `screen`, `live`, `fill`, `reconcile`, `sweep`, `compare`, `run_pipeline`, `explain`, `check`, `describe`, `runs`, `rerun`, `book`, `override`, `record_fills`, `cash_flow` [V31-18, V31-19], `acknowledge`, `preregister`, `config` |

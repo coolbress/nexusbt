@@ -411,7 +411,7 @@ Every public name under `nexusbt.` (a name outside this list starts with `_`):
 
 | Kind | Names |
 |---|---|
-| Terms | `Factor`, `Filter`, `Classifier`, `Pipeline`, `factor`, `filter`, `classifier`, `ops` (`ops.rolling`, `ops.where`, `ops.coalesce`, `ops.composite` [V31-25]) |
+| Terms | `Factor`, `Filter`, `Classifier`, `Pipeline`, `factor`, `filter`, `classifier`, `ops` (`ops.rolling`, `ops.where`, `ops.coalesce`, `ops.composite` [V31-25]), `factors` (the built-in factors of 3.4; 2.5) (decision 2026-11-18, #243) |
 | Data | `Price`, `Fund`, `Meta`, `Panel`, `Label`, `Trad` [V31-30], `Market` [V31-13], `Macro`, `MacroTerm`, `Events`, `dataset.from_parquet`, `dataset.from_frame`, `Dataset`, `universe`, `universe.index_members` |
 | Strategy | `Strategy`, `param`, `monthly`, `weekly`, `daily`, `quarterly`, `annually`, `every`, `on_event`, `top`, `bottom`, `long_short` [V31-LS-02], `portfolio` (+ the user block decorator `portfolio` [R4-07]), `size` (5.5.1a), `sizer`, `risk` (all the built-in blocks of 5.5.2 and 5.5.2a), `risk_rule` [R4-02, R4-05, R4-07], the user-block types `PortfolioContext`, `SizingContext`, `RiskContext`, `TargetView`, `RiskDecision`, `Scalar`, `execution`, `exits` (including `exits.time_stop` [R4-10]), `ExitRule`, `costs`, `ml` (`ml.factor`, 5.3.11), `labels` (`labels.triple_barrier`, 5.8), `LabelTerm`, `splits` (`holdout`, `walk_forward`, `cpcv`, `cscv`, 6.3a) [R4-19, R4-23, R4-24] |
 | Functions | `open` [V31-PUB-03], `evaluate`, `backtest`, `screen`, `live`, `fill`, `reconcile`, `sweep`, `compare`, `run_pipeline`, `explain`, `check`, `describe`, `runs`, `rerun`, `book`, `override`, `record_fills`, `cash_flow` [V31-18, V31-19], `acknowledge`, `preregister`, `config` |

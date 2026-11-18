@@ -3,10 +3,12 @@ with their default input, adjustment class and numerics class (5.3.10 2a)."""
 
 from __future__ import annotations
 
+import subprocess
+import sys
+
 import pytest
 
 import nexusbt as nx
-import nexusbt.factors  # 2.5's user import; it binds `nx.factors`
 
 pytestmark = pytest.mark.unit
 
@@ -36,15 +38,30 @@ EXPECTED = {
 }
 
 
-def test_describe_factors_prints_the_12_built_in_factors() -> None:
-    """When I run `nx.describe(nx.factors)`, then I see a table of the 12 built-in factors
-    with their default input, adjustment class and numerics class."""
-    lines = str(nx.describe(nx.factors)).splitlines()
+def rows_of(text: str) -> dict[str, tuple[str, ...]]:
+    """The table's rows by factor, after checking its header."""
+    lines = text.splitlines()
     header = [cell.strip() for cell in lines[0].split("|")]
     assert header == ["factor", "default input", "adjustment class", "numerics class"]
     rows = [[cell.strip() for cell in line.split("|")] for line in lines[2:]]
     assert len(rows) == 12
-    assert {name: tuple(rest) for name, *rest in rows} == EXPECTED
+    return {name: tuple(rest) for name, *rest in rows}
+
+
+def test_describe_factors_prints_the_12_built_in_factors() -> None:
+    """When I run `nx.describe(nx.factors)`, then I see a table of the 12 built-in factors
+    with their default input, adjustment class and numerics class."""
+    assert rows_of(str(nx.describe(nx.factors))) == EXPECTED
+
+
+def test_describe_factors_after_only_import_nexusbt() -> None:
+    """3.1's Terms row and 2.5 ("re-exports of `__init__`"): in a fresh interpreter whose only
+    import is `import nexusbt as nx`, `nx.factors` is there; no other test's import helps."""
+    code = "import nexusbt as nx; print(nx.describe(nx.factors))"
+    done = subprocess.run(  # noqa: S603 - this interpreter and the literal above
+        [sys.executable, "-c", code], capture_output=True, text=True, check=True, timeout=120
+    )
+    assert rows_of(done.stdout) == EXPECTED
 
 
 def test_describe_still_refuses_other_modules() -> None:
