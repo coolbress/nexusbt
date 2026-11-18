@@ -20,6 +20,9 @@ def screened(pipeline: Pipeline, frames: Mapping[str, pa.Table]) -> dict[str, pa
     unknown (null) screen cell drops the row. `frames` are one `execute()` call's tables, keyed
     by graph hash, the screen's among them when the pipeline has one; they list the same
     `(row, instrument_id)` cells in the same order."""
+    named = {**pipeline.columns, **({"screen": pipeline.screen} if pipeline.screen else {})}
+    if missing := [name for name, term in named.items() if graph_hash(term) not in frames]:
+        raise ValueError(f"execute() was not given these terms of the pipeline: {missing}")
     found = {name: frames[graph_hash(term)] for name, term in pipeline.columns.items()}
     if pipeline.screen is None:
         return found

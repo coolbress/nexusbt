@@ -235,3 +235,5 @@ def test_pipeline_screen_unknown_false() -> None:
              **execute(terms[:1], [1], [(0, 1)], lambda a, b: x, ready)}  # fmt: skip
     with pytest.raises(ValueError, match="'open' and the screen list different cells"):
         screened(pipe, apart)
+    with pytest.raises(ValueError, match=r"not given these terms of the pipeline: \['screen'\]"):
+        screened(pipe, execute(terms[:1], [1], [(0, 1)], lambda a, b: x, ready))
