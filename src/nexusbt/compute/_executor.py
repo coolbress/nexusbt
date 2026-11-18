@@ -147,8 +147,9 @@ class _Chunk:
 
     def compute(self, term: Term, rows: npt.NDArray[np.int64]) -> None:
         out = np.full((len(self.block.dates), len(self.block.instrument_ids)), np.nan)
-        for t in rows.tolist():
-            out[t - self.low] = self.row(term, t)
+        for t in rows.tolist():  # 5.4.1: a value is finite or NaN, at the term that produced it
+            found = self.row(term, t)
+            out[t - self.low] = np.where(np.isinf(found), np.nan, found)
         self.values[graph_hash(term)] = out
 
     def row(self, term: Term, t: int) -> F64:
