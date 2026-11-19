@@ -27,6 +27,7 @@ This is the canonical English text; a Korean translation is in tds-v1.4.ko.md.
 > Version history (continued): **v1.4, 2026-11-12 clarification**: 6.4 says what bounds system history (`history_mode = system`) for the four datasets chapter 7's `tds:bitemporal@1.0` row names: `ts_recorded <= t` in `events` and `fundamentals_events`, `ts_known_from <= t` in `classifications` and `fundamentals_state`, which have no `ts_recorded`. 6.1 gains a sentence: for a `native` row of those two datasets `ts_known_from` is both the start of the usable period and the producer's recorded time, the "recorded time" of the 2026-11-11 line above, which therefore stands without a correction; for a `backfilled` row (K6) it is only the start of the period, the recording time is not kept, and 6.4 says such a row is visible in a system-history replay from `ts_known_from`, with `pit_quality = backfilled` as the warning (maintainer decisions 2026-11-12 and 2026-11-12 (2), #405). The engine does not read `tds:bitemporal` in v1 (engine specification 4.3, 3.11); text only, so `tds_version` stays `"1.0"`.
 > Version history (continued): **v1.4, 2026-11-12 addition**: optional `coverage.by_market.<m>.processed_through_session` (4.3), the last session of a market that the producer has processed for a dataset, whether or not that session brought a row; it is required for event and interval datasets from the next minor version. 3.8 says the market watermark bounds it, and check TDS-M016 (8.3) rejects one earlier than the dataset's `last` in that market or later than the market's `complete_through_session`; a value that is not a date is TDS-M001 (decision 2026-11-04, #192). An optional field is MINOR by 10.2 and the standard is a draft, so `tds_version` stays `"1.0"`.
 > Version history (continued): **v1.4, 2026-11-13 addition**: optional `params.sequence_consecutive_within` (5.6~5.8) of `trades`, `quotes` and `book_deltas`, by which a dataset declares that its vendor promised consecutive `sequence` numbers within the groups the listed columns make in each partition; check V032 (8.3) moves from 5.8 to a statement the three share (decision 2026-11-13, #348). An optional field is MINOR by 10.2 and the standard is a draft, so `tds_version` stays `"1.0"`.
+> Version history (continued): **v1.4, 2026-11-19 clarification**: 3.8 and 4.2 mark `calendar_id`, `currency` and `timezone` required in each `markets` entry, the three fields 3.8's definition of a market names and 4.5's semantic hash reads; a missing one is TDS-M003 (maintainer decision 2026-11-19, #567). The standard is a draft, so `tds_version` stays `"1.0"`.
 > Relation: this document is **the canonical input definition referenced by chapter 4** of the engine specification v3.4 (`engine-spec-v3.4-2026-10-28.md`). Where the two differ, this document is right about the input format (difference list in chapter 12). Maintainer decisions (design document 9.0) take precedence over this document.
 > Public: this standard and the checker (`nexusbt-tds`, import `nexusbt_tds`, command `tds`) are public (Apache-2.0). Chapter 11 of the working draft (producer-specific mapping) is not normative and is not part of this public edition.
 > Examples: example rows for every dataset the engine reads (including events and macro series) are in `tds-examples.md` (same folder).
@@ -277,7 +278,7 @@ This is the canonical English text; a Korean translation is in tds-v1.4.ko.md.
 
 ### 3.8 Market
 
-- Market = a group with one calendar, one default currency and one default time zone. Declared in the manifest `markets` (e.g. `KR`: XKRX, KRW, Asia/Seoul; `US`: XNYS, USD, America/New_York; `CRYPTO`: `CRYPTO-UTC`, USD, UTC).
+- Market = a group with one calendar, one default currency and one default time zone. Declared in the manifest `markets` (e.g. `KR`: XKRX, KRW, Asia/Seoul; `US`: XNYS, USD, America/New_York; `CRYPTO`: `CRYPTO-UTC`, USD, UTC). Each `markets` entry holds `calendar_id` (its 5.4 calendar), `currency` (3.4) and `timezone` (an IANA time zone name), each a non-empty string; a missing one is TDS-M003, another value TDS-M001 [v1.4, 2026-11-19, #567].
 - The market code is the unit of partitions (`market=`) and engine sleeves (specification 1.2). One instrument belongs to one market (`instruments.market`).
 - The market's **completeness watermark** (`complete_through`): a promise that all data up to that instant is present. The engine's `live` does not use sessions after it for fills (specification 4.3).
 - The watermark bounds each dataset's **processed-through session** in the market (4.3 `coverage.by_market.<m>.processed_through_session`), never the reverse: that session is not later than `complete_through_session`. A dataset whose processed-through session is earlier is complete only through that session, and the watermark's promise holds for it only that far; the rows it would have after that session are not yet produced, not absent [v1.4, 2026-11-12, #192].
@@ -339,7 +340,7 @@ One package = one immutable folder (snapshot).
 {
   "$schema": "tds/schemas/manifest/1.0.json",
   "tds_version": "1.0",
-  "tds_draft": "2026-11-18",
+  "tds_draft": "2026-11-19",
   "name": "example-kr-us-equity",
   "id": "urn:uuid:6f1c…",
   "version": "20261027-143144",
@@ -407,7 +408,7 @@ One package = one immutable folder (snapshot).
 | `profiles` | ○ | Profiles and versions this package declares it follows (`tds:<name>@<MAJOR.MINOR>`, chapter 7; without `@` means `@1.0`). Verified by the checker |
 | `id_namespaces` | ○ | Id namespaces used, with descriptions |
 | `currencies` | optional | Declarations of currencies outside ISO 4217 |
-| `markets` | ○ | 3.8. The watermark fields (`complete_through_session`, `complete_through`) change on every publish, so consumers SHOULD use only the stable fields (`calendar_id`, `currency`, `timezone`) in their partition cache keys [v1.3, R3-04] |
+| `markets` | ○ | 3.8. Per market: `calendar_id` (required), `currency` (required), `timezone` (required), each a non-empty string, a missing one TDS-M003 [2026-11-19, #567]; the watermark fields `complete_through_session` and `complete_through` are optional. The watermark fields change on every publish, so consumers SHOULD use only the stable fields (`calendar_id`, `currency`, `timezone`) in their partition cache keys [v1.3, R3-04] |
 | `editions` | ○ if any table uses editions | Edition names and meanings, default edition |
 | `policies` | optional | Producer rule names and versions (kept as is in the engine run record) |
 | `roll_rules` | ○ if there are futures continuous contracts | 5.22 |
@@ -1316,7 +1317,7 @@ datasets:
 | Standard | `tds_version` = `MAJOR.MINOR` | `1.0` |
 | Dataset schema | per dataset kind `schema_version` = `MAJOR.MINOR` | `bars 1.0`, `fundamentals_state 1.1` |
 | Package (data) | `version` / `snapshot_id` (producer's choice; a sortable string recommended) | `20261027-143144` |
-| Draft text (while a draft, 10.5) | `tds_draft` = `YYYY-MM-DD` | `2026-11-18` |
+| Draft text (while a draft, 10.5) | `tds_draft` = `YYYY-MM-DD` | `2026-11-19` |
 
 Standard `1.x` bundles all dataset schemas `1.x`. If a dataset schema MAJOR rises, the standard MAJOR rises too.
 
@@ -1582,3 +1583,4 @@ Reference numbers are `R4F-NN` of specification v3.4 (appendix I). **`tds_versio
 - 2026-11-17: **v1.4**, in place. 5.5: bars carry no versions in v1. A later snapshot that replaces a bar holds only the replacement under the same key, TDS does not set the replaced bar's `ts_available`, a consumer reads it as any bar, and two snapshots that differ in a bar are two histories of that row, reproduced from the snapshot a run recorded (maintainer decision 2026-11-17, #494). `tds_version` stays `"1.0"` (wording only).
 - 2026-11-18: **v1.4**, in place. 4.2, 4.5, 10.1 and 10.5: optional manifest field `tds_draft`, the date of the draft text a package follows; it moves with each later edit that changes what a conforming package holds or how its hashes are computed, not with a typo or explanation fix, and it is not in the semantic hash. From this date an edit that changes how a hash is computed from the same data also renames `hash_spec`, and each entry here says whether it moves `tds_draft`; this one moves `tds_draft` to 2026-11-18 (maintainer decision 2026-11-18, #529). An optional field is MINOR by 10.2 and the standard is a draft, so `tds_version` stays `"1.0"`.
 - 2026-11-18: **v1.4**, in place. 8.3 and 10.5: TDS-M017 (W), a package whose `tds_draft` is missing or names another text than the one the checker implements; a warning, so a package written before a rebuild keeps passing (maintainer decision 2026-11-18, #529). A new warning is MINOR by 10.2 and the standard is a draft, so `tds_version` stays `"1.0"`; `tds_draft` stays 2026-11-18 (a warning changes neither what a conforming package holds nor its hashes).
+- 2026-11-19: **v1.4**, in place. 3.8 and 4.2: each `markets` entry holds `calendar_id`, `currency` and `timezone`, each a non-empty string; a missing one is TDS-M003; until now the JSON schema accepted any object, and the engine failed on such a package (maintainer decision 2026-11-19, #567). A required field changes what a conforming package holds, so this moves `tds_draft` to 2026-11-19; `tds_version` stays `"1.0"` (the standard is a draft).

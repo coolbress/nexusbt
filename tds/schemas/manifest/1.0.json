@@ -9,7 +9,16 @@
     "producer": {"type": "object"},
     "profiles": {"type": "array", "items": {"type": "string"}},
     "id_namespaces": {"type": "object"},
-    "markets": {"type": "object", "additionalProperties": {"type": "object"}},
+    "markets": {"type": "object", "additionalProperties": {
+      "$comment": "TDS 3.8, 4.2 (#567): the three a market is; the watermark fields stay optional.",
+      "type": "object",
+      "required": ["calendar_id", "currency", "timezone"],
+      "properties": {
+        "calendar_id": {"type": "string", "minLength": 1},
+        "currency": {"type": "string", "minLength": 1},
+        "timezone": {"type": "string", "minLength": 1}
+      }
+    }},
     "hashes": {"type": "object"},
     "writer": {"type": "object"},
     "datasets": {
