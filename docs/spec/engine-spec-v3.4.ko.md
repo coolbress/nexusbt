@@ -2433,7 +2433,7 @@ primary, reference, diagnostics의 모든 값은 평가 기간과 `n_valid`/`n_t
 3. 외부 자료의 `known_on` 없음 → `PointInTimeError`(E3).
 4. 통화 단위 단면을 `across_markets`로 → `UnitError`(E5).
 5. 칼럼 이름 → E7. 창 함수 시운전: `(W, 3)` 1.0 배열로 한 번 불러 반환 모양·dtype과 `IndexError`(→ E8)를 확인. 거기서 함수가 낸 다른 예외는 그대로 올린다(3.3, R-42).
-6. 사용자 함수 순수성과 캐시 의존 [RV-C10]: `co_names`·클로저를 따라가 프로젝트 안 도우미는 소스 해시에 넣고, 읽는 모듈 전역 중 **상수형**(int, float, str, bool, None, 그것들의 tuple·frozenset)은 **값을 노드 해시에 넣는다**(`THRESHOLD = 10 → 20`이면 캐시 열쇠가 바뀜). 그 밖의 전역(배열·DataFrame·dict·list·객체)이나 파일 열기(`open`, `np.load`, `pd.read_*`, `pl.read_*`)를 읽으면 `ImpureFunctionWarning`(E24)이고 그 노드와 그 아래 노드의 L1 캐시를 끈다.
+6. 사용자 함수 순수성과 캐시 의존 [RV-C10]: `co_names`·클로저를 따라가 프로젝트 안 도우미는 소스 해시에 넣고, 읽는 모듈 전역 중 **상수형**(int, float, str, bool, None, 그것들의 tuple·frozenset)은 **값을 노드 해시에 넣는다**(`THRESHOLD = 10 → 20`이면 캐시 열쇠가 바뀜). 그 밖의 전역(배열·DataFrame·dict·list·객체)이나 파일 열기(`open`, `np.load`, `pd.read_*`, `pl.read_*`)를 읽으면 `ImpureFunctionWarning`(E24)이고 그 노드와 그 아래 노드의 L1 캐시를 끈다. 장식자로 감싼 도우미(`functools.lru_cache`, `numba.njit` 등)는 표준 `__wrapped__` 사슬을 따라 그것이 간직한 평범한 함수까지 가서 그 소스(장식자와 그 인자 포함)를 해시에 넣고, 평범한 함수에 닿지 못하는 프로젝트의 호출 가능 객체는 소스를 해시에 넣을 수 없으므로 E24다(#572).
 7. 고정 종목 목록 유니버스 → `SurvivorshipWarning`(E4).
 8. ML 층: `nx.ml.factor`의 학습 창 규칙(5.3.11)과 검증 방법의 폴드 자르기(6.3a)가 실제 검사다. 시험 묶음 정답이 훈련에 들어갈 수 있는 설정이면 실행 전 `FitLeakError`(E29). 다른 맞춤 상태 변환(`fit_segment`)은 여전히 예약 [SC-19, R4-23].
 9. 자료 능력: 그래프가 쓰는 기능의 필요 자료(4.3 표)가 스냅숏 `capabilities`에 없으면 E18(대체가 있으면 E30, 4.5).
