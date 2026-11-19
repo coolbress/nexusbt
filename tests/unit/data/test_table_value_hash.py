@@ -53,6 +53,18 @@ def test_a_value_change_changes_it() -> None:
     assert table_value_hash(changed, ()) != table_value_hash(table, ())
 
 
+def test_dictionary_and_list_columns_take_their_values_tags() -> None:
+    """A dictionary column hashes as its values' type; a list as `list<T>`; a list of lists has
+    no TDS type (3.2)."""
+    table = pa.table({"c": pa.array(["a", "b"]).dictionary_encode(),
+                      "l": pa.array([[1.0], None], pa.list_(pa.float64()))})  # fmt: skip
+    tags = [("c", "string"), ("l", "list<f64>")]
+    assert table_value_hash(table, ()) == hashlib.sha256(encode_table(table, tags, ())).hexdigest()
+    nested = pa.table({"n": pa.array([[[1]]], pa.list_(pa.list_(pa.int64())))})
+    with pytest.raises(TypeError, match="n: "):
+        table_value_hash(nested, ())
+
+
 def test_a_type_with_no_tds_tag_is_refused() -> None:
     table = pa.table({"s": pa.array([{"a": 1}])})
     with pytest.raises(TypeError, match=r"s: .*struct"):
