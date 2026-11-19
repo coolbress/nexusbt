@@ -8,7 +8,7 @@ import pytest
 
 import nexusbt as nx
 from nexusbt.factors import SMA, Returns
-from nexusbt.pipeline import Classifier, Factor, Filter, Price, graph_hash
+from nexusbt.pipeline import Classifier, Factor, Filter, Price, Term, graph_hash
 from nexusbt.pipeline._degree import _walk
 
 THRESHOLD = 10
@@ -196,8 +196,10 @@ SPEC_3_3_METHODS: dict[type, tuple[str, ...]] = {
 
 @pytest.mark.parametrize("kind", list(SPEC_3_3_METHODS), ids=lambda kind: kind.__name__)
 def test_every_method_spec_3_3_lists_is_on_its_class(kind: type) -> None:
-    missing = [name for name in SPEC_3_3_METHODS[kind] if not callable(getattr(kind, name, None))]
-    assert missing == []
+    # defined on the class itself: `object` and `Term` have `__eq__`, `__lt__` and the rest
+    own = kind.__mro__[: kind.__mro__.index(Term)]
+    defined = {name for cls in own for name, value in vars(cls).items() if callable(value)}
+    assert [name for name in SPEC_3_3_METHODS[kind] if name not in defined] == []
 
 
 def test_downsample_is_there_and_not_in_v1() -> None:
