@@ -18,6 +18,7 @@ import json
 import shutil
 import subprocess
 import sys
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -137,3 +138,41 @@ def test_a_run_sealed_from_the_wheel_captures_the_engine_lock(
     assert sealed.returncode == 0, f"exit {sealed.returncode}\n{sealed.stdout}{sealed.stderr}"
     captured = Path(sealed.stdout.strip()) / "source" / "engine-uv.lock"
     assert captured.read_bytes() == (ROOT / "uv.lock").read_bytes()  # the wheel's copy is exact
+
+
+# An entry file run from the installed engine: `run_pipeline` computes and seals (#249).
+PIPELINE = """
+import sys
+site, package = sys.argv[1:3]
+sys.path.insert(0, site)
+import nexusbt as nx
+assert nx.__file__.startswith(site), nx.__file__
+from nexusbt.factors import SMA
+result = nx.run_pipeline(nx.Pipeline({"sma": SMA(3)}), start="2020-01-06", end="2020-01-08",
+                         snapshot=package, save=True)
+print(result.table.num_rows, result.run_id)
+"""
+
+
+def test_an_installed_engine_runs_and_saves_a_pipeline(wheels: list[str], tmp_path: Path) -> None:
+    """The wheels unpacked as an installer lays them out, `run_pipeline(save=True)` from an entry
+    file: `compute` is imported when the run starts (#578), and its kernels compile with 2.2's
+    `cache=True`, which needs the module as a file; a wheel imported as a zip has none."""
+    site, project = tmp_path / "site", tmp_path / "project"
+    for wheel in wheels:
+        with zipfile.ZipFile(wheel) as unpacked:
+            unpacked.extractall(site)
+    package = make_snapshot(tmp_path / "pkg", preset="tiny", markets=("KR",))
+    project.mkdir()
+    (project / "nexusbt.toml").write_text('[data]\npins = "index"\n', encoding="utf-8")
+    (project / "m.py").write_text(PIPELINE, encoding="utf-8")
+    done = subprocess.run(  # noqa: S603
+        [sys.executable, "-I", str(project / "m.py"), str(site), str(package)],
+        capture_output=True, text=True, check=False, cwd=project, timeout=300,
+    )  # fmt: skip
+    assert done.returncode == 0, f"exit {done.returncode}\n{done.stdout}\n{done.stderr}"
+    rows, run_id = done.stdout.split()
+    assert rows == "15"  # 3 sessions, 5 KR instruments listed
+    manifest = json.loads((project / "runs" / run_id / "manifest.json").read_text())
+    assert manifest["source"] == {"entry": "m.py"}
+    assert (project / "runs" / run_id / "SEALED").is_file()

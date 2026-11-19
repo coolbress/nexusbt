@@ -550,6 +550,7 @@ nx.run_pipeline(pipeline: Pipeline, *, start: str | date, end: str | date, freq:
 
 - The result `PipelineResult.table`: an Arrow table `(market: str, session_date: date32, decision_ts: timestamp[us,UTC], instrument_id: str, <columns…>)`, sorted by `(session_date, market, instrument_id)`. Rows where `screen` is false or unknown are not there (unknown = false) [R3-13]. `.to_polars()`, `.to_pandas()` (optional dependency).
 - `PipelineResult.term_diagnostics`: the counts of 5.4.1 per market, session and term, the table 5.4.1 defines.
+- `PipelineResult.run_id`: with `save=True`, the id of the run it sealed (`kind="pipeline"`, 3.8); otherwise `None`.
 - When `start` is not a session, it is moved per market to the next session and `end` to the previous session, with a notice (error E9) [design 3.5 error E9].
 - The decision grid of `freq="daily"` = every session of each market (market_local). With several markets, the per-market rows are stacked.
 
@@ -780,6 +781,7 @@ nx.open(path: str | Path) -> Snapshot   # one package path (or a parent folder w
 | `evaluate` | the last session of `freq` per market (market_local) | `kind="evaluate"` | candidate +1 per factor (for a `Mapping`, a separate candidate and observation per item), segment exposure |
 | `backtest` | the strategy schedule, reference clock (5.1.3) | `kind="backtest"` | strategy candidate (+1 when new) + 1 observation, exposure |
 | `screen` | one `asof` (default = each market's last snapshot session) | `kind="screen"` | exposure record only (no performance computed) |
+| `run_pipeline(save=True)` | the sessions `freq` picks per market from `start` to `end` (3.5, market_local) | `kind="pipeline"` | exposure record only (no performance computed) |
 | `live` | the ledger's next decision | `kind="live"` + ledger events | none |
 | `sweep` | as `backtest` | parent `kind="sweep"` + `kind="backtest"` per candidate | +1 per candidate |
 | `backtest(method≠linear)` | the strategy schedule, per fold and path | one `kind="backtest"` (`method`, folds and paths are sub-tables under that run's `validation/`) | strategy candidate +1 (+1 per `grid` point) + 1 observation; folds and paths are diagnostics (6.2) [R4-21] |
@@ -2119,6 +2121,7 @@ runs/<run_id>/
   validation/              (method ≠ linear) split.json, folds.parquet, paths.parquet, path_daily/<path>.parquet, selection.parquet, stats.json (6.3a) [R4-20]
                            columns [R4F-20]: split.json = {method, params, split_hash, groups[{group, first, last}], splits[{split, test_groups}]}; folds = fold, train_first, train_last, test_first, test_last, selected_params_json, is_sharpe, is_cagr, oos_sharpe, oos_cagr, oos_mdd, n_purged, n_embargoed, n_fits, refit(fixed|online), n_online_fits, status [#216]; paths = path, cagr, sharpe, mdd, turnover, ruined, n_days, status, eval_first, eval_last, n_valid, n_total [#216]; path_daily = session_date, nav, ret_net, ret_gross, group, split; selection = fold, grid_point, candidate_key, is_metric, is_n_decisions, n_purged, n_embargoed, rank; stats.json = distribution, pbo{value, k, n}, psr, dsr, min_trl, degradation{slope, n}, selection_stability
   signal.parquet           (save_signal=True; in evaluate too) decision_id, instrument_id, term, value
+  pipeline.parquet         (run_pipeline only) PipelineResult.table, its columns as 3.5 gives them
   candidates.parquet       (sweep only) candidate_key, date, ret
   detail/                  (save_detail=True) tier-3 outputs, below: predictions.parquet of every grid point and every unselected candidate
   source/                  captured source (below)
