@@ -15,7 +15,7 @@ The first L1 run on synthetic `small` (#252) agreed with zipline 3.2.1 on every 
 ## Decision
 
 - (A) is compared, not left out: on a row whose next session is an instrument's ex-date, a price-level case compares the engine's value x m (the product of the price factors of the events effective that session; split factors only for the cases read without dividends) with zipline's; a ratio compares as it is; `close > X` compares `engine close x m > X`.
-- (B) is left out: a cell whose window holds the ex-date of an event whose final version is not known at `cutoff(t)` is not compared.
+- (B) is left out: a cell whose window holds the ex-date of an event whose final version is not known at `cutoff(t)` is not compared. The window is the rows the value reads (`lag_k` reads k + 1), and an ex-date on its first row counts as outside: it adjusts no row the value reads.
 - (C) is left out as V31-21's cells are.
 - The test computes each set from the package's corporate actions and calendar and fixes, for each case, the cells compared through m, the cells left out and the cells compared; a change in any count fails it. The evidence file carries the counts.
 
@@ -30,6 +30,7 @@ The engine's rules stay as the spec has them: (A) is ADR 0044's fixed row, (B) i
 ## Consequences
 
 - The L1 comparison does not cover the engine's point-in-time adjustment. It is tested by `tests/unit/compute/test_adjust.py::test_late_terms_leave_the_event_out_until_published` (5.3.4) and `::test_revision_changes_window_by_cutoff` (an amendment, 5.3.3a), `tests/unit/compute/test_executor_adjust.py::test_pending_event_and_late_cell_in_one_window` (5.3.4 through the executor), and `tds/tests/test_actions.py::test_resolver_at_cutoffs` (a cancelled version at each cutoff, 5.3.3a) and `::test_late_terms_revision_visible_at_ex_date`. A cancelled event inside an adjusted window is tested at the resolver only, not through `adjusted_window`.
-- Every US dividend, and the KR events whose terms are known at the ex-date, stay in L1-b.
+- The events whose final version is known at the ex-date stay in L1-b: on `small`, every US dividend but one amended after its ex-date, and the KR events whose terms are known then.
+- `n` in the evidence counts the cells compared, NaN on both sides counting as agreement; `n_values` counts the finite pairs held to the tolerance.
 
 Relation to ADR 0021: 0021 narrows parity to equal semantics; this record names the three cells where the semantics are not equal and how each is compared.

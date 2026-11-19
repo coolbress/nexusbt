@@ -67,13 +67,16 @@ def evidence(manifest: dict[str, Any], case: dict[str, Any], capsys: pytest.Capt
 
 def compare(case_id: str, metric: str, ours: np.ndarray, theirs: np.ndarray) -> dict[str, Any]:
     """8.1's row for one case: zipline's values `theirs` against the engine's `ours`. NaN on
-    both sides agrees; NaN on one side does not."""
+    both sides, or the same infinity, agrees; any other non-finite cell does not. `n` counts
+    the cells, `n_values` the finite pairs held to the tolerance."""
     both = np.isfinite(ours) & np.isfinite(theirs)
-    one = int((np.isnan(ours) != np.isnan(theirs)).sum())
+    same = (ours == theirs) | (np.isnan(ours) & np.isnan(theirs))
+    one = int((~both & ~same).sum())
     diff = np.abs(ours - theirs)[both]
     rel = diff / np.maximum(np.abs(theirs[both]), ABS)  # near 0, relative to the 1e-9 floor
     within = one == 0 and bool((diff <= ABS + REL * np.abs(theirs[both])).all())
-    return {"id": case_id, "metric": metric, "n": int(ours.size), "nan_on_one_side": one,
+    return {"id": case_id, "metric": metric, "n": int(ours.size), "n_values": int(both.sum()),
+            "nonfinite_disagreeing": one,
             "max_abs": float(diff.max(initial=0.0)), "max_rel": float(rel.max(initial=0.0)),
             "tolerance": f"{ABS} + {REL}|b|", "pass": within}  # fmt: skip
 
@@ -118,25 +121,25 @@ CASES: dict[str, tuple[int, str, str]] = {
     "close_above": (1, "total", "filter"), "sma_20": (20, "split", "level"),
     "sma_200": (200, "split", "level"), "ewma": (30, "split", "level"),
     "average_dollar_volume": (63, "split", "ratio"), "vwap": (20, "split", "level"),
-    **{f"lag_{k}": (11, "total", "level") for k in range(11)},
+    **{f"lag_{k}": (k + 1, "total", "level") for k in range(11)},  # rows t-k to t
 }  # fmt: skip
 #: Fixed by the first run on `small` (ADR 0045): (cells compared, of them through m, left out)
 EXPECTED: dict[str, dict[str, tuple[int, int, int]]] = {
-    "close_latest": {"KR": (58117, 280, 142), "US": (98621, 492, 1)},
-    "returns_2": {"KR": (57975, 0, 284), "US": (98620, 0, 2)},
-    "returns_21": {"KR": (55339, 0, 2920), "US": (98608, 0, 14)},
-    "rsi": {"KR": (56150, 0, 2109), "US": (98608, 0, 14)},
+    "returns_2": {"KR": (58117, 0, 142), "US": (98621, 0, 1)},
+    "returns_21": {"KR": (55469, 0, 2790), "US": (98608, 0, 14)},
+    "rsi": {"KR": (56290, 0, 1969), "US": (98608, 0, 14)},
     **{c: {"KR": (53968, 0, 4291), "US": (98608, 0, 14)}
        for c in ("returns_252", "annualized_volatility", "momentum_12_1", "sma_ratio")},
-    "close_above": {"KR": (58065, 280, 194), "US": (98621, 492, 1)},
+    "close_above": {"KR": (58207, 280, 52), "US": (98622, 492, 0)},
     **{c: {"KR": (58259, 280, 0), "US": (98622, 492, 0)}
-       for c in ("sma_20", "sma_200", "ewma", "vwap")},
+       for c in ("close_latest", "sma_20", "sma_200", "ewma", "vwap")},
     "average_dollar_volume": {"KR": (58259, 0, 0), "US": (98622, 0, 0)},
-    **{f"lag_{k}": {"KR": (56710, 280, 1549), "US": (98611, 492, 11)} for k in range(11)},
+    **{f"lag_{k}": {"KR": (58259 - kr, 280, kr), "US": (98622 - k, 492, k)} for k, kr in
+       enumerate((0, 142, 284, 426, 568, 709, 850, 990, 1130, 1270, 1410))},
 }  # fmt: skip
 ENGINE_ONLY = {"KR": 87, "US": 126}  # engine rows on and after a last session: no zipline D
 #: L1-b's rows compared around a cash or a share event's ex-date, after (B) (ADR 0045)
-COVERAGE = {"KR": {"cash": 1762, "share": 36}, "US": {"cash": 5837, "share": 24}}
+COVERAGE = {"KR": {"cash": 1900, "share": 36}, "US": {"cash": 5838, "share": 24}}
 
 
 def engine_terms(market: str) -> dict[str, Any]:
@@ -221,13 +224,14 @@ def sessions(snapshot: Path, market: str) -> set[pd.Timestamp]:
 
 def left_out(frame: pd.DataFrame, snapshot: Path, market: str, window: int, basis: str
              ) -> np.ndarray:  # fmt: skip
-    """ADR 0045 (B): rows whose `window` rows hold the ex-date of an event whose final
-    version is not known at the row's decision; for the split basis, share events only."""
+    """ADR 0045 (B): rows whose `window` rows hold, after their first, the ex-date of an event
+    whose final version is not known at the row's decision (on the first row it adjusts no
+    row the value reads); for the split basis, share events only."""
     pending, _ = actions(snapshot, market)
     if basis == "split":
         pending = pending[pending["affects"] == "split_and_total"]
     days = pd.DatetimeIndex(sorted(sessions(snapshot, market)))
-    hit = reach(frame, pending.assign(first=days.get_indexer(pending["ex_date"])), window)
+    hit = reach(frame, pending.assign(first=days.get_indexer(pending["ex_date"])), window - 1)
     return np.asarray(frame.index.isin(hit.loc[hit["decision_ts"] < hit["known"], "index"]))
 
 
@@ -245,7 +249,7 @@ def coverage(frame: pd.DataFrame, snapshot: Path, market: str) -> dict[str, int]
     """L1-b's compared rows whose 11 lags, or whose eve, reach a final effective event's
     ex-date, by kind: what is left of L1-b once (B) is left out."""
     both = frame[frame["_merge"] == "both"].reset_index(drop=True)
-    kept = both[~left_out(both, snapshot, market, 11, "total")]
+    kept = both[~left_out(both, snapshot, market, 11, "total")]  # lag_10's rows
     _, m = actions(snapshot, market)
     days = pd.DatetimeIndex(sorted(sessions(snapshot, market)))
     events = m.assign(first=days.get_indexer(m["ex_date"]) - 1,
@@ -262,8 +266,9 @@ def check(frame: pd.DataFrame, snapshot: Path, market: str, case: str) -> dict[s
     ours = both[case].astype(float).to_numpy()
     if kind == "level":
         ours = ours * m
-    elif kind == "filter":
-        ours = np.where(both[case].isna(), np.nan, both["close_latest"] * m > THRESHOLDS[market])
+    elif kind == "filter":  # the engine's own Filter; on the eve, its close x m > X (A)
+        eve = (both["close_latest"] * m > THRESHOLDS[market]).to_numpy(float)
+        ours = np.where(both[f"m_{basis}"].notna(), eve, ours)
     out = left_out(both, snapshot, market, window, basis) | (kind == "filter") & both[case].isna()
     keep = ~out
     found = compare(f"L1-{market}-{case}", f"{kind}, {basis}", ours[keep],
