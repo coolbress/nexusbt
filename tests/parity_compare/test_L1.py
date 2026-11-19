@@ -37,13 +37,17 @@ def manifest() -> dict[str, Any]:
 
 def evidence(manifest: dict[str, Any], case: dict[str, Any], capsys: pytest.CaptureFixture[str]
              ) -> None:  # fmt: skip
-    """Put `case` into this run's evidence file (spec 8.1) and print it to the job log."""
+    """Put `case` into this run's evidence file (spec 8.1) and print it to the job log; the
+    cases of an earlier `parity.run` in the same file are dropped."""
     day = dt.datetime.now(dt.UTC).strftime("%Y%m%d")
     name = f"{day}-{manifest['commit']}-{manifest['suite']}-{manifest['fixture']}.json"
     path = ROOT / "tests" / "parity" / "evidence" / name
     scaled = sorted(i for m in manifest["markets"].values() for i in m["scaled"])
-    found = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {"cases": []}
+    found = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    if found.get("run") != manifest["started"]:
+        found = {"cases": []}
     found |= {
+        "run": manifest["started"],
         "suite": manifest["suite"], "zipline_version": manifest["zipline_version"],
         "fixture_semantic_hash": manifest["fixture_semantic_hash"],
         "note": "parity does not imply realism",
@@ -54,7 +58,8 @@ def evidence(manifest: dict[str, Any], case: dict[str, Any], capsys: pytest.Capt
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(found, indent=2) + "\n", encoding="utf-8")
     with capsys.disabled():
-        print(f"\n{case['id']} {case['metric']}: n={case['n']} max_abs={case['max_abs']:.3g}"
+        print(f"\n{path.relative_to(ROOT)}: {found['note']}; {len(scaled)} scaled instruments")
+        print(f"{case['id']} {case['metric']}: n={case['n']} max_abs={case['max_abs']:.3g}"
               f" max_rel={case['max_rel']:.3g} tolerance={case['tolerance']} pass={case['pass']}"
               f" → {path.relative_to(ROOT)}")  # fmt: skip
 
@@ -81,15 +86,16 @@ def test_price_scale_for_uint32_overflow(
                       ).to_table(columns=[*keys, *OHLC]).to_pandas()  # fmt: skip
     ours = ours.assign(instrument_id=ours["instrument_id"].astype(str),
                        session_date=pd.to_datetime(ours["session_date"]))  # fmt: skip
+    highs = ours[ours["instrument_id"].str.startswith("KR:")].groupby("instrument_id")["high"].max()
+    for iid, high in highs.items():  # every KR instrument fits, scaled by the least n needed
+        n = scaled.get(iid, 0)
+        assert high / 10**n * PRICE_UNITS < UINT32_MAX, iid
+        assert n == 0 or high / 10 ** (n - 1) * PRICE_UNITS >= UINT32_MAX, iid
     ours = ours[ours["instrument_id"].isin(list(scaled)) & ours["close"].notna()]  # priced bars
     theirs = pd.read_parquet(OUT / "readback-KR.parquet")
     theirs = theirs.assign(session_date=pd.to_datetime(theirs["session_date"]))
     joined = ours.merge(theirs[[*keys, *OHLC]], on=keys, suffixes=("", "_zipline"))
     assert len(joined) == len(ours), "every priced bar of a scaled instrument reads back"
-    for iid, n in scaled.items():  # the scale is needed, and it is the least that fits
-        high = float(ours.loc[ours["instrument_id"] == iid, "high"].max())
-        assert high * PRICE_UNITS >= UINT32_MAX > high / 10**n * PRICE_UNITS, iid
-        assert high / 10 ** (n - 1) * PRICE_UNITS >= UINT32_MAX, iid
     for name in OHLC:
         ours_, theirs_ = joined[name].to_numpy(float), joined[f"{name}_zipline"].to_numpy(float)
         case = compare(f"L3-scale-KR-{name}", f"raw {name}, scale undone", ours_, theirs_)

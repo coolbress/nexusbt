@@ -7,8 +7,10 @@ parity failure; when the two engines differ elsewhere, the hand calculation (T-2
 
 - `InMemoryDailyBarReader.get_value` reads `self.frames`, which the class never sets (it keeps
   `_frames`). `parity.bundle.ScaledDailyBarReader` gives it `frames`.
-- zipline's daily bundle stores a price as `round(price x 1000)` in a uint32 and zeroes a row
-  past it. An instrument whose prices pass that is kept with a per-instrument price scale
+- zipline's daily bundle stores a price as `round(price x 1000)` cast to a uint32. Its
+  `winsorise_uint32` checks the price before the x 1000, so a price past about 4,294,967 is
+  cast out of range without an error and read back wrong (the value depends on the platform).
+  An instrument whose prices pass that is kept with a per-instrument price scale
   (x 1/10^n), undone by `ScaledDailyBarReader`; the evidence file lists the scaled instruments
   as a limit of the comparison (RV-Q08).
 

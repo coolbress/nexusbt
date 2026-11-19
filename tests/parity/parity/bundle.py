@@ -1,8 +1,9 @@
 """TDS package → zipline bundle: `make_bundle`, the only conversion point of spec 8.1.
 
-zipline stores a daily price as `round(price x 1000)` in a uint32 and zeroes a row past it.
-An instrument whose prices pass that is not dropped: its prices go in divided by 10^n, the
-least n that fits, and `reader` multiplies them back (RV-Q08). The sid is the sort order of
+zipline stores a daily price as `round(price x 1000)` cast to a uint32, without a check on
+that product, so a price past about 4,294,967 is stored wrong. Such an instrument is kept:
+its prices go in divided by 10^n, the least n that fits, and `reader` multiplies them back
+(RV-Q08). The sid is the sort order of
 the market's `instrument_id`. Splits and dividends come with L1-b (#252).
 """
 
@@ -21,7 +22,7 @@ from zipline.data.in_memory_daily_bars import InMemoryDailyBarReader
 
 OHLC = ["open", "high", "low", "close"]
 CALENDARS = {"KR": "XKRX", "US": "XNYS"}  # each market alone (8.1); ZZ has no zipline calendar
-PRICE_UNITS = 1000  # zipline's bcolz_daily_bars: price x 1000 in a uint32
+PRICE_UNITS = 1000  # zipline's bcolz_daily_bars: price x 1000 cast to a uint32, unchecked
 
 
 @dataclass(frozen=True)

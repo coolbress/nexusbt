@@ -9,6 +9,7 @@ engine's own environment; ingests a zipline bundle per market; and leaves for
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import json
 import os
 import platform
@@ -55,6 +56,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--out", type=Path, default=ROOT / ".scratch" / "parity")
     args = parser.parse_args(argv)
     began, out = time.perf_counter(), args.out / args.fixture
+    started = dt.datetime.now(dt.UTC).isoformat(timespec="seconds")
     snapshot = fixture(out)
     os.environ["ZIPLINE_ROOT"] = str(out / "zipline")
     markets = {}
@@ -71,7 +73,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"{market}: {len(sids)} instruments, {len(BUNDLES[name].scales)} scaled")
     hashes = json.loads((snapshot / "tds.json").read_text(encoding="utf-8"))["hashes"]
     manifest = {
-        "suite": args.suite, "fixture": args.fixture, "snapshot": str(snapshot),
+        "suite": args.suite, "fixture": args.fixture, "snapshot": str(snapshot), "started": started,
         "commit": tool("git", "rev-parse", "--short", "HEAD").strip(),
         "fixture_semantic_hash": hashes["semantic_sha256"],
         "zipline_version": version("zipline-reloaded"), "markets": markets,
