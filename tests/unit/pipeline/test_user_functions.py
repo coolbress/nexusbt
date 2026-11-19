@@ -400,3 +400,124 @@ def test_reads_through_a_project_module_or_class(tmp_path: Path) -> None:
         cfg.cfg = cfg
         with pytest.warns(UserWarning, match=f"reads global .*'{shown}'"):
             assert l1_disabled(nx.factor(window=2, inputs=[CLOSE])(cfg.score))
+
+
+WRAPPED = """
+import functools
+import numba
+
+def _logged(f):
+    @functools.wraps(f)
+    def inner(*args):
+        return f(*args)
+    return inner
+
+{decorator}
+def _helper(x):
+    return x * {k}
+
+def score(close):
+    return _helper(close[-1])
+"""
+
+
+def _wrapped_hash(at: Path, name: str, decorator: str, k: int) -> str:
+    """The graph hash of `score`, which calls `_helper` with `decorator` and body `x * k`; no
+    warning (a wrapped helper is not E24)."""
+    module = load(at, name, WRAPPED.format(decorator=decorator, k=k))
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        return graph_hash(nx.factor(window=2, inputs=[CLOSE])(module.score))
+
+
+@pytest.mark.parametrize("decorator", ["@functools.lru_cache", "@_logged", "@numba.njit"])
+def test_a_wrapped_helper_is_in_the_hash(tmp_path: Path, decorator: str) -> None:
+    """6.5 (6), #572: a helper wrapped by a decorator that keeps the function in `__wrapped__`
+    (`lru_cache`, a `functools.wraps` decorator, `numba.njit`) is followed to it, so editing its
+    body changes the user term's hash, with no warning."""
+    before = _wrapped_hash(tmp_path, "before", decorator, 2)
+    assert _wrapped_hash(tmp_path, "again", decorator, 2) == before
+    assert _wrapped_hash(tmp_path, "after", decorator, 5) != before
+
+
+def test_a_decorators_arguments_are_in_the_hash(tmp_path: Path) -> None:
+    """#572 Decisions 4: the 5.3.9 canonical source holds the decorator list, so one body under
+    `njit()` and under `njit(fastmath=True)` gives two hashes."""
+    plain = _wrapped_hash(tmp_path, "plain", "@numba.njit()", 2)
+    assert _wrapped_hash(tmp_path, "fast", "@numba.njit(fastmath=True)", 2) != plain
+
+
+#: A stand-in for a compiled dispatcher that keeps no `__wrapped__`: an object of a library's
+#: class (not the project's), named by `__module__` as an object of the module that made it.
+_Dispatcher = type("Dispatcher", (), {"__module__": "numba.core.registry",
+                                      "__call__": lambda self, x: x})  # fmt: skip
+_compiled = _Dispatcher()
+_compiled.__module__ = __name__
+_looped = _Dispatcher()  # a `__wrapped__` chain that never ends: `inspect.unwrap` refuses it
+_looped.__module__, _looped.__wrapped__ = __name__, _looped
+_mean = np.mean  # numpy's: has a `__wrapped__`, to a function outside the project
+
+
+class _Rules:
+    @classmethod
+    def scale(cls, x: Any) -> Any:
+        return x * 2
+
+
+class _Scaled:
+    """A project decorator object that keeps the function in `__wrapped__` and holds data."""
+
+    def __init__(self, f: Any) -> None:
+        functools.update_wrapper(self, f)
+        self.f, self.factor = f, [2.0]
+
+    def __call__(self, x: Any) -> Any:
+        return self.f(x) * self.factor[0]
+
+
+@_Scaled
+def _doubled(x: Any) -> Any:
+    return x
+
+
+def _calls_scaled(close: Any) -> Any:
+    return _doubled(close[-1])
+
+
+def _calls_compiled(close: Any) -> Any:
+    return _compiled(close[-1])
+
+
+def _calls_looped(close: Any) -> Any:
+    return _looped(close[-1])
+
+
+def _calls_classmethod(close: Any) -> Any:
+    return _Rules.scale(close[-1])
+
+
+def _calls_numpy(close: Any) -> Any:
+    return _mean(close, axis=0)
+
+
+@pytest.mark.parametrize(("fn", "shown"), [(_calls_compiled, "_compiled"),
+                                           (_calls_looped, "_looped"),
+                                           (_calls_classmethod, "_Rules.scale"),
+                                           (_calls_scaled, "_doubled")])  # fmt: skip
+def test_a_project_callable_with_no_function_is_E24(fn: Any, shown: str) -> None:  # noqa: N802
+    """#572 Decisions 2: a callable of the project from which no plain function is reached, a
+    compiled dispatcher with no `__wrapped__` or a class's method, cannot have its source in the
+    hash: E24, L1 off, never taken as pure without a word. An object of a project class stays
+    E24 (#246) when it keeps a function in `__wrapped__`: the data it holds is not hashed."""
+    with pytest.warns(UserWarning, match=rf"(?s)reads global '{shown}'.*L1 cache disabled"):
+        term = nx.factor(window=2, inputs=[CLOSE])(fn)
+    assert l1_disabled(term)
+
+
+def test_a_wrapped_callable_outside_the_project_is_not_followed() -> None:
+    """#572 Decisions 3: `np.mean` keeps a `__wrapped__`, to numpy's own function, which is
+    outside the project: no helper and no warning, as before."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        term = nx.factor(window=2, inputs=[CLOSE])(_calls_numpy)
+    assert not l1_disabled(term)

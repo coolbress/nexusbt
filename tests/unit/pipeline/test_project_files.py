@@ -91,9 +91,10 @@ def _uses_the_stdlib(close: Any) -> Any:
 
 def test_the_interpreters_stdlib_is_outside() -> None:
     """This interpreter's standard library, however its folder is reached: `statistics.fmean` is
-    no helper and an `lru_cache` wrapper is not taken for a project object (not E24)."""
+    no helper and an `lru_cache` wrapper is not taken for a project object (not E24); the
+    function it wraps is a helper (#572)."""
     assert not _terms._project_file(statistics.__file__)
     assert not _terms._project_file(functools.__file__)
     assert isinstance(_uses_the_stdlib, FunctionType)
     reads = _terms._reads(_uses_the_stdlib)
-    assert (reads.helpers, reads.impure) == ((), ())
+    assert (reads.helpers, reads.impure) == ((_cached.__wrapped__,), ())
