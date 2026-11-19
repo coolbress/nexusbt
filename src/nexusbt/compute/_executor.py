@@ -57,6 +57,7 @@ _BINARY: Mapping[str, Callable[[F64, F64], F64]] = {
     "mul": np.multiply,
     "div": np.divide,
     "pow": _kernels.power,
+    "fillna": lambda x, y: np.where(np.isnan(x), y, x),  # 3.3: a Factor's only explicit fill
 }
 _UNARY: Mapping[str, Callable[[F64], F64]] = {
     "neg": np.negative,
@@ -74,7 +75,7 @@ _SECTION = frozenset({"rank", "zscore", "demean", "winsorize", "top", "bottom",
                       "percentile_between", "quantiles"})  # fmt: skip
 _RANK = {"ordinal": _kernels.ORDINAL, "average": _kernels.AVERAGE, "min": _kernels.MIN,
          "max": _kernels.MAX, "dense": _kernels.DENSE}  # fmt: skip
-#: A Factor's tests that are never unknown (5.4.1); a float's null is NaN.
+#: A Factor's tests that are never unknown at a listed cell (5.4.1); a float's null is NaN.
 _TESTS: Mapping[str, Callable[[F64], npt.NDArray[np.bool_]]] = {
     "isnan": np.isnan,
     "isnull": np.isnan,
@@ -246,8 +247,9 @@ class _Chunk:
         out = np.full((len(self.block.dates), len(self.block.instrument_ids)), np.nan)
         self.unknown = 0
         for t in rows.tolist():  # 5.4.1: a value is finite or NaN, at the term that produced it
-            found = self.row(term, t)
-            out[t - self.low] = np.where(np.isinf(found), np.nan, found)
+            found = self.row(term, t)  # 5.3.1: absent where not listed, for any later reader
+            kept = self.block.exists[t - self.low] & ~np.isinf(found)
+            out[t - self.low] = np.where(kept, found, np.nan)
         self.values[graph_hash(term)] = out
         if self.unknown:  # 3.3 `UnknownGroup`; where the diagnostic is kept is #536's question
             name = f"{term.op} {graph_hash(term)[:12]}"
@@ -263,7 +265,7 @@ class _Chunk:
         if term.op == "shift":
             k: int = params["k"]
             return self.cell(inputs[0], t - k) if t - k >= 0 else np.full(n, np.nan)
-        if term.op in _BINARY:
+        if term.op in _BINARY and isinstance(term, Factor):  # a Filter's `fillna` is `filter`
             return _BINARY[term.op](self.cell(inputs[0], t), self.cell(inputs[1], t))
         if term.op in _UNARY:
             return _UNARY[term.op](self.cell(inputs[0], t))
@@ -370,7 +372,7 @@ class _Chunk:
 
     def codes_test(self, term: Term, t: int) -> F64:
         """A Filter of a Classifier's codes at row t (3.3, R3-13): `isnull` and `notnull` are
-        always valid; `eq` and `element_of` are unknown on the missing code -1."""
+        always valid at a listed cell; `eq` and `element_of` are unknown on the missing code -1."""
         codes = _codes(self.cell(term.inputs[0], t))
         if term.op in ("isnull", "notnull"):
             missing = codes == -1
