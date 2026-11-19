@@ -26,8 +26,14 @@ if TYPE_CHECKING:
 
 #: `obs_status` codes of a block's cells, by position (TDS 5.5); -1, the last, has no bar.
 OBS_STATUS = np.array(["traded", "no_trade", "halted", "missing", "absent"])
+#: The `Price` columns 3.2 derives from a bars column: the block holds that column as stored,
+#: and the executor adjusts a window by the column's basis (5.3.3), `close_tr`'s with C_total.
+_SOURCE = {"close_tr": "close", "close_unadjusted": "close", "volume_unadjusted": "volume"}
 #: Price cells NaN in a halted or missing session (3.2); `no_trade` keeps its reference close.
-_PRICES = frozenset({"open", "high", "low", "close"})
+_PRICES = frozenset({"open", "high", "low", "close", "close_tr", "close_unadjusted"})
+_VOLUMES = ("volume", "volume_unadjusted")  # 0 in a `no_trade` session (3.2)
+#: The bars columns a package may leave out, read as NaN (4.5 F-01).
+OHL = ("open", "high", "low")
 _INTEGER = frozenset({"i8", "i16", "i32", "i64"})
 #: Columns a bars file may lack: the block reads them when present (TDS 5.5, F-03).
 _OPTIONAL = ("obs_status", "ts_end", "ts_available")
@@ -85,14 +91,18 @@ def build_block(
     status = np.full(shape, -1, dtype=np.int8)
     available = np.full(shape, np.datetime64("NaT", "us"))
     source, _ = bars_availability(bars, str(manifest.data["snapshot_id"]))
-    wanted = [ID, "session_date", "close", *fields]
-    optional = [*_OPTIONAL, *([source] if source != "ts_close" else [])]  # ts_close: calendar's
+    sources = [_SOURCE.get(f, f) for f in fields]  # OHL: NaN where a file lacks them (F-01)
+    wanted = [ID, "session_date", "close", *(s for s in sources if s not in OHL)]
+    optional = [*_OPTIONAL, *([source] if source != "ts_close" else []),  # ts_close: calendar's
+                *(s for s in sources if s in OHL)]  # fmt: skip
     for path in _files(bars, calendar.market, dates) if n else ():
         rows, cols, table = _cells(manifest.root / path, ids, dates, wanted, optional)
         if source not in (*table.column_names, "ts_end", "ts_close"):
             raise _absent(manifest, bars, path, source)
-        for f in fields:
-            values[f][rows, cols] = table[f].to_numpy(zero_copy_only=False).astype(np.float64)
+        for f, s in zip(fields, sources, strict=True):
+            if s in table.column_names:
+                cells = table[s].to_numpy(zero_copy_only=False)
+                values[f][rows, cols] = cells.astype(np.float64)
         if "obs_status" in table.column_names:
             codes = pc.index_in(table["obs_status"], pa.array(OBS_STATUS[:-1])).fill_null(-1)
             status[rows, cols] = codes.to_numpy().astype(np.int8)
@@ -104,8 +114,8 @@ def build_block(
     for f in fields:
         values[f][hidden & (f in _PRICES)] = np.nan
         values[f][~exists] = np.nan
-    if "volume" in values:
-        values["volume"][status == 1] = 0.0  # no_trade (3.2)
+    for f in (f for f in _VOLUMES if f in values):
+        values[f][status == 1] = 0.0  # no_trade (3.2)
     status[~exists] = -1
     return MarketBlock(calendar.market, dates, first - start, ids, values, exists, status,
                        available)  # fmt: skip
