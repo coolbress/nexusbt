@@ -118,6 +118,19 @@ def test_two_classes_make_two_terms() -> None:
     assert graph_hash(Mom()) == graph_hash(Mom())
 
 
+def test_a_class_constant_compute_reads_is_in_the_hash() -> None:
+    """Two classes of one name and one compute that differ only in a constant compute reads
+    through `self` make two terms (review of #251)."""
+
+    def compute(self: Any, today: Any, assets: Any, out: Any, *inputs: Any) -> None:
+        out[:] = inputs[0][-self.skip] / inputs[0][0] - 1
+
+    body = {"inputs": (USEquityPricing.close,), "window_length": 253, "compute": compute}
+    a = type("Skip", (CustomFactor,), {**body, "skip": 21})
+    b = type("Skip", (CustomFactor,), {**body, "skip": 5})
+    assert graph_hash(a()) != graph_hash(b())
+
+
 def test_usequitypricing_close_is_close_tr() -> None:
     """3.4, A-39: zipline's close carries the adjustment DB (splits and dividends), so the
     shim's close is the total-return close, not the split-only `Price.close`."""

@@ -9,7 +9,7 @@ from typing import Any, ClassVar, cast
 import numpy as np
 
 from nexusbt.pipeline import BoundColumn, Factor, Filter, factor
-from nexusbt.pipeline._terms import _readable
+from nexusbt.pipeline._terms import _constant, _readable
 
 __all__ = ["CustomFactor", "USEquityPricing"]
 
@@ -78,9 +78,14 @@ class CustomFactor:
     ) -> Factor:
         compute: Callable[..., object] = cls.compute
         code = _readable(cast("FunctionType", compute))
+        named = {k: v for c in reversed(cls.__mro__) for k, v in vars(c).items()}
+        constants = tuple(sorted((k, v) for k, v in named.items()
+                                 if not k.startswith("__") and _constant(v)))  # fmt: skip
 
         def run(*windows: Any) -> Any:
-            _ = code  # compute's source, a constant run reads, so it is in the term's hash
+            # compute's source and the class's constants compute may read through `self`, which
+            # run reads, so they are in the term's hash
+            _ = code, constants
             out = np.full(windows[0].shape[1], np.nan)
             compute(cls, None, None, out, *windows)
             return out
