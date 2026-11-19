@@ -2,15 +2,19 @@
 
 The oracle below spells every kernel of 3.4 and `nx.ops.rolling` (3.3) one column and one row
 at a time, with numpy float64 scalars: sums are `acc = acc + x[r]` from 0.0 in ascending row
-order over the finite cells (ADR-0019 definition A), a variance is two passes, and `EWMA`'s
-weights come from the same compiled `pow` (the transcendental class, 5.3.10 2a). The kernels
-the executor dispatches (`_factors.KERNELS`) must give the same bits on random windows and NaN
-positions. There is no fast path yet: the reference is the only implementation (spec 10.0, M1
-"P-KERNEL (reference)"), so fast = reference holds by construction until one is added.
+order (ADR-0019 definition A), over the finite cells for the NaN-skipping kernels and over
+every cell for `EWMA` and `window_sum`, where a NaN makes the value NaN. A variance is two
+passes; equal cells give a standard deviation of 0, a rule of the kernel (#523), not of 3.4.
+The kernels the executor dispatches (`_factors.KERNELS`) and the registered `window_sum` must
+give the same bits on random windows and NaN positions, and `EWMA`'s weights must come from the
+compiled `pow` (the transcendental class, 5.3.10 2a). There is no fast path yet: the reference
+is the only implementation (spec 10.0, M1 "P-KERNEL (reference)"), so fast = reference holds by
+construction until one is added.
 """
 
 from __future__ import annotations
 
+import functools
 from collections.abc import Callable
 from typing import Any
 
@@ -19,7 +23,7 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from nexusbt.compute import _elem
+from nexusbt.compute import _elem, _kernels
 from nexusbt.compute._factors import KERNELS, ROLLING
 from nexusbt.compute._kernels_ref import REGISTERED
 
@@ -109,16 +113,24 @@ def median(c: list[Any]) -> Any:
     return (finite[(n - 1) // 2] + finite[n // 2]) / 2 if n else NAN
 
 
+def lowest(c: list[Any]) -> Any:
+    """The smallest finite cell by `fmin` in row order, so a tie of 0.0 and -0.0 resolves as
+    the kernel's does; NaN when none."""
+    low = NAN
+    for v in c:
+        low = np.fmin(low, v if np.isfinite(v) else NAN)
+    return low
+
+
 def rolling(c: list[Any], how: str, min_periods: int) -> Any:
     if sum(bool(np.isfinite(v)) for v in c) < min_periods:
         return NAN
-    finite = [v for v in c if np.isfinite(v)]
     found: dict[str, Callable[[], Any]] = {
         "mean": lambda: mean(c),
         "sum": lambda: fold(c)[0],
         "std": lambda: std(c, 1),
-        "min": lambda: min(finite) if finite else NAN,
-        "max": lambda: max(finite) if finite else NAN,
+        "min": lambda: lowest(c),
+        "max": lambda: -lowest([-v for v in c]),
         "median": lambda: median(c),
     }
     return found[how]()
@@ -152,7 +164,21 @@ def same_bits(found: Any, expected: Any) -> bool:
 def test_every_kernel_has_an_oracle() -> None:
     """A kernel added to the executor or to the registered table gets its oracle here."""
     assert set(ORACLES) == set(KERNELS)
-    assert set(REGISTERED) - {"window_sum"} <= set(KERNELS)
+    assert set(REGISTERED) - {"window_sum"} <= set(KERNELS)  # `window_sum`: checked below
+
+
+def test_ewma_weights_use_the_compiled_pow(monkeypatch: pytest.MonkeyPatch) -> None:
+    """5.3.10 2a: the weights go through `_elem.power`, the one compiled element function."""
+    calls = []
+    compiled = _elem.power
+
+    def spy(base: Any, exponent: Any) -> Any:
+        calls.append(len(base))
+        return compiled(base, exponent)
+
+    monkeypatch.setattr(_elem, "power", spy)
+    _kernels.ewma_weights(7, 0.3)
+    assert calls == [7]
 
 
 @given(
@@ -182,3 +208,7 @@ def test_P_KERNEL_reference_is_left_fold(  # noqa: N802 - spec 10.1's name
             expected = [ORACLES[op]([[F(v) for v in s] for s in c] if op == "VWAP"
                                     else [F(v) for v in c], params) for c in columns]  # fmt: skip
         assert same_bits(found, expected), (op, x.tolist(), found, expected)
+    x = window(rows)  # `window_sum`: every cell in row order, a NaN making the value NaN
+    expected = [functools.reduce(lambda acc, v: acc + v, map(F, x[:, j]), F(0.0))
+                for j in range(cols)]  # fmt: skip
+    assert same_bits(REGISTERED["window_sum"].kernel(x), expected), x.tolist()
