@@ -165,14 +165,18 @@ class Factor(Term):
     def to(self, ccy: str) -> Factor: return _node(Factor, "to", self, ccy=ccy)
     # fmt: on
 
-    def __call__(self, **values: Any) -> Factor:
+    def __call__(self, *arrays: Any, **values: Any) -> Factor:
         """3.3: a user function with keyword parameters bound, `f(n=63)`, a new Factor; the
-        values are in its graph hash and are passed to the function when it runs."""
+        values are in its graph hash and are passed to the function when it runs. A call with
+        an array is E16 naming `.function`, the plain function, unbound (#582)."""
         fn = self.function
         if self.op != "user" or fn is None:
             raise TypeError(f"only a user function's Factor takes keyword values, not {self.op}")
         named = (inspect.Parameter.KEYWORD_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
         windows = len(self.inputs)  # the first parameters are the inputs' windows
+        if arrays:  # the keywords of this call too, as binding them would keep them
+            bound = {**dict(dict(self.params).get("bound", ())), **values}
+            raise _called_with_arrays(fn, windows, tuple(sorted(bound.items())))
         listed = list(inspect.signature(fn).parameters.values())[windows:]
         taken = {p.name for p in listed if p.kind in named}
         for name, value in values.items():
@@ -222,6 +226,24 @@ class Filter(Term):
             raise TypeError(f"a Filter's fillna takes True or False, not {value!r}")
         return _node(Filter, "fillna", self, value=value)
     # fmt: on
+
+
+def _called_with_arrays(
+    fn: Callable[..., Any], windows: int, bound: tuple[tuple[str, Any], ...]
+) -> ConfigError:
+    """3.3 (#582): E16 for `f(prices)`, its fix the `.function` call with the bound values."""
+    name = fn.__name__
+    args = [*list(inspect.signature(fn).parameters)[:windows], *(f"{k}={v!r}" for k, v in bound)]
+    return ConfigError(
+        what=f"{name} was called with an array; a call binds keyword values and makes a Factor",
+        where=f"{name}(...)",
+        why="the decorated name is a Factor: f(n=63) binds n, and the engine runs the function",
+        fix=f"{name}.function({', '.join(args)}) on the arrays, one for each input",
+        more="spec 3.3 (user window functions)",
+        layer=f"config — a positional argument to {name}",
+        at=_user_line().split(" in ")[0],
+        subject=name,
+    )
 
 
 def _filter(value: object) -> Filter:
