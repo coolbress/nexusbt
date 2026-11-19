@@ -15,7 +15,7 @@ import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
 from nexusbt.contracts import CapabilityError, ConfigError, SessionNotice, SnapshotError
-from nexusbt.data._coverage import bars_by_market, schedule
+from nexusbt.data._coverage import BarsExtent, schedule
 from nexusbt.data._datasets import chosen, dataset
 
 if TYPE_CHECKING:
@@ -99,9 +99,10 @@ def _day(name: str, value: object) -> np.datetime64:
     return np.datetime64(day, "D")
 
 
-def read_calendar(manifest: Manifest, market: str) -> Calendar:
+def read_calendar(manifest: Manifest, market: str, extent: BarsExtent | None = None) -> Calendar:
     """The calendar of `market` from `calendar_sessions`, in session order; without rows for
-    its `calendar_id`, the sessions of exchange_calendars over the bars' period (4.5 F-02)."""
+    its `calendar_id`, the sessions of exchange_calendars over the bars' period (4.5 F-02),
+    from `extent` when the open has one (#568: the bars read once per open)."""
     calendar_id = str(manifest.data["markets"][market]["calendar_id"])
     held = (dataset(manifest.data, "calendar_sessions") or {}).get("files", [])
     tables = [pq.read_table(manifest.root / f["path"]) for f in held]
@@ -112,8 +113,9 @@ def read_calendar(manifest: Manifest, market: str) -> Calendar:
     _, delay = bars_availability(bars, str(manifest.data["snapshot_id"]))
     delta = np.timedelta64(delay, "us")
     if rows is None or not len(rows):
-        extent = bars_by_market(manifest.root, bars, chosen(manifest.data).get("instruments"))
-        return _synthesized(market, calendar_id, extent.get(market), delta)
+        if extent is None:
+            extent = BarsExtent(manifest.root, bars, chosen(manifest.data).get("instruments"))
+        return _synthesized(market, calendar_id, extent.by_market().get(market), delta)
 
     def column(name: str, unit: str) -> Any:
         return rows[name].to_numpy().astype(f"datetime64[{unit}]")

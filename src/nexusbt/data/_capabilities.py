@@ -22,7 +22,7 @@ from nexusbt.contracts import (
     FallbacksPolicy,
     SnapshotError,
 )
-from nexusbt.data._coverage import bars_by_market, schedule
+from nexusbt.data._coverage import BarsExtent, schedule
 from nexusbt.data._datasets import chosen, dataset, doubled
 from nexusbt.data._datasets import layer as _layer
 from nexusbt_tds.check import Finding
@@ -91,22 +91,24 @@ class FallbackRecord:
 def decide(
     folder: Path, manifest: Manifest, rules: Mapping[str, str | None],
     found: Sequence[Finding], required: CapabilityRequest | None, policy: FallbacksPolicy,
+    extent: BarsExtent,
 ) -> tuple[DataCapabilities, list[FallbackRecord], tuple[str, ...]]:  # fmt: skip
     """4.4-3: the features on, the fallbacks they take, and the assumptions those add.
 
     A requested feature the package cannot give is E18; with no request every feature the
-    package can give is on. A fallback is E30 under `warn` and E14 under `fail`."""
+    package can give is on. A fallback is E30 under `warn` and E14 under `fail`. `extent`
+    reads the bars only for what asks it (#568)."""
     data = manifest.data
     kinds = chosen(data)  # a kind with none or two or more left is missing (4.3, #547)
     bars = kinds.get("bars")
-    by_market = bars_by_market(folder, bars, kinds.get("instruments"))  # declared, else read
     lacking = {f: [k for k in needs if k not in kinds] for f, needs in NEEDS.items()}
     taken: dict[str, list[FallbackRecord]] = {f: [] for f in NEEDS}
     market_of = _market_of(folder, kinds.get("instruments"))  # TDS K1: ids are opaque
-    _declared(folder, data, by_market, market_of)
+    if not extent.partitioned:  # a `market=` partition is the checker's (TDS-M010)
+        _declared(folder, data, extent.by_market(), market_of)
     f02: Sessions | None = None
     if bars is not None:
-        f02 = _sessions(folder, data["markets"], kinds, by_market)
+        f02 = _sessions(folder, data["markets"], kinds, extent)
         for f in ("adjusted", "backtest"):
             if f02 is None and "calendar_sessions" not in lacking[f]:  # 4.4-4: one market's
                 lacking[f].append("calendar_sessions")
@@ -119,11 +121,11 @@ def decide(
     if bars is not None and (bars["params"].get("density") == "sparse"
                              or "obs_status" not in columns):  # fmt: skip
         taken["backtest"] += [FallbackRecord("F-03", bars["name"], m, int(e.get("rows", 0)))
-                              for m, e in by_market.items()]  # fmt: skip
+                              for m, e in extent.by_market().items()]  # fmt: skip
     years = Counter((f.dataset, market_of.get(str((f.key or {}).get(ID_COLUMN)), "-"))
                     for f in found if f.code == "TDS-V011")  # fmt: skip
     taken["backtest"] += [FallbackRecord("F-16", str(d), m, n) for (d, m), n in years.items()]
-    taken["grid"] += _no_grid(folder, kinds, rules, by_market, market_of)
+    taken["grid"] += _no_grid(folder, kinds, rules, extent, market_of)
     twice = doubled(data)  # two or more left: off, never by a fallback (4.3, #547, #551)
     for f, reads in READS.items():
         lacking[f] += [k for k in twice if k in reads and k not in lacking[f]]
@@ -135,7 +137,7 @@ def decide(
     wanted = NEEDS.keys() if required is None else required.features
     used = list(dict.fromkeys(r for f in sorted(wanted) if f in on for r in taken[f]))
     if bars is not None and f02 is not None and any(r.id == "F-02" for r in used):
-        _off_calendar(folder, data, bars, f02[1], market_of)
+        _off_calendar(folder, data, bars, f02[1], market_of, extent)
     if used and policy is FallbacksPolicy.FAIL:
         raise _refused(data, used)
     for id_ in dict.fromkeys(r.id for r in used):
@@ -152,13 +154,16 @@ Sessions = tuple[list[FallbackRecord], dict[str, set[dt.date]]]
 
 def _sessions(
     folder: Path, markets: Mapping[str, Mapping[str, Any]],
-    kinds: Mapping[str, Mapping[str, Any]], by_market: Mapping[str, Mapping[str, Any]],
+    kinds: Mapping[str, Mapping[str, Any]], extent: BarsExtent,
 ) -> Sessions | None:  # fmt: skip
     """F-02 for each market of the bars whose `calendar_id` `calendar_sessions` lacks (4.4-4):
     its sessions from the first to the last day of its bars, as records and as dates; None
-    when exchange_calendars does not know such a calendar (then E18 for what needs them)."""
+    when exchange_calendars does not know such a calendar (then E18 for what needs them).
+    The bars are read only when a declared market's calendar is not held."""
     held = {str(c) for c in _values(folder, kinds.get("calendar_sessions"), "calendar_id")}
-    gap = {m: e for m, e in by_market.items() if markets[m]["calendar_id"] not in held}
+    if all(e["calendar_id"] in held for e in markets.values()):
+        return [], {}
+    gap = {m: e for m, e in extent.by_market().items() if markets[m]["calendar_id"] not in held}
     if not gap:
         return [], {}
     import exchange_calendars as xcals  # only a package without sessions pays its import
@@ -176,18 +181,15 @@ def _sessions(
 
 def _off_calendar(
     folder: Path, data: Mapping[str, Any], bars: Mapping[str, Any],
-    dates: Mapping[str, set[dt.date]], market_of: Mapping[str, str],
+    dates: Mapping[str, set[dt.date]], market_of: Mapping[str, str], extent: BarsExtent,
 ) -> None:  # fmt: skip
     """4.5 F-02: a bar of a synthesized market on a day that is not one of its sessions is E14
-    `TDS-R003`, the check the checker leaves blind without `calendar_sessions`."""
+    `TDS-R003`, the check the checker leaves blind without `calendar_sessions`; over the rows
+    `extent` read, one table per bars file with the ids as strings (TDS 3.2)."""
     off: list[dict[str, Any]] = []
-    for f in bars["files"]:  # filtered in Arrow: only the off rows reach Python
-        t = pq.read_table(folder / f["path"], columns=[ID_COLUMN, "session_date"])
+    for t in extent.tables():  # filtered in Arrow: only the off rows reach Python
         for m, days in dates.items():
-            # the ids' value type: a dictionary-encoded column holds strings too (TDS 3.2)
-            value = pa.types.is_dictionary(t[ID_COLUMN].type)
-            kind = t[ID_COLUMN].type.value_type if value else t[ID_COLUMN].type
-            ids = pa.array([i for i, x in market_of.items() if x == m], kind)
+            ids = pa.array([i for i, x in market_of.items() if x == m], pa.string())
             held = pa.array(sorted(days), pa.date32()).cast(t["session_date"].type)
             outside = pc.invert(pc.is_in(t["session_date"], held))
             off += t.filter(pc.and_(pc.is_in(t[ID_COLUMN], ids), outside)).to_pylist()
@@ -250,7 +252,7 @@ def _market_of(folder: Path, instruments: Mapping[str, Any] | None) -> dict[str,
 
 def _no_grid(
     folder: Path, kinds: Mapping[str, Mapping[str, Any]], rules: Mapping[str, str | None],
-    by_market: Mapping[str, Mapping[str, Any]], market_of: Mapping[str, str],
+    extent: BarsExtent, market_of: Mapping[str, str],
 ) -> list[FallbackRecord]:  # fmt: skip
     """F-15: a market with a pack where no instrument has a usable source of 4.3's grid chain
     (#453): a non-null `instruments.tick_size`; a `tick_rule_id`, of a `classifications` row
@@ -277,8 +279,10 @@ def _no_grid(
                               filters=[("scheme", "=", "tick_rule_id")])  # fmt: skip
         ids, codes = table[ID_COLUMN].to_pylist(), table["code"].to_pylist()
         sourced |= {market_of.get(i) for i, c in zip(ids, codes, strict=True) if c in named}
+    unsourced = [m for m in bare if m not in sourced]
+    by_market = extent.by_market() if unsourced else {}  # read for the records' counts only
     return [FallbackRecord("F-15", "market_rules", m, int(by_market.get(m, {}).get(
-        "instruments", 0))) for m in bare if m not in sourced]  # fmt: skip
+        "instruments", 0))) for m in unsourced]  # fmt: skip
 
 
 def _warning(data: Mapping[str, Any], records: Sequence[FallbackRecord]) -> DataProfileWarning:

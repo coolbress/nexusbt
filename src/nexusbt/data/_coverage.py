@@ -21,19 +21,52 @@ from nexusbt.contracts import ID_COLUMN
 KEYS = frozenset({"first", "last", "rows", "instruments"})
 
 
-def bars_by_market(
-    root: Path, bars: Mapping[str, Any] | None, instruments: Mapping[str, Any] | None
-) -> dict[str, dict[str, Any]]:
-    """Market → `first`, `last` (`YYYY-MM-DD`), `rows` and `instruments` of the daily bars:
-    the declared `coverage.by_market` when every entry has them, else counted from the files,
-    in market code order (Arrow's threaded grouping gives no order of its own)."""
-    if bars is None:
-        return {}
-    declared = (bars.get("coverage") or {}).get("by_market") or {}
-    if declared and all(e.keys() >= KEYS for e in declared.values()):
-        return {m: dict(e) for m, e in declared.items()}
-    of: dict[str, str] = {}  # read once, and only for a file without a `market=` partition
-    tables = [_with_market(root, f["path"], instruments, of) for f in bars.get("files", [])]
+class BarsExtent:
+    """The daily bars' extent of one open, read from the files on the first ask and kept
+    (#568): only F-02, F-03, F-15 and an undeclared market of an unpartitioned file use it."""
+
+    def __init__(
+        self, root: Path, bars: Mapping[str, Any] | None, instruments: Mapping[str, Any] | None
+    ) -> None:
+        self._root, self._bars, self._instruments = root, bars, instruments
+        declared = ((bars or {}).get("coverage") or {}).get("by_market") or {}
+        whole = declared and all(e.keys() >= KEYS for e in declared.values())
+        #: the declared `coverage.by_market` when every entry has `KEYS`, else None
+        self.declared = {m: dict(e) for m, e in declared.items()} if whole else None
+        self._tables: list[pa.Table] | None = None
+        self._counted: dict[str, dict[str, Any]] | None = None
+
+    @property
+    def partitioned(self) -> bool:
+        """Every bars file names its market in a `market=` partition (4.6), which the checker
+        holds to `markets` at every level (TDS-M010)."""
+        files = (self._bars or {}).get("files", [])
+        return all("market" in _partitions(f["path"]) for f in files)
+
+    def tables(self) -> list[pa.Table]:
+        """Each bars file's ids (as strings) and dates with a `market` column, read once."""
+        if self._tables is None:
+            of: dict[str, str] = {}  # read once, and only for a file without `market=`
+            files = (self._bars or {}).get("files", [])
+            self._tables = [_with_market(self._root, f["path"], self._instruments, of)
+                            for f in files]  # fmt: skip
+        return self._tables
+
+    def by_market(self) -> dict[str, dict[str, Any]]:
+        """Market → `first`, `last` (`YYYY-MM-DD`), `rows` and `instruments` of the daily
+        bars: the declared ones, else counted from the files once."""
+        if self._bars is None:
+            return {}
+        if self.declared is not None:
+            return self.declared
+        if self._counted is None:
+            self._counted = _counted(self.tables())
+        return self._counted
+
+
+def _counted(tables: list[pa.Table]) -> dict[str, dict[str, Any]]:
+    """The extent counted from the bars' rows, in market code order (Arrow's threaded grouping
+    gives no order of its own)."""
     if not tables:
         return {}
     rows = pa.concat_tables(tables)
@@ -67,7 +100,7 @@ def _with_market(
     table = pq.read_table(root / path, columns=[ID_COLUMN, "session_date"])
     # one type across files: TDS 3.2 reads a dictionary-encoded string as the string
     table = table.set_column(0, ID_COLUMN, pc.cast(table[ID_COLUMN], pa.string()))
-    parts = dict(p.split("=", 1) for p in Path(path).parent.parts if "=" in p)
+    parts = _partitions(path)
     if "market" in parts:
         return table.append_column("market", pa.array([parts["market"]] * len(table), pa.string()))
     for f in (instruments or {}).get("files", []) if not of else ():
@@ -75,3 +108,8 @@ def _with_market(
         of.update(zip(map(str, t[ID_COLUMN].to_pylist()), t["market"].to_pylist(), strict=True))
     ids = table[ID_COLUMN].to_pylist()
     return table.append_column("market", pa.array([of.get(str(i)) for i in ids], pa.string()))
+
+
+def _partitions(path: str) -> dict[str, str]:
+    """A file path's `column=value` folders (4.6)."""
+    return dict(p.split("=", 1) for p in Path(path).parent.parts if "=" in p)
