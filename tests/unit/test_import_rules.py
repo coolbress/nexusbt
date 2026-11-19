@@ -51,11 +51,11 @@ PENDING_3_1 = {
     " long_short portfolio size sizer risk risk_rule PortfolioContext SizingContext"
     " RiskContext TargetView RiskDecision Scalar execution exits ExitRule costs ml labels"
     " LabelTerm splits",
-    "Functions": "evaluate backtest screen live fill reconcile sweep compare run_pipeline"
+    "Functions": "evaluate backtest screen live fill reconcile sweep compare"
     " explain check runs rerun book override record_fills cash_flow acknowledge"
     " preregister",
     "Results": "FactorReport Run Screen Orders BookUpdate ReconcileReport SweepResult Comparison"
-    " ValidationResult Split PipelineResult Explanation DecisionExplanation CheckReport"
+    " ValidationResult Split Explanation DecisionExplanation CheckReport"
     " RunTable Description Preregistration Config Snapshot Book",
     "Types": "Param Schedule PortfolioRule Sizer RiskRule ExecutionRule"
     " CostModel Window DecisionContext",
@@ -69,6 +69,7 @@ GRAPH = """
 contracts ← config ← data ← compute ← api ← cli
 nexusbt_tds ← data
 contracts ← pipeline ← compute
+contracts ← pipeline ← compat
 contracts ← risk ← portfolio ← api
 contracts ← accounting ← execution ← api
 contracts ← research ← api
@@ -233,6 +234,9 @@ def test_outside_3_1_excuses_only_a_bound_package() -> None:
         (("nexusbt", "contracts", "_x"), "from nexusbt import config", layer_violations),
         (("nexusbt", "api", "_x"), "import nexusbt.cli", layer_violations),
         (("nexusbt", "ml", "_x"), "from nexusbt.pipeline import Term", layer_violations),
+        (("nexusbt", "compat", "_x"), "from nexusbt.compute import execute", layer_violations),
+        (("nexusbt", "compat", "_x"), "import nexusbt.data", layer_violations),
+        (("nexusbt", "compat", "_x"), "from nexusbt import api", layer_violations),
         (("nexusbt", "data", "_x"), "import pickle", banned_uses),
         (("nexusbt_tds", "hash"), "from duckdb import connect", banned_uses),
         (("nexusbt", "data", "_x"), "np.load(p, allow_pickle=True)", banned_uses),
@@ -253,6 +257,7 @@ def test_rules_catch_a_violation(module: tuple[str, ...], source: str, check: Ch
         ),
         (("nexusbt", "api", "_run"), "from nexusbt import ml, testing, data\nimport argparse"),
         (("nexusbt", "__init__"), "from nexusbt.api import evaluate"),
+        (("nexusbt", "compat", "zipline"), "from nexusbt.pipeline import Factor, factor"),
     ],
 )
 def test_rules_allow_a_direct_arrow(module: tuple[str, ...], source: str) -> None:

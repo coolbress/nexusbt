@@ -146,6 +146,12 @@ def _dates(span: Sequence[object]) -> tuple[dt.date | None, dt.date | None]:
     return out[0], out[1]
 
 
+def block_columns(manifest: Manifest, market: str, sessions: object) -> tuple[str, ...]:
+    """The columns `build_block` gives over `sessions`, read from `instruments` alone."""
+    given = np.asarray(sessions, dtype="datetime64[D]")
+    return _axis(manifest, needed(manifest.data, "instruments"), market, given)[0]
+
+
 def _axis(
     manifest: Manifest, entry: Mapping[str, Any], market: str, given: NDArray[np.datetime64]
 ) -> tuple[tuple[str, ...], NDArray[np.datetime64], NDArray[np.datetime64]]:
