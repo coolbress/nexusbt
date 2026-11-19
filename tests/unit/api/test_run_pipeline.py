@@ -77,15 +77,17 @@ def test_screen_rows_filtered(tiny: Path) -> None:
 
 
 def test_markets_from_snapshot(tiny: Path, tmp_path: Path) -> None:
-    """3.5: `markets` are keys of the snapshot's markets, all of them when not given; each
-    market's rows are on its own calendar."""
+    """3.5: `markets` are keys of the snapshot's markets, all of them when not given, each
+    once; each market's rows are on its own calendar, so 2020-01-20, a KR session and a US
+    holiday, gives KR's rows and none of US's."""
     pipe, day = nx.Pipeline({"close": nx.Price.close.latest}), "2020-01-02"
     found = run(pipe, tiny, day, day)
     assert sorted(set(found["market"].to_pylist())) == ["KR", "US"]
-    only = run(pipe, tiny, day, day, markets=["US"])
+    assert set(run(pipe, tiny, "2020-01-20", "2020-01-20")["market"].to_pylist()) == {"KR"}
+    only = run(pipe, tiny, day, day, markets=["US", "US"])
     assert set(only["market"].to_pylist()) == {"US"}
-    us = {i for i in found["instrument_id"].to_pylist() if i.startswith("US:")}
-    assert set(only["instrument_id"].to_pylist()) == us
+    us = sorted(i for i in found["instrument_id"].to_pylist() if i.startswith("US:"))
+    assert only["instrument_id"].to_pylist() == us
     kr = make_snapshot(tmp_path / "kr", preset="tiny", markets=("KR",))
     assert set(run(pipe, kr, day, day)["market"].to_pylist()) == {"KR"}
     with pytest.raises(nx.NexusBTError, match="JP"):
@@ -130,6 +132,12 @@ def test_graph_bound_before_planning(tiny: Path) -> None:
     through `shift` is E17 before any value is computed."""
     with pytest.raises(nx.TermDomainError):
         run(nx.Pipeline({"x": nx.Price.close.latest.shift(1)}), tiny, "2020-01-02", "2020-01-31")
+
+
+def test_a_pipeline_without_columns_is_refused(tiny: Path) -> None:
+    """3.5's rows are `<columns…>` at the decisions: a pipeline naming none says so."""
+    with pytest.raises(ValueError, match="one column or more"):
+        run(nx.Pipeline({}, screen=SMA(5) > 0), tiny, "2020-01-02", "2020-01-31")
 
 
 def test_across_markets_not_supported_yet(tiny: Path) -> None:

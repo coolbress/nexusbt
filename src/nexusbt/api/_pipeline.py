@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import pyarrow as pa
 
-from nexusbt.contracts import ID_COLUMN, SchemaRegistry
+from nexusbt.contracts import ID_COLUMN, ConfigError, SchemaRegistry
 from nexusbt.data import DataConfig, Schedule, Snapshot, open_snapshot
 from nexusbt.pipeline import Classifier, Filter, Pipeline, bind, graph_hash
 
@@ -62,19 +62,27 @@ def run(
 ) -> PipelineResult:
     """3.5's `nx.run_pipeline`, given the resolved `nexusbt.toml` and how `api` builds the
     schema registry it binds against (2.5)."""
+    if not pipeline.columns:  # 3.5: the rows are `<columns…>` at the decisions
+        raise ValueError("a pipeline for run_pipeline names one column or more")
     opened = _open(snapshot, cfg)
     bind(pipeline, registry(opened, cfg))  # E17, E7 before any value is read (2.5)
     terms = [*pipeline.columns.values(), *([pipeline.screen] if pipeline.screen else [])]
     nodes = _nodes(terms)
     _refuse_across_markets(nodes)
     fields = _price_fields(nodes)
-    names = markets if markets is not None else sorted(opened.markets, key=str.encode)
-    found = [
-        table
-        for m in names
-        if (table := _market(pipeline, terms, fields, opened, m, (start, end), freq, cfg))
-        is not None
-    ]
+    every = sorted(opened.markets, key=str.encode)
+    names = dict.fromkeys(markets if markets is not None else every)  # each market once
+    periods: dict[str, tuple[int, int]] = {}
+    unrun: list[ConfigError] = []
+    for m in names:  # 3.5: each market's own sessions (E9 for a date that is not one, 5.1.6)
+        try:
+            periods[m] = opened.calendar(m).align(start, end)
+        except ConfigError as none:  # no session of m in the period: m has no rows
+            unrun.append(none)
+    if not periods:  # no market has a session: the period is wrong
+        raise unrun[0]
+    tables = [_market(pipeline, terms, fields, opened, m, p, freq, cfg) for m, p in periods.items()]
+    found = [t for t in tables if t is not None]
     table = pa.concat_tables(found) if found else _empty(pipeline)
     return PipelineResult(table.sort_by([(k, "ascending") for k in _KEYS]))
 
@@ -120,7 +128,7 @@ def _nodes(terms: Sequence[Term]) -> list[Term]:
 
 def _market(
     pipeline: Pipeline, terms: list[Term], fields: list[str], snapshot: Snapshot, market: str,
-    period: tuple[str | dt.date, str | dt.date], freq: Freq, cfg: Config,
+    period: tuple[int, int], freq: Freq, cfg: Config,
 ) -> pa.Table | None:  # fmt: skip
     """One market's rows on its own calendar (3.5 `market_local`), or None with no decision.
     `compute` is imported here, not by `import nexusbt`: its kernels compile with a cache that
@@ -130,7 +138,7 @@ def _market(
     from nexusbt.compute._screen import screened
 
     calendar = snapshot.calendar(market)
-    first, last = calendar.align(*period)  # E9 for a date that is not a session (5.1.6)
+    first, last = period
     rows = Schedule(freq).rows(calendar)
     rows = rows[(rows >= first) & (rows <= last)]
     if not rows.size:
