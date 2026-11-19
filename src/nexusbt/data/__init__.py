@@ -293,6 +293,11 @@ def _data_root(path: Path) -> Path | None:
     return None
 
 
+def _snapshot_folder(snapshot: Snapshot) -> Path:
+    """The package folder `snapshot` was opened from; its data root is beside it (4.2)."""
+    return Path(snapshot._manifest.root)
+
+
 def _package(path: Path) -> Path:
     """The package folder: `path` itself, or the snapshot its `LATEST` names, read once (4.2)."""
     if (path / "tds.json").is_file() or not (path / "LATEST").is_file():

@@ -4,6 +4,7 @@ Decisions 2026-11-19): the sealed run, its tables, and the entry file the run st
 
 from __future__ import annotations
 
+import importlib
 import json
 import math
 import sys
@@ -57,6 +58,43 @@ def test_save_seals_a_pipeline_run(tiny: Path, project: Path) -> None:
     assert (folder / "source" / "m.py").read_text(encoding="utf-8") == "# the entry file\n"
     assert manifest["kind"] == "pipeline"
     assert manifest["snapshot_semantic_hash"] == nx.open(tiny).semantic_hash
+
+
+def test_the_root_pin_goes_beside_the_snapshot_opened(
+    tmp_path: Path, project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """4.2, R3-17: a `Snapshot` opened from data root B is pinned under B's `PINS/`, not under
+    the root `[data] path` names (A), and the run says `retention: managed` for B's pin."""
+    roots = {}
+    for name in ("a", "b"):
+        roots[name] = tmp_path / f"root_{name}"
+        make_snapshot(roots[name] / f"snap_{name}", preset="tiny", snapshot_id=f"snap_{name}")
+        (roots[name] / "LATEST").write_text(f"snap_{name}\n", encoding="utf-8")
+    (project / "nexusbt.toml").write_text(f'[data]\npath = "{roots["a"]}"\n', encoding="utf-8")
+    pipe = nx.Pipeline({"close": nx.Price.close.latest})
+    result = nx.run_pipeline(pipe, start="2020-01-06", end="2020-01-06",
+                             snapshot=nx.open(roots["b"]), save=True)  # fmt: skip
+    assert (roots["b"] / "PINS" / "snap_b" / str(result.run_id)).is_file()
+    assert not (roots["a"] / "PINS").exists()
+    manifest = json.loads((project / "runs" / str(result.run_id) / "manifest.json").read_text())
+    assert manifest["retention"] == "managed"
+
+
+def test_imported_project_modules_are_captured(
+    tiny: Path, project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """5.9.3: a project module the run imported is in `source/`, its path kept; the engine's
+    own modules, installed or in this repository, are outside the project and are not."""
+    (project / "helpers").mkdir()
+    (project / "helpers" / "momentum.py").write_text("WINDOW = 3\n", encoding="utf-8")
+    monkeypatch.syspath_prepend(str(project))
+    importlib.import_module("helpers.momentum")
+    pipe = nx.Pipeline({"close": nx.Price.close.latest})
+    result = nx.run_pipeline(pipe, start="2020-01-06", end="2020-01-06", snapshot=str(tiny),
+                             save=True)  # fmt: skip
+    source = project / "runs" / str(result.run_id) / "source"
+    assert (source / "helpers" / "momentum.py").read_text(encoding="utf-8") == "WINDOW = 3\n"
+    assert not list(source.rglob("_pipeline.py"))
 
 
 def test_without_save_no_run(tiny: Path, project: Path) -> None:
