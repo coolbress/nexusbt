@@ -9,7 +9,7 @@ import importlib.util
 import statistics
 import sys
 from pathlib import Path
-from types import ModuleType
+from types import FunctionType, ModuleType
 from typing import Any
 
 import pytest
@@ -54,6 +54,7 @@ def test_outside_through_a_symbolic_link(tmp_path: Path, monkeypatch: pytest.Mon
         assert not _terms._project_file(str(named / "stdlib" / "mod.py"))
         assert not _terms._project_file(str(named / "site" / "pkg" / "mod.py"))
         assert _terms._project_file(str(project))
+    assert not _terms._project_file("<string>")  # code with no file, such as `exec`'s
     # An installed file that is itself a link into a store (`uv`'s symlink link mode, Nix)
     (tmp_path / "store").mkdir()
     (tmp_path / "store" / "linked.py").write_text("")
@@ -93,5 +94,6 @@ def test_the_interpreters_stdlib_is_outside() -> None:
     no helper and an `lru_cache` wrapper is not taken for a project object (not E24)."""
     assert not _terms._project_file(statistics.__file__)
     assert not _terms._project_file(functools.__file__)
-    reads = _terms._reads(_uses_the_stdlib)  # type: ignore[arg-type]
+    assert isinstance(_uses_the_stdlib, FunctionType)
+    reads = _terms._reads(_uses_the_stdlib)
     assert (reads.helpers, reads.impure) == ((), ())
