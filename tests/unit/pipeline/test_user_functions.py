@@ -18,7 +18,7 @@ import pytest
 
 import nexusbt as nx
 from nexusbt.compute._executor import Actions, execute
-from nexusbt.contracts import SchemaRegistry
+from nexusbt.contracts import ConfigError, SchemaRegistry
 from nexusbt.data import DataConfig, open_snapshot
 from nexusbt.data._block import MarketBlock
 from nexusbt.pipeline import BoundColumn, Factor, Term, bind, graph_hash
@@ -324,6 +324,58 @@ def test_keyword_binding_makes_a_new_factor() -> None:
         mom(n=np.int64(63))
     with pytest.raises(TypeError, match="only a user function"):
         CLOSE.latest(n=1)
+
+
+def test_function_runs_alone_as_the_executor_does() -> None:
+    """3.3 (#582): `f.function` is the plain function, unbound; on the window the executor
+    gives row 69 it returns that row's values, the bound value passed by hand. `f(n=63)`'s
+    `function` is the same unbound one, so it computes with the default n, not 63."""
+    mom = nx.factor(window=70, inputs=[CLOSE])(_momentum)
+    mom63 = mom(n=63)
+    window = np.arange(70)[:, None] + np.array([[100.0, 1000.0]])  # `plain`'s closes
+    got = plain([mom, mom63], [69], 70)
+    assert mom.function is not None
+    assert mom63.function is mom.function
+    assert mom.function(window).tolist() == got[graph_hash(mom)]["value"].to_pylist()
+    assert mom.function(window, n=63).tolist() == got[graph_hash(mom63)]["value"].to_pylist()
+    assert mom63.function(window).tolist() == mom.function(window).tolist()
+    assert mom63.function(window)[0] == pytest.approx(169 / 148 - 1) != 169 / 106 - 1
+
+
+def _ratio(close: Any, volume: Any, *, lag: int = 1, how: str = "mean") -> Any:
+    return close[-1] / volume[-1 - lag]
+
+
+@pytest.mark.parametrize(
+    ("make", "shown"),
+    [
+        (lambda f: f, "_momentum.function(close)"),
+        (lambda f: f(n=63), "_momentum.function(close, n=63)"),
+    ],
+)
+def test_a_call_with_an_array_names_function(make: Any, shown: str) -> None:
+    """3.3 (#582): a call with a positional argument is E16, and its fix is the `.function`
+    call to type, with the values the Factor has bound."""
+    term = make(nx.factor(window=70, inputs=[CLOSE])(_momentum))
+    with pytest.raises(ConfigError) as caught:
+        term(np.ones((70, 2)))
+    assert caught.value.parts["fix"] == f"{shown} on the arrays, one for each input"
+    assert caught.value.parts["what"].startswith("_momentum was called with an array")
+
+
+def test_a_call_with_arrays_names_every_input() -> None:
+    """Two inputs, two windows in the call to type; bound values by name, as the hash keeps
+    them."""
+    volume = BoundColumn.of("Price", "volume")
+    ratio = nx.factor(window=3, inputs=[CLOSE, volume])(_ratio)(lag=2, how="last")
+    with pytest.raises(ConfigError) as caught:
+        ratio(np.ones((3, 2)), np.ones((3, 2)))
+    assert caught.value.parts["fix"] == (
+        "_ratio.function(close, volume, how='last', lag=2) on the arrays, one for each input"
+    )
+    with pytest.raises(ConfigError) as caught:  # a keyword of the same call is kept, and wins
+        ratio(np.ones((3, 2)), np.ones((3, 2)), lag=5)
+    assert caught.value.parts["fix"].startswith("_ratio.function(close, volume, how='last', lag=5)")
 
 
 WEIGHTS = np.array([0.5, 2.0])
