@@ -550,6 +550,7 @@ nx.run_pipeline(pipeline: Pipeline, *, start: str | date, end: str | date, freq:
 
 - The result `PipelineResult.table`: an Arrow table `(market: str, session_date: date32, decision_ts: timestamp[us,UTC], instrument_id: str, <columns…>)`, sorted by `(session_date, market, instrument_id)`. Rows where `screen` is false or unknown are not there (unknown = false) [R3-13]. `.to_polars()`, `.to_pandas()` (optional dependency).
 - `PipelineResult.term_diagnostics`: the counts of 5.4.1 per market, session and term, the table 5.4.1 defines.
+- `PipelineResult.run_id`: with `save=True`, the id of the run it sealed (`kind="pipeline"`, 3.8); otherwise `None`.
 - When `start` is not a session, it is moved per market to the next session and `end` to the previous session, with a notice (error E9) [design 3.5 error E9].
 - The decision grid of `freq="daily"` = every session of each market (market_local). With several markets, the per-market rows are stacked.
 

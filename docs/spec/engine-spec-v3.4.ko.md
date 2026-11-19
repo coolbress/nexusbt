@@ -551,6 +551,7 @@ nx.run_pipeline(pipeline: Pipeline, *, start: str | date, end: str | date, freq:
 
 - 결과 `PipelineResult.table`: Arrow 표 `(market: str, session_date: date32, decision_ts: timestamp[us,UTC], instrument_id: str, <columns…>)`, 정렬 `(session_date, market, instrument_id)`. `screen`이 거짓이거나 모름인 행은 없다(모름 = 거짓) [R3-13]. `.to_polars()`, `.to_pandas()`(선택 의존).
 - `PipelineResult.term_diagnostics`: 5.4.1의 건수를 시장·세션·항마다 담은, 5.4.1이 정한 표.
+- `PipelineResult.run_id`: `save=True`이면 봉인한 실행(`kind="pipeline"`, 3.8)의 id, 아니면 `None`.
 - `start`가 세션이 아니면 시장마다 다음 세션으로, `end`는 이전 세션으로 맞추고 알림(오류 E9)을 낸다 [설계 3.5 오류 E9].
 - `freq="daily"`의 판단 격자 = 각 시장의 모든 세션(market_local). 여러 시장이면 시장별 행을 쌓는다.
 

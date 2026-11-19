@@ -7,13 +7,16 @@ from __future__ import annotations
 import importlib
 import json
 import math
+import sqlite3
 import sys
+from contextlib import closing
 from pathlib import Path
 
 import pyarrow.parquet as pq
 import pytest
 
 import nexusbt as nx
+from nexusbt.artifacts import RunTxn
 from nexusbt.factors import SMA
 from nexusbt.testing.synth import make_snapshot
 
@@ -95,6 +98,29 @@ def test_imported_project_modules_are_captured(
     source = project / "runs" / str(result.run_id) / "source"
     assert (source / "helpers" / "momentum.py").read_text(encoding="utf-8") == "WINDOW = 3\n"
     assert not list(source.rglob("_pipeline.py"))
+
+
+def test_a_failure_while_saving_aborts_the_run(
+    tiny: Path, project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """5.9.1: a write that fails before the seal comes out as raised, leaves no run folder, and
+    the index says `aborted`."""
+    written = RunTxn.write_table
+
+    def full(txn: RunTxn, name: str, table: object) -> None:
+        if name == "term_diagnostics":
+            raise OSError(28, "No space left on device")
+        written(txn, name, table)
+
+    monkeypatch.setattr(RunTxn, "write_table", full)
+    pipe = nx.Pipeline({"close": nx.Price.close.latest})
+    with pytest.raises(OSError, match="No space left"):
+        nx.run_pipeline(pipe, start="2020-01-06", end="2020-01-06", snapshot=str(tiny),
+                        save=True)  # fmt: skip
+    runs = project / "runs"
+    assert [p.name for p in runs.iterdir() if p.is_dir()] == []
+    with closing(sqlite3.connect(runs / "index.sqlite")) as db:  # `with` alone does not close
+        assert db.execute("SELECT kind, status FROM runs").fetchall() == [("pipeline", "aborted")]
 
 
 def test_without_save_no_run(tiny: Path, project: Path) -> None:
