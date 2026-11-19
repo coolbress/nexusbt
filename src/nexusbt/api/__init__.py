@@ -17,11 +17,23 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
+import numpy as np
+import pyarrow as pa
+import pyarrow.compute as pc
+
 from nexusbt import pipeline
 from nexusbt.api import _pipeline
 from nexusbt.api._pipeline import PipelineResult as PipelineResult
+from nexusbt.api._screen import Screen as Screen
 from nexusbt.config import Config, load_config
-from nexusbt.contracts import DataProfileWarning, PinsPolicy, SchemaRegistry
+from nexusbt.contracts import (
+    ID_COLUMN,
+    ConfigError,
+    DataProfileWarning,
+    PinsPolicy,
+    SchemaRegistry,
+    SessionNotice,
+)
 from nexusbt.data import (
     DataConfig,
     _data_root,
@@ -35,7 +47,7 @@ from nexusbt.pipeline._terms import _project_file
 
 if TYPE_CHECKING:
     from nexusbt.artifacts import RunStore, RunTxn
-    from nexusbt.data import Explanation, Snapshot
+    from nexusbt.data import Calendar, Explanation, Snapshot
     from nexusbt.pipeline import BoundColumn, Factor, Filter, Pipeline, Term
 
 _Day = str | dt.date
@@ -56,8 +68,6 @@ class Book: ...
 class FactorReport: ...
 @dataclass(frozen=True, slots=True)
 class Run: ...
-@dataclass(frozen=True, slots=True)
-class Screen: ...
 @dataclass(frozen=True, slots=True)
 class Orders: ...
 @dataclass(frozen=True, slots=True)
@@ -131,7 +141,83 @@ def screen(
     account: Literal["auto", "none", "book", "backtest"] = "auto",
     **common: Any,
 ) -> Screen:
-    raise NotImplementedError
+    """3.8 `screen(factor, top=n)`: the top n of one factor per market on `asof` (default each
+    market's last snapshot session), among the listed instruments until T2.4's investable
+    universe; sealed as a `kind="screen"` run (3.8: an exposure record, whose rows are T2.9's)."""
+    if not isinstance(obj, pipeline.Factor):
+        what = type(obj).__name__
+        raise NotImplementedError(f"screen of a {what} comes with its ticket; a Factor screens")
+    other = {k: v for k, v in common.items() if k not in ("snapshot", "save")}  # 3.8's common
+    if other.get("purpose") == "research":  # the default run kind (6.2); the others are later
+        del other["purpose"]
+    given = {"params": params, "anchor": anchor, "book": book,
+             "show": None if show == "selected" else show,
+             "account": None if account in ("auto", "none") else account, **other}  # fmt: skip
+    if refused := sorted(k for k, v in given.items() if v is not None):
+        raise NotImplementedError(f"screen(factor) does not take {refused} yet")
+    if top is not None and top < 1:
+        raise ConfigError(what=f"top = {top} selects nothing", where="argument top",
+                          why="screen(factor, top=n) keeps the top n per market (3.8)",
+                          fix="top=1 or more, or leave it out for every scored instrument",
+                          more="spec 3.8", layer=f"config — argument top={top}")  # fmt: skip
+    cfg, snapshot = config(), common.get("snapshot")
+    if isinstance(snapshot, _Snapshot):
+        opened = snapshot
+    else:
+        source = DataConfig.from_config(cfg) if snapshot is None else DataConfig(Path(snapshot))
+        opened = open_snapshot(source)
+    columns: dict[str, pipeline.Term] = {"score": obj, "rank": obj.rank(ascending=False)}
+    if top is not None:
+        columns["kept"] = obj.top(top)
+    picked, days, universe, selected = [], {}, {}, {}
+    for m in sorted(opened.markets, key=str.encode):
+        days[m] = day = _screen_day(opened.calendar(m), asof)
+        found = _pipeline.run(pipeline.Pipeline(columns), start=day, end=day, freq="daily",
+                              markets=[m], snapshot=opened, cfg=cfg,
+                              registry=schema_registry).table  # fmt: skip
+        universe[m] = found.num_rows
+        scored = pc.invert(pc.is_nan(found["rank"]))  # no score, no rank
+        kept = found.filter(found["kept"] if top is not None else scored)
+        selected[m] = kept.num_rows
+        picked.append(kept.select(["market", "session_date", "rank", ID_COLUMN, "score"]))
+    table = _ranked(pa.concat_tables(picked))
+    named = {"factor": pipeline.graph_hash(obj), "top": top}
+    params_ = {"asof": None if asof is None else str(asof), "top": top}
+    if not common.get("save", True):
+        return Screen(table, True, days, universe, selected, opened.id)
+    run_id = _seal("screen", named, {}, opened, cfg, params_ | {"markets": None})
+    return Screen(table, True, days, universe, selected, opened.id, run_id)
+
+
+def _screen_day(calendar: Calendar, asof: _Day | None) -> dt.date:
+    """`asof`, or the market's last session before it with an E9 notice (5.1.6); the last
+    session of the snapshot when not given (3.8)."""
+    dates = calendar.dates
+    if asof is None:
+        found: dt.date = dates[-1].astype("datetime64[D]").item()
+        return found
+    wanted = np.datetime64(str(asof), "D")
+    row = int(np.searchsorted(dates, wanted, "right")) - 1
+    if row < 0 or wanted > dates[-1]:  # before the data, or after its last session
+        raise ConfigError(what=f"asof {asof} is outside the {calendar.market} sessions",
+                          where="argument asof", why="a screen is on one session (3.8)",
+                          fix=f"choose asof from {dates[0]} to {dates[-1]}", more="spec 5.1.6",
+                          layer=f"config — argument asof={asof}")  # fmt: skip
+    day: dt.date = dates[row].astype("datetime64[D]").item()
+    if day != wanted.item():
+        warnings.warn(str(SessionNotice(
+            what=f"asof {asof} is not a {calendar.market} session; using {day}",
+            where="argument asof", why="a screen is on a session", fix=f"asof='{day}'",
+            more="spec 6.6 E9", subject="asof", layer=f"config — argument asof={asof}",
+        )), stacklevel=3)  # fmt: skip
+    return day
+
+
+def _ranked(table: pa.Table) -> pa.Table:
+    """By market and rank, the rank as an integer (an ordinal rank of a finite score)."""
+    ranks = pc.cast(table["rank"], pa.int64())
+    table = table.set_column(table.schema.get_field_index("rank"), "rank", ranks)
+    return table.sort_by([("market", "ascending"), ("rank", "ascending")])
 
 
 def run_pipeline(
@@ -169,25 +255,34 @@ def run_pipeline(
 def _save_pipeline(
     result: PipelineResult, pipe: Pipeline, opened: Snapshot, cfg: Config, params: dict[str, Any]
 ) -> str:
-    """3.8's `kind="pipeline"`: `pipeline.parquet` and `term_diagnostics.parquet` (5.9.1), and
-    `source/` with the entry file, `__main__`'s file or none in an interactive session, and
-    the project's modules imported so far (5.9.3; #283, #304). The run's name is the entry
-    file's stem. The root pin goes beside the package the snapshot was opened from (4.2)."""
+    """3.8's `kind="pipeline"`: `pipeline.parquet` and `term_diagnostics.parquet` (5.9.1)."""
+    columns = {n: pipeline.graph_hash(t) for n, t in pipe.columns.items()}
+    named = {"columns": columns, "screen": pipe.screen and pipeline.graph_hash(pipe.screen)}
+    tables = {"pipeline": result.table, "term_diagnostics": result.term_diagnostics}
+    return _seal("pipeline", named, tables, opened, cfg, params)
+
+
+def _seal(
+    kind: str, named: dict[str, Any], tables: Mapping[str, Any], opened: Snapshot, cfg: Config,
+    params: dict[str, Any],
+) -> str:  # fmt: skip
+    """A run of `kind` (3.8) with `tables` (5.9.1), and `source/` with the entry file,
+    `__main__`'s file or none in an interactive session, and the project's modules imported so
+    far (5.9.3; #283, #304). The run's name is the entry file's stem. The root pin goes beside
+    the package the snapshot was opened from (4.2)."""
     from nexusbt.artifacts import RunStore  # only a saved run opens the store
 
     file = getattr(sys.modules.get("__main__"), "__file__", None)
     entry = Path(file) if file else None
-    columns = {n: pipeline.graph_hash(t) for n, t in pipe.columns.items()}
-    named = {"columns": columns, "screen": pipe.screen and pipeline.graph_hash(pipe.screen)}
     family = cfg.values["research"]["family_id"]
     store = RunStore(Path(cfg.values["runs"]["dir"]), family_id=family)
     graph = hashlib.sha256(json.dumps(named, sort_keys=True).encode()).hexdigest()
     data = DataConfig(_snapshot_folder(opened), pins=PinsPolicy(cfg.values["data"]["pins"]))
-    txn = _begin_run(store, opened, data, "pipeline", entry.stem if entry else "interactive",
+    txn = _begin_run(store, opened, data, kind, entry.stem if entry else "interactive",
                      graph_hash=graph, params=params | {"terms": named})  # fmt: skip
     try:
-        txn.write_table("pipeline", result.table)
-        txn.write_table("term_diagnostics", result.term_diagnostics)
+        for name, table in tables.items():
+            txn.write_table(name, table)
         files = (getattr(m, "__file__", None) for m in list(sys.modules.values()))
         imported = [Path(f) for f in files if isinstance(f, str) and _project_file(f)]
         txn.capture_sources(imported, entry=entry)
@@ -195,7 +290,7 @@ def _save_pipeline(
         markets = {m: {"calendar_id": i.calendar_id, "currency": i.currency,
                        "rules_pack": i.rules or "untested"}
                    for m, i in opened.markets.items() if m in used}  # fmt: skip
-        txn.set_manifest({"kind": "pipeline", "snapshot_id": opened.id, "markets": markets,
+        txn.set_manifest({"kind": kind, "snapshot_id": opened.id, "markets": markets,
                           "snapshot_semantic_hash": opened.semantic_hash,
                           "snapshot_value_hash": opened.value_hash,
                           "snapshot_physical_hash": opened.physical_hash})  # fmt: skip
