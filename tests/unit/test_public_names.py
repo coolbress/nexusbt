@@ -86,11 +86,19 @@ ERRORS = (
 )
 
 NAMES = [(module, name) for module, names in PUBLIC.items() for name in names.split()]
+#: Members a document names on a public class: 3.3's `function` of a user Factor (#582).
+MEMBERS = [("nexusbt.pipeline", "Factor", "function")]
 
 
 @pytest.mark.parametrize(("module", "name"), NAMES)
 def test_public_name_importable(module: str, name: str) -> None:
     assert hasattr(importlib.import_module(module), name), f"{module} has no {name}"
+
+
+@pytest.mark.parametrize(("module", "cls", "name"), MEMBERS)
+def test_public_member_present(module: str, cls: str, name: str) -> None:
+    owner = getattr(importlib.import_module(module), cls)
+    assert hasattr(owner, name), f"{module}.{cls} has no {name}"
 
 
 def stub_functions() -> list[tuple[str, Callable[..., object]]]:
