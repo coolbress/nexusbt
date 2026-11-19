@@ -20,6 +20,7 @@ from .test_import_csv import BARS, CHAPTER_7, MINIMAL, write
 
 BARS_FILE = "bars/freq=1d/market=US/year=2024/part-00000.parquet"
 MINUTE_FILE = "bars/freq=1m/market=US/date=2024-01-02/part-00000.parquet"
+US = {"calendar_id": "XNYS", "currency": "USD", "timezone": "America/New_York"}  # TDS 3.8, 4.2
 
 
 def folder(tmp_path: Path) -> tuple[Path, dict[str, Any]]:
@@ -61,7 +62,7 @@ def test_draft_lists_files_and_stats(tmp_path: Path, capsys: pytest.CaptureFixtu
     assert instruments["value_sha256"] == written["datasets"][0]["value_sha256"]
     assert "semantic_sha256" not in draft["hashes"]  # it covers fields the draft leaves open
     assert draft["writer"]["name"].startswith("parquet-cpp-arrow")
-    assert draft["tds_draft"] == written["tds_draft"] == "2026-11-18"  # TDS 4.2 (#529)
+    assert draft["tds_draft"] == written["tds_draft"] == "2026-11-19"  # TDS 4.2 (#529)
     # a tds.json that is there is never replaced; a folder with no Parquet file has no draft
     before = (package / "tds.json").read_bytes()
     assert main(["manifest", "build", str(package)]) == 1
@@ -97,7 +98,7 @@ def test_todo_fields_flagged(tmp_path: Path, capsys: pytest.CaptureFixture[str])
     (package / "tds.json").write_text(json.dumps(draft), encoding="utf-8")
     assert [f[0] for f in findings(package, capsys)[1]].count("TDS-M003") == 1  # markets
 
-    draft["markets"] = {"US": {"calendar_id": "XNYS", "currency": "USD"}}
+    draft["markets"] = {"US": US}
     draft["datasets"][0] |= {"availability": {"rule": "ts_end"},
                              "params": {"freq": "1d", "price_basis": "total_adjusted"}}  # fmt: skip
     del draft["TODO"]
@@ -139,7 +140,7 @@ def filled(package: Path, draft: dict[str, Any]) -> None:
         freq = {"freq": entry["path"][-2:]} | entry.get("params", {})
         entry |= bars | {"params": bars["params"] | freq}
     draft |= {"profiles": [], "id_namespaces": {"XNYS": "ids as the files give them"},
-              "markets": {"US": {"calendar_id": "XNYS", "currency": "USD"}}}  # fmt: skip
+              "markets": {"US": US}}  # fmt: skip
     del draft["TODO"]
     (package / "tds.json").write_text(json.dumps(draft), encoding="utf-8")
 

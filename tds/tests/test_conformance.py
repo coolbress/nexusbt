@@ -174,7 +174,8 @@ def test_M015_warns_of_an_experimental_dataset_and_otherwise_passes(tmp_path: Pa
 @pytest.mark.parametrize(
     ("draft", "found"),
     [
-        ("2026-11-18", []),  # the text this checker implements
+        ("2026-11-19", []),  # the text this checker implements
+        ("2026-11-18", ["TDS-M017"]),  # the text before markets entries had required fields
         ("2026-11-13", ["TDS-M017"]),  # an older text
         ("2027-01-05", ["TDS-M017"]),  # a newer text than the checker knows
         (None, ["TDS-M017"]),  # no tds_draft: a text from before 2026-11-18
@@ -1899,16 +1900,16 @@ def test_core_requires_raw_dense_daily_bars(
 def test_producer_hint_travels_with_its_code(tmp_path: Path) -> None:
     manifest, files = build.package("TDS-M003", "fail")
     manifest["producer"]["hints"] = {"TDS-M003": "re-run the export", "TDS-M006": "unused"}
-    (error,) = check(build.write(tmp_path, manifest, files), level="manifest").errors
-    assert (error.code, error.hint) == ("TDS-M003", "re-run the export")
-    assert error.to_dict()["hint"] == "re-run the export"
+    errors = check(build.write(tmp_path, manifest, files), level="manifest").errors
+    assert {(e.code, e.hint) for e in errors} == {("TDS-M003", "re-run the export")}
+    assert errors[0].to_dict()["hint"] == "re-run the export"
 
 
 def test_jsonl_ends_with_the_summary(tmp_path: Path) -> None:
     package = build.write(tmp_path, *build.package("TDS-M003", "fail"))
     *findings, last = check(package, level="manifest").to_jsonl().splitlines()
-    assert [line.count('"code": "TDS-M003"') for line in findings] == [1]
-    assert last.startswith('{"summary": {"errors": 1, "warnings": 0, "level": "manifest"')
+    assert [line.count('"code": "TDS-M003"') for line in findings] == [1] * 4  # build.FAILS
+    assert last.startswith('{"summary": {"errors": 4, "warnings": 0, "level": "manifest"')
 
 
 #: The T codes the rows show; T002's package and T006's are the schema level's (`test_S_codes`;

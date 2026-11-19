@@ -75,7 +75,7 @@ def base() -> Package:
     ]
     manifest = {
         "tds_version": "1.0",
-        "tds_draft": "2026-11-18",  # TDS 4.2: the text these packages follow (#529)
+        "tds_draft": "2026-11-19",  # TDS 4.2: the text these packages follow (#529)
         "name": "conformance",
         "created": "2026-11-02T00:00:00Z",
         "snapshot_id": "20261102-000000",
@@ -260,6 +260,13 @@ def _sessions(first: int, on: tuple[int, ...] = (2, 3)) -> Change:
 
 def _both(*changes: Change) -> Change:
     return lambda m, f: [change(m, f) for change in changes]
+
+
+def _markets_without(m: dict[str, Any], files: Files) -> None:
+    """Three more markets, each without one of the fields a market entry holds (3.8, 4.2, #567)."""
+    us = m["markets"]["US"]
+    for code, field in (("KR", "calendar_id"), ("JP", "currency"), ("HK", "timezone")):
+        m["markets"][code] = {k: v for k, v in us.items() if k != field}
 
 
 def _crypto(declared: bool) -> Change:
@@ -667,7 +674,7 @@ _FUTURE = {"root": pa.array(["AA"]), "ts_expiry": pa.array([NEW_YEAR], TS_UTC),
 CASES: dict[str, tuple[Change, Change]] = {
     "TDS-M001": (_keep, lambda m, f: m.clear()),  # `[]` is written, see write()
     "TDS-M002": (_set("tds_version", "1.4"), _set("tds_version", "2.0")),
-    "TDS-M003": (_keep, lambda m, f: m.pop("snapshot_id")),
+    "TDS-M003": (_keep, _both(lambda m, f: m.pop("snapshot_id"), _markets_without)),
     "TDS-M004": (_keep, lambda m, f: f.pop(BARS)),
     "TDS-M005": (_keep, lambda m, f: f.update({"notes.txt": b"not listed\n"})),
     "TDS-M006": (_keep, lambda m, f: f.update({BARS: f[BARS] + b"!"})),
@@ -866,9 +873,10 @@ CASES: dict[str, tuple[Change, Change]] = {
 # fmt: off
 FAILS: dict[str, tuple[str | None, ...]] = {
     **dict.fromkeys([
-        "TDS-M001", "TDS-M002", "TDS-M003", "TDS-M005", "TDS-M007", "TDS-M008", "TDS-R008",
+        "TDS-M001", "TDS-M002", "TDS-M005", "TDS-M007", "TDS-M008", "TDS-R008",
         "TDS-H003", "TDS-M017",
     ], (None,)),
+    "TDS-M003": (None,) * 4,  # snapshot_id, and a market without each of its three fields
     **dict.fromkeys([
         "TDS-M004", "TDS-M006", "TDS-M009", "TDS-M010", "TDS-M011", "TDS-M012", "TDS-M013",
         "TDS-S001", "TDS-S002", "TDS-S004", "TDS-S005", "TDS-S008", "TDS-S009", "TDS-S010",
