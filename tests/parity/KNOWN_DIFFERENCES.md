@@ -39,16 +39,17 @@ fixes for each case and market the cells compared and left out (`L1D_EXPECTED`).
   between numpy's linear percentiles; cells on different sides of a bound are left out.
 - `zscore`: the engine adds in the 5.3.10 order, numpy pairwise; compared within L1-a's
   tolerance.
-- `rank(groupby=)`: groups are `quantiles`, so a cell can be in another group on each side; it
-  and the cells after it in its group are left out. zipline ranks a group with a NaN cell as all
+- `rank(groupby=)`: groups are `quantiles`, so a cell can be in another group on each side; the
+  cells whose rank in their group differs between the two groupings are left out. zipline ranks a group with a NaN cell as all
   NaN (scipy's `rankdata`), so both sides pass `mask=x.notnan()`.
 - A Filter outside its mask is unknown in the engine (3.3) and false in zipline: compared as the
   set of true cells.
 - An instrument on its last session is in the engine's cross-section and not in zipline's;
-  zipline's rules are computed without it, and `zscore` leaves that session out.
+  zipline's rules are computed without it, and `zscore` leaves that session out when its x is
+  finite.
 - zipline reads a price as uint32 x 0.001, not always the nearest double of the 3-decimal price,
-  and some KR closes carry the generator's 1-ULP wobble (4.8 (5)): a value within 1e-12 of
-  another and not equal to it can change order, and is left out.
+  and some KR closes carry the generator's 1-ULP wobble (4.8 (5)): a value within a rounding of
+  another (1e-14) and not equal to it can change order, and is left out of the cases that order.
 
 ## Found by L1 (ADR 0045, spec 8.1, #252)
 

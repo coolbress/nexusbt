@@ -312,13 +312,14 @@ def test_L1b_adjustment_windows(  # noqa: N802 - spec 8.1's name
 
 
 #: L1-d (ADR 0046): x = close / open within one bar, its groups the quintiles of high / low
-L1D_TOP, L1D_Q, L1D_PCT, NEAR = 20, 5, (10.0, 90.0), 1e-12
+#: NEAR: two x apart by at most this, relative, may swap order (the sides differ by ~4e-16)
+L1D_TOP, L1D_Q, L1D_PCT, NEAR = 20, 5, (10.0, 90.0), 1e-14
 L1D_CASES = ("top", "rank", "zscore", "pct", "quantiles")
 #: Fixed by the first run on `small` (ADR 0046): (cells compared, left out)
 L1D_EXPECTED: dict[str, dict[str, tuple[int, int]]] = {
     "top": {"KR": (58237, 22), "US": (98612, 10)},
-    "rank": {"KR": (38295, 19964), "US": (66890, 31732)},
-    "zscore": {"KR": (53367, 4892), "US": (86806, 11816)},
+    "rank": {"KR": (42448, 15811), "US": (73683, 24939)},
+    "zscore": {"KR": (55877, 2382), "US": (92814, 5808)},
     "pct": {"KR": (58240, 19), "US": (98604, 18)},
     "quantiles": {"KR": (56294, 1965), "US": (96681, 1941)},
 }
@@ -350,7 +351,8 @@ def l1d(manifest: dict[str, Any], tmp_path_factory: pytest.TempPathFactory
                                     snapshot=manifest["snapshot"]).table.to_pandas()  # fmt: skip
             ours = table.assign(session_date=pd.to_datetime(table["session_date"]),
                                 instrument_id=table["instrument_id"].astype(str))  # fmt: skip
-            found[market] = ours.merge(theirs, on=KEYS, how="left", indicator=True)
+            both = ours.merge(theirs, on=KEYS, how="left", indicator=True)
+            found[market] = both.sort_values(KEYS, ignore_index=True)  # groupby's order
     return found
 
 
@@ -403,19 +405,24 @@ def l1d_left_out(f: pd.DataFrame) -> dict[str, np.ndarray]:
     gap = np.diff(xs)
     close = (gap > 0) & (gap <= NEAR * np.abs(xs[1:]))
     near = np.isin(x, np.r_[xs[:-1][close], xs[1:][close]])
-    g_ours, g_theirs = bucket(hl, every, "5.4.3"), bucket(hl, shared, "qcut")
-    moved = np.zeros(len(f), bool)
-    order = np.lexsort((ids, x))
-    for g in range(1, L1D_Q + 1):  # a rank differs when the members before it differ
-        mine = np.isfinite(x) & (g_ours == g)
-        theirs = np.isfinite(x) & (g_theirs == g) & shared
-        odd = (mine ^ theirs)[order]
-        moved[order] |= (np.cumsum(odd) > 0) & (mine | theirs)[order]
+    groups = bucket(hl, every, "5.4.3"), bucket(hl, shared, "qcut")
     out = {"quantiles": bucket(x, every, "5.4.3") != bucket(x, shared, "qcut"),
            "pct": between(x, every, "5.4.2") != between(x, shared, "value"),
            "top": top(x, ids, every) != top(x, ids, shared),
-           "rank": moved, "zscore": np.full(len(f), not shared.all())}  # fmt: skip
-    return {case: (left | near) & shared for case, left in out.items()}
+           "rank": rank(x, ids, groups[0], every) != rank(x, ids, groups[1], shared)}  # fmt: skip
+    out = {case: (left | near) & shared for case, left in out.items()}  # near: order can flip
+    moving = (~shared & np.isfinite(x)).any()  # a finite cell zipline lacks moves the mean
+    return out | {"zscore": np.full(len(f), moving) & shared}
+
+
+def rank(v: np.ndarray, ids: np.ndarray, groups: np.ndarray, inside: np.ndarray) -> np.ndarray:
+    """Each cell's ordinal rank within its group among the finite `inside` cells, by x then
+    `instrument_id` (3.7's `"id"`), 0 elsewhere."""
+    ok = np.flatnonzero(np.isfinite(v) & inside & (groups >= 1))
+    order = ok[np.lexsort((ids[ok], v[ok], groups[ok]))]
+    out = np.zeros(len(v))
+    out[order] = pd.Series(groups[order]).groupby(groups[order]).cumcount().to_numpy() + 1
+    return out
 
 
 def test_L1d_top_rank_zscore_percentile_quantiles(  # noqa: N802 - spec 8.1's name
@@ -425,6 +432,11 @@ def test_L1d_top_rank_zscore_percentile_quantiles(  # noqa: N802 - spec 8.1's na
     where zipline's rules answer differently left out and counted."""
     failed = []
     for market, frame in l1d.items():
+        shared = frame[frame["_merge"] == "both"]
+        for column in ("x", "range"):  # the rules read the engine's input as zipline's
+            same = compare(column, "input", shared[column].to_numpy(float),
+                           shared[f"l1d_{column}"].to_numpy(float))  # fmt: skip
+            assert same["pass"], (market, same)
         days = [(f, l1d_left_out(f)) for _, f in frame.groupby("session_date")]
         for case in L1D_CASES:
             keep = np.concatenate([(f["_merge"] == "both").to_numpy() & ~o[case] for f, o in days])
