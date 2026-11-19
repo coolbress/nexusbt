@@ -72,6 +72,7 @@ BUILT = {
     "nexusbt.data.Snapshot.actions",  # T1.8 (#241)
     "nexusbt.data.Snapshot.block_columns",  # T1.13 (#249): a run sizes its chunks
     "nexusbt.api.run_pipeline",  # T1.13 (#249)
+    "nexusbt.api.screen",  # T1.13 (#249): `screen(factor, top=n)`
 }
 
 #: 6.6, the classes whose kind is block or fail: the sub-errors of `NexusBTError`. The warnings

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import runpy
 import subprocess
 import sys
 from pathlib import Path
@@ -53,6 +54,25 @@ def test_show_ties_prints_both_tiebreak_orders_and_equal_zscore_bits() -> None:
     assert lines[-2].startswith("zscore sha256, columns shuffled:")
     assert in_id_order == shuffled
     assert lines[-1] == "zscore bit-identical under the shuffle: True"
+
+
+def test_m1_screen_prints_the_top_10_per_market_and_the_run(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """T1.13's "Done means" (#249): the top 10 momentum per market on each market's last
+    session of the synthetic `small` package, ranks 1 to 10 in each, and the run id. Run as
+    `__main__` in this process; `monkeypatch` gives the example's `chdir` back."""
+    monkeypatch.chdir(Path.cwd())
+    runpy.run_path(str(ROOT / "examples" / "m1_screen.py"), run_name="__main__")
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0].startswith("factor  screen as of KR 2019-12-30 close · US 2019-12-31 close")
+    rows = [line.split() for line in lines[2:22]]
+    assert [(r[0], r[2]) for r in rows] == [(str(n), m) for m in ("KR", "US") for n in range(1, 11)]
+    assert lines[22] == "universe: listed (investable comes with T2.4)"
+    assert "selected 10/" in lines[23]
+    run_id = lines[23].rsplit(" run ", 1)[1]
+    assert run_id.split("-")[2:4] == ["screen", "m1_screen"]
+    assert lines[24].endswith(f"/runs/{run_id}")
 
 
 def test_show_adjustment_prints_the_golden_windows() -> None:
