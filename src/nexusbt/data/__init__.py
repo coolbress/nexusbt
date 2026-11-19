@@ -22,7 +22,7 @@ from nexusbt.contracts import (
 )
 from nexusbt.data._actions import resolved_actions
 from nexusbt.data._block import MarketBlock as MarketBlock
-from nexusbt.data._block import build_block
+from nexusbt.data._block import block_columns, build_block
 from nexusbt.data._calendar import Calendar as Calendar
 from nexusbt.data._calendar import read_calendar
 from nexusbt.data._capabilities import CapabilityRequest as CapabilityRequest
@@ -220,6 +220,11 @@ class Snapshot:
         """The dense block of the daily bars' `fields` over the calendar rows from the first to
         the last of `sessions`, after up to `overlap` rows of the previous chunk (5.3.1)."""
         return build_block(self._manifest, self.calendar(market), fields, sessions, overlap)
+
+    def block_columns(self, market: str, sessions: object) -> tuple[str, ...]:
+        """The instruments `market_block` would hold over `sessions`, no bar read: what a run
+        counts to size its chunks (5.3.8)."""
+        return block_columns(self._manifest, market, sessions)
 
     def intervals(
         self,

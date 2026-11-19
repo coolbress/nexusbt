@@ -11,6 +11,9 @@ from importlib import metadata as _metadata
 # Modules (3.1): `__version__`, T1.4 (#236): the installed distribution's, in L0 keys (5.3.9).
 __version__ = _metadata.version("nexusbt")
 
+# Results (3.1): `PipelineResult`, the result of `run_pipeline` below, T1.13 (#249).
+from nexusbt.api import PipelineResult as PipelineResult
+
 # Functions (3.1): `config`, T0.5a (#53). `api` loads the subpackage `nexusbt.config` (2.4) first,
 # so the 3.1 function holds the name; `import nexusbt.config` still finds the module.
 from nexusbt.api import config as config
@@ -20,6 +23,9 @@ from nexusbt.api import describe as describe
 
 # `open` [V31-PUB-03], T1.1a (#232): one package path, or a parent folder with `LATEST`.
 from nexusbt.api import open as open  # noqa: A004 - the 3.1 name; `builtins.open` is untouched
+
+# `run_pipeline` and its result `PipelineResult`, T1.13 (#249).
+from nexusbt.api import run_pipeline as run_pipeline
 
 # Errors (3.1): `NexusBTError` and the 6.6 classes E1~E39, T0.4 (#49); E40~E49, T0.4b (#52).
 from nexusbt.contracts import AccountingDataError as AccountingDataError
