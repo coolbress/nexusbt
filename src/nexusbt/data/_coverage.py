@@ -59,9 +59,7 @@ class BarsExtent:
 
     def by_market(self) -> dict[str, dict[str, Any]]:
         """Market → `first`, `last` (`YYYY-MM-DD`), `rows` and `instruments` of the daily
-        bars: the declared ones, else counted from the files once."""
-        if self._bars is None:
-            return {}
+        bars: the declared ones, else counted from the files once (none without bars)."""
         if self.declared is not None:
             return self.declared
         if self._counted is None:
