@@ -40,7 +40,8 @@ PUBLIC = {
     " probe_start LabelFrame EvalConfig",
     "nexusbt.artifacts": "RunStore RunTxn Index BookStore BookTxn derive_tables render_report",
     "nexusbt.api": "evaluate backtest screen live fill reconcile sweep compare explain check"
-    " describe runs rerun book override record_fills cash_flow preregister config open",
+    " describe runs rerun book override record_fills cash_flow preregister config open"
+    " run_pipeline",
 }
 
 #: Classes whose public members are stubs too, each called through the class.
@@ -69,6 +70,8 @@ BUILT = {
     "nexusbt.data.Snapshot.calendar",  # T1.3 (#235)
     "nexusbt.data.Snapshot.market_block",  # T1.4 (#236)
     "nexusbt.data.Snapshot.actions",  # T1.8 (#241)
+    "nexusbt.data.Snapshot.block_columns",  # T1.13 (#249): a run sizes its chunks
+    "nexusbt.api.run_pipeline",  # T1.13 (#249)
 }
 
 #: 6.6, the classes whose kind is block or fail: the sub-errors of `NexusBTError`. The warnings

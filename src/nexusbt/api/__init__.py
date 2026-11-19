@@ -14,6 +14,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 from nexusbt import pipeline
+from nexusbt.api import _pipeline
+from nexusbt.api._pipeline import PipelineResult as PipelineResult
 from nexusbt.config import Config, load_config
 from nexusbt.contracts import DataProfileWarning, PinsPolicy, SchemaRegistry
 from nexusbt.data import DataConfig, _data_root, _snapshot_markets, dataset_columns, open_snapshot
@@ -117,6 +119,27 @@ def screen(
     **common: Any,
 ) -> Screen:
     raise NotImplementedError
+
+
+def run_pipeline(
+    pipeline: Pipeline,
+    *,
+    start: _Day,
+    end: _Day,
+    freq: Literal["daily", "weekly", "monthly"] = "daily",
+    markets: Sequence[str] | None = None,
+    edition: str | None = None,
+    snapshot: str | Snapshot | None = None,
+    save: bool = False,
+) -> PipelineResult:
+    """3.5: the pipeline's columns at each market's decisions from `start` to `end`, the rows
+    its screen keeps; `markets` are keys of the snapshot's markets, all of them by default."""
+    if edition is not None:  # a PIT dataset's edition: `Snapshot.intervals` (M2)
+        raise NotImplementedError("edition= comes with the point-in-time datasets (M2)")
+    if save:
+        raise NotImplementedError("save=True comes with the run record of #249's third part")
+    return _pipeline.run(pipeline, start=start, end=end, freq=freq, markets=markets,
+                         snapshot=snapshot, cfg=config(), registry=schema_registry)  # fmt: skip
 
 
 def live(
