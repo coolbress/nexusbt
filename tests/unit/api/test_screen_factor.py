@@ -74,6 +74,19 @@ def test_asof_on_a_holiday_takes_the_session_before(tiny: Path) -> None:
     assert found.asof == {"KR": dt.date(2020, 1, 20), "US": dt.date(2020, 1, 17)}
 
 
+def test_common_keywords_and_bounds(tiny: Path, project: Path) -> None:
+    """3.8's common `save` and `purpose`: `save=False` seals no run; the default `purpose` is
+    taken. `top` below 1 and an `asof` after the data's last session are E16, not a run."""
+    found = nx.screen(nx.Price.close.latest, top=1, save=False, purpose="research",
+                      snapshot=str(tiny))  # fmt: skip
+    assert found.run_id is None
+    assert not (project / "runs").exists()
+    with pytest.raises(nx.ConfigError, match="selects nothing"):
+        nx.screen(nx.Price.close.latest, top=0, snapshot=str(tiny))
+    with pytest.raises(nx.ConfigError, match="outside the KR sessions"):
+        nx.screen(nx.Price.close.latest, top=1, asof="2021-06-01", snapshot=str(tiny))
+
+
 def test_what_screen_does_not_take_yet(tiny: Path) -> None:
     """A Strategy or Pipeline screen and the keywords of a strategy screen are later tickets':
     each is refused with its name, not ignored."""

@@ -2,7 +2,7 @@
 T1.13's "Done means"; #249).
 
 Run it: `uv run python examples/m1_screen.py`. It makes the synthetic `small` package (4.8: 120
-instruments per market, 2015 to 2019) in a new folder under the system's temporary folder,
+KR and 180 US instruments, 2015 to 2019) in a new folder under the system's temporary folder,
 works there so that `runs/` stays out of this repository, and screens `Returns(126)` on its
 default input, `close_tr` (3.4), on each market's last session.
 

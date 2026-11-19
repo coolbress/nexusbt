@@ -147,12 +147,19 @@ def screen(
     if not isinstance(obj, pipeline.Factor):
         what = type(obj).__name__
         raise NotImplementedError(f"screen of a {what} comes with its ticket; a Factor screens")
+    other = {k: v for k, v in common.items() if k not in ("snapshot", "save")}  # 3.8's common
+    if other.get("purpose") == "research":  # the default run kind (6.2); the others are later
+        del other["purpose"]
     given = {"params": params, "anchor": anchor, "book": book,
              "show": None if show == "selected" else show,
-             "account": None if account in ("auto", "none") else account,
-             **{k: v for k, v in common.items() if k != "snapshot"}}  # fmt: skip
+             "account": None if account in ("auto", "none") else account, **other}  # fmt: skip
     if refused := sorted(k for k, v in given.items() if v is not None):
-        raise NotImplementedError(f"screen(factor) does not take {refused} yet (a strategy's)")
+        raise NotImplementedError(f"screen(factor) does not take {refused} yet")
+    if top is not None and top < 1:
+        raise ConfigError(what=f"top = {top} selects nothing", where="argument top",
+                          why="screen(factor, top=n) keeps the top n per market (3.8)",
+                          fix="top=1 or more, or leave it out for every scored instrument",
+                          more="spec 3.8", layer=f"config — argument top={top}")  # fmt: skip
     cfg, snapshot = config(), common.get("snapshot")
     if isinstance(snapshot, _Snapshot):
         opened = snapshot
@@ -176,6 +183,8 @@ def screen(
     table = _ranked(pa.concat_tables(picked))
     named = {"factor": pipeline.graph_hash(obj), "top": top}
     params_ = {"asof": None if asof is None else str(asof), "top": top}
+    if not common.get("save", True):
+        return Screen(table, True, days, universe, selected, opened.id)
     run_id = _seal("screen", named, {}, opened, cfg, params_ | {"markets": None})
     return Screen(table, True, days, universe, selected, opened.id, run_id)
 
@@ -189,10 +198,10 @@ def _screen_day(calendar: Calendar, asof: _Day | None) -> dt.date:
         return found
     wanted = np.datetime64(str(asof), "D")
     row = int(np.searchsorted(dates, wanted, "right")) - 1
-    if row < 0:
-        raise ConfigError(what=f"no {calendar.market} session on or before asof {asof}",
+    if row < 0 or wanted > dates[-1]:  # before the data, or after its last session
+        raise ConfigError(what=f"asof {asof} is outside the {calendar.market} sessions",
                           where="argument asof", why="a screen is on one session (3.8)",
-                          fix=f"choose asof from {dates[0]} on", more="spec 5.1.6",
+                          fix=f"choose asof from {dates[0]} to {dates[-1]}", more="spec 5.1.6",
                           layer=f"config — argument asof={asof}")  # fmt: skip
     day: dt.date = dates[row].astype("datetime64[D]").item()
     if day != wanted.item():
