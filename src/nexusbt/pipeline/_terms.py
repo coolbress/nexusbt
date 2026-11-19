@@ -546,10 +546,15 @@ def _in_project(value: object) -> TypeGuard[FunctionType]:
 
 
 def _project_file(file: str) -> bool:
-    """Compared by where the paths lead (#573): a library reached through a link (a Homebrew
-    Python's `opt/` folder) holds files named by the link's target, or the other way round."""
-    real = _real(file)
-    return Path(file).is_absolute() and not any(real.is_relative_to(_real(p)) for p in _OUTSIDE)
+    """Outside when the path as written or where it leads is under a folder of `_OUTSIDE` as
+    written or where it leads (#573): a library reached through a link (a Homebrew Python's
+    `opt/` folder) holds files named by the link's target, and an installed file can itself be a
+    link into a store (`uv`'s symlink link mode)."""
+    path = Path(file)
+    if not path.is_absolute():
+        return False
+    folders = [f for p in _OUTSIDE for f in (Path(p), _real(p))]
+    return not any(n.is_relative_to(f) for n in (path, _real(file)) for f in folders)
 
 
 @functools.cache

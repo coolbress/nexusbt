@@ -54,6 +54,11 @@ def test_outside_through_a_symbolic_link(tmp_path: Path, monkeypatch: pytest.Mon
         assert not _terms._project_file(str(named / "stdlib" / "mod.py"))
         assert not _terms._project_file(str(named / "site" / "pkg" / "mod.py"))
         assert _terms._project_file(str(project))
+    # An installed file that is itself a link into a store (`uv`'s symlink link mode, Nix)
+    (tmp_path / "store").mkdir()
+    (tmp_path / "store" / "linked.py").write_text("")
+    (real / "site" / "pkg" / "linked.py").symlink_to(tmp_path / "store" / "linked.py")
+    assert not _terms._project_file(str(real / "site" / "pkg" / "linked.py"))
 
 
 def test_a_library_function_is_no_helper(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
