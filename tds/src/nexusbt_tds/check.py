@@ -549,10 +549,30 @@ def _check_schema(
                 continue
             read.add(norm)
             if not _unsafe(root, rel) and (root / rel).is_file():
-                found = _check_file(root, rel, ds, schema, blind, codes, entry.get("bytes"))
+                found = [*_check_file(root, rel, ds, schema, blind, codes, entry.get("bytes"))]
+                if ds.get("kind") == "instruments":
+                    found += _undeclared_markets(root / rel, m.data)
                 out += [replace(f, dataset=ds.get("name"), file=rel) for f in found
                         if not rows or f.code not in CELL_CODES]  # fmt: skip
     return out
+
+
+def _undeclared_markets(path: Path, data: Mapping[str, Any]) -> list[Finding]:
+    """M010 (TDS 3.8, 8.2, #567): each `instruments.market` not declared in `markets`, once,
+    with its first instrument. A missing column is S001's, an unreadable file S010's."""
+    markets = data.get("markets")
+    declared = set(markets) if isinstance(markets, dict) else set()
+    try:
+        rows = pq.ParquetFile(path).read(columns=["instrument_id", "market"]).to_pylist()
+    except (OSError, KeyError, pa.ArrowException):
+        return []
+    first: dict[str, Any] = {}
+    for row in rows:  # a column the file lacks is not in the row
+        if (market := row.get("market")) is not None and market not in declared:
+            first.setdefault(market, row.get("instrument_id"))
+    return [Finding("TDS-M010", "error",
+                    f"instrument {i!r} names market {m!r}, not declared in tds.json")
+            for m, i in sorted(first.items())]  # fmt: skip
 
 
 def _dictionary_codes(m: Manifest, root: Path) -> set[tuple[str, str]]:
