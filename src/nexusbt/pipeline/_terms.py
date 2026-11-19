@@ -10,6 +10,7 @@ import ast
 import dis
 import functools
 import hashlib
+import importlib.util
 import inspect
 import json
 import re
@@ -532,11 +533,37 @@ class _Reads:
     impure: tuple[str, ...]
 
 
-#: Code outside the project: the engine, the standard library and the installed packages.
+@functools.cache
+def _real(path: str | Path) -> Path:
+    """`path` with its links followed, once per path: `_OUTSIDE`'s folders are resolved the first
+    time a file is compared, not for each user function."""
+    return Path(path).resolve()
+
+
+def _stdlib_zips(path: Sequence[str], base: str) -> tuple[Path, ...]:
+    """The `.zip` entries of `path` that lie under the interpreter's folder `base`, as written or
+    with links followed (#573): a standard library shipped as `lib/pythonXY.zip` (#577). Decided
+    by where the file is, never by module name: a project file named `random.py` stays inside."""
+    roots = (Path(base), _real(base))
+    zips = (Path(p) for p in path if p.endswith(".zip"))
+    return tuple(z for z in zips if any(n.is_relative_to(r) for n in (z, _real(z)) for r in roots))
+
+
+def _engine_package(name: str) -> tuple[Path, ...]:
+    """The folder of the engine's package `name`, found without importing it."""
+    spec = importlib.util.find_spec(name)
+    return () if spec is None or spec.origin is None else (Path(spec.origin).parent,)
+
+
+#: Code outside the project (6.5 (6), #577): the engine's own packages (`nexusbt`, `nexusbt_tds`,
+#: editable in development too), the standard library, zipped or not, and the packages installed
+#: into the library folders. A package installed in editable mode elsewhere is inside.
 _INSTALLED = ("stdlib", "platstdlib", "purelib", "platlib")
 _OUTSIDE = (
     Path(__file__).parents[1],
+    *_engine_package("nexusbt_tds"),
     *(Path(p) for k, p in sysconfig.get_paths().items() if k in _INSTALLED),
+    *_stdlib_zips(sys.path, sys.base_prefix),
 )
 #: Names that open a file (6.5 (6)): `open`, `np.load` and the like, `pd.read_*`, `pl.read_*`.
 _FILE_READS = frozenset({"open", "load", "loadtxt", "genfromtxt", "fromfile", "memmap"})
@@ -556,13 +583,6 @@ def _project_file(file: str) -> bool:
         return False
     folders = [f for p in _OUTSIDE for f in (Path(p), _real(p))]
     return not any(n.is_relative_to(f) for n in (path, _real(file)) for f in folders)
-
-
-@functools.cache
-def _real(path: str | Path) -> Path:
-    """`path` with its links followed, once per path: `_OUTSIDE`'s folders are resolved the first
-    time a file is compared, not for each user function."""
-    return Path(path).resolve()
 
 
 def _reads(fn: FunctionType) -> _Reads:
