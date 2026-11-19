@@ -6,7 +6,11 @@ live here.
 
 from __future__ import annotations
 
+import dataclasses
 import datetime as dt
+import hashlib
+import json
+import sys
 import warnings
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -19,6 +23,7 @@ from nexusbt.api._pipeline import PipelineResult as PipelineResult
 from nexusbt.config import Config, load_config
 from nexusbt.contracts import DataProfileWarning, PinsPolicy, SchemaRegistry
 from nexusbt.data import DataConfig, _data_root, _snapshot_markets, dataset_columns, open_snapshot
+from nexusbt.data import Snapshot as _Snapshot
 
 if TYPE_CHECKING:
     from nexusbt.artifacts import RunStore, RunTxn
@@ -133,13 +138,64 @@ def run_pipeline(
     save: bool = False,
 ) -> PipelineResult:
     """3.5: the pipeline's columns at each market's decisions from `start` to `end`, the rows
-    its screen keeps; `markets` are keys of the snapshot's markets, all of them by default."""
+    its screen keeps; `markets` are keys of the snapshot's markets, all of them by default.
+    `save=True` seals a run of `kind="pipeline"` (3.8) and gives its id as `run_id`."""
     if edition is not None:  # a PIT dataset's edition: `Snapshot.intervals` (M2)
         raise NotImplementedError("edition= comes with the point-in-time datasets (M2)")
-    if save:
-        raise NotImplementedError("save=True comes with the run record of #249's third part")
-    return _pipeline.run(pipeline, start=start, end=end, freq=freq, markets=markets,
-                         snapshot=snapshot, cfg=config(), registry=schema_registry)  # fmt: skip
+    cfg = config()
+    data = DataConfig.from_config(cfg) if snapshot is None else _given(snapshot, cfg)
+    opened = snapshot if isinstance(snapshot, _Snapshot) else open_snapshot(data)
+    result = _pipeline.run(pipeline, start=start, end=end, freq=freq, markets=markets,
+                           snapshot=opened, cfg=cfg, registry=schema_registry)  # fmt: skip
+    if not save:
+        return result
+    params = {"start": str(start), "end": str(end), "freq": freq,
+              "markets": list(markets) if markets is not None else None}  # fmt: skip
+    run_id = _save_pipeline(result, pipeline, opened, data, cfg, params)
+    return dataclasses.replace(result, run_id=run_id)
+
+
+def _given(snapshot: str | Snapshot, cfg: Config) -> DataConfig:
+    """The `[data]` settings for a snapshot given as an argument: its own path when a path, and
+    the toml's pins; a `Snapshot` object keeps the toml's path, if any, for the root pin."""
+    pins = PinsPolicy(cfg.values["data"]["pins"])
+    if not isinstance(snapshot, _Snapshot):
+        return DataConfig(path=Path(snapshot), pins=pins)
+    path = cfg.values["data"]["path"] or cfg.values["data"]["root"] or "."
+    return DataConfig(path=Path(path), pins=pins)
+
+
+def _save_pipeline(
+    result: PipelineResult, pipe: Pipeline, opened: Snapshot, data: DataConfig, cfg: Config,
+    params: dict[str, Any],
+) -> str:  # fmt: skip
+    """3.8's `kind="pipeline"`: `pipeline.parquet` and `term_diagnostics.parquet` (5.9.1), and
+    `source/` with the entry file, `__main__`'s file or none in an interactive session
+    (5.9.3; #283, #304). The run's name is the entry file's stem, as a study's (6.2)."""
+    from nexusbt.artifacts import RunStore  # only a saved run opens the store
+
+    file = getattr(sys.modules.get("__main__"), "__file__", None)
+    entry = Path(file) if file else None
+    named = {n: pipeline.graph_hash(t) for n, t in pipe.columns.items()}
+    named |= {"screen": pipeline.graph_hash(pipe.screen)} if pipe.screen is not None else {}
+    family = cfg.values["research"]["family_id"]
+    store = RunStore(Path(cfg.values["runs"]["dir"]), family_id=family)
+    graph = hashlib.sha256(json.dumps(named, sort_keys=True).encode()).hexdigest()
+    txn = _begin_run(store, opened, data, "pipeline", entry.stem if entry else "interactive",
+                     graph_hash=graph, params=params | {"terms": named})  # fmt: skip
+    try:
+        txn.write_table("pipeline", result.table)
+        txn.write_table("term_diagnostics", result.term_diagnostics)
+        txn.capture_sources([], entry=entry)
+        markets = {m: {"calendar_id": i.calendar_id, "currency": i.currency,
+                       "rules_pack": i.rules or "untested"}
+                   for m, i in opened.markets.items()}  # fmt: skip
+        txn.set_manifest({"kind": "pipeline", "snapshot_id": opened.id, "markets": markets,
+                          "snapshot_semantic_hash": opened.semantic_hash})  # fmt: skip
+    except BaseException:
+        txn.abort()
+        raise
+    return txn.seal().run_id
 
 
 def live(

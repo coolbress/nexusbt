@@ -781,6 +781,7 @@ nx.open(path: str | Path) -> Snapshot   # 패키지 경로 하나(또는 `LATEST
 | `evaluate` | 시장별 `freq` 마지막 세션(market_local) | `kind="evaluate"` | 팩터마다 후보 +1(`Mapping`이면 항목마다 따로 후보·관측), 구간 노출 |
 | `backtest` | 전략 일정, 기준 시계(5.1.3) | `kind="backtest"` | 전략 후보(새 후보면 +1) + 관측 1, 노출 |
 | `screen` | `asof`(기본 = 각 시장의 스냅숏 마지막 세션) 하나 | `kind="screen"` | 노출 기록만(성과 계산 없음) |
+| `run_pipeline(save=True)` | `start`에서 `end`까지 시장별로 `freq`가 고른 세션(3.5, market_local) | `kind="pipeline"` | 노출 기록만(성과 계산 없음) |
 | `live` | 장부의 다음 판단 | `kind="live"` + 장부 사건 | 없음 |
 | `sweep` | `backtest`와 같음 | 부모 `kind="sweep"` + 후보마다 `kind="backtest"` | 후보 각각 +1 |
 | `backtest(method≠linear)` | 전략 일정, 폴드·경로마다 | `kind="backtest"` 하나(`method`·폴드·경로는 그 실행의 `validation/` 하위 표) | 전략 후보 +1(+ `grid` 점마다 +1) + 관측 1; 폴드·경로는 진단(6.2) [R4-21] |
@@ -2120,6 +2121,7 @@ runs/<run_id>/
   validation/              (method ≠ linear) split.json, folds.parquet, paths.parquet, path_daily/<path>.parquet, selection.parquet, stats.json (6.3a) [R4-20]
                            칼럼 [R4F-20]: split.json = {method, params, split_hash, groups[{group, first, last}], splits[{split, test_groups}]}; folds = fold, train_first, train_last, test_first, test_last, selected_params_json, is_sharpe, is_cagr, oos_sharpe, oos_cagr, oos_mdd, n_purged, n_embargoed, n_fits, refit(fixed|online), n_online_fits, status [#216]; paths = path, cagr, sharpe, mdd, turnover, ruined, n_days, status, eval_first, eval_last, n_valid, n_total [#216]; path_daily = session_date, nav, ret_net, ret_gross, group, split; selection = fold, grid_point, candidate_key, is_metric, is_n_decisions, n_purged, n_embargoed, rank; stats.json = distribution, pbo{value, k, n}, psr, dsr, min_trl, degradation{slope, n}, selection_stability
   signal.parquet           (save_signal=True; evaluate에도) decision_id, instrument_id, term, value
+  pipeline.parquet         (run_pipeline일 때만) PipelineResult.table, 3.5가 정한 열 그대로
   candidates.parquet       (sweep만) candidate_key, date, ret
   detail/                  (save_detail=True) 3단계 산출물, 아래: 모든 격자 점과 고르지 않은 모든 후보의 predictions.parquet
   source/                  잡은 소스 (아래)
