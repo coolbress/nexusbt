@@ -267,7 +267,7 @@ def _listings(
 
 def _small(
     market: str, n: int, sessions: Table, rng: np.random.Generator,
-    events: Sequence[Mapping[str, Any]] = (), life: int = 8,
+    events: Sequence[Mapping[str, Any]] = (), life: int = 8, decimals: int | None = None,
 ) -> dict[str, Table]:  # fmt: skip
     """4.8 (2) and (3): listings, ticker histories and dense raw bars of `n` instruments."""
     days, opens, closes = sessions["session_date"], sessions["ts_open"], sessions["ts_close"]
@@ -320,10 +320,10 @@ def _small(
             "cum_factor_split": np.ones(j - i), "cum_factor_total": np.ones(j - i),
         }.items():  # fmt: skip
             bars.setdefault(name, []).append(values)
-    mics = _venues(VENUES.get(market), n, bars, rng)  # drawn last: the draws above stay
+    mics = _venues(VENUES.get(market), n, bars, rng, decimals)  # drawn last: the above stay
     actions, moved = _actions(market, ids, first, last, sessions, bars, rng, mics,
                               targets(events, ids, days, first, last),
-                              MARKETS[market]["currency"])  # fmt: skip
+                              MARKETS[market]["currency"], decimals=decimals)  # fmt: skip
     status = _tradability(market, first, last, mics, moved, bars, rng,
                           (events, ids, days))  # moves `bars` too  # fmt: skip
     out, payouts, delisted = _delistings(market, ids, first, last, sessions, bars, rng, ended,
@@ -359,7 +359,10 @@ def _arguments(
 ) -> tuple[Path, list[str]]:  # fmt: skip
     """`make_snapshot`'s refusals, in its order, then `root` as a Path and the chosen markets
     in MARKETS' order; `drawn` is the arguments only a seeded preset takes (start, end, n_kr,
-    n_us)."""
+    n_us, price_decimals)."""
+    decimals = drawn[-1]
+    if decimals is not None and (type(decimals) is not int or decimals < 0):
+        raise ValueError(f"price_decimals {decimals!r}: an integer >= 0, or None (spec 4.8 (5a))")
     if preset not in ("tiny", *PRESETS) or overrides:
         raise NotImplementedError("only presets tiny, small and full, without overrides, are"
                                   " built so far (spec 4.8)")  # fmt: skip
@@ -369,8 +372,8 @@ def _arguments(
         raise ValueError(f"markets {list(markets)}: choose one or more of {sorted(MARKETS)}")
     check(events, chosen, CA, preset == "tiny")
     if preset == "tiny" and any(v is not None for v in drawn):
-        raise ValueError("tiny is set by hand: start, end, n_kr and n_us apply to small and"
-                         " full only")  # fmt: skip
+        raise ValueError("tiny is set by hand: start, end, n_kr, n_us and price_decimals apply"
+                         " to small and full only")  # fmt: skip
     return root, chosen
 
 
@@ -389,6 +392,7 @@ def make_snapshot(
     overrides: Mapping[str, Any] | None = None,
     degrade: Sequence[str] = (),
     behind: Mapping[str, int] | None = None,
+    price_decimals: int | None = None,
 ) -> Path:
     """Write the synthetic TDS package `preset` to `root` and its hashes into `tds.json`.
 
@@ -404,10 +408,11 @@ def make_snapshot(
     (#354), the others with T0.16b. Each dataset is processed through the watermark session in
     every market (TDS 4.3, #192), but `behind[name]` sessions earlier for each dataset `name`
     without a row per session, without its rows first known after that session (4.8 `behind`,
-    #425).
+    #425). `price_decimals` (an integer >= 0, `small` and `full`) puts US and ZZ prices on
+    10^-n, 8.1's CI fixture (4.8 (5a), #252); None changes nothing.
     """
     root, chosen = _arguments(root, preset, markets, events, overrides, degrade,
-                              (start, end, n_kr, n_us))  # fmt: skip
+                              (start, end, n_kr, n_us, price_decimals))  # fmt: skip
     seeded = PRESETS.get(preset, PRESETS["small"])
     first, final = (start or seeded.start, end or seeded.end) if preset != "tiny" else (START, END)
     counts = seeded.counts | {k: v for k, v in (("KR", n_kr), ("US", n_us)) if v is not None}
@@ -420,7 +425,8 @@ def make_snapshot(
             calendars[cal], tables[m] = _tiny_calendar(cal), _tiny(m, events)
         else:
             calendars[cal] = _small_calendar(cal, first, final)
-            tables[m] = _small(m, counts[m], calendars[cal], rngs[m], events, seeded.life[m])
+            tables[m] = _small(m, counts[m], calendars[cal], rngs[m], events, seeded.life[m],
+                               price_decimals)  # fmt: skip
         entries[m] = MARKETS[m] | pk._watermark(calendars[cal])
         if degrade:
             closes = pk._arrow(calendars[cal])["ts_close"].combine_chunks()
@@ -581,13 +587,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--markets", default="KR,US")
     parser.add_argument("--degrade", default="", help="spec 4.8 degrade values, a,b")
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--price-decimals", type=int, help="US and ZZ prices to 10^-n (4.8 (5a))")
     parser.add_argument("--validate", action="store_true", help="then run tds check --level full")
     args = parser.parse_args(argv)
     began = time.perf_counter()
     root = make_snapshot(
         args.out, preset=args.preset, seed=args.seed, markets=args.markets.split(","),
         snapshot_id=PRESETS.get(args.preset, PRESETS["small"]).snapshot_id,
-        degrade=[v for v in args.degrade.split(",") if v],
+        degrade=[v for v in args.degrade.split(",") if v], price_decimals=args.price_decimals,
     )  # fmt: skip
     took = time.perf_counter() - began
     manifest = json.loads((root / "tds.json").read_text(encoding="utf-8"))
