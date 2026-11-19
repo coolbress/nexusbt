@@ -28,7 +28,7 @@ from nexusbt.data._calendar import read_calendar
 from nexusbt.data._capabilities import CapabilityRequest as CapabilityRequest
 from nexusbt.data._capabilities import DataCapabilities as DataCapabilities
 from nexusbt.data._capabilities import FallbackRecord as FallbackRecord
-from nexusbt.data._capabilities import _columns, _values, decide
+from nexusbt.data._capabilities import _columns, _values, check_fields, decide
 from nexusbt.data._coverage import BarsExtent
 from nexusbt.data._datasets import chosen
 from nexusbt.data._ratios import RatioExclusion as RatioExclusion
@@ -221,7 +221,9 @@ class Snapshot:
         self, market: str, fields: Sequence[str], sessions: object, *, overlap: int = 0
     ) -> MarketBlock:
         """The dense block of the daily bars' `fields` over the calendar rows from the first to
-        the last of `sessions`, after up to `overlap` rows of the previous chunk (5.3.1)."""
+        the last of `sessions`, after up to `overlap` rows of the previous chunk (5.3.1).
+        `close_tr` on an adjusted-price package is E18 (4.3), at the first chunk's read."""
+        check_fields(self._manifest.data, self.capabilities, fields)
         return build_block(self._manifest, self.calendar(market), fields, sessions, overlap)
 
     def block_columns(self, market: str, sessions: object) -> tuple[str, ...]:

@@ -22,6 +22,7 @@ from nexusbt.contracts import (
     FallbacksPolicy,
     SnapshotError,
 )
+from nexusbt.data._block import OHL, partition_values
 from nexusbt.data._coverage import BarsExtent, schedule
 from nexusbt.data._datasets import chosen, dataset, doubled
 from nexusbt.data._datasets import layer as _layer
@@ -46,6 +47,7 @@ SUPPORTED = frozenset({
     "tds:panels@1.0", "tds:pit-fundamentals@1.0",
 })  # fmt: skip
 SAYS = {
+    "F-01": "Price.open/high/low = NaN, bars without them or null in every row",
     "F-02": "sessions synthesized from exchange_calendars 4.13.2",
     "F-03": "bars expanded to listing period x sessions, empty cells obs_status = missing",
     "F-15": "price grid = currency minor unit",
@@ -80,12 +82,14 @@ class DataCapabilities:
 
 @dataclass(frozen=True, slots=True)
 class FallbackRecord:
-    """One fallback used (4.4-5): its 4.5 id, the dataset it stands in for, market, count."""
+    """One fallback used (4.4-5): its 4.5 id, the dataset it stands in for, market, count, and
+    the column when the fallback is one column's (F-01)."""
 
     id: str
     dataset: str
     market: str
     count: int
+    column: str | None = None
 
 
 def decide(
@@ -122,6 +126,9 @@ def decide(
                              or "obs_status" not in columns):  # fmt: skip
         taken["backtest"] += [FallbackRecord("F-03", bars["name"], m, int(e.get("rows", 0)))
                               for m, e in extent.by_market().items()]  # fmt: skip
+    ohl = _no_ohl(folder, bars, extent)  # Price.open/high/low read by `price` (3.2)
+    taken["price"] += ohl
+    taken["backtest"] += ohl
     years = Counter((f.dataset, market_of.get(str((f.key or {}).get(ID_COLUMN)), "-"))
                     for f in found if f.code == "TDS-V011")  # fmt: skip
     taken["backtest"] += [FallbackRecord("F-16", str(d), m, n) for (d, m), n in years.items()]
@@ -202,6 +209,42 @@ def _off_calendar(
             snapshot_id=str(data["snapshot_id"]),
             producer=str(producer.get("name", "-")) if isinstance(producer, dict) else "-",
         )  # fmt: skip
+
+
+def _no_ohl(
+    folder: Path, bars: Mapping[str, Any] | None, extent: BarsExtent
+) -> list[FallbackRecord]:
+    """F-01 by market and column (4.5): a bars file that can hold the market (its `market=`
+    partition, or none) lacks the column or holds it null in every row by its footer
+    statistics; the count is those files' rows, at most the market's. A file without them
+    leaves it undecided, its cells NaN as stored: open reads no row."""
+    if bars is None:
+        return []
+    files: dict[str | None, list[pq.FileMetaData]] = {}
+    for f in bars["files"]:
+        market = partition_values(f["path"], bars.get("partitioning", [])).get("market")
+        files.setdefault(market, []).append(pq.ParquetFile(folder / f["path"]).metadata)
+    out: list[FallbackRecord] = []
+    if not any(_gone(x, c) for held in files.values() for x in held for c in OHL):
+        return out  # no record: the bars' extent is not read (#568)
+    for m, entry in extent.by_market().items():
+        held = [*files.get(m, []), *files.get(None, [])]
+        for c in OHL:
+            if gone := [x.num_rows for x in held if _gone(x, c)]:
+                count = min(sum(gone), int(entry.get("rows", sum(gone))))
+                out.append(FallbackRecord("F-01", str(bars["name"]), m, count, c))
+    return out
+
+
+def _gone(meta: pq.FileMetaData, column: str) -> bool:
+    """The file lacks `column`, or its footer says null in every row; False when it cannot say."""
+    if column not in meta.schema.names:
+        return True
+    at = meta.schema.names.index(column)
+    stats = [meta.row_group(g).column(at).statistics for g in range(meta.num_row_groups)]
+    if any(s is None or not s.has_null_count for s in stats):
+        return False
+    return bool(sum(s.null_count for s in stats) == meta.num_rows)
 
 
 def _columns(folder: Path, dataset: Mapping[str, Any] | None) -> set[str]:
@@ -289,8 +332,9 @@ def _warning(data: Mapping[str, Any], records: Sequence[FallbackRecord]) -> Data
     first = records[0]
     return DataProfileWarning(
         what=f"fallback {first.id} used: {SAYS[first.id]} for "
-             f"{', '.join(r.market for r in records)}",
-        where="; ".join(f"dataset {r.dataset}, market {r.market}, {r.count}" for r in records),
+             f"{', '.join(dict.fromkeys(r.market for r in records))}",
+        where="; ".join(f"dataset {r.dataset}, market {r.market}, "
+                        f"{f'column {r.column}, ' if r.column else ''}{r.count}" for r in records),
         why="a fallback changes what a term means (4.5)",
         fix="[data] fallbacks = 'fail' to stop instead", more="spec 4.5; tds check --level full",
         layer=_layer(data, first.dataset), subject=first.id,
@@ -305,6 +349,25 @@ def _refused(data: Mapping[str, Any], used: Sequence[FallbackRecord]) -> Snapsho
         why="a fallback changes what a term means (4.5)",
         fix="use a snapshot with those datasets, or [data] fallbacks = 'warn' (recorded)",
         more="spec 4.4 step 3 and 4.5", layer=_layer(data, used[0].dataset),
+    )  # fmt: skip
+
+
+def check_fields(data: Mapping[str, Any], caps: DataCapabilities, fields: Sequence[str]) -> None:
+    """4.3: `close_tr` needs the `adjusted` feature (raw bars, corporate actions, sessions); an
+    adjusted-price package gives `close` as it is and refuses `close_tr` with E18."""
+    if "close_tr" not in fields or "adjusted" in caps.features:
+        return
+    bars = chosen(data).get("bars") or {}
+    basis = bars.get("params", {}).get("price_basis", "-")
+    raise CapabilityError(
+        what=f"Price.close_tr is not in snapshot {data['snapshot_id']}: economic labels need "
+             "raw prices and corporate actions",
+        where=f"dataset {bars.get('name', 'bars')} price_basis = {basis}",
+        why="close_tr is the raw close with cash dividends added back from corporate_actions "
+            "(3.2); it needs raw bars, corporate_actions and calendar_sessions (4.3)",
+        fix="use a snapshot whose bars have price_basis = raw, with corporate_actions and "
+            "calendar_sessions; or read Price.close, the package's adjusted value",
+        more="spec 3.2 and 4.3", layer=_layer(data, str(bars.get("name", "bars"))),
     )  # fmt: skip
 
 

@@ -1,7 +1,8 @@
-"""#568: the bars' extent (spec 4.5 F-02, F-03, F-15) is read from the bars files only when a
-fallback uses it, and once per open. A test counts the engine's Parquet row reads of the bars
-files: `read_table` and `ParquetFile`. The footer (`read_schema`, `read_metadata`) is not
-counted: whether `obs_status` is a column decides F-03, so it is read at every open."""
+"""#568: the bars' extent (spec 4.5 F-01, F-02, F-03, F-15) is read from the bars files only
+when a fallback uses it, and once per open. A test counts the engine's Parquet row reads of
+the bars files: `read_table`, and a `ParquetFile`'s `read`, `read_row_group(s)` and
+`iter_batches`. The footer (`read_schema`, `read_metadata`, a `ParquetFile`'s `metadata`) is
+not counted: `obs_status` being a column decides F-03, and F-01 reads its statistics."""
 
 from __future__ import annotations
 
@@ -19,33 +20,41 @@ from nexusbt.data import CapabilityRequest, DataConfig, open_snapshot
 from nexusbt.testing.synth import make_snapshot
 from nexusbt_tds import import_csv
 
-#: The engine's Parquet entry points that read rows; each module calls them as `pq.<name>`.
-ROWS = ("read_table", "ParquetFile")
-FOOTER = ("read_schema", "read_metadata")
+#: A `ParquetFile`'s methods that read rows; each module reaches it as `pq.ParquetFile`.
+ROW_METHODS = ("read", "read_row_group", "read_row_groups", "iter_batches")
 BACKTEST = CapabilityRequest(frozenset({"backtest"}))
 
 
 @pytest.fixture
 def reads(monkeypatch: pytest.MonkeyPatch) -> Counter[str]:
-    """Path → row reads of it, through `pyarrow.parquet` (a call inside another is not counted
-    again)."""
+    """Path → row reads of it, through `pyarrow.parquet` (a read inside `read_table` is not
+    counted again)."""
     counted: Counter[str] = Counter()
     depth = [0]
 
-    def counting(name: str, real: Callable[..., Any]) -> Callable[..., Any]:
-        def call(source: Any, *args: Any, **kwargs: Any) -> Any:
-            if depth[0] == 0 and name in ROWS:
-                counted[Path(str(source)).resolve().as_posix()] += 1
+    def counting(path: Any, read: Callable[..., Any]) -> Callable[..., Any]:
+        def call(*args: Any, **kwargs: Any) -> Any:
+            if depth[0] == 0:
+                counted[Path(str(path)).resolve().as_posix()] += 1
             depth[0] += 1
             try:
-                return real(source, *args, **kwargs)
+                return read(*args, **kwargs)
             finally:
                 depth[0] -= 1
 
         return call
 
-    for name in ROWS + FOOTER:  # a footer read opens a `ParquetFile` inside: not a row read
-        monkeypatch.setattr(pq, name, counting(name, getattr(pq, name)))
+    real_table, real_file = pq.read_table, pq.ParquetFile
+
+    def opened(source: Any, *args: Any, **kwargs: Any) -> Any:
+        """The library's `ParquetFile`, its row reads counted; its footer is not."""
+        file = real_file(source, *args, **kwargs)
+        for name in ROW_METHODS:
+            setattr(file, name, counting(source, getattr(file, name)))
+        return file
+
+    monkeypatch.setattr(pq, "read_table", lambda s, *a, **k: counting(s, real_table)(s, *a, **k))
+    monkeypatch.setattr(pq, "ParquetFile", opened)
     return counted
 
 
@@ -87,7 +96,8 @@ def test_no_fallback_reads_no_bars_file(tmp_path: Path, reads: Counter[str]) -> 
 
 #: degrade, markets, the feature asked for: each fallback whose record reads the bars' extent
 #: (the cases of `test_open_without_coverage.py`).
-CASES = {"F-02": (["no_sessions"], ("KR", "US"), "backtest"),
+CASES = {"F-01": (["no_ohlc"], ("KR", "US"), "price"),
+         "F-02": (["no_sessions"], ("KR", "US"), "backtest"),
          "F-03": (["sparse_bars"], ("KR", "US"), "backtest"),
          "F-15": (["no_tick_info"], ("KR", "ZZ"), "grid")}  # fmt: skip
 

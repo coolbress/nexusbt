@@ -44,11 +44,14 @@ def block(**columns: list[list[float]]) -> MarketBlock:
     return MarketBlock("XX", dates, 0, ids, values, np.ones(shape, bool), status, seen)
 
 
-def values(terms: list[Term], whole: MarketBlock, tiebreak: Any = HASH) -> list[list[Any]]:
-    """Each term's cells at the last row, in instrument order."""
+def values(
+    terms: list[Term], whole: MarketBlock, tiebreak: Any = HASH, counts: Any = None
+) -> list[list[Any]]:
+    """Each term's cells at the last row, in instrument order; 5.4.1's counts to `counts`."""
     last = len(whole.dates) - 1
     ready = (whole.dates + np.timedelta64(16, "h")).astype("datetime64[us]")
-    found = execute(terms, [last], [(0, last)], lambda a, b: whole, ready, tiebreak=tiebreak)
+    found = execute(terms, [last], [(0, last)], lambda a, b: whole, ready, tiebreak=tiebreak,
+                    counts=counts)  # fmt: skip
     tables: list[pa.Table] = [found[graph_hash(t)] for t in terms]
     return [t["value"].to_pylist() for t in tables]
 
@@ -109,7 +112,7 @@ def test_edges_of_the_filter_terms() -> None:
     assert values([(CLOSE.latest > 0).all(3)], block(close=[[-1.0], [1.0]])) == [[U]]
     with pytest.raises(NotImplementedError, match="no `startswith` term"):
         values([CLOSE.latest.quantiles(2).startswith("A")], block(close=[[1.0]]))
-    with pytest.raises(NotImplementedError, match="across_markets=True is run_pipeline's"):
+    with pytest.raises(NotImplementedError, match="across_markets=True comes with T4"):
         values([CLOSE.latest.rank(across_markets=True)], block(close=[[1.0]]))
     for name in ("x", True):  # a name, and a bool, which is an int to Python but no code
         with pytest.raises(NotImplementedError, match="Classifier names come with its code"):
@@ -172,10 +175,10 @@ def test_builtin_factor_mask() -> None:
     assert _n(values([sma], x)[0]) == [11.0, U, U, 41.0]
 
 
-def test_cross_section_terms_match_kernels(caplog: pytest.LogCaptureFixture) -> None:
+def test_cross_section_terms_match_kernels() -> None:
     """Each cross-section term through the executor equals its kernel on the row's cells, with
     `groupby` codes and the tie-break key (5.4.2, 3.7); a cell of the unknown group -1 is left
-    out and counted in the `nexusbt.compute` debug log (`UnknownGroup`, 3.3)."""
+    out and counted once at each term grouped by it (`UnknownGroup`, 3.3, 5.4.1)."""
     close, opens = [5.0, 1.0, 3.0, N, 2.0, 4.0], [1.0, 1.0, 2.0, 2.0, N, 1.0]
     x = block(close=[close], open=[opens])
     g = OPEN.latest.quantiles(2)  # opens 1, 1, 2, 2, -, 1: mean ranks 2 and 4.5 of n = 5
@@ -183,8 +186,8 @@ def test_cross_section_terms_match_kernels(caplog: pytest.LogCaptureFixture) -> 
     terms = [s.rank("average", groupby=g), s.rank(ascending=False, groupby=g), s.zscore(groupby=g),
              s.demean(groupby=g), s.winsorize(0.1, 0.9, groupby=g), s.quantiles(2, groupby=g),
              s.top(1, groupby=g), s.bottom(1, groupby=g), s.percentile_between(0, 50)]  # fmt: skip
-    with caplog.at_level("DEBUG", logger="nexusbt.compute"):
-        found = values([g, *terms], x)
+    counts: dict[Any, int] = {}
+    found = values([g, *terms], x, counts=counts)
     assert found[0] == [1, 1, 2, 2, -1, 1]
     c, inside = np.array(close), np.ones(6, dtype=bool)
     ids = [f"I{i}" for i in range(6)]
@@ -199,8 +202,8 @@ def test_cross_section_terms_match_kernels(caplog: pytest.LogCaptureFixture) -> 
             k.percentile_between(c, inside, 0, 50)]  # fmt: skip
     for got, expected in zip(found[1:], want, strict=True):
         assert np.array_equal(np.array(_n(got), dtype=float), expected, equal_nan=True)
-    assert "UnknownGroup: rank" in caplog.text
-    assert "left out 1 cell(s)" in caplog.text
+    grouped = terms[:-1]  # `percentile_between` has no `groupby`
+    assert counts == {(0, graph_hash(t), "UnknownGroup"): 1 for t in grouped}
 
 
 def test_tiebreak_orders_equal_scores() -> None:
