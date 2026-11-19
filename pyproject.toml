@@ -105,9 +105,12 @@ files = ["src", "tds/src", "tests", "tds/tests", "tds/conformance"]
 
 # pyarrow 26 ships no `py.typed` and `pyarrow-stubs` targets pyarrow 20 (#61 Decisions):
 # its names are `Any` to mypy. exchange-calendars 4.13.2 ships no `py.typed` either (#58),
-# nor does PyYAML 6.0.3 (#59). Only these module names; every other setting stays strict.
+# nor does PyYAML 6.0.3 (#59). zipline and pandas: `tests/parity` imports them, and the engine's
+# environment has no zipline and no pandas types (#252). Only these module names; every other
+# setting stays strict.
 [[tool.mypy.overrides]]
-module = ["pyarrow", "pyarrow.*", "exchange_calendars", "yaml"]
+module = ["pyarrow", "pyarrow.*", "exchange_calendars", "yaml", "zipline", "zipline.*",
+          "pandas", "pandas.*"]
 ignore_missing_imports = true
 
 # Tests, `ci / test`.
