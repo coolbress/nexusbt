@@ -15,7 +15,8 @@ import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
 from nexusbt.contracts import CapabilityError, ConfigError, SessionNotice, SnapshotError
-from nexusbt.data._datasets import dataset
+from nexusbt.data._coverage import bars_by_market, schedule
+from nexusbt.data._datasets import chosen, dataset
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
@@ -111,7 +112,8 @@ def read_calendar(manifest: Manifest, market: str) -> Calendar:
     _, delay = bars_availability(bars, str(manifest.data["snapshot_id"]))
     delta = np.timedelta64(delay, "us")
     if rows is None or not len(rows):
-        return _synthesized(market, calendar_id, bars, delta)
+        extent = bars_by_market(manifest.root, bars, chosen(manifest.data).get("instruments"))
+        return _synthesized(market, calendar_id, extent.get(market), delta)
 
     def column(name: str, unit: str) -> Any:
         return rows[name].to_numpy().astype(f"datetime64[{unit}]")
@@ -123,14 +125,14 @@ def read_calendar(manifest: Manifest, market: str) -> Calendar:
 
 
 def _synthesized(
-    market: str, calendar_id: str, bars: Mapping[str, Any] | None, delta: np.timedelta64
+    market: str, calendar_id: str, period: Mapping[str, Any] | None, delta: np.timedelta64
 ) -> Calendar:
     """F-02's session table: the library's sessions from the first to the last day of the
-    bars, numbered from 0 (3.7); E18 without bars of the market or for a calendar the library
-    does not know. `open_snapshot` has said E30 when a feature asked for the sessions."""
+    market's bars (`period`), numbered from 0 (3.7); E18 without bars of the market or for a
+    calendar the library does not know. `open_snapshot` has said E30 when a feature asked for
+    the sessions."""
     import exchange_calendars as xcals  # only a package without sessions pays its import
 
-    period = (bars or {}).get("coverage", {}).get("by_market", {}).get(market)
     if period is None or calendar_id not in xcals.get_calendar_names():
         raise CapabilityError(
             what=f"no sessions for market {market}: calendar {calendar_id} is not in"
@@ -142,7 +144,7 @@ def _synthesized(
             more="spec 4.5 F-02 and 5.1.1",
             layer="data — snapshot - / calendar_sessions / column calendar_id / producer -",
         )  # fmt: skip
-    days = xcals.get_calendar(calendar_id, start=period["first"], end=period["last"]).schedule
+    days = schedule(calendar_id, period)
 
     def utc(name: str) -> Any:
         return days[name].dt.tz_localize(None).to_numpy().astype("datetime64[us]")
