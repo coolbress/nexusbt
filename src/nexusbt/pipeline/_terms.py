@@ -93,8 +93,9 @@ def _xs(
 
 def _one_of(op: str, name: str, value: object, allowed: tuple[object, ...]) -> None:
     """3.3, 6.6 E16 (#602): an argument with a closed set of values takes one of them, by type
-    as well as value, so `1` is not `True`: one computation, one graph hash."""
-    if any(type(value) is type(a) and value == a for a in allowed):
+    as well as value, so `1` is not `True`: one computation, one graph hash. A `str` subclass
+    is a `str` here, as `_canon` hashes it as its plain string."""
+    if any(isinstance(value, type(a)) and value == a for a in allowed):
         return
     raise ConfigError(
         what=f"{name}={value!r} is not a value {op} takes",

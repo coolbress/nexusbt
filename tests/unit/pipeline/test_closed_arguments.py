@@ -4,6 +4,7 @@ of values is refused when the term is built, with the argument, the value and wh
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from enum import StrEnum
 from typing import Any
 
 import numpy as np
@@ -96,6 +97,17 @@ PINNED: dict[str, tuple[Callable[[], Term], str]] = {
         "0ffe6394e7f0076ec0b7b07af0fc5dc925b8446dc337b3a1a170370d21c84338",
     ),
 }
+
+
+class Method(StrEnum):
+    DENSE = "dense"
+
+
+@pytest.mark.parametrize("method", [np.str_("ordinal"), Method.DENSE], ids=repr)
+def test_a_str_subclass_of_an_allowed_name_builds_with_the_plain_name_s_hash(method: str) -> None:
+    """A `str` subclass hashes as its plain string (`_canon`), so it is one computation with one
+    hash and still builds, as it did before #602 (fresh-context review)."""
+    assert graph_hash(X.rank(method)) == graph_hash(X.rank(str(method)))
 
 
 @pytest.mark.parametrize("name", PINNED)
