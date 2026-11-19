@@ -174,8 +174,9 @@ class Factor(Term):
             raise TypeError(f"only a user function's Factor takes keyword values, not {self.op}")
         named = (inspect.Parameter.KEYWORD_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
         windows = len(self.inputs)  # the first parameters are the inputs' windows
-        if arrays:
-            raise _called_with_arrays(fn, windows, dict(self.params).get("bound", ()))
+        if arrays:  # the keywords of this call too, as binding them would keep them
+            bound = {**dict(dict(self.params).get("bound", ())), **values}
+            raise _called_with_arrays(fn, windows, tuple(sorted(bound.items())))
         listed = list(inspect.signature(fn).parameters.values())[windows:]
         taken = {p.name for p in listed if p.kind in named}
         for name, value in values.items():

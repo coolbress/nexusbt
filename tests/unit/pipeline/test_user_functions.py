@@ -373,6 +373,9 @@ def test_a_call_with_arrays_names_every_input() -> None:
     assert caught.value.parts["fix"] == (
         "_ratio.function(close, volume, how='last', lag=2) on the arrays, one for each input"
     )
+    with pytest.raises(ConfigError) as caught:  # a keyword of the same call is kept, and wins
+        ratio(np.ones((3, 2)), np.ones((3, 2)), lag=5)
+    assert caught.value.parts["fix"].startswith("_ratio.function(close, volume, how='last', lag=5)")
 
 
 WEIGHTS = np.array([0.5, 2.0])
