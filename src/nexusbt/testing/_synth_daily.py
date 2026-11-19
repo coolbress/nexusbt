@@ -58,10 +58,14 @@ def _kr_rows(
 
 
 def _snap(prices: np.ndarray, dates: np.ndarray, venue: str | None,
-          to: Callable[[Any], Any] = np.round) -> np.ndarray:  # fmt: skip
+          to: Callable[[Any], Any] = np.round,
+          decimals: int | None = None) -> np.ndarray:  # fmt: skip
     """KR raw prices onto the pack's tick table (4.8 (5)), the band chosen by the price before
-    snapping; `to` np.floor or np.ceil snaps a limit price inward. Others are returned as they
-    are."""
+    snapping; `to` np.floor or np.ceil snaps a limit price inward. With `decimals`, the prices
+    of a venue off that table (US, ZZ) to the nearest 10^-decimals (4.8 (5a)). Others are
+    returned as they are."""
+    if decimals is not None and venue not in KR_GROUP:
+        return np.round(prices, decimals)
     out = prices.copy()
     for r, valid in _kr_rows("ticks/kr_tick_table_v1.csv", venue, "venue_group", dates):
         tick, high = float(r["tick"]), float(r["price_to"] or "inf")
@@ -101,13 +105,14 @@ def _ratios(dates: np.ndarray, venue: str | None) -> np.ndarray:
 
 
 def _venues(
-    venues: Sequence[str] | None, n: int, bars: dict[str, list[Any]], rng: np.random.Generator
-) -> list[str | None]:
+    venues: Sequence[str] | None, n: int, bars: dict[str, list[Any]], rng: np.random.Generator,
+    decimals: int | None = None,
+) -> list[str | None]:  # fmt: skip
     """Each of the `n` instruments' venue MIC drawn from `venues` (None when there are none),
-    and its KR prices snapped onto that venue's tick table."""
+    and its KR prices snapped onto that venue's tick table, the others to `decimals`."""
     mics = rng.choice(venues, n).tolist() if venues else [None] * n
     for k, name in itertools.product(range(n), OHLC):
-        bars[name][k] = _snap(bars[name][k], bars["session_date"][k], mics[k])
+        bars[name][k] = _snap(bars[name][k], bars["session_date"][k], mics[k], decimals=decimals)
     return mics
 
 
