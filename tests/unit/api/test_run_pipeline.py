@@ -134,6 +134,27 @@ def test_graph_bound_before_planning(tiny: Path) -> None:
         run(nx.Pipeline({"x": nx.Price.close.latest.shift(1)}), tiny, "2020-01-02", "2020-01-31")
 
 
+def test_a_period_without_any_session_is_refused(tiny: Path) -> None:
+    """5.1.6: a period that holds no session of any market is refused, not an empty table:
+    2020-01-04 is a Saturday in both calendars."""
+    with pytest.raises(nx.ConfigError, match="E16"):
+        run(nx.Pipeline({"close": nx.Price.close.latest}), tiny, "2020-01-04", "2020-01-04")
+
+
+def test_monthly_without_a_decision_is_an_empty_table(tiny: Path) -> None:
+    """3.7: `monthly` decides on a month's last session, so 2020-01-02..10 holds no decision:
+    the table has 3.5's columns, each of its kind's type, and no row."""
+    pipe = nx.Pipeline({"close": nx.Price.close.latest, "up": nx.Price.close.latest > 0})
+    result = nx.run_pipeline(pipe, start="2020-01-02", end="2020-01-10", freq="monthly",
+                             snapshot=str(tiny))  # fmt: skip
+    assert result.table.num_rows == 0
+    assert result.table.schema == pa.schema([
+        ("market", pa.string()), ("session_date", pa.date32()),
+        ("decision_ts", pa.timestamp("us", tz="UTC")), ("instrument_id", pa.string()),
+        ("close", pa.float64()), ("up", pa.bool_()),
+    ])  # fmt: skip
+
+
 def test_a_pipeline_without_columns_is_refused(tiny: Path) -> None:
     """3.5's rows are `<columns…>` at the decisions: a pipeline naming none says so."""
     with pytest.raises(ValueError, match="one column or more"):
