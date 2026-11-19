@@ -532,11 +532,12 @@ def steps(package: Path, basis: str) -> dict[tuple[str, dt.date], float]:
 def a001(package: Path, printed: str | None = None) -> int | None:
     """TDS-A001's count in what `tds check --level full` prints on `package` (`printed`, when a
     test has it already): the checker's resolver, the only one (#608). None without the
-    `cum_factor_*` columns, as the command's `TDS-A001: no cum_factor_* columns`."""
+    `cum_factor_*` columns, as the command's `TDS-A001: no cum_factor_* columns`. Run here, the
+    check judges only `bars_1d`, the dataset A001 is judged on, from every dataset's events."""
     if "cum_factor_split" not in read(package, "bars_1d").column_names:
         return None
     if printed is None:
-        printed = pkg._tds("check", str(package), "--level", "full").stdout
+        printed = pkg._tds("check", str(package), "--level", "full", "--datasets", "bars_1d").stdout
     return synth.a001(printed)
 
 
