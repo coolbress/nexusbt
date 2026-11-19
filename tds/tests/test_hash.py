@@ -141,6 +141,43 @@ def test_bars_without_a_key_take_the_schema_key_of_their_freq(tmp_path: Path) ->
     assert value_hash(package(tmp_path / "b", minute, parts), "bars_1m") == expected
 
 
+TS = [{"name": "ts_start", "type": "ts_us"}]
+#: Two weekly bars whose `ts_start` runs against their `session_date`: the intraday key would put
+#: the 2024-01-12 bar first, the daily key the 2024-01-05 bar.
+AGAINST = pa.table({"instrument_id": ["A", "A"], "close": [1.0, 2.0],
+                    "session_date": [dt.date(2024, 1, 12), dt.date(2024, 1, 5)],
+                    "ts_start": pa.array([0, 1], pa.timestamp("us", "UTC")),
+                    "price_type": ["last", "last"]})  # fmt: skip
+
+
+@pytest.mark.parametrize("freq", ["1w", "1mo"])
+@pytest.mark.parametrize("rows", [KR, AGAINST], ids=["daily columns", "ts_start against the date"])
+def test_bars_of_a_day_or_longer_hash_by_the_daily_key(
+    tmp_path: Path, freq: str, rows: pa.Table
+) -> None:
+    """#609: TDS 5.5 makes only `freq<1d` intraday, and the key checks (K001, K002) judge `1w` and
+    `1mo` bars by the daily key; the value hash orders them by that same key."""
+    bars = {"name": "bars", "kind": "bars", "params": {"freq": freq}, "columns": TS}
+    daily = {**bars, "key": ["instrument_id", "session_date"]}
+    parts = {"bars/part-00000.parquet": rows}
+    expected = value_hash(package(tmp_path / "a", daily, parts), "bars")
+    assert value_hash(package(tmp_path / "b", bars, parts), "bars") == expected
+
+
+@pytest.mark.parametrize(("freq", "rows", "pinned"), [
+    ("1d", KR, "7faa62bba2fefc0399d568c5f52b736e9c0fa4b0a539b6e772f68c4f736e7831"),
+    ("1d", AGAINST, "f13e9e5149031fd606d6afb55261bd4454eaee79c2c5493921cb1b7355ea8ed7"),
+    ("1m", AGAINST, "d1b9cbfd44d96b1ccb6413c1c86546b97afe188d7a0d5707b54a1895c0ce9c5b"),
+    ("1h", AGAINST, "d1b9cbfd44d96b1ccb6413c1c86546b97afe188d7a0d5707b54a1895c0ce9c5b"),
+])  # fmt: skip
+def test_daily_and_intraday_bars_keep_their_hash(
+    tmp_path: Path, freq: str, rows: pa.Table, pinned: str
+) -> None:
+    """#609 changes only `1w` and `1mo`: these hashes were taken before it."""
+    bars = {"name": "bars", "kind": "bars", "params": {"freq": freq}, "columns": TS}
+    assert value_hash(package(tmp_path, bars, {"bars/part-00000.parquet": rows}), "bars") == pinned
+
+
 def with_ts_start(unit: str) -> dict[str, pa.Table]:
     stamp = pa.timestamp(unit, "UTC")
     return {k: v.append_column("ts_start", pa.array([0] * len(v), stamp)) for k, v in PARTS.items()}

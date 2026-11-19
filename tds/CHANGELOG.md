@@ -52,6 +52,11 @@ package version follows the `tds_version` it checks (`1.0.x`), tagged
 - Package skeleton with the `tds` entry point
 
 ### Changed
+- `tds hash` orders `bars` with a `freq` of a day or longer (`1w`, `1mo`, an unreadable `freq`
+  and none included) by the daily key, as the key checks K001 and K002 do (TDS 5.5: only
+  `freq<1d` is intraday); until now only `freq` `1d` took the daily key. The `value_sha256` of
+  such bars hashed before changes, and weekly bars without `ts_start` or `price_type` now hash
+  instead of failing; `1d` and intraday bars keep their hash (#609)
 - `tds hash` takes a column's type tag from the schema file wherever the schema file types the
   column, as `tds check --level schema` does; a `tds.json` `columns[].type` that differs from it
   (TDS-S002) no longer changes the dataset's `value_sha256` (TDS 4.5 step 3)

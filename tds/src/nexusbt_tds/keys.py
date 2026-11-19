@@ -24,9 +24,16 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from .check import KEY_CODES, Finding, _unsafe
-from .hash import TIME_TYPES, HashError, Record, SortedRuns, resolved_columns, spill_folder
+from .hash import (
+    TIME_TYPES,
+    HashError,
+    Record,
+    SortedRuns,
+    by_freq,
+    resolved_columns,
+    spill_folder,
+)
 from .manifest import Manifest
-from .profiles import meets
 
 K001, K002, K003, K004, K010, K011 = KEY_CODES
 TIME_PARTS = ("year", "date")  # the partitions that are time ranges, K003's (TDS 3.5)
@@ -88,8 +95,8 @@ def check_keys(
     for ds in (d for d in m.datasets if only is None or d.get("name") in only):
         kind, schema = ds.get("kind"), schemas.get(str(ds.get("kind")))
         params = ds["params"] if isinstance(ds.get("params"), dict) else {}
-        key = _variant(ds.get("key", schema.key if schema else None), params)
-        sort = _variant(ds.get("sort", schema.sort if schema else None), params)
+        key = by_freq(ds.get("key", schema.key if schema else None), params)
+        sort = by_freq(ds.get("sort", schema.sort if schema else None), params)
         try:
             with SortedRuns(folder, spilled) as runs:
                 found = _scan(root, ds, str(kind), key, sort, blind, runs, notes)
@@ -250,13 +257,6 @@ def listed(root: Path, ds: Mapping[str, Any]) -> Iterator[tuple[str, dict[str, s
         seen.add(rel)
         if not _unsafe(root, rel) and (root / rel).is_file():
             yield rel, dict(p.split("=", 1) for p in PurePosixPath(rel).parent.parts if "=" in p)
-
-
-def _variant(value: object, params: Mapping[str, Any]) -> list[str] | None:
-    """A schema `key` or `sort`; bars name an intraday one (`freq<1d`, TDS 5.5) and a daily one."""
-    if isinstance(value, dict):
-        value = value.get("intraday" if meets(params, "freq", "<1d") else "daily")
-    return value if isinstance(value, list) else None
 
 
 def _shown(columns: Sequence[str], row: Row) -> dict[str, object]:
