@@ -58,12 +58,13 @@ def _actions(
     market: str, ids: Sequence[str], first: Sequence[int], last: Sequence[int],
     sessions: Table, bars: dict[str, list[Any]], rng: np.random.Generator,
     mics: Sequence[str | None], injected: Mapping[Key, Mapping[str, Any]], currency: str,
-    random: bool = True,
+    random: bool = True, decimals: int | None = None,
 ) -> tuple[pa.Table, list[tuple[int, int, str]]]:  # fmt: skip
     """4.8 (4): share events and quarterly cash dividends, ~1 % amended and ~0.5 % cancelled,
     besides the `injected` ones (`EventSpec`); only those without `random` (tiny).
 
-    The latest version of each event moves the raw prices (onto the KR grid again) and volumes
+    The latest version of each event moves the raw prices (onto the KR grid again, the others
+    to `decimals`, 4.8 (5a)) and volumes
     in `bars` from its ex-date on, and its price factor the cumulative factors (TDS 5.11's A001
     at c = +inf). Returns the rows and each moving event's (instrument, ex-date index, kind).
     """
@@ -102,7 +103,7 @@ def _actions(
                                    "ts_terms_available": terms if terms and terms > midway
                                    else None, "status": STATUS[fated]})  # fmt: skip
         if fated != "cancelled":
-            _move(bars, k, e - first[k], latest, kind in SHARE_EVENTS, mics[k])
+            _move(bars, k, e - first[k], latest, kind in SHARE_EVENTS, mics[k], decimals)
             moved.append((k, e, kind))
     for x, row in enumerate(later, len(rows) + 1):  # numbered after every first version
         row["event_id"] = f"{market}:E{x:06d}"
@@ -174,7 +175,7 @@ def _revise(
 
 def _move(
     bars: dict[str, list[Any]], k: int, s: int, version: Mapping[str, Any], share: bool,
-    venue: str | None,
+    venue: str | None, decimals: int | None = None,
 ) -> None:  # fmt: skip
     """Instrument `k`'s bars from its `s`-th on, moved by one event's factors; an event
     without a factor (`unavailable`) leaves them, and A001 does not compare its session."""
@@ -185,5 +186,7 @@ def _move(
     ):  # fmt: skip
         bars[name][k][s:] *= version["price_factor"]
         if name in OHLC:
-            bars[name][k][s:] = _snap(bars[name][k][s:], bars["session_date"][k][s:], venue)
+            bars[name][k][s:] = _snap(
+                bars[name][k][s:], bars["session_date"][k][s:], venue, decimals=decimals
+            )
     bars["volume"][k][s:] = np.round(bars["volume"][k][s:] * version["share_factor"])
