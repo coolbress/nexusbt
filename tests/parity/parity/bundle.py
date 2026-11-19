@@ -47,9 +47,23 @@ def price_scale(high: float) -> int:
     return n
 
 
-def make_bundle(snapshot_path: Path, market: str) -> str:
+def _events(root: Path, market: str) -> pd.DataFrame:
+    """The latest version of each of `market`'s corporate actions, without the cancelled ones
+    and those without a factor (TDS 5.11)."""
+    found = ds.dataset(root / "corporate_actions").to_table().to_pandas()
+    found = found[found["instrument_id"].str.startswith(f"{market}:")]
+    found = found.assign(root=found["revision_of"].fillna(found["event_id"]))
+    found = found.sort_values("ts_announced").groupby("root").tail(1)
+    found = found[(found["status"] == "effective") & found["price_factor"].notna()]
+    dates = ["ex_date", "record_date", "declared_date", "pay_date"]
+    return found.assign(**{d: pd.to_datetime(found[d].fillna(found["ex_date"])) for d in dates})
+
+
+def make_bundle(snapshot_path: Path, market: str, *, dividends: bool = True) -> str:
     """Ingest `market`'s daily bars of the TDS package at `snapshot_path` as a zipline bundle
-    under `ZIPLINE_ROOT`; return its name. Its sessions must be the calendar's."""
+    under `ZIPLINE_ROOT`, with its splits (ratio 1/rho) and, unless `dividends` is False, its
+    cash events (zipline computes 1 - D / previous close); return its name. Its sessions must
+    be the calendar's. Without dividends, zipline's close is the engine's `Price.close`."""
     bars = ds.dataset(Path(snapshot_path) / "bars", format="parquet",
                       partitioning="hive").to_table().to_pandas()  # fmt: skip
     bars = bars.assign(session_date=pd.to_datetime(bars["session_date"]),
@@ -60,7 +74,10 @@ def make_bundle(snapshot_path: Path, market: str) -> str:
     groups = {i: g.set_index("session_date").sort_index() for i, g in bars.groupby("instrument_id")}
     scales = {iid: price_scale(float(g["high"].max())) for iid, g in groups.items()}
     days = pd.DatetimeIndex(sorted(bars["session_date"].unique()))
-    name = f"nexusbt-{market}-{Path(snapshot_path).resolve().name}"
+    name = f"nexusbt-{market}-{Path(snapshot_path).resolve().name}{'' if dividends else '-split'}"
+    events = _events(Path(snapshot_path), market)
+    events = events.assign(sid=events["instrument_id"].map(sids))
+    share = events["affects"] == "split_and_total"
 
     def ingest(environ: Any, asset_db_writer: Any, minute_bar_writer: Any,
                daily_bar_writer: Any, adjustment_writer: Any, calendar: Any,
@@ -81,7 +98,16 @@ def make_bundle(snapshot_path: Path, market: str) -> str:
         frames = ((sids[i], (groups[i][OHLC].fillna(0.0) / 10 ** scales[i])
                    .assign(volume=groups[i]["volume"].fillna(0.0))) for i in ids)  # fmt: skip
         daily_bar_writer.write(frames, assets=set(sids.values()), show_progress=False)
-        adjustment_writer.write()
+        splits = events[share].assign(ratio=events["ratio_den"] / events["ratio_num"],
+                                      effective_date=events["ex_date"])  # fmt: skip
+        cash = events[~share & dividends]
+        cash = cash.assign(amount=cash["cash_per_share"] / cash["instrument_id"].map(
+            lambda i: 10 ** scales[i]))  # fmt: skip
+        adjustment_writer.write(
+            splits=splits[["sid", "effective_date", "ratio"]],
+            dividends=cash[["sid", "ex_date", "declared_date", "record_date", "pay_date",
+                            "amount"]],
+        )  # fmt: skip
 
     bundles.register(name, ingest, calendar_name=CALENDARS[market], start_session=days[0],
                      end_session=days[-1])  # fmt: skip
