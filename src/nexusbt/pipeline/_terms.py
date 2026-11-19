@@ -546,8 +546,17 @@ def _in_project(value: object) -> TypeGuard[FunctionType]:
 
 
 def _project_file(file: str) -> bool:
-    path = Path(file)
-    return path.is_absolute() and not any(path.is_relative_to(p) for p in _OUTSIDE)
+    """Compared by where the paths lead (#573): a library reached through a link (a Homebrew
+    Python's `opt/` folder) holds files named by the link's target, or the other way round."""
+    real = _real(file)
+    return Path(file).is_absolute() and not any(real.is_relative_to(_real(p)) for p in _OUTSIDE)
+
+
+@functools.cache
+def _real(path: str | Path) -> Path:
+    """`path` with its links followed, once per path: `_OUTSIDE`'s folders are resolved the first
+    time a file is compared, not for each user function."""
+    return Path(path).resolve()
 
 
 def _reads(fn: FunctionType) -> _Reads:
