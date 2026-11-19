@@ -56,7 +56,9 @@ def undeclared_market_package(tmp_path: Path) -> Path:
         (tmp_path / name).write_text(text, encoding="utf-8")
     pkg = import_csv(tmp_path / "mapping.yaml", tmp_path / "pkg")
     data = json.loads((pkg / "tds.json").read_text(encoding="utf-8"))
-    (entry,) = next(d for d in data["datasets"] if d["kind"] == "bars")["files"]
+    bars = next(d for d in data["datasets"] if d["kind"] == "bars")
+    del bars["coverage"]  # its `by_market.US` would name the partition moved away (#566)
+    (entry,) = bars["files"]
     moved = entry["path"].replace("market=US/", "")
     (pkg / moved).parent.mkdir(parents=True)
     (pkg / entry["path"]).rename(pkg / moved)

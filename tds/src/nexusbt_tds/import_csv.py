@@ -325,6 +325,7 @@ def _groups(entry: dict[str, Any], table: pa.Table, market: str) -> dict[str, pa
     if set(open_) - {"market", "year"}:
         raise CsvImportError(f"{entry['name']}: partition {parts} is not imported from CSV yet")
     entry["path"] = "/".join([entry["name"], *fixed])
+    entry |= _coverage(table, market if "market" in open_ else None)
     groups: dict[str, pa.Table] = {"": table}
     if "market" in open_:
         groups = {f"/market={market}": table}
@@ -337,6 +338,29 @@ def _groups(entry: dict[str, Any], table: pa.Table, market: str) -> dict[str, pa
         groups = {f"{k}/year={y}": t.filter(pa.array([x == y for x in years]))
                   for k, t in groups.items() for y in sorted(set(years))}  # fmt: skip
     return {f"{entry['path']}{k}/part-00000.parquet": t for k, t in groups.items()}
+
+
+def _coverage(table: pa.Table, market: str | None) -> dict[str, Any]:
+    """TDS 4.3's `coverage` from the rows, as 4.2's example and the D004 check read it: the
+    distinct `instrument_id`s and the `session_date` range, and with a `market=` partition
+    (`market`) `by_market` with its `rows` too; a key whose column the kind lacks is left out,
+    and the block with neither column (#566)."""
+    span = _span(table)
+    out = {k: span[v] for k, v in (("instruments", "instruments"), ("ts_min", "first"),
+                                   ("ts_max", "last")) if v in span}  # fmt: skip
+    if out and market is not None:  # one market per import (TDS 9.5)
+        out["by_market"] = {market: span | {"rows": table.num_rows}}
+    return {"coverage": out} if out else {}
+
+
+def _span(table: pa.Table) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    if "instrument_id" in table.column_names:
+        out["instruments"] = pa.compute.count_distinct(table["instrument_id"]).as_py()
+    if "session_date" in table.column_names:
+        low, high = pa.compute.min_max(table["session_date"]).as_py().values()
+        out |= {"first": low.isoformat(), "last": high.isoformat()} if low else {}
+    return out
 
 
 def _write(root: Path, entry: dict[str, Any], groups: dict[str, pa.Table]) -> list[dict[str, Any]]:

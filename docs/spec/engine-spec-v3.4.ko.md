@@ -362,13 +362,14 @@ tds (별도 패키지; nexusbt를 import하지 않음)
 contracts ← config ← data ← compute ← api ← cli
 nexusbt_tds ← data
 contracts ← pipeline ← compute
+contracts ← pipeline ← compat
 contracts ← risk ← portfolio ← api
 contracts ← accounting ← execution ← api
 contracts ← research ← api
 contracts ← artifacts ← api
 ```
 
-- 화살표 반대 방향 import 금지. import 규칙은 네 줄이다. (1) `contracts`는 아무것도 import하지 않고, 모든 모듈이 `contracts`를 import할 수 있다(모든 사슬의 뿌리이며 화살표로 그리지 않는다). (2) 그 밖의 모듈은 자기 **직접** 화살표가 가리키는 모듈만 import한다; 간접 경로는 import를 허용하지 않는다(`compute` → `data`, `pipeline`; `portfolio` → `risk`; `execution` → `accounting`; `data` → `config`, `nexusbt_tds`). (3) `api`는 모든 엔진 모듈을 import할 수 있다(조합자다); `cli`는 `api`만 import한다. (4) `compute`는 그래프가 그리는 대로 `data` 사슬과 `pipeline` 사슬 위에 함께 있다; 그 밖에 사슬을 잇는 것은 `api`뿐이다.
+- 화살표 반대 방향 import 금지. import 규칙은 네 줄이다. (1) `contracts`는 아무것도 import하지 않고, 모든 모듈이 `contracts`를 import할 수 있다(모든 사슬의 뿌리이며 화살표로 그리지 않는다). (2) 그 밖의 모듈은 자기 **직접** 화살표가 가리키는 모듈만 import한다; 간접 경로는 import를 허용하지 않는다(`compute` → `data`, `pipeline`; `portfolio` → `risk`; `execution` → `accounting`; `data` → `config`, `nexusbt_tds`; `compat` → `pipeline`, zipline 호환층이 엔진의 항을 만들도록 (결정 2026-11-19, #251)). (3) `api`는 모든 엔진 모듈을 import할 수 있다(조합자다); `cli`는 `api`만 import한다. (4) `compute`는 그래프가 그리는 대로 `data` 사슬과 `pipeline` 사슬 위에 함께 있다; 그 밖에 사슬을 잇는 것은 `api`뿐이다.
 - `src/nexusbt/**`와 `tds/src/nexusbt_tds/**`는 `zipline`, `nautilus_trader`, `duckdb`, `pickle`, `dill`, `cloudpickle`, `joblib`, `shelve`를 import하지 않는다 [R-64, 설계 1 원칙 4, SC-27]. `np.load(..., allow_pickle=True)`, `pd.read_pickle`도 금지. ruff `flake8-tidy-imports.banned-api`와 `tests/unit/test_import_rules.py`(AST로 모든 import·호출을 읽어 위 그래프와 대조)로 강제. TDS 문서 8.5의 "검사기 참조 구현 DuckDB(읽기만)"는 이 저장소에서는 pyarrow만으로 구현한다 [A-99].
 - **비결정 원천 금지** [V31-08]: 결정 경로 모듈(`data`, `compute`, `pipeline`, `portfolio`, `risk`, `accounting`, `execution`, `research`)에서 `datetime.now/utcnow/today`, `time.time/monotonic/perf_counter`(진행 표시 `api` 밖 금지), `random`, `numpy.random`(탐침의 `[checks] seed`로 만든 `Generator`를 인자로 받는 곳 제외), `uuid.uuid1/uuid4`, `os.urandom`, `secrets`를 쓰지 않는다. `set`·`frozenset`·`dict` 순회가 사건·출력·합 순서를 정하는 곳에서는 `sorted(...)`를 거친다. 실행 시각·`run_id`·`study_id`는 `artifacts`만 만든다. ruff `banned-api` + AST 시험 `tests/unit/test_determinism_rules.py`로 강제하고, P-DET는 `PYTHONHASHSEED`가 다른 새 프로세스 둘에서 돈다(Nautilus NT#3914: 같은 씨앗 두 실행이 해시 순회 순서로 PnL 6% 차이).
 - `pipeline`은 데이터를 읽지 않는다(값 객체와 해시만). 그래프를 만들 때 필요한 칼럼·능력 정보는 `api`가 스냅숏에서 만든 **스키마 등록부**(`SchemaRegistry`, 값 객체)를 바인딩 때 넘긴다 [RV-I05]. `portfolio`·`risk`·`research`는 Arrow/numpy 배열만 받는다.
