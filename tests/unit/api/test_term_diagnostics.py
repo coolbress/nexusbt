@@ -87,16 +87,20 @@ def test_scenario_values_and_screened_rows(scenario: Path) -> None:
     it is), and the rows `screen=RET > 0` keeps: k % 4 = 2, every instrument."""
     every = run(scenario, {"ret": RET}, "2020-01-13", "2020-01-23").table.to_pylist()
     got = {(r["session_date"], r["instrument_id"]): r["ret"] for r in every}
-    day = dt.date(2020, 1, 16)
-    assert [got[day, i] for i in IDS] == pytest.approx([0.02] * 5)
-    late = [got[LATE_DAY, i] for i in IDS]
-    assert math.isnan(late.pop(1))  # KR:T00002
-    assert late == pytest.approx([-1 / 51] * 4)
+    by_k = {0: -1 / 51, 1: 0.0, 2: 0.02, 3: 0.0}  # c[k]/c[k-2] - 1, the docstring above
+    days = [dt.date(2020, 1, d) for d in (13, 14, 15, 16, 17, 20, 21, 22, 23)]  # k = 7..15
+    assert len(got) == len(days) * len(IDS)
+    for k, day in enumerate(days, start=7):
+        for i in IDS:
+            if (day, i) == (LATE_DAY, LATE):  # its own end not yet seen at k = 12
+                assert math.isnan(got[day, i])
+            else:
+                assert got[day, i] == pytest.approx(by_k[k % 4], abs=1e-12), (day, i)
     kept = run(scenario, {"ret": RET, "inv": INV}, "2020-01-13", "2020-01-23", screen=RET > 0)
     rows = kept.table.to_pylist()
-    days = (dt.date(2020, 1, 16), dt.date(2020, 1, 22))
+    kept_days = (dt.date(2020, 1, 16), dt.date(2020, 1, 22))
     assert [(r["session_date"], r["instrument_id"]) for r in rows] == [
-        (d, i) for d in days for i in IDS
+        (d, i) for d in kept_days for i in IDS
     ]
     assert [r["inv"] for r in rows] == pytest.approx([50.0] * 10)
 
@@ -123,6 +127,22 @@ def test_monthly_counts_rows_that_are_not_decisions(scenario: Path) -> None:
     assert result.term_diagnostics.to_pylist() == [
         {"market": "KR", "session_date": dt.date(2020, 1, d), "term": label(INV),
          "diagnostic": "DivisionByZero", "n": 5} for d in (29, 31)]  # fmt: skip
+
+
+def test_intended_a_longer_window_adds_earlier_rows(scenario: Path) -> None:
+    """Intended (5.4.1, #249 Decisions): the graph sets the rows a term is computed at. On
+    2020-01-21 (k = 13) a 3-row window over `1 / RET` computes it at k = 11..13, so the x/0 of
+    01-17 (k = 11), before `start`, is counted; adding a 5-row window over the same term computes
+    it at k = 9..13 too, and adds 01-15 (k = 9). k = 12 has none (-1/51; NaN for the late bar)."""
+
+    def days(columns: dict[str, nx.Factor]) -> list[dt.date]:
+        found = run(scenario, columns, "2020-01-21", "2020-01-21").term_diagnostics
+        return [r["session_date"] for r in found.to_pylist()]
+
+    three = {"inv3": nx.ops.rolling(INV, 3).sum()}
+    assert days(three) == [dt.date(2020, 1, 17), dt.date(2020, 1, 21)]
+    longer = three | {"inv5": nx.ops.rolling(INV, 5).sum()}
+    assert days(longer) == [dt.date(2020, 1, d) for d in (15, 17, 21)]
 
 
 def test_each_diagnostic_counted(scenario: Path) -> None:
