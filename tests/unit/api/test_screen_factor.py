@@ -66,6 +66,14 @@ def test_universe_is_the_listed_instruments_until_t24(tiny: Path) -> None:
     assert "universe 5 KR / 5 US" in str(on_jan)  # T00006 lists on 2020-02-18
 
 
+def test_snapshot_object_is_used_as_given(tiny: Path) -> None:
+    """3.8's common `snapshot` takes an open `nx.Snapshot` as well as a path: the same top 2."""
+    found = nx.screen(nx.Price.close.latest, top=2, save=False, snapshot=nx.open(tiny))
+    rows = [(r["market"], r["rank"], r["instrument_id"]) for r in found.table.to_pylist()]
+    assert rows == [("KR", 1, "KR:T00006"), ("KR", 2, "KR:T00005"),
+                    ("US", 1, "US:T00006"), ("US", 2, "US:T00005")]  # fmt: skip
+
+
 def test_asof_on_a_holiday_takes_the_session_before(tiny: Path) -> None:
     """`asof` that is no session of a market takes that market's last session before it, with
     an E9 notice (5.1.6): 2020-01-20 is a KR session and a US holiday."""
