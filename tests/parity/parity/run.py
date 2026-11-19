@@ -23,6 +23,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from parity import l1
 from parity.bundle import BUNDLES, CALENDARS, make_bundle, reader
 
 ROOT = Path(__file__).resolve().parents[3]  # the repository
@@ -70,6 +71,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         long.insert(0, "instrument_id", long.pop("sid").map(sids))
         long.to_parquet(out / f"readback-{market}.parquet", index=False)
         markets[market] = {"bundle": name, "scaled": BUNDLES[name].scales}
+        split = make_bundle(snapshot, market, dividends=False)
+        total = l1.run(name, l1.total_cases(market), market)
+        found = total.merge(l1.run(split, l1.split_cases(market), market),
+                            on=["session_date", "instrument_id"])  # fmt: skip
+        found.to_parquet(out / f"L1-{market}.parquet", index=False)
         print(f"{market}: {len(sids)} instruments, {len(BUNDLES[name].scales)} scaled")
     hashes = json.loads((snapshot / "tds.json").read_text(encoding="utf-8"))["hashes"]
     manifest = {
