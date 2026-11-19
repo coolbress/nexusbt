@@ -124,6 +124,7 @@ class Factor(Term):
     def __rpow__(self, o: float) -> Factor: return self._op("pow", o, swap=True)
     def __neg__(self) -> Factor: return _node(Factor, "neg", self)
     def __abs__(self) -> Factor: return _node(Factor, "abs", self)
+    def abs(self) -> Factor: return _node(Factor, "abs", self)
     def log(self) -> Factor: return _node(Factor, "log", self)
     def log1p(self) -> Factor: return _node(Factor, "log1p", self)
     def exp(self) -> Factor: return _node(Factor, "exp", self)
