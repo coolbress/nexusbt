@@ -7,8 +7,9 @@ from typing import Any
 import pytest
 
 import nexusbt as nx
-from nexusbt.factors import Returns
-from nexusbt.pipeline import Classifier, Factor, Filter, graph_hash
+from nexusbt.factors import SMA, Returns
+from nexusbt.pipeline import Classifier, Factor, Filter, Price, graph_hash
+from nexusbt.pipeline._degree import _walk
 
 THRESHOLD = 10
 
@@ -173,3 +174,44 @@ def test_pipeline_object_columns_screen() -> None:
     not_a_term: Any = 1.0
     with pytest.raises(TypeError):
         nx.Pipeline({"mom": not_a_term})  # 3.5: `columns: Mapping[str, Term]`
+
+
+#: The method names of spec 3.3, copied by hand from the "Factor methods" table's Signature
+#: column and the "Filter methods" and "Classifier methods" paragraphs; an operator as the
+#: method Python calls for it. `downsample` is listed as not in v1: it is there and refuses.
+SPEC_3_3_METHODS: dict[type, tuple[str, ...]] = {
+    Factor: (
+        "__add__", "__sub__", "__mul__", "__truediv__", "__pow__", "__neg__",
+        "abs", "log", "log1p", "exp", "sqrt",
+        "__lt__", "__le__", "__gt__", "__ge__", "__eq__", "__ne__",
+        "rank", "zscore", "demean", "winsorize", "top", "bottom", "percentile_between",
+        "pct_rank", "quantiles", "quartiles", "quintiles", "deciles",
+        "isnan", "notnan", "isfinite", "isnull", "notnull", "fillna", "clip", "shift", "to",
+        "downsample",
+    ),
+    Filter: ("__and__", "__or__", "__invert__", "if_else", "all", "any", "as_factor", "fillna"),
+    Classifier: ("eq", "element_of", "isnull", "notnull", "startswith"),
+}  # fmt: skip
+
+
+@pytest.mark.parametrize("kind", list(SPEC_3_3_METHODS), ids=lambda kind: kind.__name__)
+def test_every_method_spec_3_3_lists_is_on_its_class(kind: type) -> None:
+    missing = [name for name in SPEC_3_3_METHODS[kind] if not callable(getattr(kind, name, None))]
+    assert missing == []
+
+
+def test_downsample_is_there_and_not_in_v1() -> None:
+    with pytest.raises(nx.CapabilityError):
+        Returns(21).downsample("W")
+
+
+@pytest.mark.parametrize(
+    "x", [SMA(3), Price.close.latest, Returns(21)], ids=["SMA", "close", "Returns"]
+)
+def test_abs_method_is_the_abs_operator(x: Factor) -> None:
+    """3.3 lists `abs()` as a Factor method; 3.4 gives `abs(x)` x's degree."""
+    method = x.abs()
+    assert type(method) is Factor
+    assert graph_hash(method) == graph_hash(abs(x))
+    degrees = _walk([method], refuse=False)
+    assert degrees[method._key] == degrees[x._key]
