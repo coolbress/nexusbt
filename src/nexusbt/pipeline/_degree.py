@@ -89,7 +89,9 @@ def degree_of(term: Term, ins: list[Degree]) -> Degree:
         return _scaled(ins[0], Fraction(1, 2))
     if op in ADJUSTMENT:
         return _built_in(term, ins)
-    return None  # a user function, `if_else`: no rule gives a degree yet
+    if op == "user":  # its declaration (3.3 `adjustment`); "degree 1" does not say C or Q
+        return {"degree 0": ZERO, "degree 1": SOME}.get(dict(term.params).get("adjustment", ""))
+    return None  # `if_else`: no rule gives a degree yet
 
 
 def _built_in(term: Term, ins: list[Degree]) -> Degree:

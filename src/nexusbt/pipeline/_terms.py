@@ -27,7 +27,15 @@ from typing import Any, Literal, TypeGuard
 import numpy as np
 import numpy.typing as npt
 
-from nexusbt.contracts import CapabilityError, ImpureFunctionWarning, LookAheadError, WindowError
+from nexusbt.contracts import (
+    CapabilityError,
+    ConfigError,
+    ImpureFunctionWarning,
+    LookAheadError,
+    SkippedWorkNotice,
+    TermDomainError,
+    WindowError,
+)
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -278,9 +286,20 @@ def factor(
     *,
     mask: Filter | None = None,
     dtype: Literal["float64"] = "float64",
+    adjustment: Literal["degree 0", "degree 1"] | None = None,
 ) -> Callable[[Callable[..., Any]], Factor]:
-    """3.3 `@nx.factor`: the node, its hash (source and captured constants) and the function
-    the executor runs on its windows (5.3.7)."""
+    """3.3 `@nx.factor`: the node, its hash (source, captured constants and the declared
+    `adjustment`) and the function the executor runs on its windows (5.3.7)."""
+    if adjustment not in (None, "degree 0", "degree 1"):
+        raise ConfigError(
+            what=f"adjustment={adjustment!r} is not a declaration @nx.factor takes",
+            where="@nx.factor(adjustment=...)",
+            why="a declaration says what the result is when one instrument's inputs are scaled",
+            fix='adjustment="degree 0" for a ratio or a return, "degree 1" for a level,'
+            " or no adjustment",
+            more="spec 3.3 (adjustment) and 3.4",
+            layer=f"config — @nx.factor(adjustment={adjustment!r})",
+        )
 
     def wrap(fn: Callable[..., Any]) -> Factor:
         if not isinstance(fn, FunctionType):
@@ -290,6 +309,8 @@ def factor(
         digest = hashlib.sha256((_readable(fn) + source).encode()).hexdigest()
         params = {"window": window, "mask": mask, "dtype": dtype, "function": fn.__name__,
                   "source": digest, "captured": reads.captured}  # fmt: skip
+        if adjustment is not None:  # absent when not declared: the hash stays as it was
+            params["adjustment"] = adjustment
         if reads.impure:
             warnings.warn(str(_impure(fn.__name__, reads.impure)), stacklevel=2)
         return Factor("user", tuple(inputs), tuple(params.items()), function=fn)
@@ -379,6 +400,65 @@ def same_function(a: Callable[..., Any] | None, b: Callable[..., Any] | None) ->
 
     pairs = zip(read(a), read(b), strict=True)
     return all(x is y or (_constant(x) and x == y) for x, y in pairs)
+
+
+#: 3.3 `adjustment`: one instrument's input windows are multiplied by this fixed constant.
+SCALE = 2.0
+
+
+def check_adjustment(
+    term: Term, windows: Sequence[Any], got: npt.NDArray[np.float64], ids: Sequence[str],
+    fn: Callable[..., Any] | None = None,
+) -> bool:  # fmt: skip
+    """3.3: test a user term's declared `adjustment` on the `windows` (unchanged copies of the
+    ones the function was given) and its result `got`, on the first column whose result is
+    finite and not 0: E17 when the declaration does not hold; False when no column could tell
+    (NaN and 0 are the same under any scaling), True once checked."""
+    params = dict(term.params)
+    declared = params["adjustment"]
+    found = np.flatnonzero(np.isfinite(got) & (got != 0))
+    if not found.size:
+        return False
+    j = int(found[0])
+    scaled = [np.array(w, dtype=np.float64) for w in windows]
+    for window in scaled:
+        window[:, j] *= SCALE
+    again = call_user(term, scaled, len(got), fn)[j]
+    expected = got[j] * (SCALE if declared == "degree 1" else 1.0)
+    if abs(again - expected) <= 1e-12 * max(1.0, abs(expected)):
+        return True
+    name, code = params["function"], (fn or term.function).__code__  # type: ignore[union-attr]
+    at = f"{Path(code.co_filename).name}:{code.co_firstlineno}"
+    other = "degree 1" if declared == "degree 0" else "degree 0"
+    return_ = "change" if declared == "degree 0" else f"scale by {SCALE:g}"
+    raise TermDomainError(
+        what=f"{name} is declared adjustment='{declared}' but its result for {ids[j]} went from"
+        f" {got[j]!r} to {again!r} when {ids[j]}'s inputs were scaled by {SCALE:g}",
+        where=f"factor {name}",
+        why=f"a declared '{declared}' result does not {return_} under that scaling, and the"
+        " refusal of shift and window inputs (3.4) reads the declaration",
+        fix=f"remove adjustment=..., or declare '{other}' if that is what {name} is",
+        more="spec 3.3 (adjustment), 3.4 and 6.6 (E17)",
+        layer=f"your code — {at} in {name}",
+        at=at,
+        subject=name,
+    )
+
+
+def unchecked(name: str, declared: str, at: str) -> SkippedWorkNotice:
+    """6.6 no silent failure: a declaration no row of the run could check (E45)."""
+    return SkippedWorkNotice(
+        what=f"skipped 1 declaration check for reason declaration_unchecked: {name}'s"
+        f" adjustment='{declared}' was not checked",
+        where=f"factor {name}",
+        why="every result it gave in this run was NaN or 0, which any scaling leaves as it is,"
+        " so it cannot tell degree 0 from degree 1",
+        fix="run it over rows where it gives finite, non-zero values, or remove adjustment=...",
+        more="spec 3.3 (adjustment) and 6.6 (no silent failure)",
+        layer=f"your code — {at} in {name}",
+        at=at,
+        subject=name,
+    )
 
 
 def _window_error(name: str, at: str, what: str, fix: str) -> WindowError:

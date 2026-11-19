@@ -18,9 +18,11 @@ term was built from, unless the caller gives another by its graph hash.
 from __future__ import annotations
 
 import logging
+import warnings
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from functools import cached_property
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -41,7 +43,7 @@ from nexusbt.contracts import (
 )
 from nexusbt.data._block import MarketBlock
 from nexusbt.pipeline import Classifier, Factor, Filter, Term, graph_hash
-from nexusbt.pipeline._terms import call_user, same_function
+from nexusbt.pipeline._terms import call_user, check_adjustment, same_function, unchecked
 
 _log = logging.getLogger("nexusbt.compute")
 
@@ -132,13 +134,14 @@ def execute(
         why = "it gathers several markets' blocks, and the executor computes one market's"
         raise NotImplementedError(f"across_markets=True is run_pipeline's: {why}")
     parts: dict[str, list[pa.Table]] = {graph_hash(t): [] for t in terms}
+    pending = {graph_hash(t): t for t, _ in order if "adjustment" in dict(t.params)}
     for first, last in spans:
         mine = wanted[(wanted >= first) & (wanted <= last)]
         if not mine.size:
             continue
         rows = plan(terms, mine, sessions=len(ready)).rows
         low = min([first, *(int(r[0]) for r in rows.values() if r.size)])
-        chunk = _Chunk(read(low, last), low, ready, functions or {}, tiebreak, actions)
+        chunk = _Chunk(read(low, last), low, ready, functions or {}, tiebreak, actions, pending)
         with np.errstate(all="ignore"):  # IEEE results (inf, NaN), as numpy gives them
             for term, dropped in order:
                 chunk.compute(term, rows[graph_hash(term)])
@@ -146,6 +149,10 @@ def execute(
                     del chunk.values[key]
         for term in terms:
             parts[graph_hash(term)].append(chunk.frame(term, mine))
+    for term in pending.values():  # 6.6 no silent failure: E45, never a silent pass
+        code, params = term.function.__code__, dict(term.params)  # type: ignore[union-attr]
+        at = f"{Path(code.co_filename).name}:{code.co_firstlineno}"
+        warnings.warn(str(unchecked(params["function"], params["adjustment"], at)), stacklevel=2)
     empty = _frame([], [], [])
     return {key: pa.concat_tables(found) if found else empty for key, found in parts.items()}
 
@@ -191,8 +198,10 @@ class _Chunk:
         functions: Mapping[str, Callable[..., Any]],
         tiebreak: TiebreakPolicy,
         actions: Actions | None,
+        pending: dict[str, Term],
     ) -> None:
         self.block, self.low, self.ready, self.functions = block, low, ready, functions
+        self.pending = pending  # the run's user terms whose `adjustment` is not checked yet
         self.tiebreak, self.unknown = tiebreak, 0  # `UnknownGroup` cells of the term computed
         self.values: dict[str, F64] = {}
         self.actions, self.resolved = actions, dict[int, ResolvedActions]()
@@ -327,12 +336,16 @@ class _Chunk:
             return out  # the window starts before the axis: nothing is there to read
         inside = self.domain(term, t)  # 3.3 `mask`: the columns the function computes on
         windows = [self.window(i, t, size)[:, inside] for i in term.inputs]
-        fn = self.functions.get(graph_hash(term), term.function)
+        key = graph_hash(term)
+        fn = self.functions.get(key, term.function)
+        ids = np.asarray(self.block.instrument_ids, dtype=object)[inside]
+        pristine = [w.copy() for w in windows] if key in self.pending else None  # 3.3: copies
         try:
-            out[inside] = call_user(term, windows, int(inside.sum()), fn)
+            out[inside] = got = call_user(term, windows, int(inside.sum()), fn)
+            if pristine is not None and check_adjustment(term, pristine, got, ids.tolist(), fn):
+                del self.pending[key]  # once for each function in a run
         except Exception as error:  # 6.6: the user's exception, noted and re-raised as it is
             if not isinstance(error, NexusBTError) and fn is not None:
-                ids = np.asarray(self.block.instrument_ids, dtype=object)[inside]
                 first, date = str(ids[0]) if ids.size else "-", str(self.block.dates[t - self.low])
                 _note_user_exception(error, fn, instrument_id=first, date=date)
             raise
