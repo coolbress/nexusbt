@@ -158,7 +158,8 @@ def doctor() -> str:
         lines.append(("profile", f"{name}  {said}  supported {supported}"))
     lines.append(("unchecked", ", ".join(s.unchecked) or "none"))
     lines.append(("codes", ", ".join(f"{c} {n}" for c, n in sorted(s.warnings.items())) or "none"))
-    lines += [("fallback", f"{f.id} {f.dataset} {f.market} {f.count}") for f in s.fallbacks]
+    named = [(f, f"{f.dataset}.{f.column}" if f.column else f.dataset) for f in s.fallbacks]
+    lines += [("fallback", f"{f.id} {name} {f.market} {f.count}") for f, name in named]  # F-01
     lines += [] if s.fallbacks else [("fallbacks", "none")]
     for m, info in s.markets.items():
         d = s.daily.get(m)
