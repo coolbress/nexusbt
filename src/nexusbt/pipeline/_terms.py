@@ -590,15 +590,17 @@ def _reads(fn: FunctionType) -> _Reads:
             name, value = reads.pop()
             if _constant(value):
                 found[prefix + name] = value
-            elif helper := _helper(value):
-                todo.append(helper)
             elif isinstance(value, ModuleType | type):  # `cfg.LIMIT`: a project namespace's
                 if _project_space(value) and id(value) not in spaces:
                     spaces.add(id(value))
                     reads += [(f"{name}.{a}", getattr(value, a)) for a in sorted(attrs)
                               if hasattr(value, a)]  # fmt: skip
-            elif _held(value) or _projects(value):  # an array, a list, a dict, a DataFrame, an
-                impure.add(name)  # object holding one; a project callable with no source
+            elif _held(value):  # an array, a list, a dict, a DataFrame, an object holding one,
+                impure.add(name)  # also when it keeps a function in `__wrapped__`
+            elif helper := _helper(value):
+                todo.append(helper)
+            elif _projects(value):  # a project callable with no source to hash
+                impure.add(name)
         impure.update(n for n in names if n not in values and n in _FILE_READS)  # `open`
         impure.update(a for a in attrs if a in _FILE_READS or a.startswith("read_"))
         helpers += [] if f is fn else [f]
@@ -609,7 +611,8 @@ def _reads(fn: FunctionType) -> _Reads:
 def _helper(value: object) -> FunctionType | None:
     """The project function `value` is, or keeps along the standard `__wrapped__` chain (#572):
     `functools.lru_cache`, a `functools.wraps` decorator, `numba.njit`. A plain function of the
-    project is taken as it is, so a `wraps` decorator's own body is still walked."""
+    project is taken as it is, so what a `wraps` decorator's inner function reads is still
+    walked (its source, as `inspect.getsource` gives it, is the wrapped function's)."""
     if _in_project(value):
         return value
     if isinstance(value, type) or not callable(value):

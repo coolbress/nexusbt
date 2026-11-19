@@ -462,6 +462,26 @@ class _Rules:
         return x * 2
 
 
+class _Scaled:
+    """A project decorator object that keeps the function in `__wrapped__` and holds data."""
+
+    def __init__(self, f: Any) -> None:
+        functools.update_wrapper(self, f)
+        self.f, self.factor = f, [2.0]
+
+    def __call__(self, x: Any) -> Any:
+        return self.f(x) * self.factor[0]
+
+
+@_Scaled
+def _doubled(x: Any) -> Any:
+    return x
+
+
+def _calls_scaled(close: Any) -> Any:
+    return _doubled(close[-1])
+
+
 def _calls_compiled(close: Any) -> Any:
     return _compiled(close[-1])
 
@@ -475,11 +495,13 @@ def _calls_numpy(close: Any) -> Any:
 
 
 @pytest.mark.parametrize(("fn", "shown"), [(_calls_compiled, "_compiled"),
-                                           (_calls_classmethod, "_Rules.scale")])  # fmt: skip
+                                           (_calls_classmethod, "_Rules.scale"),
+                                           (_calls_scaled, "_doubled")])  # fmt: skip
 def test_a_project_callable_with_no_function_is_E24(fn: Any, shown: str) -> None:  # noqa: N802
     """#572 Decisions 2: a callable of the project from which no plain function is reached, a
     compiled dispatcher with no `__wrapped__` or a class's method, cannot have its source in the
-    hash: E24, L1 off, never taken as pure without a word."""
+    hash: E24, L1 off, never taken as pure without a word. An object of a project class stays
+    E24 (#246) when it keeps a function in `__wrapped__`: the data it holds is not hashed."""
     with pytest.warns(UserWarning, match=rf"(?s)reads global '{shown}'.*L1 cache disabled"):
         term = nx.factor(window=2, inputs=[CLOSE])(fn)
     assert l1_disabled(term)
