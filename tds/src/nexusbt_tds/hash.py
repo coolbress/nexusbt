@@ -22,6 +22,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from .manifest import MANIFEST, read_manifest
+from .profiles import meets
 
 if TYPE_CHECKING:  # at run time imported inside functions, like `load_schemas` in `_value`
     from .schemas.verify import Column
@@ -340,6 +341,15 @@ def _merged(runs: Iterator[list[Record]], folder: Path, spilled: list[Path]) -> 
         yield sink.merged()
 
 
+def by_freq(value: object, params: Mapping[str, Any]) -> list[str] | None:
+    """A schema `key` or `sort`; bars name an intraday one, taken when `freq<1d` (TDS 5.5), and a
+    daily one, taken otherwise (`1w`, `1mo` and no `freq` included). The value hash and the key
+    checks both choose here (#609)."""
+    if isinstance(value, dict):
+        value = value.get("intraday" if meets(params, "freq", "<1d") else "daily")
+    return value if isinstance(value, list) else None
+
+
 def dataset_hashes(
     root: Path, entry: Mapping[str, Any], folder: Path, spilled: list[Path]
 ) -> tuple[str, dict[str, str]]:
@@ -360,10 +370,7 @@ def dataset_hashes(
         names.append([*stored, *_partitions(f["path"], entry.get("partitioning", []), stored)])
     own = [_columns(n, entry, list(schema.columns)) for n in names]
     columns = _columns(sorted({c for n in names for c in n}), entry, list(schema.columns))
-    key = entry.get("key", schema.key)
-    if isinstance(key, dict):  # bars: the daily or the intraday key, by `params.freq`
-        key = key["daily" if entry.get("params", {}).get("freq") == "1d" else "intraday"]
-    key = key if isinstance(key, list) else []
+    key = by_freq(entry.get("key", schema.key), entry.get("params", {})) or []
     for cols in (columns, *own):
         if missing := [k for k in key if k not in dict(cols)]:
             raise HashError(f"{entry['name']}: key column {', '.join(missing)} is not in the data")
