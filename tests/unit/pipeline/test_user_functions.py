@@ -453,6 +453,8 @@ _Dispatcher = type("Dispatcher", (), {"__module__": "numba.core.registry",
                                       "__call__": lambda self, x: x})  # fmt: skip
 _compiled = _Dispatcher()
 _compiled.__module__ = __name__
+_looped = _Dispatcher()  # a `__wrapped__` chain that never ends: `inspect.unwrap` refuses it
+_looped.__module__, _looped.__wrapped__ = __name__, _looped
 _mean = np.mean  # numpy's: has a `__wrapped__`, to a function outside the project
 
 
@@ -486,6 +488,10 @@ def _calls_compiled(close: Any) -> Any:
     return _compiled(close[-1])
 
 
+def _calls_looped(close: Any) -> Any:
+    return _looped(close[-1])
+
+
 def _calls_classmethod(close: Any) -> Any:
     return _Rules.scale(close[-1])
 
@@ -495,6 +501,7 @@ def _calls_numpy(close: Any) -> Any:
 
 
 @pytest.mark.parametrize(("fn", "shown"), [(_calls_compiled, "_compiled"),
+                                           (_calls_looped, "_looped"),
                                            (_calls_classmethod, "_Rules.scale"),
                                            (_calls_scaled, "_doubled")])  # fmt: skip
 def test_a_project_callable_with_no_function_is_E24(fn: Any, shown: str) -> None:  # noqa: N802

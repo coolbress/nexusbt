@@ -608,15 +608,13 @@ def _reads(fn: FunctionType) -> _Reads:
     return _Reads(tuple(ordered), tuple(sorted(found.items())), tuple(sorted(impure)))
 
 
-def _helper(value: object) -> FunctionType | None:
+def _helper(value: Callable[..., Any]) -> FunctionType | None:
     """The project function `value` is, or keeps along the standard `__wrapped__` chain (#572):
     `functools.lru_cache`, a `functools.wraps` decorator, `numba.njit`. A plain function of the
     project is taken as it is, so what a `wraps` decorator's inner function reads is still
     walked (its source, as `inspect.getsource` gives it, is the wrapped function's)."""
     if _in_project(value):
         return value
-    if isinstance(value, type) or not callable(value):
-        return None
     try:
         inner = inspect.unwrap(value)
     except ValueError:  # a `__wrapped__` cycle
