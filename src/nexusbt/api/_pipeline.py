@@ -28,7 +28,8 @@ if TYPE_CHECKING:
     from nexusbt.pipeline import Term
 
 Freq = Literal["daily", "weekly", "monthly"]
-_KEYS = ("session_date", "market", ID_COLUMN)  # 3.5's sort order
+KEYS = ("session_date", "market", ID_COLUMN)  # 3.5's sort order
+COUNT_KEYS = ("session_date", "market", "term", "diagnostic")  # 5.4.1's
 _UTC = pa.timestamp("us", tz="UTC")
 #: 5.4.1's `term_diagnostics`, its columns in order.
 _COUNTS = pa.schema([("market", pa.string()), ("session_date", pa.date32()), ("term", pa.string()),
@@ -105,9 +106,9 @@ def run(
               for t in nodes}  # fmt: skip
     rows = [dict(zip(_COUNTS.names, (m, d, labels[k], name, n), strict=True))
             for m, d, k, name, n in counted]  # fmt: skip
-    order = [(k, "ascending") for k in ("session_date", "market", "term", "diagnostic")]
+    order = [(k, "ascending") for k in COUNT_KEYS]
     diagnostics = pa.Table.from_pylist(rows, schema=_COUNTS).sort_by(order)
-    return PipelineResult(table.sort_by([(k, "ascending") for k in _KEYS]), diagnostics)
+    return PipelineResult(table.sort_by([(k, "ascending") for k in KEYS]), diagnostics)
 
 
 def _open(snapshot: str | Snapshot | None, cfg: Config) -> Snapshot:
