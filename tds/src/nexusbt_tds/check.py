@@ -74,6 +74,7 @@ REQUIRED += ("profiles", "id_namespaces", "markets", "datasets", "hashes", "writ
 #: manifest-level checks need (#51, Decisions 2026-11-02). A file needs `path` and `bytes`.
 DATASET_REQUIRED = ("name", "kind", "schema_version", "path", "files")
 FILE_REQUIRED = ("path", "bytes")  # TDS 4.2; checked one by one in _check_dataset
+MARKET_REQUIRED = ("calendar_id", "currency", "timezone")  # TDS 3.8, 4.2 (#567)
 HASH_SPECS = frozenset({"tds-hash-1"})  # 4.5
 SUPPORTED_MAJOR = 1  # 10.3
 #: The newest dataset `schema_version` MINOR this checker knows; per kind with T0.13b's files.
@@ -348,6 +349,10 @@ def _check_manifest(m: Manifest, only: Sequence[str] | None) -> Iterable[Finding
         said = "no tds_draft (a text before 2026-11-18)" if missing else f"tds_draft {draft}"
         yield Finding("TDS-M017", "warning", f"{said}; this checker implements {TDS_DRAFT}")
     markets, editions = data.get("markets"), data.get("editions")
+    for code, entry in sorted(markets.items()) if isinstance(markets, dict) else []:
+        for key in MARKET_REQUIRED if isinstance(entry, dict) else ():  # else M001's
+            if key not in entry:
+                yield Finding("TDS-M003", "error", f"markets.{code}: field {key!r} is missing")
     values = editions.get("values") if isinstance(editions, dict) else None
     declared: dict[str, set[str]] = {
         "market": set(markets) if isinstance(markets, dict) else set(),
