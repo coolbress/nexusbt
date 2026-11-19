@@ -287,30 +287,17 @@ class _Chunk:
 
     def row(self, term: Term, t: int) -> F64:
         __tracebackhide__ = True  # down to a user function (R-42)
-        params, inputs, n = dict(term.params), term.inputs, len(self.block.instrument_ids)
-        if term.op == "constant":
-            return np.full(n, params["value"])
-        if term.op == "latest":
-            return self.cell(inputs[0], t)
-        if term.op == "shift":
-            k: int = params["k"]
-            return self.cell(inputs[0], t - k) if t - k >= 0 else np.full(n, np.nan)
+        inputs = term.inputs
+        if term.op in ("constant", "latest", "shift"):
+            return self.read(term, t)
         if term.op in _BINARY and isinstance(term, Factor):  # a Filter's `fillna` is `filter`
-            x, y = self.cell(inputs[0], t), self.cell(inputs[1], t)
-            if term.op == "div":  # 5.4.1 `DivisionByZero`: a divisor 0, a dividend not NaN
-                self.zero = (y == 0) & ~np.isnan(x)
-            return _BINARY[term.op](x, y)
+            return self.binary(term, t)
         if term.op in _UNARY:
             return _UNARY[term.op](self.cell(inputs[0], t))
         if term.op == "user":
             return self.user(term, t)
-        if term.op in _factors.KERNELS:  # 3.4; NaN while the window starts before the axis
-            if t - (size := _factors.rows(term)) + 1 < 0:
-                return np.full(n, np.nan)
-            kernel = REGISTERED.get(term.op)  # `rolling` reads only terms, so it has no class
-            raw = kernel is not None and kernel.adjustment is AdjustmentClass.INVARIANT
-            found = _factors.value(term, [self.window(i, t, size, raw) for i in inputs])
-            return np.where(self.domain(term, t), found, np.nan)
+        if term.op in _factors.KERNELS:
+            return self.kernel(term, t)
         if term.op in _SECTION:
             return self.section(term, t)
         if isinstance(term, Filter):
@@ -322,6 +309,33 @@ class _Chunk:
             picked = np.where(value, self.cell(inputs[1], t), self.cell(inputs[2], t))
             return np.where(valid, picked, np.nan)
         raise NotImplementedError(f"the reference executor has no `{term.op}` term yet")
+
+    def read(self, term: Term, t: int) -> F64:
+        """A constant, or its input's cells at row t (`latest`) or k rows before (`shift`)."""
+        params, n = dict(term.params), len(self.block.instrument_ids)
+        if term.op == "constant":
+            return np.full(n, params["value"])
+        if term.op == "latest":
+            return self.cell(term.inputs[0], t)
+        k: int = params["k"]  # `shift`
+        return self.cell(term.inputs[0], t - k) if t - k >= 0 else np.full(n, np.nan)
+
+    def binary(self, term: Term, t: int) -> F64:
+        """A Factor's arithmetic of two terms at row t."""
+        x, y = self.cell(term.inputs[0], t), self.cell(term.inputs[1], t)
+        if term.op == "div":  # 5.4.1 `DivisionByZero`: a divisor 0, a dividend not NaN
+            self.zero = (y == 0) & ~np.isnan(x)
+        return _BINARY[term.op](x, y)
+
+    def kernel(self, term: Term, t: int) -> F64:
+        """A built-in factor's kernel at row t over its domain (3.4); NaN while the window
+        starts before the axis."""
+        if t - (size := _factors.rows(term)) + 1 < 0:
+            return np.full(len(self.block.instrument_ids), np.nan)
+        kernel = REGISTERED.get(term.op)  # `rolling` reads only terms, so it has no class
+        raw = kernel is not None and kernel.adjustment is AdjustmentClass.INVARIANT
+        found = _factors.value(term, [self.window(i, t, size, raw) for i in term.inputs])
+        return np.where(self.domain(term, t), found, np.nan)
 
     def domain(self, term: Term, t: int) -> npt.NDArray[np.bool_]:
         """The term's cells at row t: the listed ones (3.3's default domain, the block's), and of

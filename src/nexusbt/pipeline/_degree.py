@@ -87,32 +87,49 @@ def degree_of(term: Term, ins: list[Degree]) -> Degree:
     if op == "latest":
         column = dict(term.inputs[0].params)
         return ADJUSTED.get(column["column"]) if column.get("dataset") == "Price" else None
-    if op in _AS_INPUT:
-        return ins[0]
-    if op in _CROSS:
-        return ZERO if ins[0] == ZERO else None
-    if op in _ONE_TERM:
-        return SOME if ins[0] not in (ZERO, None) else None
+    if op in (*_AS_INPUT, *_CROSS, *_ONE_TERM, "sqrt"):
+        return _of_one(op, ins[0])
     if op in ("add", "sub", "fillna"):
-        constants = [t.op == "constant" for t in term.inputs]
-        if any(constants) and not all(constants):
-            x = ins[constants.index(False)]
-            if x not in (ZERO, None):
-                return SOME
-        return ins[0] if ins[0] == ins[1] and ins[0] != SOME else None
+        return _sum(term, ins)
     if op in _SIGN:
         return _product(ins[0], ins[1], _SIGN[op])
-    if op == "pow" and term.inputs[1].op == "constant":
-        return _scaled(ins[0], Fraction(dict(term.inputs[1].params)["value"]))
-    if op == "pow" and term.inputs[0].op == "constant":  # `c ** x`: a function of one term
-        return SOME if ins[1] not in (ZERO, None) else None
-    if op == "sqrt":
-        return _scaled(ins[0], Fraction(1, 2))
+    if op == "pow":
+        return _power(term, ins)
     if op in ADJUSTMENT:
         return _built_in(term, ins)
     if op == "user":  # its declaration (3.3 `adjustment`); "degree 1" does not say C or Q
         return {"degree 0": ZERO, "degree 1": SOME}.get(dict(term.params).get("adjustment", ""))
     return None  # `if_else`: no rule gives a degree yet
+
+
+def _of_one(op: str, x: Degree) -> Degree:
+    """3.4, a term of one input: `-x`, `abs(x)`, `x.shift(k)` as x; a cross-sectional result
+    0 over a degree-0 input; another numeric function of one term not 0; `x.sqrt()` half."""
+    if op in _AS_INPUT:
+        return x
+    if op in _CROSS:
+        return ZERO if x == ZERO else None
+    if op in _ONE_TERM:
+        return SOME if x not in (ZERO, None) else None
+    return _scaled(x, Fraction(1, 2))  # `sqrt`
+
+
+def _sum(term: Term, ins: list[Degree]) -> Degree:
+    """3.4 `x + y`, `x - y`, `x.fillna(y)`: the degree both have; a constant beside a term of
+    non-zero degree, a degree that is not 0."""
+    constants = [t.op == "constant" for t in term.inputs]
+    if any(constants) and not all(constants):
+        x = ins[constants.index(False)]
+        if x not in (ZERO, None):
+            return SOME
+    return ins[0] if ins[0] == ins[1] and ins[0] != SOME else None
+
+
+def _power(term: Term, ins: list[Degree]) -> Degree:
+    """3.4 `x ** p`: x's degree times a constant p; `c ** x`, a function of one term."""
+    if term.inputs[1].op == "constant":
+        return _scaled(ins[0], Fraction(dict(term.inputs[1].params)["value"]))
+    return SOME if term.inputs[0].op == "constant" and ins[1] not in (ZERO, None) else None
 
 
 def _built_in(term: Term, ins: list[Degree]) -> Degree:
