@@ -129,9 +129,7 @@ def _power(term: Term, ins: list[Degree]) -> Degree:
     """3.4 `x ** p`: x's degree times a constant p; `c ** x`, a function of one term."""
     if term.inputs[1].op == "constant":
         return _scaled(ins[0], Fraction(dict(term.inputs[1].params)["value"]))
-    if term.inputs[0].op == "constant":
-        return SOME if ins[1] not in (ZERO, None) else None
-    return None
+    return SOME if term.inputs[0].op == "constant" and ins[1] not in (ZERO, None) else None
 
 
 def _built_in(term: Term, ins: list[Degree]) -> Degree:
