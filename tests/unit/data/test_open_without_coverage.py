@@ -38,13 +38,19 @@ datasets:
 """
 
 
-def test_chapter_7_csv_package_opens_and_reads_its_close(tmp_path: Path) -> None:
+@pytest.mark.parametrize("declared", [False, True], ids=["coverage removed", "as imported"])
+def test_chapter_7_csv_package_opens_and_reads_its_close(tmp_path: Path, declared: bool) -> None:
     """When I import TDS chapter 7's two CSVs and open the package, then the close of
-    XNYS:AAPL on 2024-01-02 reads 185.64 (#564: it was `KeyError: 'coverage'`)."""
+    XNYS:AAPL on 2024-01-02 reads 185.64 (#564: it was `KeyError: 'coverage'`), with the
+    `coverage` the importer writes (#566) and without it."""
     for name, text in (("instruments.csv", INSTRUMENTS), ("bars.csv", BARS),
                        ("mapping.yaml", MINIMAL)):  # fmt: skip
         (tmp_path / name).write_text(text, encoding="utf-8")
     pkg = import_csv(tmp_path / "mapping.yaml", tmp_path / "pkg")
+    if not declared:
+        data = json.loads((pkg / "tds.json").read_text(encoding="utf-8"))
+        no_coverage(data)
+        (pkg / "tds.json").write_text(json.dumps(data), encoding="utf-8")
     assert check(pkg, level="full").error_count == 0
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")  # F-02's E30 for the synthesized XNYS sessions
