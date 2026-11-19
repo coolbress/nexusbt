@@ -152,20 +152,23 @@ def execute(
 
 def _one_function_per_hash(terms: Sequence[Term], given: Mapping[str, Any]) -> None:
     """A node is computed once for its graph hash, so two user terms of one hash whose functions
-    differ in a value the hash does not hold (6.5 (6)) are refused, not given one's values."""
+    differ in a value the hash does not hold (6.5 (6)) are refused, not given one's values.
+    The walk goes below a hash it has seen, as one hash can hold two such terms at any depth
+    (#562), and skips only an object it has already walked."""
     seen: dict[str, Term] = {}
+    walked: set[int] = set()
     todo = list(terms)
     while todo:
         term = todo.pop()
-        key = graph_hash(term)
-        if key in seen:
-            first = seen[key].function
-            if key not in given and not same_function(first, term.function):
-                name = dict(term.params)["function"]
-                why = "read different non-constant values; pass them as inputs or constants"
-                raise ValueError(f"two user terms {name} share one graph hash but {why}")
+        if id(term) in walked:
             continue
-        seen[key] = term
+        walked.add(id(term))
+        key = graph_hash(term)
+        first = seen.setdefault(key, term).function
+        if key not in given and not same_function(first, term.function):
+            name = dict(term.params)["function"]
+            why = "read different non-constant values; pass them as inputs or constants"
+            raise ValueError(f"two user terms {name} share one graph hash but {why}")
         todo += [*term.inputs, *(v for _, v in term.params if isinstance(v, Term))]
 
 

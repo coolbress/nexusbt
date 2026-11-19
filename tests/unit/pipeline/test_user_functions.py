@@ -144,7 +144,7 @@ def test_a_result_of_another_dtype_is_E8() -> None:  # noqa: N802 - E8 is a code
         plain([up], [3], 4)
 
 
-def _scaled(by: Any) -> Term:
+def _scaled(by: Any) -> Factor:
     def scaled(close: Any) -> Any:
         return close[-1] * by[0]
 
@@ -164,6 +164,21 @@ def test_one_hash_for_two_functions_is_refused() -> None:
     copies = [_copy_a(), _copy_b()]  # one source written twice: one hash, one computation
     assert graph_hash(copies[0]) == graph_hash(copies[1])
     assert plain(copies, [3], 4)[graph_hash(copies[0])]["value"].to_pylist() == [103.0, 1003.0]
+
+
+def test_one_hash_for_two_functions_under_an_operation_is_refused() -> None:
+    """#562: the two terms are refused wherever they sit, under `top`, under `&` or as a
+    `mask`, in either order; built from the same value, each under `top(1)`, they still run."""
+    plus, minus = _scaled(np.array([1.0])), _scaled(np.array([-1.0]))
+    for terms in ([plus.top(1), minus.top(1)], [minus.top(1), plus.top(1)],
+                  [plus.top(1) & minus.top(1)], [plus.top(1, mask=minus.top(1))]):  # fmt: skip
+        with pytest.raises(ValueError, match="scaled share one graph hash"):
+            plain(terms, [3], 4)
+    by = np.array([-1.0])
+    alone = plain([_scaled(by).top(1)], [3], 4)
+    together = plain([_scaled(by).top(1), _scaled(by).top(1)], [3], 4)
+    assert together == alone
+    assert alone[graph_hash(_scaled(by).top(1))]["value"].to_pylist() == [True, False]
 
 
 def _copy_a() -> Term:
