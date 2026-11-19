@@ -252,6 +252,25 @@ def test_f01_once_per_run_when_columns_left_out(tmp_path: Path, monkeypatch: Any
     assert all(math.isnan(v) for c in OHL for v in table[c].to_pylist())
 
 
+def test_f01_when_one_year_file_lacks_them(tmp_path: Path) -> None:
+    """4.5 F-01 holds for a market when any of its files lacks the columns, not only when every
+    file does: 2019's file without them, 2020's with them, is E30 with the 2019 rows."""
+    root = make_snapshot(tmp_path / "p", preset="small", markets=("KR",), n_kr=2,
+                         start=dt.date(2019, 12, 2), end=dt.date(2020, 1, 31))  # fmt: skip
+    data = json.loads((root / "tds.json").read_text(encoding="utf-8"))
+    bars = next(d for d in data["datasets"] if d["kind"] == "bars")
+    [f2019] = [f for f in bars["files"] if "year=2019" in f["path"]]
+    table = pq.read_table(part := root / f2019["path"]).drop_columns(list(OHL))
+    pq.write_table(table, part)
+    f2019["bytes"] = part.stat().st_size
+    (root / "tds.json").write_text(json.dumps(data), encoding="utf-8")
+    write_hashes(root)
+    with pytest.warns(UserWarning, match="F-01") as caught:
+        snapshot = nx.open(str(root))
+    assert f"column open, {len(table)}" in f01(caught.list)[0]
+    assert {r.column for r in snapshot.fallbacks if r.id == "F-01"} == set(OHL)
+
+
 def test_f01_undecided_without_footer_statistics(tmp_path: Path) -> None:
     """Without footer statistics, null in every row is not known without reading the rows,
     which open does not do: no F-01, the cells NaN as stored."""

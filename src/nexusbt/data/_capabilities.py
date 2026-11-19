@@ -212,10 +212,10 @@ def _off_calendar(
 def _no_ohl(
     folder: Path, bars: Mapping[str, Any] | None, by_market: Mapping[str, Mapping[str, Any]]
 ) -> list[FallbackRecord]:
-    """F-01 by market and column (4.5): every bars file that can hold the market (its `market=`
+    """F-01 by market and column (4.5): a bars file that can hold the market (its `market=`
     partition, or none) lacks the column or holds it null in every row by its footer
-    statistics. A file without them leaves it undecided, its cells NaN as stored: open reads
-    no row."""
+    statistics; the count is those files' rows, at most the market's. A file without them
+    leaves it undecided, its cells NaN as stored: open reads no row."""
     if bars is None:
         return []
     files: dict[str | None, list[pq.FileMetaData]] = {}
@@ -225,8 +225,10 @@ def _no_ohl(
     out = []
     for m, entry in by_market.items():
         held = [*files.get(m, []), *files.get(None, [])]
-        out += [FallbackRecord("F-01", str(bars["name"]), m, int(entry.get("rows", 0)), c)
-                for c in OHL if held and all(_gone(x, c) for x in held)]  # fmt: skip
+        for c in OHL:
+            if gone := [x.num_rows for x in held if _gone(x, c)]:
+                count = min(sum(gone), int(entry.get("rows", sum(gone))))
+                out.append(FallbackRecord("F-01", str(bars["name"]), m, count, c))
     return out
 
 
@@ -356,7 +358,7 @@ def check_fields(data: Mapping[str, Any], caps: DataCapabilities, fields: Sequen
              "raw prices and corporate actions",
         where=f"dataset {bars.get('name', 'bars')} price_basis = {basis}",
         why="close_tr is the raw close with cash dividends added back from corporate_actions "
-            "(3.2); an adjusted-price package cannot give it",
+            "(3.2); it needs raw bars, corporate_actions and calendar_sessions (4.3)",
         fix="use a snapshot whose bars have price_basis = raw, with corporate_actions and "
             "calendar_sessions; or read Price.close, the package's adjusted value",
         more="spec 3.2 and 4.3", layer=_layer(data, str(bars.get("name", "bars"))),
