@@ -7,6 +7,8 @@ from __future__ import annotations
 import datetime as dt
 import json
 import math
+import sys
+import types
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -153,6 +155,38 @@ def test_monthly_without_a_decision_is_an_empty_table(tiny: Path) -> None:
         ("decision_ts", pa.timestamp("us", tz="UTC")), ("instrument_id", pa.string()),
         ("close", pa.float64()), ("up", pa.bool_()),
     ])  # fmt: skip
+
+
+def test_weekly_decides_on_each_week_s_last_session(tiny: Path) -> None:
+    """3.7 `weekly`, through `run_pipeline` (#249 Decisions): the last session of each ISO week
+    whose end the calendar settles, KR's January weeks: 01-10, 01-17, 01-23 (01-24 and 01-27
+    are holidays) and 01-31."""
+    pipe = nx.Pipeline({"close": nx.Price.close.latest})
+    found = nx.run_pipeline(pipe, start="2020-01-06", end="2020-01-31", freq="weekly",
+                            markets=["KR"], snapshot=str(tiny)).table  # fmt: skip
+    assert sorted(set(found["session_date"].to_pylist())) == [
+        dt.date(2020, 1, d) for d in (10, 17, 23, 31)
+    ]
+
+
+def test_to_pandas_and_to_polars(tiny: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """3.5: `.to_pandas()` gives the table's rows; `.to_polars()` hands the table to polars,
+    an optional dependency this environment does not install, so a stand-in module records
+    what it was given."""
+    result = nx.run_pipeline(nx.Pipeline({"close": nx.Price.close.latest}), start="2020-01-06",
+                             end="2020-01-06", markets=["KR"], snapshot=str(tiny))  # fmt: skip
+    frame = result.to_pandas()
+    assert list(frame.columns) == result.table.column_names
+    assert frame["close"].tolist() == result.table["close"].to_pylist()
+    given: list[object] = []
+
+    class Polars(types.ModuleType):
+        def from_arrow(self, table: object) -> None:
+            given.append(table)
+
+    monkeypatch.setitem(sys.modules, "polars", Polars("polars"))
+    result.to_polars()
+    assert given == [result.table]
 
 
 def test_a_pipeline_without_columns_is_refused(tiny: Path) -> None:
