@@ -7,6 +7,9 @@ package version follows the `tds_version` it checks (`1.0.x`), tagged
 ## [Unreleased]
 
 ### Added
+- TDS-M010 at the `schema` level for an `instruments.market` not declared in `markets` (TDS 3.8,
+  8.2), one finding per market naming its first instrument; until now M010 read only the
+  `market=` values of listed paths and `coverage.by_market`
 - TDS-M003 for a `markets` entry without `calendar_id`, `currency` or `timezone`, and TDS-M001
   for one that is not a non-empty string (TDS 3.8, 4.2): the manifest schema requires the three,
   which until now accepted any object. `tds_draft` moves to `2026-11-19`, so a package that

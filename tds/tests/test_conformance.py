@@ -33,9 +33,12 @@ def pairs(path: Path, level: Level = "manifest") -> list[tuple[str, str | None]]
     return sorted(((f.code, f.dataset) for f in (*result.errors, *result.warnings)), key=str)
 
 
-def stated(code: str) -> list[tuple[str, str | None]]:
+def stated(code: str, level: Level = "manifest") -> list[tuple[str, str | None]]:
     """The fail package's findings the builder states: its code, once per broken dataset (8.2)."""
-    return sorted(((code, dataset) for dataset in build.FAILS[code]), key=str)
+    broken = (
+        build.FAILS[code] if level == "manifest" else build.AT_SCHEMA.get(code, build.FAILS[code])
+    )
+    return sorted(((code, dataset) for dataset in broken), key=str)
 
 
 def test_every_fail_package_states_its_findings() -> None:
@@ -58,7 +61,29 @@ def test_M_codes(code: str, tmp_path: Path) -> None:
     package = tmp_path / "pkg"
     assert pairs(build.write(package / "fail", *build.package(code, "fail"))) == stated(code)
     assert codes(build.write(package / "pass", *build.package(code, "pass"))) == []
-    assert pairs(package / "fail", "schema") == stated(code)  # also at the CLI's default level
+    assert pairs(package / "fail", "schema") == stated(code, "schema")  # the CLI's default level
+
+
+def test_M010_an_instrument_of_an_undeclared_market_at_schema(tmp_path: Path) -> None:
+    """TDS 3.8, 8.2 (#567): the `schema` level reads `instruments.market`; `manifest`, no rows."""
+    package = write(tmp_path, build._instruments(market=pa.array(["ZZ"])))
+    assert codes(package) == []
+    (found,) = check(package, level="schema").errors
+    assert (found.code, found.dataset, found.file) == ("TDS-M010", "instruments", build.INSTRUMENTS)
+    assert found.message == "instrument 'US:AAA' names market 'ZZ', not declared in tds.json"
+
+
+@pytest.mark.parametrize(
+    ("change", "found"),
+    [
+        (build._instruments(market=None), [("TDS-S001", "instruments")]),  # no market column
+        (lambda m, f: f.pop(build.INSTRUMENTS), [("TDS-M004", "instruments")]),  # no file
+    ],
+)
+def test_M010_on_instruments_hides_no_other_finding(
+    change: Any, found: list[tuple[str, str]], tmp_path: Path
+) -> None:
+    assert pairs(write(tmp_path, change), "schema") == found
 
 
 @pytest.mark.parametrize("code", [*S_CODES, "TDS-T002", "TDS-T006", "TDS-D002"])  # 8.2

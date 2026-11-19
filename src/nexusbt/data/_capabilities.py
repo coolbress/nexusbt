@@ -103,6 +103,7 @@ def decide(
     lacking = {f: [k for k in needs if k not in kinds] for f, needs in NEEDS.items()}
     taken: dict[str, list[FallbackRecord]] = {f: [] for f in NEEDS}
     market_of = _market_of(folder, kinds.get("instruments"))  # TDS K1: ids are opaque
+    _declared(folder, data, by_market, market_of)
     f02: Sessions | None = None
     if bars is not None:
         f02 = _sessions(folder, data["markets"], kinds, by_market)
@@ -216,6 +217,30 @@ def _values(folder: Path, dataset: Mapping[str, Any] | None, *columns: str) -> l
         rows = zip(*(table[c].to_pylist() for c in columns), strict=True)
         out += [r[0] if len(columns) == 1 else r for r in rows]
     return out
+
+
+def _declared(
+    folder: Path, data: Mapping[str, Any], by_market: Mapping[str, Any],
+    market_of: Mapping[str, str],
+) -> None:  # fmt: skip
+    """Spec 4.4-4 (#567): a market of the bars that `markets` does not declare is E14
+    `TDS-M010`. Only a market taken from `instruments` (bars without `market=`) reaches here
+    at `verify = "manifest"`: the checker reads that column from `schema` on (TDS 8.2)."""
+    undeclared = sorted(m for m in by_market if m not in data["markets"])
+    if not undeclared:
+        return
+    market = undeclared[0]
+    ids = sorted(i for i, m in market_of.items() if m == market)
+    first = ids[0] if ids else "-"
+    producer = data.get("producer")
+    raise SnapshotError.from_check(
+        path=str(folder), counts={"TDS-M010": len(undeclared)}, dataset="instruments",
+        file="-", key=str({ID_COLUMN: first, "market": market}), column="market",
+        hint=f"instrument {first!r} names market {market!r}, not declared in tds.json "
+             f"`markets` (TDS 3.8); declare the market or correct `instruments.market`",
+        snapshot_id=str(data["snapshot_id"]),
+        producer=str(producer.get("name", "-")) if isinstance(producer, dict) else "-",
+    )  # fmt: skip
 
 
 def _market_of(folder: Path, instruments: Mapping[str, Any] | None) -> dict[str, str]:

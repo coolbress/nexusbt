@@ -690,7 +690,13 @@ CASES: dict[str, tuple[Change, Change]] = {
         _set("schema_version", "1.0", in_bars=True),
         _set("schema_version", "2.0", in_bars=True),
     ),
-    "TDS-M010": (_keep, _move_bars(BARS.replace("market=US", "market=ZZ"))),
+    "TDS-M010": (  # a `market=` path, and from `schema` on an instruments row (8.2, #567)
+        _keep,
+        _both(
+            _move_bars(BARS.replace("market=US", "market=ZZ")),
+            _instruments(market=pa.array(["ZZ"])),
+        ),
+    ),
     "TDS-M011": (
         _set("schema_version", "1.0", in_bars=True),
         lambda m, f: (_set("schema_version", "1.9", in_bars=True)(m, f), _bars(VERSION_1_9)(m, f)),
@@ -924,6 +930,9 @@ FAILS: dict[str, tuple[str | None, ...]] = {
     "TDS-V050": ("label_panels",),
 }
 # fmt: on
+#: Code → the datasets its fail package breaks from the `schema` level on, where they differ
+#: from `FAILS`: that level reads rows the `manifest` level does not (TDS 8.2).
+AT_SCHEMA: dict[str, tuple[str | None, ...]] = {"TDS-M010": ("bars_1d", "instruments")}
 
 
 def package(code: str, side: str) -> Package:
