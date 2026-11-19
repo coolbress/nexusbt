@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 
 from nexusbt_tds import check
-from nexusbt_tds.check import _IS, DATASET_REQUIRED, FILE_REQUIRED, REQUIRED
+from nexusbt_tds.check import _IS, DATASET_REQUIRED, FILE_REQUIRED, MARKET_REQUIRED, REQUIRED
 from nexusbt_tds.manifest import MANIFEST_SCHEMA
 
 from .conformance_build import build
@@ -69,7 +69,7 @@ def test_every_type_the_schema_files_use_is_a_name_or_ts_us_ns() -> None:
 
 def test_tds_draft_is_a_date(tmp_path: Path) -> None:
     """TDS 4.2 (#529): the conformance packages name the text; a value that is no date is M001."""
-    assert build.base()[0]["tds_draft"] == "2026-11-18"
+    assert build.base()[0]["tds_draft"] == "2026-11-19"
     assert findings(tmp_path, lambda m: m.update(tds_draft="v1.4")) == [
         ("TDS-M001", '$.tds_draft: "v1.4" does not match ^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
     ]
@@ -94,6 +94,22 @@ def test_a_field_of_another_shape_is_M001(change: Any, tmp_path: Path) -> None:
 
 def test_the_schema_requires_what_M003_checks() -> None:
     dataset = MANIFEST_SCHEMA["properties"]["datasets"]["items"]
+    market = MANIFEST_SCHEMA["properties"]["markets"]["additionalProperties"]
     assert MANIFEST_SCHEMA["required"] == list(REQUIRED)
     assert dataset["required"] == list(DATASET_REQUIRED)
     assert dataset["properties"]["files"]["items"]["required"] == list(FILE_REQUIRED)
+    assert market["required"] == list(MARKET_REQUIRED)
+
+
+@pytest.mark.parametrize("field", ["calendar_id", "currency", "timezone"])
+def test_a_market_entry_without_a_field_is_M003_naming_both(field: str, tmp_path: Path) -> None:
+    """TDS 3.8, 4.2 (#567): each `markets` entry holds the three; one missing is M003."""
+    said = findings(tmp_path, lambda m: m["markets"]["US"].pop(field))
+    assert said == [("TDS-M003", f"markets.US: field {field!r} is missing")]
+
+
+@pytest.mark.parametrize("value", ["", None, 1])
+def test_a_market_field_that_is_no_non_empty_string_is_M001(value: Any, tmp_path: Path) -> None:
+    said = findings(tmp_path, lambda m: m["markets"]["US"].update(timezone=value))
+    assert [code for code, _ in said] == ["TDS-M001"]
+    assert "$.markets.US.timezone" in said[0][1]

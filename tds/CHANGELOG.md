@@ -7,6 +7,12 @@ package version follows the `tds_version` it checks (`1.0.x`), tagged
 ## [Unreleased]
 
 ### Added
+- TDS-M003 for a `markets` entry without `calendar_id`, `currency` or `timezone`, and TDS-M001
+  for one that is not a non-empty string (TDS 3.8, 4.2): the manifest schema requires the three,
+  which until now accepted any object. `tds_draft` moves to `2026-11-19`, so a package that
+  names `2026-11-18` warns TDS-M017; its hashes do not change. `tds import csv` refuses a
+  mapping whose `market` lacks one of the three (until now only `code` was needed), so it no
+  longer writes a package the checker refuses
 - TDS-M017 (W) at every level: a `tds.json` with no `tds_draft`, or one naming another draft
   text than the checker implements (TDS 10.5); a package written before it still passes
 - `tds_draft` in `tds.json` (TDS 4.2, 10.5): the date of the draft text a package follows,
