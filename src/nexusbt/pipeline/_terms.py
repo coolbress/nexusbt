@@ -590,20 +590,45 @@ def _reads(fn: FunctionType) -> _Reads:
             name, value = reads.pop()
             if _constant(value):
                 found[prefix + name] = value
-            elif _in_project(value):
-                todo.append(value)
             elif isinstance(value, ModuleType | type):  # `cfg.LIMIT`: a project namespace's
                 if _project_space(value) and id(value) not in spaces:
                     spaces.add(id(value))
                     reads += [(f"{name}.{a}", getattr(value, a)) for a in sorted(attrs)
                               if hasattr(value, a)]  # fmt: skip
-            elif _held(value):  # an array, a list, a dict, a DataFrame, an object holding one
+            elif _held(value):  # an array, a list, a dict, a DataFrame, an object holding one,
+                impure.add(name)  # also when it keeps a function in `__wrapped__`
+            elif helper := _helper(value):
+                todo.append(helper)
+            elif _projects(value):  # a project callable with no source to hash
                 impure.add(name)
         impure.update(n for n in names if n not in values and n in _FILE_READS)  # `open`
         impure.update(a for a in attrs if a in _FILE_READS or a.startswith("read_"))
         helpers += [] if f is fn else [f]
     ordered = sorted(helpers, key=lambda h: h.__qualname__)
     return _Reads(tuple(ordered), tuple(sorted(found.items())), tuple(sorted(impure)))
+
+
+def _helper(value: Callable[..., Any]) -> FunctionType | None:
+    """The project function `value` is, or keeps along the standard `__wrapped__` chain (#572):
+    `functools.lru_cache`, a `functools.wraps` decorator, `numba.njit`. A plain function of the
+    project is taken as it is, so what a `wraps` decorator's inner function reads is still
+    walked (its source, as `inspect.getsource` gives it, is the wrapped function's)."""
+    if _in_project(value):
+        return value
+    try:
+        inner = inspect.unwrap(value)
+    except ValueError:  # a `__wrapped__` cycle
+        return None
+    return inner if _in_project(inner) else None
+
+
+def _projects(value: object) -> bool:
+    """A callable that names a module of the project as its `__module__` (#572 Decisions 2): a
+    compiled dispatcher with no `__wrapped__`, a class's method. Its source cannot go into the
+    hash, so it is E24, never taken as pure."""
+    name = getattr(value, "__module__", None)
+    module = sys.modules.get(name) if isinstance(name, str) else None
+    return callable(value) and module is not None and _project_space(module)
 
 
 def _loads(code: CodeType) -> tuple[set[str], set[str]]:
