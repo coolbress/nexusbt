@@ -15,7 +15,8 @@ whose raw prices and cumulative factors follow the events (all 1.0 in `tiny`); `
 (4.8 (7)), `eligibility_daily` (4.8 (10)), the bars' `value_traded` and, with KR, `market_rules`
 (4.8 (11a)). The hashes in
 `tds.json` and `--validate`'s check are the `tds` command's, run as a separate process: spec
-2.5 draws no arrow from `testing` to `nexusbt_tds`, so this module does not import it.
+2.5 draws no arrow from `testing` to `nexusbt_tds`, so this module does not import it, and
+`--validate`'s `TDS-A001` count is the one that check prints (#608).
 """
 
 from __future__ import annotations
@@ -24,7 +25,6 @@ import argparse
 import datetime as dt
 import itertools
 import json
-import math
 import re
 import sys
 import time
@@ -475,36 +475,18 @@ def write_actions(root: Path, rows: Sequence[Mapping[str, Any]]) -> None:
         raise RuntimeError(f"tds hash --write {root} exited {done.returncode}: {done.stderr}")
 
 
-def a001(actions: pa.Table, bars: pa.Table) -> int | None:
-    """TDS 5.11's A001 count: bars whose `cum_factor_*` step from the instrument's previous bar
-    is not, to 1e-12 relative, the product of the price factors effective after that bar and
-    by this one (one session in dense bars, more where sparse bars skip); None without them.
-
-    Resolved at c = +inf: per `revision_of` chain only the version known last (5.11 step 2,
-    ties to the last `event_id`), none when it is cancelled or only announced. The generator's
-    own count until `tds check` runs A001 through `nexusbt_tds.actions` (#226, #227), which
-    this module may not import (spec 2.5).
-    """
-    if "cum_factor_split" not in bars.column_names:  # degrade no_cum_factors (F-04)
+def a001(printed: str) -> int | None:
+    """TDS-A001's count in what `tds check --level full` printed, over its daily bars datasets;
+    None where it notes A001 not checked. The checker's resolver is the only one (#608)."""
+    if re.search(r"^note: TDS-A001 not checked\b", printed, re.M):
         return None
-    want = _factors(actions)
-    rows = bars.select([ID, "session_date", "cum_factor_split", "cum_factor_total"])
-    rows = rows.sort_by([(ID, "ascending"), ("session_date", "ascending")]).to_pylist()
-    bad = 0
-    for before, now in itertools.pairwise(rows):
-        for basis in ("total", "split") if before[ID] == now[ID] else ():
-            step = now[f"cum_factor_{basis}"] / before[f"cum_factor_{basis}"]
-            due = [f for ex, f in want.get((now[ID], basis), ())
-                   if before["session_date"] < ex <= now["session_date"]]  # fmt: skip
-            if None not in due:  # a session with a "none" factor is not reconciled (5.11)
-                m = math.prod(due)
-                bad += abs(step - m) > 1e-12 * abs(m)
-    return bad
+    return sum(int(n) for n in re.findall(r"^error TDS-A001 .*: (\d+) cumulative factor", printed,
+                                          re.M))  # fmt: skip
 
 
 def _factors(actions: pa.Table) -> dict[tuple[str, str], list[tuple[dt.date, float]]]:
     """(instrument, basis) → each (ex_date, price_factor) the bars' `cum_factor_<basis>` steps
-    by, at c = +inf (a001)."""
+    by, at c = +inf (`_cut`)."""
     parent = {r["event_id"]: r["revision_of"] for r in actions.to_pylist()}
     latest: dict[str, tuple[Any, dict[str, Any]]] = {}
     for r in sorted(actions.to_pylist(), key=lambda r: r["event_id"]):
@@ -613,12 +595,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     if not args.validate:
         return 0
     bars = read(root, "bars_1d")
-    bad = a001(actions, bars)
-    print(f"TDS-A001: {'no cum_factor_* columns' if bad is None else bad}")
+    done = pk._tds("check", str(root), "--level", "full")
+    bad = a001(done.stdout)  # the checker's count (#608)
+    if "cum_factor_split" not in bars.column_names:  # degrade no_cum_factors (F-04)
+        print("TDS-A001: no cum_factor_* columns")
+    else:
+        print(f"TDS-A001: {'not checked' if bad is None else bad}")
     if "ts_available" in bars.column_names:  # degrade late_bars (#354)
         late = pa.compute.greater(bars["ts_available"], bars["ts_end"])
         print(f"late bars {pa.compute.sum(late).as_py()}")
-    done = pk._tds("check", str(root), "--level", "full")
     names = {ds["name"] for ds in manifest["datasets"]}
     # from `instruments`, which a package without `delistings` (F-13) still has
     last = {r[ID]: r["last_session"] for r in read(root, "instruments").to_pylist()}
@@ -635,7 +620,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"TDS-V011 warnings: {len(re.findall(r'^warning TDS-V011 ', done.stdout, re.M))}")
     sys.stdout.write(done.stdout)
     sys.stderr.write(done.stderr)
-    return done.returncode or int(bool(bad))
+    return done.returncode
 
 
 if __name__ == "__main__":  # pragma: no cover - run by `python -m`, a separate process
