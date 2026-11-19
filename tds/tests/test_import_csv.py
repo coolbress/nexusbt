@@ -83,7 +83,8 @@ datasets:
     assert name == "demo: a colon inside quotes"
     # JSON is YAML too, and is read first
     as_json = {"profiles": ["tds:minimal-daily@1.0"],
-               "market": {"code": "US", "calendar_id": "XNYS", "currency": "USD"},
+               "market": {"code": "US", "calendar_id": "XNYS", "currency": "USD",
+                          "timezone": "America/New_York"},
                "datasets": {"instruments": {"file": "instruments.csv"}}}  # fmt: skip
     (tmp_path / "m.json").write_text(json.dumps(as_json), encoding="utf-8")
     assert rows(import_csv(tmp_path / "m.json", tmp_path / "json"), "instruments")
@@ -101,9 +102,10 @@ datasets:
 def test_offsetless_time_requires_timezone(tmp_path: Path) -> None:
     bars = "instrument_id,session_date,close,ts_end\nXNYS:AAPL,2024-01-02,185.64,{}\n"
     mapping = MINIMAL.replace(", timezone: America/New_York", "")
-    files = {"instruments.csv": INSTRUMENTS, "mapping.yaml": mapping}
-    write(tmp_path / "a", files | {"bars.csv": bars.format("2024-01-02T16:00:00")})
-    with pytest.raises(CsvImportError, match=r"bars.csv line 2: ts_end .* needs a timezone"):
+    files = {"instruments.csv": INSTRUMENTS, "mapping.yaml": MINIMAL}
+    write(tmp_path / "a", files | {"mapping.yaml": mapping,
+                                   "bars.csv": bars.format("2024-01-02T16:00:00")})  # fmt: skip
+    with pytest.raises(CsvImportError, match=r"the market's `timezone` is missing"):  # #567
         import_csv(tmp_path / "a" / "mapping.yaml", tmp_path / "a" / "pkg")
     write(tmp_path / "b", files | {"bars.csv": bars.format("2024-01-02T16:00:00-05:00")})
     out = import_csv(tmp_path / "b" / "mapping.yaml", tmp_path / "b" / "pkg")
@@ -134,7 +136,8 @@ def key(text: str) -> tuple[str, str]:
 @pytest.mark.parametrize(
     ("change", "bars", "error"),
     [
-        (("market: {code: US, ", "market: {"), BARS, "`market` needs at least a `code`"),
+        (("market: {code: US, ", "market: {"), BARS, "the market's `code` is missing or not"),
+        (("currency: USD, ", ""), BARS, "the market's `currency` is missing or not"),  # #567
         ((MINIMAL[MINIMAL.index("datasets:") :], "datasets: {}\n"), BARS, "`datasets` needs one"),
         (("  instruments:\n    file: instruments.csv\n", "  instruments: x\n"), BARS, "is not a"),
         (key("files: x"), BARS, "datasets.bars: unknown files"),
@@ -154,7 +157,7 @@ def key(text: str) -> tuple[str, str]:
         ((IN_BARS, DATE), BARS.replace("2024-01-02", "2024013"), "'2024013' is not a date"),
         (("", ""), BARS.replace("2024-01-02", "20240102"), "'20240102' is not a date"),
         (("", ""), BARS.replace("2024-01-02", "2024-W01-2"), "'2024-W01-2' is not a date"),
-        (("America/New_York", "[UTC]"), BARS, "the market's `timezone` is text"),
+        (("America/New_York", "[UTC]"), BARS, "the market's `timezone` is missing or not"),
         (("", ""), "instrument_id,close\nXNYS:AAPL,1\n", "no column for session_date, the sort"),
         (("", ""), BARS + "XNYS:AAPL,,1,2\n", "year= partition needs one or more rows"),
         (("", ""), BARS.splitlines()[0] + "\n", "year= partition needs one or more rows"),
@@ -285,7 +288,8 @@ def test_values_and_fills(tmp_path: Path) -> None:
     index = {"instruments.csv": CHAPTER_7.replace("equity", "index"), "mapping.yaml": MINIMAL}
     package = import_csv(write(tmp_path / "i", index | {"bars.csv": BARS}), tmp_path / "i" / "p")
     assert rows(package, "instruments")[0]["is_synthetic"] is True
-    as_json = {"market": {"code": "US"}, "datasets": {"instruments": {
+    us = {"code": "US", "calendar_id": "XNYS", "currency": "USD", "timezone": "America/New_York"}
+    as_json = {"market": us, "datasets": {"instruments": {
         "file": "instruments.csv", "values": {"is_synthetic": True, "lot_size": 10}}}}  # fmt: skip
     (tmp_path / "i" / "m.json").write_text(json.dumps(as_json), encoding="utf-8")
     package = import_csv(tmp_path / "i" / "m.json", tmp_path / "i" / "j" / "p")
@@ -318,7 +322,8 @@ def test_format_names_the_way_out(tmp_path: Path) -> None:
 def test_report_never_lands_on_an_input(tmp_path: Path) -> None:
     """A report beside the package never replaces the mapping file or a CSV, nor a folder;
     a `values` constant that is not one value is refused, never written as `'None'`."""
-    as_json = {"profiles": [], "market": {"code": "US", "calendar_id": "XNYS", "currency": "USD"},
+    market = {"code": "US", "calendar_id": "XNYS", "currency": "USD", "timezone": "UTC"}
+    as_json = {"profiles": [], "market": market,
                "datasets": {"instruments": {"file": "instruments.csv"}}}  # fmt: skip
     write(tmp_path, {"instruments.csv": CHAPTER_7})
     (tmp_path / "import_report.json").write_text(json.dumps(as_json), encoding="utf-8")
