@@ -477,8 +477,11 @@ def write_actions(root: Path, rows: Sequence[Mapping[str, Any]]) -> None:
 
 def a001(printed: str) -> int | None:
     """TDS-A001's count in what `tds check --level full` printed, over its daily bars datasets;
-    None where it notes A001 not checked. The checker's resolver is the only one (#608)."""
-    if re.search(r"^note: TDS-A001 not checked\b", printed, re.M):
+    None where it notes A001 not checked, or printed no summary line (a checker fault). The
+    checker's resolver is the only one (#608)."""
+    if re.search(r"^note: TDS-A001 not checked\b", printed, re.M) or not re.search(
+        r"^\d+ errors, \d+ warnings at level ", printed, re.M
+    ):
         return None
     return sum(int(n) for n in re.findall(r"^error TDS-A001 .*: (\d+) cumulative factor", printed,
                                           re.M))  # fmt: skip

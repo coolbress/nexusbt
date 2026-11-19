@@ -252,6 +252,7 @@ def test_command_reads_a001_from_the_check(
         printed = capsys.readouterr().out
         assert f"TDS-A001: {said}" in printed.splitlines(), printed
         assert code == (said != "0"), printed  # the checker's errors fail the command
+    assert synth.a001("") is None  # a checker fault (exit 70) prints no summary: not a 0
 
 
 def test_command_without_validate_prints_and_does_not_check(
