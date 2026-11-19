@@ -110,17 +110,56 @@ def decide(
     market_of = _market_of(folder, kinds.get("instruments"))  # TDS K1: ids are opaque
     if not extent.partitioned:  # a `market=` partition is the checker's (TDS-M010)
         _declared(folder, data, extent.by_market(), market_of)
-    f02: Sessions | None = None
-    if bars is not None:
-        f02 = _sessions(folder, data["markets"], kinds, extent)
-        for f in ("adjusted", "backtest"):
-            if f02 is None and "calendar_sessions" not in lacking[f]:  # 4.4-4: one market's
-                lacking[f].append("calendar_sessions")
-            elif f02 is not None:
-                lacking[f] = [k for k in lacking[f] if k != "calendar_sessions"]
-                taken[f] += f02[0]
-            if bars["params"].get("price_basis") != "raw":
-                lacking[f].append("raw bars (price_basis = raw)")
+    f02 = _calendars(folder, data, kinds, extent, lacking, taken)
+    columns = _fallbacks(folder, kinds, rules, found, extent, market_of, taken)
+    twice = doubled(data)  # two or more left: off, never by a fallback (4.3, #547, #551)
+    for f, reads in READS.items():
+        lacking[f] += [k for k in twice if k in reads and k not in lacking[f]]
+    on = frozenset(f for f in NEEDS if not lacking[f])
+    if required is not None:
+        _refuse_features(data, required, lacking)
+    wanted = NEEDS.keys() if required is None else required.features
+    used = list(dict.fromkeys(r for f in sorted(wanted) if f in on for r in taken[f]))
+    _use_fallbacks(folder, data, bars, f02, used, policy, market_of, extent)
+    whole = {"cum_factor_split", "cum_factor_total"} <= columns
+    cum: Literal["columns", "resolver"] = "columns" if whole else "resolver"  # F-04
+    supported = frozenset(p for p in data.get("profiles", []) if p in SUPPORTED)
+    assumptions = tuple(SAYS[i] for i in ("F-02",) if any(r.id == i for r in used))
+    return DataCapabilities(on, supported, cum), used, assumptions
+
+
+Sessions = tuple[list[FallbackRecord], dict[str, set[dt.date]]]
+
+
+def _calendars(
+    folder: Path, data: Mapping[str, Any], kinds: Mapping[str, Mapping[str, Any]],
+    extent: BarsExtent, lacking: dict[str, list[str]], taken: dict[str, list[FallbackRecord]],
+) -> Sessions | None:  # fmt: skip
+    """4.4-4: the sessions `adjusted` and `backtest` read, held or F-02 (`_sessions`), and the
+    raw bars they need (4.3); None without bars, or when no calendar gives the sessions."""
+    bars = kinds.get("bars")
+    if bars is None:
+        return None
+    f02 = _sessions(folder, data["markets"], kinds, extent)
+    for f in ("adjusted", "backtest"):
+        if f02 is None and "calendar_sessions" not in lacking[f]:  # 4.4-4: one market's
+            lacking[f].append("calendar_sessions")
+        elif f02 is not None:
+            lacking[f] = [k for k in lacking[f] if k != "calendar_sessions"]
+            taken[f] += f02[0]
+        if bars["params"].get("price_basis") != "raw":
+            lacking[f].append("raw bars (price_basis = raw)")
+    return f02
+
+
+def _fallbacks(
+    folder: Path, kinds: Mapping[str, Mapping[str, Any]], rules: Mapping[str, str | None],
+    found: Sequence[Finding], extent: BarsExtent, market_of: Mapping[str, str],
+    taken: dict[str, list[FallbackRecord]],
+) -> set[str]:  # fmt: skip
+    """4.5: F-03, F-01, F-16 and F-15, each added to the features that take it; the columns
+    of the bars' first file, which F-03 and F-04 read."""
+    bars = kinds.get("bars")
     columns = _columns(folder, bars)
     if bars is not None and (bars["params"].get("density") == "sparse"
                              or "obs_status" not in columns):  # fmt: skip
@@ -133,30 +172,32 @@ def decide(
                     for f in found if f.code == "TDS-V011")  # fmt: skip
     taken["backtest"] += [FallbackRecord("F-16", str(d), m, n) for (d, m), n in years.items()]
     taken["grid"] += _no_grid(folder, kinds, rules, extent, market_of)
-    twice = doubled(data)  # two or more left: off, never by a fallback (4.3, #547, #551)
-    for f, reads in READS.items():
-        lacking[f] += [k for k in twice if k in reads and k not in lacking[f]]
-    on = frozenset(f for f in NEEDS if not lacking[f])
-    if required is not None and (refused := [f for f in sorted(required.features) if lacking[f]]):
+    return columns
+
+
+def _refuse_features(
+    data: Mapping[str, Any], required: CapabilityRequest, lacking: Mapping[str, list[str]]
+) -> None:
+    """4.4-3: a requested feature the package cannot give is E18."""
+    if refused := [f for f in sorted(required.features) if lacking[f]]:
         for kind in dict.fromkeys(k for f in refused for k in READS[f]):
             dataset(data, kind)  # two or more left: E18 naming each (4.3)
         raise _not_in_snapshot(data, {f: lacking[f] for f in refused})
-    wanted = NEEDS.keys() if required is None else required.features
-    used = list(dict.fromkeys(r for f in sorted(wanted) if f in on for r in taken[f]))
+
+
+def _use_fallbacks(
+    folder: Path, data: Mapping[str, Any], bars: Mapping[str, Any] | None,
+    f02: Sessions | None, used: Sequence[FallbackRecord], policy: FallbacksPolicy,
+    market_of: Mapping[str, str], extent: BarsExtent,
+) -> None:  # fmt: skip
+    """4.4-3: the fallbacks used, after F-02's check of the bars against its sessions (4.5):
+    E14 under `fail`, one E30 for each id under `warn`."""
     if bars is not None and f02 is not None and any(r.id == "F-02" for r in used):
         _off_calendar(folder, data, bars, f02[1], market_of, extent)
     if used and policy is FallbacksPolicy.FAIL:
         raise _refused(data, used)
-    for id_ in dict.fromkeys(r.id for r in used):
-        warnings.warn(str(_warning(data, [r for r in used if r.id == id_])), stacklevel=3)
-    whole = {"cum_factor_split", "cum_factor_total"} <= columns
-    cum: Literal["columns", "resolver"] = "columns" if whole else "resolver"  # F-04
-    supported = frozenset(p for p in data.get("profiles", []) if p in SUPPORTED)
-    assumptions = tuple(SAYS[i] for i in ("F-02",) if any(r.id == i for r in used))
-    return DataCapabilities(on, supported, cum), used, assumptions
-
-
-Sessions = tuple[list[FallbackRecord], dict[str, set[dt.date]]]
+    for id_ in dict.fromkeys(r.id for r in used):  # stacklevel: decide's caller's caller
+        warnings.warn(str(_warning(data, [r for r in used if r.id == id_])), stacklevel=4)
 
 
 def _sessions(
