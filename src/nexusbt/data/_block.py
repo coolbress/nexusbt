@@ -157,7 +157,10 @@ def _axis(
     keep = pc.and_(keep, pc.invert(pc.fill_null(t["is_synthetic"], False)))
     t = t.filter(keep).sort_by(ID)
     listed = t["listed_on"].to_numpy(zero_copy_only=False).astype("datetime64[D]")
-    delisted = t["delisted_on"].to_numpy(zero_copy_only=False).astype("datetime64[D]")
+    # nullable, so a package may leave the column out of every file (TDS 4.5): none delisted
+    delisted = (t["delisted_on"].to_numpy(zero_copy_only=False).astype("datetime64[D]")
+                if "delisted_on" in t.column_names
+                else np.full(len(t), np.datetime64("NaT"), "datetime64[D]"))  # fmt: skip
     meets = (listed <= given[-1]) & ~(delisted < given[0])
     ids = tuple(str(i) for i in np.array(t[ID].to_pylist(), dtype=object)[meets])
     return ids, listed[meets], delisted[meets]

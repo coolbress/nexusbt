@@ -22,6 +22,7 @@ from nexusbt.contracts import (
     FallbacksPolicy,
     SnapshotError,
 )
+from nexusbt.data._coverage import bars_by_market, schedule
 from nexusbt.data._datasets import chosen, dataset, doubled
 from nexusbt.data._datasets import layer as _layer
 from nexusbt_tds.check import Finding
@@ -98,7 +99,7 @@ def decide(
     data = manifest.data
     kinds = chosen(data)  # a kind with none or two or more left is missing (4.3, #547)
     bars = kinds.get("bars")
-    by_market = bars["coverage"]["by_market"] if bars else {}
+    by_market = bars_by_market(folder, bars, kinds.get("instruments"))  # declared, else read
     lacking = {f: [k for k in needs if k not in kinds] for f, needs in NEEDS.items()}
     taken: dict[str, list[FallbackRecord]] = {f: [] for f in NEEDS}
     market_of = _market_of(folder, kinds.get("instruments"))  # TDS K1: ids are opaque
@@ -166,9 +167,9 @@ def _sessions(
     out, dates = [], {}
     for m, e in gap.items():
         # bounded by the bars, not by the library's default of 20 years before today
-        cal = xcals.get_calendar(markets[m]["calendar_id"], start=e["first"], end=e["last"])
-        out.append(FallbackRecord("F-02", "calendar_sessions", m, len(cal.sessions)))
-        dates[m] = {d.date() for d in cal.sessions}
+        days = schedule(markets[m]["calendar_id"], e).index
+        out.append(FallbackRecord("F-02", "calendar_sessions", m, len(days)))
+        dates[m] = {d.date() for d in days}
     return out, dates
 
 
