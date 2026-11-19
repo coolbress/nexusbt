@@ -17,7 +17,6 @@ term was built from, unless the caller gives another by its graph hash.
 
 from __future__ import annotations
 
-import logging
 import warnings
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
@@ -51,7 +50,8 @@ from nexusbt.pipeline._terms import (
     unchecked,
 )
 
-_log = logging.getLogger("nexusbt.compute")
+#: 5.4.1's counts: `(row, graph hash, diagnostic)` to the cells counted there.
+Counts = dict[tuple[int, str, str], int]
 
 F64 = npt.NDArray[np.float64]
 #: The block of the axis rows `first..last`, both included.
@@ -120,6 +120,7 @@ def execute(
     tiebreak: TiebreakPolicy = TiebreakPolicy.HASH,
     *,
     actions: Actions | None = None,
+    counts: Counts | None = None,
 ) -> dict[str, pa.Table]:
     """Each term's values at the decision rows, as `(row, instrument_id, value)` sorted by row
     and instrument, for the instruments listed at the row; keyed by the term's graph hash.
@@ -127,8 +128,11 @@ def execute(
     decision; `ready[r]` is row r's freeze time; `tiebreak` the `[portfolio] tiebreak` key of
     an ordinal `rank`, `top` and `bottom` (3.7). A window over a column is adjusted as of its
     row with `actions` (5.3.3). `actions=None` is the caller's statement that this axis has no
-    corporate actions, not a switch that turns the adjustment off. A user function's exception
-    comes out as raised, the frames down to it hidden (`__tracebackhide__`, 6.6, R-42)."""
+    corporate actions, not a switch that turns the adjustment off. `counts`, when given, gets
+    5.4.1's counts of every row each term is computed at, as `(row, graph hash, diagnostic):
+    n`: the rows the plan gives, decisions or not, whatever the chunks (a row two chunks
+    compute is counted once). A user function's exception comes out as raised, the frames down
+    to it hidden (`__tracebackhide__`, 6.6, R-42)."""
     __tracebackhide__ = True
     wanted = np.unique(np.fromiter(decisions, dtype=np.int64))
     _check(spans, wanted)
@@ -139,7 +143,7 @@ def execute(
     order = schedule(terms)  # inputs first, with the nodes each one's computing lets go
     if any(dict(t.params).get("across_markets") for t, _ in order):
         why = "it gathers several markets' blocks, and the executor computes one market's"
-        raise NotImplementedError(f"across_markets=True is run_pipeline's: {why}")
+        raise NotImplementedError(f"across_markets=True comes with T4.3: {why}")
     parts: dict[str, list[pa.Table]] = {graph_hash(t): [] for t in terms}
     pending = {graph_hash(t): (t, input_scales(t)) for t, _ in order
                if "adjustment" in dict(t.params)}  # fmt: skip
@@ -149,7 +153,8 @@ def execute(
             continue
         rows = plan(terms, mine, sessions=len(ready)).rows
         low = min([first, *(int(r[0]) for r in rows.values() if r.size)])
-        chunk = _Chunk(read(low, last), low, ready, functions or {}, tiebreak, actions, pending)
+        chunk = _Chunk(read(low, last), low, ready, functions or {}, tiebreak, actions, pending,
+                       counts)  # fmt: skip
         with np.errstate(all="ignore"):  # IEEE results (inf, NaN), as numpy gives them
             for term, dropped in order:
                 chunk.compute(term, rows[graph_hash(term)])
@@ -210,10 +215,13 @@ class _Chunk:
         tiebreak: TiebreakPolicy,
         actions: Actions | None,
         pending: dict[str, tuple[Term, list[float] | None]],
+        counts: Counts | None,
     ) -> None:
         self.block, self.low, self.ready, self.functions = block, low, ready, functions
         self.pending = pending  # user terms whose `adjustment` is not checked yet, their scales
-        self.tiebreak, self.unknown = tiebreak, 0  # `UnknownGroup` cells of the term computed
+        self.tiebreak, self.counts = tiebreak, counts
+        self.unknown = 0  # `UnknownGroup` cells of the row computed
+        self.zero: npt.NDArray[np.bool_] | None = None  # a division's `DivisionByZero` cells
         self.values: dict[str, F64] = {}
         self.actions, self.resolved = actions, dict[int, ResolvedActions]()
 
@@ -261,15 +269,21 @@ class _Chunk:
     def compute(self, term: Term, rows: npt.NDArray[np.int64]) -> None:
         __tracebackhide__ = True  # down to a user function (R-42)
         out = np.full((len(self.block.dates), len(self.block.instrument_ids)), np.nan)
-        self.unknown = 0
+        key = graph_hash(term)
         for t in rows.tolist():  # 5.4.1: a value is finite or NaN, at the term that produced it
+            self.unknown, self.zero = 0, None
             found = self.row(term, t)  # 5.3.1: absent where not listed, for any later reader
-            kept = self.block.exists[t - self.low] & ~np.isinf(found)
-            out[t - self.low] = np.where(kept, found, np.nan)
-        self.values[graph_hash(term)] = out
-        if self.unknown:  # 3.3 `UnknownGroup`; where the diagnostic is kept is #536's question
-            name = f"{term.op} {graph_hash(term)[:12]}"
-            _log.debug("UnknownGroup: %s left out %d cell(s)", name, self.unknown)
+            listed = self.block.exists[t - self.low]
+            out[t - self.low] = np.where(listed & ~np.isinf(found), found, np.nan)
+            if self.counts is not None:  # each cell once, at this term and row (5.4.1)
+                zero = listed & self.zero if self.zero is not None else np.zeros_like(listed)
+                found_inf = listed & np.isinf(found) & ~zero
+                for name, n in (("DivisionByZero", int(zero.sum())),
+                                ("InfiniteResult", int(found_inf.sum())),
+                                ("UnknownGroup", self.unknown)):  # fmt: skip
+                    if n:  # a row two chunks compute is the same row: set, never added
+                        self.counts[t, key, name] = n
+        self.values[key] = out
 
     def row(self, term: Term, t: int) -> F64:
         __tracebackhide__ = True  # down to a user function (R-42)
@@ -282,7 +296,10 @@ class _Chunk:
             k: int = params["k"]
             return self.cell(inputs[0], t - k) if t - k >= 0 else np.full(n, np.nan)
         if term.op in _BINARY and isinstance(term, Factor):  # a Filter's `fillna` is `filter`
-            return _BINARY[term.op](self.cell(inputs[0], t), self.cell(inputs[1], t))
+            x, y = self.cell(inputs[0], t), self.cell(inputs[1], t)
+            if term.op == "div":  # 5.4.1 `DivisionByZero`: a divisor 0, a dividend not NaN
+                self.zero = (y == 0) & ~np.isnan(x)
+            return _BINARY[term.op](x, y)
         if term.op in _UNARY:
             return _UNARY[term.op](self.cell(inputs[0], t))
         if term.op == "user":

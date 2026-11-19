@@ -21,6 +21,7 @@ import pyarrow as pa
 from nexusbt.contracts import ID_COLUMN, ConfigError, SchemaRegistry
 from nexusbt.data import DataConfig, Schedule, Snapshot, open_snapshot
 from nexusbt.pipeline import Classifier, Filter, Pipeline, bind, graph_hash
+from nexusbt.pipeline._terms import describe_term
 
 if TYPE_CHECKING:
     from nexusbt.config import Config
@@ -29,14 +30,27 @@ if TYPE_CHECKING:
 Freq = Literal["daily", "weekly", "monthly"]
 _KEYS = ("session_date", "market", ID_COLUMN)  # 3.5's sort order
 _UTC = pa.timestamp("us", tz="UTC")
+#: 5.4.1's `term_diagnostics`, its columns in order.
+_COUNTS = pa.schema([("market", pa.string()), ("session_date", pa.date32()), ("term", pa.string()),
+                     ("diagnostic", pa.string()), ("n", pa.int64())])  # fmt: skip
+#: `Price` columns that are a lookup of `share_counts` (3.2, 5.3.5a), not bars columns.
+_SHARE_COUNTS = frozenset({"shares_out", "market_cap"})
 
 
 @dataclass(frozen=True, slots=True, eq=False)
 class PipelineResult:
     """3.5: `table` is `(market, session_date, decision_ts, instrument_id, <columns…>)`, sorted
-    by `(session_date, market, instrument_id)`, the rows `screen` keeps."""
+    by `(session_date, market, instrument_id)`, the rows `screen` keeps.
+
+    `term_diagnostics` is 5.4.1's table `(market, session_date, term, diagnostic, n)`, sorted
+    by `(session_date, market, term, diagnostic)`. A cell is counted at the term and the row
+    that produced it, so `session_date` is that row's session, not a decision: a row a window
+    reads before `start`, or between two monthly decisions, has its counts there too. `term` is
+    the first line `nx.describe` writes for the node and the first 12 hex digits of its
+    `graph_hash`, until `explain` sets how a node is written (T2.11; #249 Decisions)."""
 
     table: pa.Table
+    term_diagnostics: pa.Table
 
     def to_polars(self) -> Any:
         return importlib.import_module("polars").from_arrow(self.table)  # optional (3.5)
@@ -81,10 +95,18 @@ def run(
             unrun.append(none)
     if not periods:  # no market has a session: the period is wrong
         raise unrun[0]
-    tables = [_market(pipeline, terms, fields, opened, m, p, freq, cfg) for m, p in periods.items()]
+    counted: list[tuple[str, dt.date, str, str, int]] = []
+    tables = [_market(pipeline, terms, fields, opened, m, p, freq, cfg, counted)
+              for m, p in periods.items()]  # fmt: skip
     found = [t for t in tables if t is not None]
     table = pa.concat_tables(found) if found else _empty(pipeline)
-    return PipelineResult(table.sort_by([(k, "ascending") for k in _KEYS]))
+    labels = {graph_hash(t): f"{describe_term(t).splitlines()[0]} {graph_hash(t)[:12]}"
+              for t in nodes}  # fmt: skip
+    rows = [dict(zip(_COUNTS.names, (m, d, labels[k], name, n), strict=True))
+            for m, d, k, name, n in counted]  # fmt: skip
+    order = [(k, "ascending") for k in ("session_date", "market", "term", "diagnostic")]
+    diagnostics = pa.Table.from_pylist(rows, schema=_COUNTS).sort_by(order)
+    return PipelineResult(table.sort_by([(k, "ascending") for k in _KEYS]), diagnostics)
 
 
 def _open(snapshot: str | Snapshot | None, cfg: Config) -> Snapshot:
@@ -110,6 +132,11 @@ def _price_fields(nodes: Sequence[Term]) -> list[str]:
     read = [dict(t.params) for t in nodes if t.op == "column"]
     if other := sorted({f"{c['dataset']}.{c['column']}" for c in read if c["dataset"] != "Price"}):
         raise NotImplementedError(f"run_pipeline reads Price columns only so far, not {other}")
+    if counts := sorted({c["column"] for c in read} & _SHARE_COUNTS):
+        raise NotImplementedError(
+            f"run_pipeline does not read Price.{', Price.'.join(counts)} yet: they are a "
+            "point-in-time lookup of share_counts (spec 5.3.5a), which comes with T2.15"
+        )
     return sorted({c["column"] for c in read})
 
 
@@ -129,12 +156,14 @@ def _nodes(terms: Sequence[Term]) -> list[Term]:
 def _market(
     pipeline: Pipeline, terms: list[Term], fields: list[str], snapshot: Snapshot, market: str,
     period: tuple[int, int], freq: Freq, cfg: Config,
+    counted: list[tuple[str, dt.date, str, str, int]],
 ) -> pa.Table | None:  # fmt: skip
-    """One market's rows on its own calendar (3.5 `market_local`), or None with no decision.
+    """One market's rows on its own calendar (3.5 `market_local`), or None with no decision;
+    its 5.4.1 counts go to `counted` as `(market, session, graph hash, diagnostic, n)`.
     `compute` is imported here, not by `import nexusbt`: its kernels compile with a cache that
     an installed wheel's zip import cannot place (`tests/test_built_wheel.py`)."""
     from nexusbt.compute._chunks import lookback, most_alive, spans
-    from nexusbt.compute._executor import Actions, execute
+    from nexusbt.compute._executor import Actions, Counts, execute
     from nexusbt.compute._screen import screened
 
     calendar = snapshot.calendar(market)
@@ -148,11 +177,15 @@ def _market(
     budget = float(cfg.values["compute"]["memory_budget_gb"])
     chunks = spans(dates[first : last + 1], width, most_alive(terms), budget, lookback(terms))
     actions = Actions(functools.partial(snapshot.actions, market), calendar.ts_open)
+    counts: Counts = {}
     frames = execute(
         terms, rows.tolist(), [(a + first, b + first) for a, b in chunks],
         lambda a, b: snapshot.market_block(market, fields, dates[a : b + 1]),
         calendar.ready, tiebreak=cfg.values["portfolio"]["tiebreak"], actions=actions,
+        counts=counts,
     )  # fmt: skip
+    counted += [(market, dates[r].astype(dt.date), key, name, n)
+                for (r, key, name), n in counts.items()]  # fmt: skip
     kept = screened(pipeline, frames)
     cells = next(iter(kept.values()))
     at = cells["row"].to_numpy()
