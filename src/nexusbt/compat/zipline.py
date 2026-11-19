@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Callable, Sequence
 from types import FunctionType
-from typing import Any, ClassVar, cast
+from typing import Any, ClassVar, NoReturn
 
 import numpy as np
 
 from nexusbt.pipeline import BoundColumn, Factor, Filter, factor
-from nexusbt.pipeline._terms import _constant, _readable
+from nexusbt.pipeline._terms import _constant, _impure, _readable
 
 __all__ = ["CustomFactor", "USEquityPricing"]
 
@@ -36,6 +37,16 @@ _DEFAULT_ONLY: dict[str, tuple[Callable[[Any], bool], str]] = {
 }  # fmt: skip
 
 
+class _NotPassed:
+    """What `compute` gets as `today` and `assets`: reading it stops with the reason (#251)."""
+
+    def _refuse(self, *_: object) -> NoReturn:
+        raise TypeError("nexusbt.compat.zipline does not pass today and assets to compute; the"
+                        " engine passes a user function its windows only (#251)")  # fmt: skip
+
+    __getattr__ = __getitem__ = __len__ = __iter__ = __bool__ = _refuse
+
+
 class CustomFactor:
     """zipline's `CustomFactor`: a subclass with `inputs`, `window_length` and
     `compute(self, today, assets, out, *inputs)`; calling it makes the engine's user window
@@ -43,8 +54,13 @@ class CustomFactor:
 
     - `compute` gets each input's window `(window_length, n)`, last row the computation day,
       and writes the result into `out`, which starts as NaN; its return value is not read, as in
-      zipline. `self` is the class; `today` and `assets` are None: the engine passes a user
-      function its windows only (#251).
+      zipline. `self` is the class. A class without `compute` stops when it is called.
+    - `today` and `assets` are not passed: the engine passes a user function its windows only
+      (#251). Reading an attribute or an item of them, their length, iterating or testing them
+      stops with that reason; another use (`today == x`, `today + x`) is not caught.
+    - What `compute` reads through `self` is in the term's hash when it is a constant or a
+      method (its source); other data, a list or an array, is E24 with the L1 cache off, as a
+      non-constant global is (spec 6.5 (6)).
     - `window_safe` is taken and means nothing: whether a Factor input may be read over a window
       is the engine's degree rule alone (E17, spec 3.3, 3.4). It refuses a price level and lets a
       ratio and a rank of prices pass; zipline refuses by the flag instead, so a ratio
@@ -76,18 +92,24 @@ class CustomFactor:
         window_length: int | None = None,
         mask: Filter | None = None,
     ) -> Factor:
-        compute: Callable[..., object] = cls.compute
-        code = _readable(cast("FunctionType", compute))
-        named = {k: v for c in reversed(cls.__mro__) for k, v in vars(c).items()}
-        constants = tuple(sorted((k, v) for k, v in named.items()
-                                 if not k.startswith("__") and _constant(v)))  # fmt: skip
+        compute = getattr(cls, "compute", None)
+        if not isinstance(compute, FunctionType):
+            raise TypeError(f"{cls.__name__} defines no compute(self, today, assets, out, *inputs)")
+        named = {k: v for c in reversed(cls.__mro__) for k, v in vars(c).items()
+                 if not k.startswith("__") and k not in ("inputs", "mask")}  # fmt: skip
+        # what compute may read through `self`: constants and methods' source are hashed; other
+        # data is E24 with the L1 cache off, as a non-constant global is (6.5 (6), #561)
+        source = {k: _readable(v) for k, v in named.items() if isinstance(v, FunctionType)}
+        constants = {k: v for k, v in named.items() if _constant(v)}
+        hashed = tuple(sorted((constants | source).items()))
+        skip = (*constants, *source)  # and a type, such as zipline's `dtype`
+        class_data = {k: v for k, v in named.items()
+                      if k not in skip and not isinstance(v, type)} or None  # fmt: skip
 
         def run(*windows: Any) -> Any:
-            # compute's source and the class's constants compute may read through `self`, which
-            # run reads, so they are in the term's hash
-            _ = code, constants
+            _ = hashed, class_data  # read here, so they are in the term's hash and E24 check
             out = np.full(windows[0].shape[1], np.nan)
-            compute(cls, None, None, out, *windows)
+            compute(cls, _NotPassed(), _NotPassed(), out, *windows)
             return out
 
         run.__name__ = run.__qualname__ = cls.__name__
@@ -96,7 +118,9 @@ class CustomFactor:
             list(inputs if inputs is not None else cls.inputs),
             mask=mask if mask is not None else cls.mask,
         )
-        return term(run)
-
-    def compute(self, today: Any, assets: Any, out: Any, *inputs: Any) -> None:
-        raise NotImplementedError(f"{type(self).__name__} defines no compute")
+        with warnings.catch_warnings():  # E24 names the class's attributes, said below
+            warnings.filterwarnings("ignore", message=r"(?s).*reads global 'class_data';")
+            made = term(run)
+        if class_data:
+            warnings.warn(str(_impure(cls.__name__, sorted(class_data))), stacklevel=2)
+        return made

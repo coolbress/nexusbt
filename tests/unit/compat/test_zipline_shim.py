@@ -3,6 +3,7 @@ its import changed to `nexusbt.compat.zipline`."""
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Sequence
 from typing import Any
 
@@ -13,6 +14,7 @@ from nexusbt.compat.zipline import CustomFactor, USEquityPricing
 from nexusbt.compute._executor import execute
 from nexusbt.data._block import MarketBlock
 from nexusbt.pipeline import BoundColumn, Term, graph_hash
+from nexusbt.pipeline._terms import l1_disabled
 
 
 class Mom(CustomFactor):
@@ -65,10 +67,22 @@ def test_today_or_assets_read_stops_with_an_error() -> None:
         def compute(self, today: Any, assets: Any, out: Any, *inputs: Any) -> None:
             out[:] = today.year
 
-    with pytest.raises(TypeError, match="object of type 'NoneType' has no len"):
+    passed = "nexusbt.compat.zipline does not pass today and assets to compute"
+    with pytest.raises(TypeError, match=passed):
         run([Count()], 5, 6)
-    with pytest.raises(AttributeError, match="'NoneType' object has no attribute 'year'"):
+    with pytest.raises(TypeError, match=passed):
         run([Year()], 5, 6)
+
+
+def test_a_class_without_compute_stops_naming_it() -> None:
+    """#251: a class that defines no compute stops when it is called, naming the class."""
+
+    class NoCompute(CustomFactor):
+        inputs = (USEquityPricing.close,)
+        window_length = 2
+
+    with pytest.raises(TypeError, match="NoCompute defines no compute"):
+        NoCompute()
 
 
 def test_window_safe_is_taken_and_means_nothing() -> None:
@@ -129,6 +143,51 @@ def test_a_class_constant_compute_reads_is_in_the_hash() -> None:
     a = type("Skip", (CustomFactor,), {**body, "skip": 21})
     b = type("Skip", (CustomFactor,), {**body, "skip": 5})
     assert graph_hash(a()) != graph_hash(b())
+
+
+def _two(self: Any) -> float:
+    return 2.0
+
+
+def _five(self: Any) -> float:
+    return 5.0
+
+
+def test_a_method_compute_calls_is_in_the_hash() -> None:
+    """The source of a method compute may call through `self` is in the hash too."""
+
+    def compute(self: Any, today: Any, assets: Any, out: Any, *inputs: Any) -> None:
+        out[:] = self.scale()
+
+    body = {"inputs": (USEquityPricing.close,), "window_length": 2, "compute": compute}
+    a = type("Scaled", (CustomFactor,), {**body, "scale": _two})
+    b = type("Scaled", (CustomFactor,), {**body, "scale": _five})
+    assert graph_hash(a()) != graph_hash(b())
+
+
+@pytest.mark.parametrize("weights", [[2.0], np.array([2.0])], ids=["list", "array"])
+def test_data_compute_reads_through_self_warns_e24(weights: Any) -> None:
+    """6.5 (6), as for a function reading a non-constant global (#561): a class attribute the
+    hash cannot hold is E24, and the L1 cache is off for the term."""
+
+    def compute(self: Any, today: Any, assets: Any, out: Any, *inputs: Any) -> None:
+        out[:] = self.weights[0]
+
+    body = {"inputs": (USEquityPricing.close,), "window_length": 2, "compute": compute}
+    cls = type("Weighted", (CustomFactor,), {**body, "weights": weights})
+    with pytest.warns(UserWarning, match=r"\[E24\]") as caught:
+        term = cls()
+    [text] = [str(w.message) for w in caught]
+    assert "Weighted reads global 'weights'" in text
+    assert l1_disabled(term)
+
+
+def test_constant_class_attributes_raise_no_warning() -> None:
+    """zipline's own attributes and constants are hashed, not warned; inputs and mask are
+    the term's own."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert not l1_disabled(Mom())
 
 
 def test_usequitypricing_close_is_close_tr() -> None:
