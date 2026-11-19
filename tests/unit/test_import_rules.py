@@ -51,11 +51,11 @@ PENDING_3_1 = {
     " long_short portfolio size sizer risk risk_rule PortfolioContext SizingContext"
     " RiskContext TargetView RiskDecision Scalar execution exits ExitRule costs ml labels"
     " LabelTerm splits",
-    "Functions": "evaluate backtest screen live fill reconcile sweep compare run_pipeline"
+    "Functions": "evaluate backtest screen live fill reconcile sweep compare"
     " explain check runs rerun book override record_fills cash_flow acknowledge"
     " preregister",
     "Results": "FactorReport Run Screen Orders BookUpdate ReconcileReport SweepResult Comparison"
-    " ValidationResult Split PipelineResult Explanation DecisionExplanation CheckReport"
+    " ValidationResult Split Explanation DecisionExplanation CheckReport"
     " RunTable Description Preregistration Config Snapshot Book",
     "Types": "Param Schedule PortfolioRule Sizer RiskRule ExecutionRule"
     " CostModel Window DecisionContext",
