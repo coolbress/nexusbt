@@ -11,6 +11,7 @@ import itertools
 import json
 import math
 import re
+import shutil
 import sysconfig
 import textwrap
 from importlib.resources import files
@@ -30,7 +31,7 @@ from nexusbt.testing import _synth_exits as delist
 from nexusbt.testing import _synth_package as pkg
 from nexusbt.testing import _synth_trade as trade
 from nexusbt.testing import synth
-from nexusbt.testing.synth import a001, main, make_snapshot, read
+from nexusbt.testing.synth import main, make_snapshot, read
 
 UTC = dt.UTC
 PT = "processed_through_session"  # TDS 4.3 (#192)
@@ -217,6 +218,41 @@ def test_command_degrade_prints_declared_profiles_and_results(
     assert "tds:equity-daily-core@1.0" not in printed.replace("profiles tds:minimal", "")
     assert main(["--preset", "tiny", *args[:2], "--degrade", "no_cum_factors", "--validate"]) == 0
     assert "TDS-A001: no cum_factor_* columns\n" in capsys.readouterr().out
+
+
+def test_command_reads_a001_from_the_check(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """#608: `TDS-A001: K` is the count the child `tds check --level full` prints, the checker's
+    resolver the only one; a check that could not judge A001 says so, never 0."""
+    split = {"dataset": "corporate_actions", "kind": "split", "instrument_id": "KR:T00001",
+             "ex_date": "2020-02-03", "ratio_new_per_old": 2.0}  # fmt: skip
+    make = synth.make_snapshot
+
+    def given(actions: list[dict[str, Any]]) -> Any:
+        def made(root: Path, **_: Any) -> Path:  # tiny's bars moved by the split, these actions
+            package = make(root, preset="tiny", events=[split])
+            synth.write_actions(package, actions)
+            return package
+
+        return made
+
+    one = make(tmp_path / "one", preset="tiny", events=[split])
+    (row,) = (
+        {c: v.isoformat() if hasattr(v, "isoformat") else v for c, v in r.items()}
+        for r in rows(one, "corporate_actions")
+    )
+    cycle = [row | {"event_id": "E-A", "revision_of": "E-B"},
+             row | {"event_id": "E-B", "revision_of": "E-A"}]  # fmt: skip
+    # no action: the split's step in both cum_factor_* columns of one bar; a revision_of cycle:
+    # the resolver cannot tie the chains, and the checker notes A001 not checked
+    for actions, said in (([row], "0"), ([], "2"), (cycle, "not checked")):
+        monkeypatch.setattr(synth, "make_snapshot", given(actions))
+        code = main(["--preset", "tiny", "--out", str(tmp_path / said), "--validate"])
+        printed = capsys.readouterr().out
+        assert f"TDS-A001: {said}" in printed.splitlines(), printed
+        assert code == (said != "0"), printed  # the checker's errors fail the command
+    assert synth.a001("") is None  # a checker fault (exit 70) prints no summary: not a 0
 
 
 def test_command_without_validate_prints_and_does_not_check(
@@ -481,7 +517,7 @@ def test_full_slice_with_a_dividend_above_the_close_conforms(tmp_path: Path) -> 
         assert total[r["instrument_id"], r["ex_date"]] == 1.0
     assert all(r["price_factor"] > 0 for r in actions if r not in none)
     assert min(b["close"] for b in rows(full, "bars")) > 0  # a negative factor flipped them
-    assert a001(read(full, "corporate_actions"), read(full, "bars_1d")) == 0
+    assert a001(full) == 0
     assert "0 errors" in pkg._tds("check", str(full), "--level", "full").stdout
 
 
@@ -493,9 +529,21 @@ def steps(package: Path, basis: str) -> dict[tuple[str, dt.date], float]:
             for a, b in itertools.pairwise(bars) if a[key] == b[key]}  # fmt: skip
 
 
-def test_factor_event_reconciliation(small: Path) -> None:
+def a001(package: Path, printed: str | None = None) -> int | None:
+    """TDS-A001's count in what `tds check --level full` prints on `package` (`printed`, when a
+    test has it already): the checker's resolver, the only one (#608). None without the
+    `cum_factor_*` columns, as the command's `TDS-A001: no cum_factor_* columns`. Run here, the
+    check judges only `bars_1d`, the dataset A001 is judged on, from every dataset's events."""
+    if "cum_factor_split" not in read(package, "bars_1d").column_names:
+        return None
+    if printed is None:
+        printed = pkg._tds("check", str(package), "--level", "full", "--datasets", "bars_1d").stdout
+    return synth.a001(printed)
+
+
+def test_factor_event_reconciliation(small: Path, small_checked: str, tmp_path: Path) -> None:
     actions = read(small, "corporate_actions")
-    assert a001(actions, read(small, "bars_1d")) == 0
+    assert a001(small, small_checked) == 0
     revised = {r["revision_of"]: r for r in actions.to_pylist()
                if r["revision_of"] and r["status"] == "effective"}  # fmt: skip
     total = steps(small, "total")
@@ -506,7 +554,10 @@ def test_factor_event_reconciliation(small: Path) -> None:
     # counter-example: without its amendments the first versions are the latest, and A001 sees it
     amendments = pa.array([r["event_id"] for r in revised.values()])
     stale = actions.filter(pc.invert(pc.is_in(actions["event_id"], amendments)))
-    assert a001(stale, read(small, "bars_1d")) == len(revised) + sum(
+    copy = shutil.copytree(small, tmp_path / "stale")  # `small` is shared: its copy changes
+    synth.write_actions(copy, [{c: v.isoformat() if hasattr(v, "isoformat") else v
+                                for c, v in r.items()} for r in stale.to_pylist()])  # fmt: skip
+    assert a001(copy) == len(revised) + sum(
         r["kind"] != "cash_dividend" for r in revised.values()
     )  # a share event: split and total
 
@@ -865,7 +916,7 @@ def test_injected_event_overrides_random(tmp_path: Path, tiny: Path) -> None:
     (row,) = (r for r in rows(package, "corporate_actions") if r["instrument_id"] == iid
               and r["ex_date"] == day)  # fmt: skip
     assert (row["ratio_num"], row["ratio_den"], row["price_factor"]) == (2, 1, 0.5)
-    assert a001(read(package, "corporate_actions"), read(package, "bars_1d")) == 0
+    assert a001(package) == 0
     assert files_of(make_snapshot(tmp_path / "c", **short, events=[split])) == files_of(package)
     # tiny's hand-set bars move too, so A001 stays 0 there
     ex, cash = dt.date(2020, 2, 3), {"kind": "cash_dividend", "cash_per_share": 0.2}
@@ -873,7 +924,7 @@ def test_injected_event_overrides_random(tmp_path: Path, tiny: Path) -> None:
                 split | cash | {"instrument_id": "US:T00002", "ex_date": ex,
                                 "ts_announced": "2020-01-22T06:00:00+09:00"}]  # fmt: skip
     moved = make_snapshot(tmp_path / "t", preset="tiny", events=injected)
-    assert a001(read(moved, "corporate_actions"), read(moved, "bars_1d")) == 0
+    assert a001(moved) == 0
     plain = {(b["instrument_id"], b["session_date"]): b for b in rows(tiny, "bars")}
     for b in (b for b in rows(moved, "bars") if b["instrument_id"] == "KR:T00001"):
         was = plain["KR:T00001", b["session_date"]]
@@ -915,7 +966,7 @@ def exit_agrees(package: Path, iid: str) -> dict[str, Any]:
     assert held[-1]["session_date"] == out["last_trading_date"] == out["ref_date"]
     assert held[-1]["close"] == out["ref_price"]
     assert "0 errors" in pkg._tds("check", str(package), "--level", "full").stdout
-    assert a001(read(package, "corporate_actions"), read(package, "bars_1d")) == 0
+    assert a001(package) == 0
     return out
 
 
@@ -976,7 +1027,7 @@ def test_injected_halt_blanks_its_bar(tmp_path: Path) -> None:
     assert (on["eligibility_daily"]["is_eligible"], on["eligibility_daily"]["reason"]) == (
         False, "no_price")  # fmt: skip
     assert "0 errors" in pkg._tds("check", str(package), "--level", "full").stdout
-    assert a001(read(package, "corporate_actions"), read(package, "bars_1d")) == 0
+    assert a001(package) == 0
 
 
 def test_injected_exits_and_halts_are_refused_with_the_reason(tmp_path: Path) -> None:
@@ -1104,8 +1155,8 @@ def test_synth_conforms_degraded_core(
         assert any(r["delisted_on"] for r in rows(package, "instruments"))
     assert (CORE in manifest["profiles"]) is not DROPS_CORE[value]
     assert MINIMAL in manifest["profiles"]
-    # the generator's own A001 agrees, also across the halted days sparse bars leave out
-    assert a001(read(package, "corporate_actions"), bars) == (
+    # the checker's A001 holds, also across the halted days sparse bars leave out
+    assert a001(package, printed) == (
         None if value == "no_cum_factors" else 0)  # fmt: skip
 
 

@@ -58,7 +58,7 @@ def test_us_and_zz_prices_are_on_the_grid_and_pass_the_full_check(rounded: Path)
     done = pkg._tds("check", str(rounded), "--level", "full")
     assert done.returncode == 0, done.stdout + done.stderr
     assert re.search(r"\b0 errors\b", done.stdout), done.stdout
-    assert a001(read(rounded, "corporate_actions"), read(rounded, "bars_1d")) == 0
+    assert a001(done.stdout) == 0  # the checker's count (#608)
 
 
 def test_rounded_bars_still_enclose_open_and_close(rounded: Path) -> None:
