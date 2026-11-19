@@ -22,7 +22,6 @@ import warnings
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from functools import cached_property
-from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -44,7 +43,13 @@ from nexusbt.contracts import (
 from nexusbt.data._block import MarketBlock
 from nexusbt.pipeline import Classifier, Factor, Filter, Term, graph_hash
 from nexusbt.pipeline._degree import input_scales
-from nexusbt.pipeline._terms import call_user, check_adjustment, same_function, unchecked
+from nexusbt.pipeline._terms import (
+    call_user,
+    check_adjustment,
+    def_line,
+    same_function,
+    unchecked,
+)
 
 _log = logging.getLogger("nexusbt.compute")
 
@@ -152,8 +157,7 @@ def execute(
         for term in terms:
             parts[graph_hash(term)].append(chunk.frame(term, mine))
     for term, scales in pending.values():  # 6.6 no silent failure: E45, never a silent pass
-        code, params = term.function.__code__, dict(term.params)  # type: ignore[union-attr]
-        at = f"{Path(code.co_filename).name}:{code.co_firstlineno}"
+        params, at = dict(term.params), def_line(term.function)
         notice = unchecked(params["function"], params["adjustment"], at, scales is not None)
         warnings.warn(str(notice), stacklevel=2)
     empty = _frame([], [], [])

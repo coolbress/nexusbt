@@ -428,8 +428,7 @@ def check_adjustment(
     expected = got[j] * (SCALE if declared == "degree 1" else 1.0)
     if abs(again - expected) <= 1e-12 * max(1.0, abs(expected)):
         return True
-    name, code = params["function"], (fn or term.function).__code__  # type: ignore[union-attr]
-    at = f"{Path(code.co_filename).name}:{code.co_firstlineno}"
+    name, at = params["function"], def_line(fn or term.function)
     other = "degree 1" if declared == "degree 0" else "degree 0"
     return_ = "change" if declared == "degree 0" else f"scale by {SCALE:g}"
     raise TermDomainError(
@@ -444,6 +443,12 @@ def check_adjustment(
         at=at,
         subject=name,
     )
+
+
+def def_line(fn: object) -> str:
+    """`file:line` of a function's `def`; `-` for a callable that is not a plain function."""
+    code = getattr(fn, "__code__", None)
+    return f"{Path(code.co_filename).name}:{code.co_firstlineno}" if code else "-"
 
 
 #: Why a declaration was not checked, by whether its inputs' degrees are known (E45).
