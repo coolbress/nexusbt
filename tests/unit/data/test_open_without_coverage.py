@@ -11,11 +11,14 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import pyarrow.parquet as pq
 import pytest
 
+from nexusbt.contracts import ID_COLUMN
 from nexusbt.data import CapabilityRequest, DataConfig, open_snapshot
 from nexusbt.testing.synth import make_snapshot
 from nexusbt_tds import check, import_csv
+from nexusbt_tds.hash import write_hashes
 
 #: TDS chapter 7's two CSVs and the mapping of `tds/tests/test_import_csv.py::test_minimal_two_csv`.
 INSTRUMENTS = """instrument_id,asset_class,market,calendar_id,currency,listed_on
@@ -93,3 +96,25 @@ def test_bars_extent_read_from_the_bars_without_coverage(
         assert {m: read.calendar(m).dates.tolist() for m in markets} == days
     assert case in {r.id for r in declared.fallbacks}
     assert read.fallbacks == declared.fallbacks
+
+
+def test_bars_files_of_two_string_encodings_are_read_together(tmp_path: Path) -> None:
+    """When one bars file writes `instrument_id` dictionary-encoded and another plain (the same
+    TDS 3.2 type) and `coverage` is left out, then F-02 counts the same sessions as with it."""
+    path = make_snapshot(tmp_path / "s", preset="tiny", degrade=["no_sessions"])
+    backtest = CapabilityRequest(frozenset({"backtest"}))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")  # F-02's E30
+        declared = open_snapshot(DataConfig(path=path), required=backtest).fallbacks
+        data = json.loads((path / "tds.json").read_text(encoding="utf-8"))
+        no_coverage(data)
+        bars = next(d for d in data["datasets"] if d["kind"] == "bars")
+        first = bars["files"][0]
+        table = pq.read_table(path / first["path"])
+        at = table.schema.get_field_index(ID_COLUMN)
+        pq.write_table(table.set_column(at, ID_COLUMN, table[ID_COLUMN].dictionary_encode()),
+                       path / first["path"])  # fmt: skip
+        first["bytes"] = (path / first["path"]).stat().st_size
+        (path / "tds.json").write_text(json.dumps(data), encoding="utf-8")
+        write_hashes(path)
+        assert open_snapshot(DataConfig(path=path), required=backtest).fallbacks == declared

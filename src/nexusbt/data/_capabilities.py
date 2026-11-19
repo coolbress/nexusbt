@@ -183,7 +183,10 @@ def _off_calendar(
     for f in bars["files"]:  # filtered in Arrow: only the off rows reach Python
         t = pq.read_table(folder / f["path"], columns=[ID_COLUMN, "session_date"])
         for m, days in dates.items():
-            ids = pa.array([i for i, x in market_of.items() if x == m], t[ID_COLUMN].type)
+            # the ids' value type: a dictionary-encoded column holds strings too (TDS 3.2)
+            value = pa.types.is_dictionary(t[ID_COLUMN].type)
+            kind = t[ID_COLUMN].type.value_type if value else t[ID_COLUMN].type
+            ids = pa.array([i for i, x in market_of.items() if x == m], kind)
             held = pa.array(sorted(days), pa.date32()).cast(t["session_date"].type)
             outside = pc.invert(pc.is_in(t["session_date"], held))
             off += t.filter(pc.and_(pc.is_in(t[ID_COLUMN], ids), outside)).to_pylist()

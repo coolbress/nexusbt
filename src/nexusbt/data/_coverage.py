@@ -25,7 +25,8 @@ def bars_by_market(
     root: Path, bars: Mapping[str, Any] | None, instruments: Mapping[str, Any] | None
 ) -> dict[str, dict[str, Any]]:
     """Market → `first`, `last` (`YYYY-MM-DD`), `rows` and `instruments` of the daily bars:
-    the declared `coverage.by_market` when every entry has them, else counted from the files."""
+    the declared `coverage.by_market` when every entry has them, else counted from the files,
+    in market code order (Arrow's threaded grouping gives no order of its own)."""
     if bars is None:
         return {}
     declared = (bars.get("coverage") or {}).get("by_market") or {}
@@ -44,7 +45,7 @@ def bars_by_market(
                                "last": str(r["session_date_max"]),
                                "rows": int(r[f"{ID_COLUMN}_count"]),
                                "instruments": int(r[f"{ID_COLUMN}_count_distinct"])}
-            for r in grouped.to_pylist()}  # fmt: skip
+            for r in sorted(grouped.to_pylist(), key=lambda r: str(r["market"]))}  # fmt: skip
 
 
 def schedule(calendar_id: str, period: Mapping[str, Any]) -> Any:
@@ -64,6 +65,8 @@ def _with_market(
     """A bars file's ids and dates with a `market` column: its partition's, else per row from
     `instruments` into `of` (null where neither says)."""
     table = pq.read_table(root / path, columns=[ID_COLUMN, "session_date"])
+    # one type across files: TDS 3.2 reads a dictionary-encoded string as the string
+    table = table.set_column(0, ID_COLUMN, pc.cast(table[ID_COLUMN], pa.string()))
     parts = dict(p.split("=", 1) for p in Path(path).parent.parts if "=" in p)
     if "market" in parts:
         return table.append_column("market", pa.array([parts["market"]] * len(table), pa.string()))
