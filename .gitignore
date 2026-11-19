@@ -8,6 +8,8 @@ build/
 
 # Tool caches
 .pytest_cache/
+# Generated fixtures and outputs of the check jobs (spec 9.1), e.g. parity.run's
+.scratch/
 .mypy_cache/
 .ruff_cache/
 # Jupyter's autosaves beside a notebook; the notebook itself is committed

@@ -1,0 +1,17 @@
+# The zipline comparison's own environment (spec 8.1, 2.3): never mixed with the engine's.
+# `uv sync --project tests/parity --locked`, then
+# `uv run --project tests/parity python -m parity.run --suite all --fixture small`.
+[project]
+name = "nexusbt-parity"
+version = "0"
+description = "The zipline side of the parity suite; the engine side is tests/parity_compare"
+requires-python = "==3.12.*"
+dependencies = ["zipline-reloaded==3.2.1", "pandas==2.3.3", "pyarrow"]
+
+[build-system]
+requires = ["uv_build>=0.9,<0.14"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "parity"
+module-root = ""
