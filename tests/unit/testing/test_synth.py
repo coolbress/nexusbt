@@ -192,7 +192,7 @@ def test_command_prints_counts_and_hashes_then_checks(
     ]  # fmt: skip
     written = json.loads((out / "tds.json").read_text(encoding="utf-8"))
     hashes = written["hashes"]
-    assert written["tds_draft"] == "2026-11-18"  # the TDS text it follows (4.2, #529)
+    assert written["tds_draft"] == "2026-11-19"  # the TDS text it follows (4.2, #529)
     assert lines[8:10] == [
         f"value_sha256 {hashes['value_sha256']}",
         f"semantic_sha256 {hashes['semantic_sha256']}",

@@ -62,10 +62,10 @@ def import_csv(mapping: Path, out: Path) -> Path:
     if out.exists() and (not out.is_dir() or any(out.iterdir())):
         raise CsvImportError(f"{out} is not empty; choose a new folder")
     market = spec.get("market")
-    if not isinstance(market, dict) or not isinstance(market.get("code"), str):
-        raise CsvImportError(f"{mapping.name}: `market` needs at least a `code`")
-    if not isinstance(market.get("timezone", ""), str):
-        raise CsvImportError(f"{mapping.name}: the market's `timezone` is text")
+    market = market if isinstance(market, dict) else {}
+    for field in ("code", "calendar_id", "currency", "timezone"):  # TDS 3.8, 4.2 (#567)
+        if not isinstance(market.get(field), str) or not market[field]:
+            raise CsvImportError(f"{mapping.name}: the market's `{field}` is missing or not text")
     code = market["code"]
     datasets, tables, report = [], [], {}
     for name, ds in _items(spec.get("datasets"), "datasets"):
