@@ -298,7 +298,7 @@ def factor(
             fix='adjustment="degree 0" for a ratio or a return, "degree 1" for a level,'
             " or no adjustment",
             more="spec 3.3 (adjustment) and 3.4",
-            layer=f"config — @nx.factor(adjustment={adjustment!r})",
+            layer=f"config — argument adjustment={adjustment!r}",
         )
 
     def wrap(fn: Callable[..., Any]) -> Factor:
@@ -408,12 +408,13 @@ SCALE = 2.0
 
 def check_adjustment(
     term: Term, windows: Sequence[Any], got: npt.NDArray[np.float64], ids: Sequence[str],
-    fn: Callable[..., Any] | None = None,
+    scales: Sequence[float], fn: Callable[..., Any] | None = None,
 ) -> bool:  # fmt: skip
     """3.3: test a user term's declared `adjustment` on the `windows` (unchanged copies of the
     ones the function was given) and its result `got`, on the first column whose result is
-    finite and not 0: E17 when the declaration does not hold; False when no column could tell
-    (NaN and 0 are the same under any scaling), True once checked."""
+    finite and not 0, each input's column multiplied by its scale (`_degree.input_scales`):
+    E17 when the declaration does not hold; False when no column could tell (NaN and 0 are the
+    same under any scaling), True once checked."""
     params = dict(term.params)
     declared = params["adjustment"]
     found = np.flatnonzero(np.isfinite(got) & (got != 0))
@@ -421,8 +422,8 @@ def check_adjustment(
         return False
     j = int(found[0])
     scaled = [np.array(w, dtype=np.float64) for w in windows]
-    for window in scaled:
-        window[:, j] *= SCALE
+    for window, scale in zip(scaled, scales, strict=True):
+        window[:, j] *= scale
     again = call_user(term, scaled, len(got), fn)[j]
     expected = got[j] * (SCALE if declared == "degree 1" else 1.0)
     if abs(again - expected) <= 1e-12 * max(1.0, abs(expected)):
@@ -433,7 +434,7 @@ def check_adjustment(
     return_ = "change" if declared == "degree 0" else f"scale by {SCALE:g}"
     raise TermDomainError(
         what=f"{name} is declared adjustment='{declared}' but its result for {ids[j]} went from"
-        f" {got[j]!r} to {again!r} when {ids[j]}'s inputs were scaled by {SCALE:g}",
+        f" {got[j]!r} to {again!r} when {ids[j]}'s prices were scaled by {SCALE:g}",
         where=f"factor {name}",
         why=f"a declared '{declared}' result does not {return_} under that scaling, and the"
         " refusal of shift and window inputs (3.4) reads the declaration",
@@ -445,15 +446,25 @@ def check_adjustment(
     )
 
 
-def unchecked(name: str, declared: str, at: str) -> SkippedWorkNotice:
-    """6.6 no silent failure: a declaration no row of the run could check (E45)."""
+#: Why a declaration was not checked, by whether its inputs' degrees are known (E45).
+UNCHECKED = {
+    True: ("every result it gave in this run was NaN or 0, which any scaling leaves as it is,"
+           " so it cannot tell degree 0 from degree 1",
+           "run it over rows where it gives finite, non-zero values, or remove adjustment=..."),
+    False: ("an input has no known degree in the price factor (3.4), so the engine cannot say"
+            " what that input is when prices are scaled", "remove adjustment=..."),
+}  # fmt: skip
+
+
+def unchecked(name: str, declared: str, at: str, scalable: bool) -> SkippedWorkNotice:
+    """6.6 no silent failure: a declaration the run could not check (E45)."""
+    why, fix = UNCHECKED[scalable]
     return SkippedWorkNotice(
         what=f"skipped 1 declaration check for reason declaration_unchecked: {name}'s"
         f" adjustment='{declared}' was not checked",
         where=f"factor {name}",
-        why="every result it gave in this run was NaN or 0, which any scaling leaves as it is,"
-        " so it cannot tell degree 0 from degree 1",
-        fix="run it over rows where it gives finite, non-zero values, or remove adjustment=...",
+        why=why,
+        fix=fix,
         more="spec 3.3 (adjustment) and 6.6 (no silent failure)",
         layer=f"your code — {at} in {name}",
         at=at,

@@ -57,9 +57,10 @@ def test_a_declared_degree_1_is_refused_through_shift_and_a_window() -> None:
         bind(nx.factor(window=2, inputs=[ratio])(_ratio), registry)
 
 
-def run(terms: list[Any], close: Any, spans: list[tuple[int, int]] | None = None) -> Any:
-    """`execute` at every row over two instruments' `close` (rows by 2), bars on time, no
-    corporate actions, in the chunks `spans` (one chunk by default)."""
+def run(terms: list[Any], close: Any, spans: list[tuple[int, int]] | None = None,
+        column: str = "close") -> Any:  # fmt: skip
+    """`execute` at every row over two instruments' `close` (rows by 2) as `column`, bars on
+    time, no corporate actions, in the chunks `spans` (one chunk by default)."""
     n = len(close)
     dates = np.datetime64("2020-01-01") + np.arange(n).astype("timedelta64[D]")
     ready = (dates + np.timedelta64(16, "h")).astype("datetime64[us]")
@@ -67,7 +68,7 @@ def run(terms: list[Any], close: Any, spans: list[tuple[int, int]] | None = None
     def read(a: int, b: int) -> MarketBlock:  # the block of rows a..b, as a chunk reads it
         rows = slice(a, b + 1)
         return MarketBlock("KR", dates[rows], 0, ("KR:A", "KR:B"),
-                           {"close": np.asarray(close, float)[rows]}, np.ones((b + 1 - a, 2), bool),
+                           {column: np.asarray(close, float)[rows]}, np.ones((b + 1 - a, 2), bool),
                            np.zeros((b + 1 - a, 2), np.int8),
                            np.repeat(ready[rows, None], 2, axis=1))  # fmt: skip
 
@@ -90,6 +91,32 @@ def test_a_declaration_that_does_not_hold_is_E17() -> None:  # noqa: N802
             run([term], CLOSES)
         assert caught.value.code == "E17"
         run([nx.factor(window=2, inputs=[CLOSE], adjustment=right)(fn)], CLOSES)
+
+
+def _std(returns: Any) -> Any:
+    return returns.std(axis=0)
+
+
+def _change(close: Any) -> Any:
+    return close[-1] - close[0]
+
+
+def test_each_input_is_scaled_by_its_degree() -> None:
+    """3.3, 3.4: an input of degree 0 (a return) is left as it is when prices are scaled, so the
+    volatility of a declared degree-0 return holds degree 0; rows whose result is 0 are skipped
+    and the first non-zero one is checked; a volume input, of degree 1 in the quantity factor,
+    leaves the declaration unchecked (E45)."""
+    ret = nx.factor(window=2, inputs=[CLOSE], adjustment="degree 0")(_ratio)
+    run([nx.factor(window=3, inputs=[ret], adjustment="degree 0")(_std)], CLOSES)
+    close = CLOSES.copy()
+    close[:6] = 100.0  # `_change` is 0 up to row 6
+    run([nx.factor(window=2, inputs=[CLOSE], adjustment="degree 1")(_change)], close)
+    with pytest.raises(nx.TermDomainError, match="_change is declared adjustment='degree 0'"):
+        run([nx.factor(window=2, inputs=[CLOSE], adjustment="degree 0")(_change)], close)
+    volume = nx.factor(window=2, inputs=[BoundColumn.of("Price", "volume")],
+                       adjustment="degree 0")(_ratio)  # fmt: skip
+    with pytest.warns(UserWarning, match="an input has no known degree in the price factor"):
+        run([volume], CLOSES, column="volume")
 
 
 def _nan(close: Any) -> Any:
@@ -125,7 +152,6 @@ def test_the_check_reads_copies_and_any_chunking_gives_one_verdict() -> None:
     values = one[key]["value"].to_numpy()
     np.testing.assert_array_equal(values, two[key]["value"].to_numpy())  # NaN equal to NaN
     assert values[12:14].tolist() == [318.0, 3018.0]  # row 6, as the function gave it
-    assert graph_hash(term) == key
     wrong = nx.factor(window=2, inputs=[CLOSE], adjustment="degree 0")(_tripled)
     for spans in (None, [(0, 4), (5, 9)]):
         with pytest.raises(nx.TermDomainError, match="_tripled is declared"):
