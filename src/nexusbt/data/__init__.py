@@ -357,6 +357,7 @@ def open_snapshot(
     extent = BarsExtent(folder, bars, kinds.get("instruments"))
     caps, used, assumed = decide(folder, manifest, rules, result.warnings, required,
                                  cfg.fallbacks, extent)  # fmt: skip
+    extent.release()  # the snapshot keeps the extent, not the bars' rows
     warnings = Counter(f.code for f in result.warnings)
     decided = (result.profiles, caps, used)
     covered = (bars or {}).get("coverage", {}).get("by_market", {})

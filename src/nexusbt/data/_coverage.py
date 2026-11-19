@@ -7,7 +7,7 @@ of `bars`", and a file's market is its `market=` partition (4.6), else its instr
 from __future__ import annotations
 
 import datetime as dt
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -43,14 +43,19 @@ class BarsExtent:
         files = (self._bars or {}).get("files", [])
         return all("market" in _partitions(f["path"]) for f in files)
 
-    def tables(self) -> list[pa.Table]:
-        """Each bars file's ids (as strings) and dates with a `market` column, read once."""
-        if self._tables is None:
-            of: dict[str, str] = {}  # read once, and only for a file without `market=`
-            files = (self._bars or {}).get("files", [])
-            self._tables = [_with_market(self._root, f["path"], self._instruments, of)
-                            for f in files]  # fmt: skip
-        return self._tables
+    def tables(self) -> Iterator[pa.Table]:
+        """Each bars file's ids (as strings) and dates with a `market` column: the ones kept
+        from counting the extent, else read one file at a time and not kept."""
+        if self._tables is not None:
+            yield from self._tables
+            return
+        of: dict[str, str] = {}  # read once, and only for a file without `market=`
+        for f in (self._bars or {}).get("files", []):
+            yield _with_market(self._root, f["path"], self._instruments, of)
+
+    def release(self) -> None:
+        """Drop the rows kept for the open's checks; the counted extent stays."""
+        self._tables = None
 
     def by_market(self) -> dict[str, dict[str, Any]]:
         """Market → `first`, `last` (`YYYY-MM-DD`), `rows` and `instruments` of the daily
@@ -60,7 +65,8 @@ class BarsExtent:
         if self.declared is not None:
             return self.declared
         if self._counted is None:
-            self._counted = _counted(self.tables())
+            self._tables = list(self.tables())  # kept for F-02's off-calendar check
+            self._counted = _counted(self._tables)
         return self._counted
 
 
