@@ -14,7 +14,7 @@ from typing import Literal
 
 from nexusbt.contracts import TermDomainError
 
-from ._terms import BoundColumn, Factor, Term, _user_line
+from ._terms import SCALE, BoundColumn, Factor, Term, _user_line
 from .factors import ADJUSTMENT
 
 type Degree = tuple[Fraction, Fraction] | Literal["some"] | None
@@ -36,6 +36,26 @@ _SIGN = {"mul": 1, "div": -1}
 def check_degrees(roots: Iterable[Term]) -> None:
     """E17 for a term of known non-zero degree fed to `shift(k ≥ 1)` or, as a `Factor` input,
     to a window of two rows or more (3.3); a window over a column is not checked."""
+    _walk(roots, refuse=True)
+
+
+def input_scales(term: Term) -> list[float] | None:
+    """3.3 `adjustment` check: what each input of a user term is multiplied by when one
+    instrument's prices are multiplied by `SCALE`, from its degree (3.4): `SCALE ** p` for a
+    degree p in the price factor (1.0 for degree 0); None when an input has no known degree,
+    a degree in the quantity factor or one of unknown size, so no check can be made."""
+    found = _walk([term], refuse=False)
+    scales = []
+    for child in term.inputs:
+        degree = _column(child) if isinstance(child, BoundColumn) else found[child._key]
+        if not isinstance(degree, tuple) or degree[1] != 0:
+            return None
+        scales.append(SCALE ** float(degree[0]))
+    return scales
+
+
+def _walk(roots: Iterable[Term], refuse: bool) -> dict[str, Degree]:
+    """Each term's degree, inputs first; with `refuse`, E17 where #499's refusal applies."""
     found: dict[str, Degree] = {}
     todo = list(roots)
     while todo:  # inputs before the term that reads them, as a loop: chains are deep
@@ -51,9 +71,10 @@ def check_degrees(roots: Iterable[Term]) -> None:
         window = dict(term.params).get("window")
         for child, degree in zip(term.inputs, ins, strict=True):
             fed = term.op == "shift" or (isinstance(window, int) and window >= 2)
-            if fed and isinstance(child, Factor) and degree not in (ZERO, None):
+            if refuse and fed and isinstance(child, Factor) and degree not in (ZERO, None):
                 raise _refused(term, child, degree)
         found[term._key] = degree_of(term, ins)
+    return found
 
 
 def degree_of(term: Term, ins: list[Degree]) -> Degree:
@@ -89,7 +110,9 @@ def degree_of(term: Term, ins: list[Degree]) -> Degree:
         return _scaled(ins[0], Fraction(1, 2))
     if op in ADJUSTMENT:
         return _built_in(term, ins)
-    return None  # a user function, `if_else`: no rule gives a degree yet
+    if op == "user":  # its declaration (3.3 `adjustment`); "degree 1" does not say C or Q
+        return {"degree 0": ZERO, "degree 1": SOME}.get(dict(term.params).get("adjustment", ""))
+    return None  # `if_else`: no rule gives a degree yet
 
 
 def _built_in(term: Term, ins: list[Degree]) -> Degree:

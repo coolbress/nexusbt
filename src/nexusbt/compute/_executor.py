@@ -18,6 +18,7 @@ term was built from, unless the caller gives another by its graph hash.
 from __future__ import annotations
 
 import logging
+import warnings
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from functools import cached_property
@@ -41,7 +42,14 @@ from nexusbt.contracts import (
 )
 from nexusbt.data._block import MarketBlock
 from nexusbt.pipeline import Classifier, Factor, Filter, Term, graph_hash
-from nexusbt.pipeline._terms import call_user, same_function
+from nexusbt.pipeline._degree import input_scales
+from nexusbt.pipeline._terms import (
+    call_user,
+    check_adjustment,
+    def_line,
+    same_function,
+    unchecked,
+)
 
 _log = logging.getLogger("nexusbt.compute")
 
@@ -132,13 +140,15 @@ def execute(
         why = "it gathers several markets' blocks, and the executor computes one market's"
         raise NotImplementedError(f"across_markets=True is run_pipeline's: {why}")
     parts: dict[str, list[pa.Table]] = {graph_hash(t): [] for t in terms}
+    pending = {graph_hash(t): (t, input_scales(t)) for t, _ in order
+               if "adjustment" in dict(t.params)}  # fmt: skip
     for first, last in spans:
         mine = wanted[(wanted >= first) & (wanted <= last)]
         if not mine.size:
             continue
         rows = plan(terms, mine, sessions=len(ready)).rows
         low = min([first, *(int(r[0]) for r in rows.values() if r.size)])
-        chunk = _Chunk(read(low, last), low, ready, functions or {}, tiebreak, actions)
+        chunk = _Chunk(read(low, last), low, ready, functions or {}, tiebreak, actions, pending)
         with np.errstate(all="ignore"):  # IEEE results (inf, NaN), as numpy gives them
             for term, dropped in order:
                 chunk.compute(term, rows[graph_hash(term)])
@@ -146,26 +156,33 @@ def execute(
                     del chunk.values[key]
         for term in terms:
             parts[graph_hash(term)].append(chunk.frame(term, mine))
+    for term, scales in pending.values():  # 6.6 no silent failure: E45, never a silent pass
+        params, at = dict(term.params), def_line(term.function)
+        notice = unchecked(params["function"], params["adjustment"], at, scales is not None)
+        warnings.warn(str(notice), stacklevel=2)
     empty = _frame([], [], [])
     return {key: pa.concat_tables(found) if found else empty for key, found in parts.items()}
 
 
 def _one_function_per_hash(terms: Sequence[Term], given: Mapping[str, Any]) -> None:
     """A node is computed once for its graph hash, so two user terms of one hash whose functions
-    differ in a value the hash does not hold (6.5 (6)) are refused, not given one's values."""
+    differ in a value the hash does not hold (6.5 (6)) are refused, not given one's values.
+    The walk goes below a hash it has seen, as one hash can hold two such terms at any depth
+    (#562), and skips only an object it has already walked."""
     seen: dict[str, Term] = {}
+    walked: set[int] = set()
     todo = list(terms)
     while todo:
         term = todo.pop()
-        key = graph_hash(term)
-        if key in seen:
-            first = seen[key].function
-            if key not in given and not same_function(first, term.function):
-                name = dict(term.params)["function"]
-                why = "read different non-constant values; pass them as inputs or constants"
-                raise ValueError(f"two user terms {name} share one graph hash but {why}")
+        if id(term) in walked:
             continue
-        seen[key] = term
+        walked.add(id(term))
+        key = graph_hash(term)
+        first = seen.setdefault(key, term).function
+        if key not in given and not same_function(first, term.function):
+            name = dict(term.params)["function"]
+            why = "read different non-constant values; pass them as inputs or constants"
+            raise ValueError(f"two user terms {name} share one graph hash but {why}")
         todo += [*term.inputs, *(v for _, v in term.params if isinstance(v, Term))]
 
 
@@ -191,8 +208,10 @@ class _Chunk:
         functions: Mapping[str, Callable[..., Any]],
         tiebreak: TiebreakPolicy,
         actions: Actions | None,
+        pending: dict[str, tuple[Term, list[float] | None]],
     ) -> None:
         self.block, self.low, self.ready, self.functions = block, low, ready, functions
+        self.pending = pending  # user terms whose `adjustment` is not checked yet, their scales
         self.tiebreak, self.unknown = tiebreak, 0  # `UnknownGroup` cells of the term computed
         self.values: dict[str, F64] = {}
         self.actions, self.resolved = actions, dict[int, ResolvedActions]()
@@ -327,12 +346,17 @@ class _Chunk:
             return out  # the window starts before the axis: nothing is there to read
         inside = self.domain(term, t)  # 3.3 `mask`: the columns the function computes on
         windows = [self.window(i, t, size)[:, inside] for i in term.inputs]
-        fn = self.functions.get(graph_hash(term), term.function)
+        key = graph_hash(term)
+        fn = self.functions.get(key, term.function)
+        ids = np.asarray(self.block.instrument_ids, dtype=object)[inside]
+        scales = self.pending[key][1] if key in self.pending else None
+        pristine = None if scales is None else [w.copy() for w in windows]  # 3.3: copies
         try:
-            out[inside] = call_user(term, windows, int(inside.sum()), fn)
+            out[inside] = got = call_user(term, windows, int(inside.sum()), fn)
+            if pristine and check_adjustment(term, pristine, got, ids.tolist(), scales or [], fn):
+                del self.pending[key]  # once for each user term in a run
         except Exception as error:  # 6.6: the user's exception, noted and re-raised as it is
             if not isinstance(error, NexusBTError) and fn is not None:
-                ids = np.asarray(self.block.instrument_ids, dtype=object)[inside]
                 first, date = str(ids[0]) if ids.size else "-", str(self.block.dates[t - self.low])
                 _note_user_exception(error, fn, instrument_id=first, date=date)
             raise
