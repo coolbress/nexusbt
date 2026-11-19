@@ -76,8 +76,8 @@ def test_kr_bars_are_as_without_it(rounded: Path, tmp_path: Path) -> None:
     assert not bars_of(rounded, "US").equals(bars_of(plain, "US"))
 
 
-@pytest.mark.parametrize("value", [-1, 1.5, True, "3"])
-def test_price_decimals_takes_an_integer_from_zero(value: object, tmp_path: Path) -> None:
+@pytest.mark.parametrize("value", [-1, 10, 400, 1.5, True, "3"])  # 400 overflowed 10^n to NaN
+def test_price_decimals_takes_an_integer_from_zero_to_nine(value: object, tmp_path: Path) -> None:
     given: dict[str, Any] = SHORT | {"price_decimals": value}  # past the type, as a caller may
     with pytest.raises(ValueError, match="price_decimals"):
         make_snapshot(tmp_path / "p", **given)

@@ -361,8 +361,9 @@ def _arguments(
     in MARKETS' order; `drawn` is the arguments only a seeded preset takes (start, end, n_kr,
     n_us, price_decimals)."""
     decimals = drawn[-1]
-    if decimals is not None and (type(decimals) is not int or decimals < 0):
-        raise ValueError(f"price_decimals {decimals!r}: an integer >= 0, or None (spec 4.8 (5a))")
+    if decimals is not None and (type(decimals) is not int or not 0 <= decimals <= 9):
+        raise ValueError(f"price_decimals {decimals!r}: an integer from 0 to 9, or None"
+                         " (spec 4.8 (5a))")  # fmt: skip
     if preset not in ("tiny", *PRESETS) or overrides:
         raise NotImplementedError("only presets tiny, small and full, without overrides, are"
                                   " built so far (spec 4.8)")  # fmt: skip
@@ -408,7 +409,7 @@ def make_snapshot(
     (#354), the others with T0.16b. Each dataset is processed through the watermark session in
     every market (TDS 4.3, #192), but `behind[name]` sessions earlier for each dataset `name`
     without a row per session, without its rows first known after that session (4.8 `behind`,
-    #425). `price_decimals` (an integer >= 0, `small` and `full`) puts US and ZZ prices on
+    #425). `price_decimals` (an integer 0 to 9, `small` and `full`) puts US and ZZ prices on
     10^-n, 8.1's CI fixture (4.8 (5a), #252); None changes nothing.
     """
     root, chosen = _arguments(root, preset, markets, events, overrides, degrade,
