@@ -29,6 +29,7 @@ from nexusbt.data._capabilities import CapabilityRequest as CapabilityRequest
 from nexusbt.data._capabilities import DataCapabilities as DataCapabilities
 from nexusbt.data._capabilities import FallbackRecord as FallbackRecord
 from nexusbt.data._capabilities import _columns, _values, check_fields, decide
+from nexusbt.data._coverage import BarsExtent
 from nexusbt.data._datasets import chosen
 from nexusbt.data._ratios import RatioExclusion as RatioExclusion
 from nexusbt.data._ratios import check_ratios
@@ -169,8 +170,10 @@ class Snapshot:
         unchecked: tuple[str, ...] = (),
         daily: Mapping[str, DailyCoverage] | None = None,
         daily_columns: int = 0,
+        extent: BarsExtent | None = None,
     ) -> None:
         self._manifest, self._hashes, self._markets = manifest, hashes, markets
+        self._extent = extent  # the open's bars extent, read at most once (#568)
         self.warnings, self.assumptions = dict(warnings), assumptions
         self.ca_exclusions, self._decided = ca_exclusions, decided
         self.unchecked, self.daily, self.daily_columns = unchecked, dict(daily or {}), daily_columns
@@ -212,7 +215,7 @@ class Snapshot:
         """The sessions of `market` and the time each of its rows freezes (5.1.1, 5.1.2)."""
         if market not in self._markets:
             raise _no_pack(market, self._manifest, False)
-        return read_calendar(self._manifest, market)
+        return read_calendar(self._manifest, market, self._extent)
 
     def market_block(
         self, market: str, fields: Sequence[str], sessions: object, *, overlap: int = 0
@@ -293,6 +296,11 @@ def _data_root(path: Path) -> Path | None:
     return None
 
 
+def _snapshot_folder(snapshot: Snapshot) -> Path:
+    """The package folder `snapshot` was opened from; its data root is beside it (4.2)."""
+    return Path(snapshot._manifest.root)
+
+
 def _package(path: Path) -> Path:
     """The package folder: `path` itself, or the snapshot its `LATEST` names, read once (4.2)."""
     if (path / "tds.json").is_file() or not (path / "LATEST").is_file():
@@ -351,16 +359,20 @@ def open_snapshot(
     if literal:  # 5.6.1's report header line for `decimal_ratio = "literal"`
         untested += (f"decimal ratios used literally: {literal} events",)
     rules = {m: info.rules for m, info in markets.items()}
-    caps, used, assumed = decide(folder, manifest, rules, result.warnings, required, cfg.fallbacks)
+    kinds = chosen(manifest.data)
+    bars = kinds.get("bars")  # the one daily bars dataset, or none (4.3)
+    extent = BarsExtent(folder, bars, kinds.get("instruments"))
+    caps, used, assumed = decide(folder, manifest, rules, result.warnings, required,
+                                 cfg.fallbacks, extent)  # fmt: skip
+    extent.release()  # the snapshot keeps the extent, not the bars' rows
     warnings = Counter(f.code for f in result.warnings)
     decided = (result.profiles, caps, used)
-    bars = chosen(manifest.data).get("bars")  # the one daily bars dataset, or none (4.3)
     covered = (bars or {}).get("coverage", {}).get("by_market", {})
     daily = {m: DailyCoverage(e.get("first"), e.get("last"), e.get("instruments"), e.get("rows"))
              for m, e in covered.items()}  # fmt: skip
     return Snapshot(manifest, hashes, markets, warnings, untested + assumed, excluded, decided,
                     unchecked=tuple(result.unchecked), daily=daily,
-                    daily_columns=len(_columns(folder, bars)))  # fmt: skip
+                    daily_columns=len(_columns(folder, bars)), extent=extent)  # fmt: skip
 
 
 def _market(name: str, entry: Mapping[str, Any], allow_untested: bool) -> MarketInfo:

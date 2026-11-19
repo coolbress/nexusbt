@@ -51,6 +51,7 @@ class PipelineResult:
 
     table: pa.Table
     term_diagnostics: pa.Table
+    run_id: str | None = None  # the sealed run's id with `save=True` (3.8 `kind="pipeline"`)
 
     def to_polars(self) -> Any:
         return importlib.import_module("polars").from_arrow(self.table)  # optional (3.5)
