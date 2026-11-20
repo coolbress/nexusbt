@@ -180,12 +180,14 @@ def same_bits(found: Any, expected: Any, *, zero_sign: bool = True) -> bool:
 
     Only picking kernels take `zero_sign=False` (`picks`). Which of two equal zeros a pick
     returns (`fmax(-0.0, 0.0)`, the middle of a sort holding 0.0 and -0.0) is left open by
-    IEEE 754 and by spec 3.4 and 5.3.10, and numpy's paths may answer differently: P-KERNEL
-    failed so on an x86 runner (run 44656168938) and, for the median, on arm64 (#254's
-    Decisions, 2026-11-20). The value hash does not see the sign either: TDS 4.5 writes an
-    `f64` cell as "IEEE-754 bits, 8 bytes little-endian (-0.0 normalised to +0.0; ...)" (its
-    minus sign is U+2212 there). So this test does not ask for that sign. Computing kernels
-    (sums, means, standard deviations, ratios) keep the signed-zero comparison.
+    IEEE 754 and by spec 3.4 and 5.3.10, and two correct implementations may answer
+    differently: P-KERNEL failed so on an x86 runner for `MaxDrawdown` (run 44656168938, the
+    oracle's scalar `fmax` against the kernel's array `fmax`), and for the median wherever the
+    oracle's stable `sorted` and the kernel's `np.sort` place -0.0 and 0.0 differently (seen on
+    arm64; #254's Decisions, 2026-11-20). The value hash does not see the sign either: TDS 4.5
+    writes an `f64` cell as "IEEE-754 bits, 8 bytes little-endian (-0.0 normalised to +0.0;
+    ...)" (its minus sign is U+2212 there). So this test does not ask for that sign.
+    Computing kernels (sums, means, standard deviations, ratios) keep the signed-zero comparison.
     """
     found, expected = np.asarray(found, dtype=F), np.asarray(expected, dtype=F)
     nan = np.isnan(found)
