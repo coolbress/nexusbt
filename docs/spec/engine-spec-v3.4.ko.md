@@ -792,7 +792,7 @@ nx.open(path: str | Path) -> Snapshot   # 패키지 경로 하나(또는 `LATEST
 | `override`, `record_fills`, `cash_flow`, `acknowledge` | – | 장부 사건(5.9.6) | 없음 [V31-18, V31-19] |
 | `compare(run ids / Run)`, `explain`, `check`, `describe`, `runs` | – | 저장 안 함 | 없음 |
 
-- `rerun(run_id)`: 매니페스트의 스냅숏(의미 해시로 확인; 최소 `schema` + 파일 sha256 도장)·소스(새 프로세스, 5.9.3)·파라미터·설정·잠금으로 다시 돌려 값 해시를 비교한다. 스냅숏이 없거나 의미 해시가 다르면 `ReplayError`(오류 E15). `new_snapshot=True`는 재실행이 아니라 "새 실행"(`kind`는 원래 것, `derived_from=run_id`)으로 이름 붙여 돌리고 차이를 보인다 [C9, 11.7].
+- `rerun(run_id)`: 매니페스트의 스냅숏(의미 해시로 확인; 최소 `schema` + 파일 sha256 도장)·소스(새 프로세스, 5.9.3)·파라미터·설정·잠금으로 다시 돌려 값 해시를 비교한다. 스냅숏이 없거나 의미 해시가 다르면 `ReplayError`(오류 E15). `new_snapshot=True`는 재실행이 아니라 "새 실행"(`kind`는 원래 것, `derived_from=run_id`)으로 이름 붙여 돌리고 차이를 보인다 [C9, 11.7]. `rerun`은 자기가 만든 새 실행 기록의 `Run`을 돌려준다(`run_kind = rerun`, 5.9.5. 그 색인 행의 `derived_from`은 `new_snapshot=True` 실행처럼 재현한 실행의 id이고, 둘은 `run_kind`로 구분한다). `run_id`, `path`, `manifest`는 새 실행의 것이고, `comparison`은 새 실행의 산출물을 재현한 실행의 것과 비교한 줄로, `outputs identical (value, physical)`이거나 다른 표마다 어느 해시가 다른지를 적는다. `rerun`이 만들지 않은 `Run`에서 `comparison`은 None이다. 성과를 계산하지 않는 종류(`pipeline`, `screen`; 3.8의 실행 기록 표)의 `Run`에서는, 그 종류가 쓰지 않는 산출물의 속성이 None이다. [#250]
 - `screen(strategy)`는 판단일이 아니어도 순위를 내고 `scheduled=False`로 표시한다. `live`는 그런 날 새 리밸런싱 주문을 내지 않고 탈출 규칙 주문만 낸다 [11.4.6].
 - `screen(factor, top=n)`: 팩터 하나를 투자 대상 유니버스에서 시장마다 상위 n.
 - **screen의 계좌 규칙** [R4-08]: `account="auto"`(기본) = `book=`이 있으면 `"book"`, 없으면 `"none"`. `"none"`이면 계좌를 읽는 위험 규칙을 평가하지 않고 `m = 1`로 두며, 결과 머리와 그 규칙 줄에 `drawdown_brake: not evaluated (no account) — use --ledger BOOK or --as-backtest`를 쓰고 알림 E42를 낸다(조용히 건너뛰지 않음; `skips.parquet`에 규칙마다 한 줄). `"book"`(CLI `--ledger BOOK`) = 장부 상태(평가 NAV 이력·보유·진입 세션·탈출 사건)를 읽기 전용 계좌로 써서 `final_weight`를 낸다; 장부 상태 판과 스냅숏 해시를 매니페스트에. `"backtest"`(CLI `--as-backtest`) = 같은 전략을 기준점(`anchor`)부터 `asof`까지 백테스트(저장 안 함, 같은 결정성)해 그 계좌로 평가한다(느림; 걸린 시간을 보임). 정규 목표(`target_weight`)는 셋 모두 같다(INV-08).
@@ -839,7 +839,7 @@ next   nx.evaluate(f, by=["year"]) · .quantiles() · .decay() · .to_strategy("
 saved  runs/{run_id}/report.html
 ```
 
-**Run** (속성: `run_id`, `path`, `manifest`, `metrics`, `primary`, `diagnostics`, `provenance`, `validation`(6.3a), `daily`, `targets`, `orders`, `fills`, `events`, `positions`, `scenarios`, `attribution`, `exposures`, `warnings`; 메서드 `report()`, `why(instrument_id, date)`, `returns(ccy=None)`, `to_pyfolio()`):
+**Run** (속성: `run_id`, `path`, `manifest`, `metrics`, `primary`, `diagnostics`, `provenance`, `validation`(6.3a), `daily`, `targets`, `orders`, `fills`, `events`, `positions`, `scenarios`, `attribution`, `exposures`, `warnings`, `comparison`(`rerun`만, #250); 메서드 `report()`, `why(instrument_id, date)`, `returns(ccy=None)`, `to_pyfolio()`):
 
 ```
 {name}   run {run_id}   study: {study}  candidate #{k} ({N} candidates in study)
