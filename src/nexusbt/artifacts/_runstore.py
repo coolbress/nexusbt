@@ -251,6 +251,7 @@ class RunTxn:
         self.run_id, self._store, self._tmp, self._lock = run_id, store, tmp, lock
         self._params, self._created = params, created
         self._manifest: dict[str, object] = {}
+        self._values: dict[str, str] = {}  # output file → its value hash (5.9.2)
         self._state = "open"  # open → renamed → sealed, or open → aborted
 
     def _out(self, rel: str) -> Path:
@@ -262,13 +263,21 @@ class RunTxn:
         path.parent.mkdir(parents=True, exist_ok=True)
         return path
 
-    def write_table(self, name: str, table: object) -> None:
-        """Parquet as 5.9.4 says; anything but an Arrow table is refused (no pickle, 2.6)."""
+    def write_table(self, name: str, table: object, *, value_sha256: str | None = None) -> None:
+        """Parquet as 5.9.4 says; anything but an Arrow table is refused (no pickle, 2.6).
+
+        `value_sha256` is the table's TDS 4.5 value hash, which `api` computes (5.9.2; `artifacts`
+        does not import `nexusbt_tds`, 2.5); the manifest's `outputs` entry carries it."""
         if not isinstance(table, pa.Table):
             raise TypeError(f"{name}: run tables are pyarrow Tables, not {type(table).__name__}")
+        path = self._out(f"{name}.parquet")
+        rel = path.relative_to(self._tmp).as_posix()
+        self._values.pop(rel, None)  # a table written again keeps no hash of the one before
+        if value_sha256 is not None:
+            self._values[rel] = value_sha256
         pq.write_table(
             table,
-            self._out(f"{name}.parquet"),
+            path,
             compression="zstd",
             compression_level=3,
             row_group_size=131_072,
@@ -337,7 +346,11 @@ class RunTxn:
             raise RuntimeError(f"run {self.run_id} is already {self._state}")
         final = self._store.root / self.run_id
         try:
-            outputs = {k: {"physical_sha256": _sha256(p)} for k, p in _files(self._tmp).items()}
+            outputs: dict[str, dict[str, str]] = {}
+            for k, p in _files(self._tmp).items():
+                outputs[k] = {"physical_sha256": _sha256(p)}
+                if k in self._values:
+                    outputs[k]["value_sha256"] = self._values[k]
             manifest = {"environment": environment(_engine_lock()), **self._manifest}
             manifest |= {"schema_version": "nexusbt-run/2", "outputs": outputs}
             if carried := self._store.warnings:
