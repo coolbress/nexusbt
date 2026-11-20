@@ -641,9 +641,7 @@ def _project_file(file: str) -> bool:
 
 
 def _reads(fn: FunctionType) -> _Reads:
-    params = inspect.signature(fn).parameters.values()
-    found = {f"{p.name}=": p.default for p in params
-             if p.default is not p.empty and _constant(p.default)}  # fmt: skip
+    found = _defaults(fn)
     helpers: list[FunctionType] = []
     impure: set[str] = set()
     todo, seen = [fn], set[int]()
@@ -653,34 +651,68 @@ def _reads(fn: FunctionType) -> _Reads:
             continue
         seen.add(id(f))
         names, attrs = _loads(f.__code__)
-        values = {n: f.__globals__[n] for n in names if n in f.__globals__}
-        for name, cell in zip(f.__code__.co_freevars, f.__closure__ or (), strict=True):
-            try:
-                values[name] = cell.cell_contents
-            except ValueError:  # an empty cell: its value would be missing from the hash
-                raise TypeError(f"{name}, read by {f.__name__}, has no value yet") from None
+        values = _values(f, names)
         prefix = "" if f is fn else f"{f.__qualname__}:"
-        reads, spaces = sorted(values.items()), set[int]()
-        while reads:
-            name, value = reads.pop()
-            if _constant(value):
-                found[prefix + name] = value
-            elif isinstance(value, ModuleType | type):  # `cfg.LIMIT`: a project namespace's
-                if _project_space(value) and id(value) not in spaces:
-                    spaces.add(id(value))
-                    reads += [(f"{name}.{a}", getattr(value, a)) for a in sorted(attrs)
-                              if hasattr(value, a)]  # fmt: skip
-            elif _held(value):  # an array, a list, a dict, a DataFrame, an object holding one,
-                impure.add(name)  # also when it keeps a function in `__wrapped__`
-            elif helper := _helper(value):
-                todo.append(helper)
-            elif not _found(value, name.rpartition(".")[2]):  # built while the program ran
-                impure.add(name)
-        impure.update(n for n in names if n not in values and n in _FILE_READS)  # `open`
-        impure.update(a for a in attrs if a in _FILE_READS or a.startswith("read_"))
+        todo += _judge(sorted(values.items()), attrs, prefix, found, impure)
+        impure.update(_opens(names, values, attrs))
         helpers += [] if f is fn else [f]
     ordered = sorted(helpers, key=lambda h: h.__qualname__)
     return _Reads(tuple(ordered), tuple(sorted(found.items())), tuple(sorted(impure)))
+
+
+def _defaults(fn: FunctionType) -> dict[str, Any]:
+    """The constant-like defaults of `fn`'s parameters, as `name=`."""
+    params = inspect.signature(fn).parameters.values()
+    return {f"{p.name}=": p.default for p in params
+            if p.default is not p.empty and _constant(p.default)}  # fmt: skip
+
+
+def _values(f: FunctionType, names: set[str]) -> dict[str, Any]:
+    """The values `f` reads by name: the globals it loads, then its closure's cells."""
+    values = {n: f.__globals__[n] for n in names if n in f.__globals__}
+    for name, cell in zip(f.__code__.co_freevars, f.__closure__ or (), strict=True):
+        try:
+            values[name] = cell.cell_contents
+        except ValueError:  # an empty cell: its value would be missing from the hash
+            raise TypeError(f"{name}, read by {f.__name__}, has no value yet") from None
+    return values
+
+
+def _judge(
+    reads: list[tuple[str, Any]],
+    attrs: set[str],
+    prefix: str,
+    found: dict[str, Any],
+    impure: set[str],
+) -> list[FunctionType]:
+    """Sort what one function reads, last name first: a constant into `found` (under `prefix`),
+    a project namespace into the attributes read of it, data or a callable not found again by
+    reference into `impure`; the project helpers it reaches are returned, in the order met."""
+    helpers: list[FunctionType] = []
+    spaces = set[int]()
+    while reads:
+        name, value = reads.pop()
+        if _constant(value):
+            found[prefix + name] = value
+        elif isinstance(value, ModuleType | type):  # `cfg.LIMIT`: a project namespace's
+            if _project_space(value) and id(value) not in spaces:
+                spaces.add(id(value))
+                reads += [(f"{name}.{a}", getattr(value, a)) for a in sorted(attrs)
+                          if hasattr(value, a)]  # fmt: skip
+        elif _held(value):  # an array, a list, a dict, a DataFrame, an object holding one,
+            impure.add(name)  # also when it keeps a function in `__wrapped__`
+        elif helper := _helper(value):
+            helpers.append(helper)
+        elif not _found(value, name.rpartition(".")[2]):  # built while the program ran
+            impure.add(name)
+    return helpers
+
+
+def _opens(names: set[str], values: dict[str, Any], attrs: set[str]) -> set[str]:
+    """The names that open a file (`open`, `np.load`, `pd.read_csv`): a builtin not shadowed by
+    a value of the function, or an attribute."""
+    opened = {n for n in names if n not in values and n in _FILE_READS}
+    return opened | {a for a in attrs if a in _FILE_READS or a.startswith("read_")}
 
 
 def _helper(value: Callable[..., Any]) -> FunctionType | None:

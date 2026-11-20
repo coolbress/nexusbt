@@ -275,7 +275,7 @@ class _Chunk:
             self.unknown, self.zero, self.infinite = 0, None, None
             found = self.row(term, t)  # 5.3.1: absent where not listed, for any later reader
             listed = self.block.exists[t - self.low]
-            out[t - self.low] = np.where(listed & ~np.isinf(found), found, np.nan)
+            out[t - self.low] = term_value(found, listed)
             if self.counts is not None:  # each cell once, at this term and row (5.4.1)
                 zero = listed & self.zero if self.zero is not None else np.zeros_like(listed)
                 kernel_inf = self.infinite if self.infinite is not None else False
@@ -455,6 +455,13 @@ class _Chunk:
         if isinstance(term, Classifier):
             return _frame(rows[r], ids, pa.array(_codes(cells), pa.int32()))
         return _frame(rows[r], ids, cells)
+
+
+def term_value(found: F64, listed: npt.NDArray[np.bool_]) -> F64:
+    """A term's cells at a row as it holds them (5.4.1): NaN where not listed or ±inf, +0.0 for
+    a zero of either sign (#648), every other cell's bits as found."""
+    out: F64 = np.where(listed & ~np.isinf(found), np.where(found == 0, 0.0, found), np.nan)
+    return out
 
 
 def _basis(params: Mapping[str, Any]) -> str | None:
