@@ -41,6 +41,7 @@ from nexusbt.data import (
     _snapshot_markets,
     dataset_columns,
     open_snapshot,
+    table_value_hash,
 )
 from nexusbt.data import Snapshot as _Snapshot
 from nexusbt.pipeline._terms import _project_file
@@ -258,15 +259,17 @@ def _save_pipeline(
     """3.8's `kind="pipeline"`: `pipeline.parquet` and `term_diagnostics.parquet` (5.9.1)."""
     columns = {n: pipeline.graph_hash(t) for n, t in pipe.columns.items()}
     named = {"columns": columns, "screen": pipe.screen and pipeline.graph_hash(pipe.screen)}
-    tables = {"pipeline": result.table, "term_diagnostics": result.term_diagnostics}
+    tables = {"pipeline": (result.table, _pipeline.KEYS),
+              "term_diagnostics": (result.term_diagnostics, _pipeline.COUNT_KEYS)}  # fmt: skip
     return _seal("pipeline", named, tables, opened, cfg, params)
 
 
 def _seal(
-    kind: str, named: dict[str, Any], tables: Mapping[str, Any], opened: Snapshot, cfg: Config,
-    params: dict[str, Any],
+    kind: str, named: dict[str, Any], tables: Mapping[str, tuple[pa.Table, Sequence[str]]],
+    opened: Snapshot, cfg: Config, params: dict[str, Any],
 ) -> str:  # fmt: skip
-    """A run of `kind` (3.8) with `tables` (5.9.1), and `source/` with the entry file,
+    """A run of `kind` (3.8) with `tables` (5.9.1), each with the key its value hash orders rows
+    by (5.9.2 `outputs`, TDS 4.5), and `source/` with the entry file,
     `__main__`'s file or none in an interactive session, and the project's modules imported so
     far (5.9.3; #283, #304). The run's name is the entry file's stem. The root pin goes beside
     the package the snapshot was opened from (4.2)."""
@@ -281,8 +284,8 @@ def _seal(
     txn = _begin_run(store, opened, data, kind, entry.stem if entry else "interactive",
                      graph_hash=graph, params=params | {"terms": named})  # fmt: skip
     try:
-        for name, table in tables.items():
-            txn.write_table(name, table)
+        for name, (table, key) in tables.items():
+            txn.write_table(name, table, value_sha256=table_value_hash(table, key))
         files = (getattr(m, "__file__", None) for m in list(sys.modules.values()))
         imported = [Path(f) for f in files if isinstance(f, str) and _project_file(f)]
         txn.capture_sources(imported, entry=entry)
