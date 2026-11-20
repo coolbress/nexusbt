@@ -23,26 +23,31 @@ import pytest
 from hypothesis import example, given
 from hypothesis import strategies as st
 
+import nexusbt as nx
+from nexusbt import factors
 from nexusbt.compute import _elem, _kernels
-from nexusbt.compute._factors import KERNELS, ROLLING
+from nexusbt.compute._factors import KERNELS, ROLLING, value
 from nexusbt.compute._kernels_ref import REGISTERED
 
 pytestmark = pytest.mark.property
 
 F = np.float64
 NAN = F(np.nan)
-#: Finite values, ties and zeros among them (the equal-cells rule of a std, a zero divisor),
-#: and NaN at random positions.
+#: Finite values, ties and zeros of both signs among them (the equal-cells rule of a std, a zero
+#: divisor), values whose products, squares, sums or ratios overflow (#632), and NaN at random
+#: positions.
 CELL = st.one_of(
-    st.floats(-1e3, 1e3, allow_nan=False), st.sampled_from([0.0, 0.1, 1.0, 2.0]), st.just(np.nan)
-)
+    st.floats(-1e3, 1e3, allow_nan=False), st.sampled_from([0.0, -0.0, 0.1, 1.0, 2.0]),
+    st.sampled_from([1e200, -1e200, 1e308, -1e308, 1e-300]), st.just(np.nan),
+)  # fmt: skip
 
 
 def fold(cells: list[Any]) -> tuple[Any, int]:
-    """The left fold of the finite cells in row order, from 0.0, and their count."""
+    """The left fold of the cells that are not NaN in row order, from 0.0, and their count. An
+    input cell is never infinite here, so an `inf` is an overflow and is carried (#632)."""
     acc, n = F(0.0), 0
     for v in cells:
-        if np.isfinite(v):
+        if not np.isnan(v):
             acc, n = acc + v, n + 1
     return acc, n
 
@@ -65,11 +70,15 @@ def std(cells: list[Any], ddof: int) -> Any:
 
 
 def returns(c: list[Any]) -> Any:
+    if c[0] == 0 and not np.isnan(c[-1]):
+        return NAN  # a division by a zero of either sign (#632)
     return c[-1] / c[0] - 1.0
 
 
 def annualized(c: list[Any], factor: float) -> Any:
-    return std([c[i + 1] / c[i] - 1.0 for i in range(len(c) - 1)], 0) * np.sqrt(F(factor))
+    """A return over a zero price, or one that overflows, is `DailyReturns`' NaN, left out."""
+    daily = [c[i + 1] / c[i] - 1.0 for i in range(len(c) - 1)]
+    return std([r if np.isfinite(r) else NAN for r in daily], 0) * np.sqrt(F(factor))
 
 
 def ewma(c: list[Any], rate: float) -> Any:
@@ -79,22 +88,28 @@ def ewma(c: list[Any], rate: float) -> Any:
         total = total + w
     for v, w in zip(c, weights, strict=True):
         acc = acc + v * w  # a NaN cell makes the value NaN
+    if np.isnan(acc) and not any(np.isnan(v) for v in c):
+        return F(np.inf)  # `inf - inf`: the NaN an overflow made
     return acc / total
 
 
 def vwap(close: list[Any], volume: list[Any]) -> Any:
     paid, traded, n = F(0.0), F(0.0), 0
     for c, v in zip(close, volume, strict=True):
-        if np.isfinite(c) and np.isfinite(v):
-            if np.isfinite(c * v):
-                paid, n = paid + c * v, n + 1
-            traded = traded + v
-    return paid / traded if n and traded != 0 else NAN
+        if np.isfinite(c) and np.isfinite(v):  # an overflowed product is carried
+            paid, traded, n = paid + c * v, traded + v, n + 1
+    if not n or traded == 0:
+        return NAN
+    if not (np.isfinite(paid) and np.isfinite(traded)):
+        return F(np.inf)  # an overflowed Σ: no division gives the formula's value (#632)
+    return paid / traded
 
 
 def rsi(c: list[Any]) -> Any:
-    d = [c[i + 1] - c[i] for i in range(len(c) - 1)]
+    d = [c[i + 1] - c[i] for i in range(len(c) - 1)]  # NaN only where an end is NaN
     up, dn = mean([np.maximum(x, 0.0) for x in d]), np.abs(mean([np.minimum(x, 0.0) for x in d]))
+    if (np.isinf(dn) and up != 0) or (np.isinf(up) and dn != 0):
+        return F(np.inf)  # an overflowed mean beside one not 0: not the formula's value
     return 100.0 - 100.0 / (1.0 + up / dn)
 
 
@@ -115,7 +130,9 @@ def max_drawdown(c: list[Any]) -> Any:
     for v in c:
         finite = v if np.isfinite(v) else NAN
         peak = np.fmax(peak, finite)
-        worst = np.fmax(worst, (peak - finite) / peak)
+        if peak == 0 and not np.isnan(finite):
+            return NAN  # a division by a zero of either sign (#632)
+        worst = np.fmax(worst, (peak - finite) / peak)  # an overflowed ratio is compared
     return worst
 
 
@@ -157,7 +174,7 @@ def rolling(c: list[Any], how: str, min_periods: int) -> Any:
 ORACLES: dict[str, Callable[[Any, dict[str, Any]], Any]] = {
     "Returns": lambda c, _: returns(c),
     "SimpleMovingAverage": lambda c, _: mean(c),
-    "AverageDollarVolume": lambda c, _: fold(c)[0] / len(c),
+    "AverageDollarVolume": lambda c, _: F(np.inf) if np.isnan(s := fold(c)[0]) else s / len(c),
     "AverageTradedValue": lambda c, _: mean(c),
     "AnnualizedVolatility": lambda c, p: annualized(c, p["annualization_factor"]),
     "RollingStd": lambda c, _: std(c, 1),
@@ -285,6 +302,51 @@ def test_P_KERNEL_reference_is_left_fold(  # noqa: N802 - spec 10.1's name
             op, x.tolist(), found, expected,
         )  # fmt: skip
     x = window(rows)  # `window_sum`: every cell in row order, a NaN making the value NaN
-    expected = [functools.reduce(lambda acc, v: acc + v, map(F, x[:, j]), F(0.0))
-                for j in range(cols)]  # fmt: skip
-    assert same_bits(REGISTERED["window_sum"].kernel(x), expected), x.tolist()
+    with np.errstate(all="ignore"):  # an overflow is carried (#632)
+        expected = [functools.reduce(lambda acc, v: acc + v, map(F, x[:, j]), F(0.0))
+                    for j in range(cols)]  # fmt: skip
+        found = REGISTERED["window_sum"].kernel(x)
+    assert same_bits(found, expected), x.tolist()
+
+
+#: Each built-in factor as a term reading `rows` rows of each input, given the parameters.
+TERMS: dict[str, Callable[[int, dict[str, Any]], Any]] = {
+    "Returns": lambda w, _: factors.Returns(w),
+    "SimpleMovingAverage": lambda w, _: factors.SimpleMovingAverage(w),
+    "AverageDollarVolume": lambda w, _: factors.AverageDollarVolume(w),
+    "AverageTradedValue": lambda w, _: factors.AverageTradedValue(w),
+    "AnnualizedVolatility": lambda w, p: factors.AnnualizedVolatility(
+        w - 1, annualization_factor=p["annualization_factor"]),  # W returns: W + 1 prices
+    "RollingStd": lambda w, _: factors.RollingStd(w),
+    "ExponentialWeightedMovingAverage": lambda w, p: factors.EWMA(w, p["decay_rate"]),
+    "VWAP": lambda w, _: factors.VWAP(w),
+    "RSI": lambda w, _: factors.RSI(w),
+    "MaxDrawdown": lambda w, _: factors.MaxDrawdown(w),
+    "rolling": lambda w, p: getattr(nx.ops.rolling(nx.Price.close.latest, w, 1), p["how"])(),
+}  # fmt: skip
+
+
+@given(
+    rows=st.integers(2, 12),
+    data=st.data(),
+    factor=st.floats(1.0, 400.0),
+    rate=st.floats(0.01, 0.99),
+    how=st.sampled_from(sorted(ROLLING)),
+)
+@example(rows=3, data=Draws(1, [-1.0, 0.0, -1.0]), factor=1.0, rate=0.5, how="max")
+def test_a_kernel_does_not_see_the_sign_of_a_zero(
+    rows: int, data: st.DataObject, factor: float, rate: float, how: str
+) -> None:
+    """#632 Decisions 3: a window and the same window with each zero's sign flipped give results
+    equal as values through `_factors.value`, NaN with NaN and 0.0 with -0.0 (the example is
+    `MaxDrawdown`'s split of the issue)."""
+    assert set(TERMS) == set(KERNELS)
+    params = {"annualization_factor": factor, "decay_rate": rate, "how": how}
+    for op, make in TERMS.items():
+        term = make(rows, params)
+        cells = [data.draw(st.lists(CELL, min_size=rows, max_size=rows)) for _ in term.inputs]
+        windows = [np.array(c, dtype=F)[:, None] for c in cells]
+        flipped = [np.where(w == 0, -w, w) for w in windows]  # 0.0 <-> -0.0
+        with np.errstate(all="ignore"):
+            found, other = value(term, windows), value(term, flipped)
+        assert np.array_equal(found, other, equal_nan=True), (op, windows, found, other)

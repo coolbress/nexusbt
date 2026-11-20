@@ -27,7 +27,15 @@ import pytest
 
 import nexusbt as nx
 from nexusbt.compute import _chunks
-from nexusbt.factors import Returns
+from nexusbt.factors import (
+    RSI,
+    VWAP,
+    AnnualizedVolatility,
+    AverageDollarVolume,
+    MaxDrawdown,
+    Returns,
+    RollingStd,
+)
 from nexusbt.pipeline import graph_hash
 from nexusbt.testing._synth_package import _write
 from nexusbt.testing.synth import make_snapshot
@@ -157,6 +165,51 @@ def test_each_diagnostic_counted(scenario: Path) -> None:
     assert result.term_diagnostics.to_pylist() == [
         {"market": "KR", "session_date": dt.date(2020, 1, d), "term": t, "diagnostic": name,
          "n": 5} for d, t, name in sorted(want)]  # fmt: skip
+
+
+def test_a_kernel_counts_its_overflow_and_its_zero_divisor(scenario: Path) -> None:
+    """#632: inside a built-in kernel, each cell once at its term. `RollingStd` of `(1 + RET)`
+    times 1e200 (1e200 times 1, 1.02 and 50/51) squares its deviations past float64
+    (`InfiniteResult`); `MaxDrawdown` and `AnnualizedVolatility` of `RET * 0` divide by a zero
+    peak and a zero price (`DivisionByZero`), the latter counted though 3.4 leaves those returns
+    out. Degree-0 inputs, so a window may read them (3.3)."""
+    zeros = RET * 0.0
+    std = RollingStd(3, inputs=[(RET + 1.0) * 1e200])
+    drawdown, vol = MaxDrawdown(3, inputs=[zeros]), AnnualizedVolatility(2, inputs=[zeros])
+    result = run(scenario, {"std": std, "dd": drawdown, "vol": vol}, "2020-01-13", "2020-01-14")
+    assert all(math.isnan(v) for c in ("std", "dd", "vol") for v in result.table[c].to_pylist())
+    want = [(d, label(std), "InfiniteResult") for d in (13, 14)]
+    want += [(d, label(t), "DivisionByZero") for d in (13, 14) for t in (drawdown, vol)]
+    assert result.term_diagnostics.to_pylist() == [
+        {"market": "KR", "session_date": dt.date(2020, 1, d), "term": t, "diagnostic": name,
+         "n": 5} for d, t, name in sorted(want)]  # fmt: skip
+
+
+def test_a_zero_divisor_whose_value_the_spec_states_is_counted(scenario: Path) -> None:
+    """#632 Decisions (counting): `RSI` of `RET * 0` has `up = dn = 0` (NaN, 3.4) and the
+    cross-section `zscore` of it a std of 0 (all NaN, 5.4.2); the values stay, each of the 5
+    cells is counted `DivisionByZero`."""
+    zeros = RET * 0.0
+    rsi, scores = RSI(3, inputs=[zeros]), zeros.zscore()
+    result = run(scenario, {"rsi": rsi, "z": scores}, "2020-01-13", "2020-01-13")
+    assert all(math.isnan(v) for c in ("rsi", "z") for v in result.table[c].to_pylist())
+    terms = sorted([label(rsi), label(scores)])
+    assert result.term_diagnostics.to_pylist() == [
+        {"market": "KR", "session_date": dt.date(2020, 1, 13), "term": t,
+         "diagnostic": "DivisionByZero", "n": 5} for t in terms]  # fmt: skip
+
+
+def test_a_package_without_volume_counts_nothing(tmp_path: Path) -> None:
+    """#632 with #652: without `volume` (`degrade=["no_volume"]`) the cells are missing input,
+    skipped, not an overflow or a zero divisor: `VWAP` has no pair, so NaN, and neither it nor
+    `AverageDollarVolume` counts anything. (`AverageDollarVolume`'s value there is 3.4's
+    "NaN counted as 0", asked of the owner on #632, not fixed by this test.)"""
+    root = make_snapshot(tmp_path / "p", preset="tiny", markets=("KR",), degrade=["no_volume"])
+    with pytest.warns(UserWarning, match=r"\[E30\] F-18"):
+        result = run(root, {"vwap": VWAP(3), "adv": AverageDollarVolume(3)}, "2020-01-13",
+                     "2020-01-14")  # fmt: skip
+    assert all(math.isnan(v) for v in result.table["vwap"].to_pylist())
+    assert result.term_diagnostics.num_rows == 0
 
 
 def test_counts_do_not_depend_on_chunking(scenario: Path, monkeypatch: pytest.MonkeyPatch) -> None:
