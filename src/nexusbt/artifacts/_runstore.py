@@ -300,22 +300,30 @@ class RunTxn:
         _boundary("written")
 
     def capture_sources(
-        self, paths: Iterable[Path], *, project: Path | None = None, entry: Path | None
+        self,
+        paths: Iterable[Path],
+        *,
+        project: Path | None = None,
+        entry: Path | None,
+        outside: Mapping[str, str] | None = None,
     ) -> None:
         """5.9.3: the files inside `project` (paths kept), its toml and lock, params, git state.
 
         `entry` is the file the run started from (#283): one outside `project` goes to
         `source/_entry/<name>`, and the manifest's `source.entry` is its path under `source/`.
         `None` (an interactive session) warns; an entry file or engine lock that cannot be
-        copied aborts the run.
+        copied aborts the run. `outside` is 5.9.2's `source.outside`: module name → sha256 of
+        each project module (6.5 (6)) whose file is outside `project`, so not copied (#250).
         """
         try:
-            self._capture(paths, Path(project or Path.cwd()).resolve(), entry)
+            self._capture(paths, Path(project or Path.cwd()).resolve(), entry, outside or {})
         except OSError:
             self.abort()
             raise
 
-    def _capture(self, paths: Iterable[Path], project: Path, entry: Path | None) -> None:
+    def _capture(
+        self, paths: Iterable[Path], project: Path, entry: Path | None, hashed: Mapping[str, str]
+    ) -> None:
         lock = _engine_lock()
         if entry is not None and not Path(entry).is_file():
             raise FileNotFoundError(f"{entry}: the run's entry file is not a file")
@@ -333,7 +341,7 @@ class RunTxn:
             warnings.warn(
                 f"run {self.run_id}: no entry file, so `rerun` cannot run it", stacklevel=3
             )
-        self._manifest["source"] = {"entry": rel_entry}
+        self._manifest["source"] = {"entry": rel_entry, "outside": dict(sorted(hashed.items()))}
         for path in sorted(found):
             if path.is_relative_to(project) and path.is_file():  # installed packages stay out
                 shutil.copy2(path, self._out(f"source/{path.relative_to(project).as_posix()}"))
