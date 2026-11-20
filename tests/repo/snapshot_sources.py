@@ -239,13 +239,14 @@ class Trace:
             values = [v for n in self.tree.body if isinstance(n, ast.Assign)
                       for t in n.targets for v in _bound(e.id, t, n.value)]  # fmt: skip
             return bool(values) and all(self.part(v, None, depth + 1) for v in values)
-        values = _values(e.id, scope)
-        if e.id in _params(scope):
+        given: list[tuple[ast.expr, Scope]] = [(v, scope) for v in _values(e.id, scope)]
+        if e.id in _params(scope):  # what each caller gives, followed where it is given
             pos, calls = _params(scope).index(e.id), self._calls(scope.name)
-            values += [g for c in calls if (g := _arg(c, pos, e.id)) is not None]
+            given += [(g, self.scope.get(id(c))) for c in calls
+                      if (g := _arg(c, pos, e.id)) is not None]  # fmt: skip
             if not calls or e.id in self.funcs:
                 return False
-        return bool(values) and all(self.part(v, scope, depth + 1) for v in values)
+        return bool(given) and all(self.part(v, at, depth + 1) for v, at in given)
 
     def _calls(self, name: str) -> list[ast.Call]:
         """The calls of the module's function `name` by its bare name."""

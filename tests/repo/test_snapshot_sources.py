@@ -87,6 +87,15 @@ def test_a_snapshot_opened_from_a_synthetic_source_passes(body: str) -> None:
     assert findings(NAME, body) == []
 
 
+def test_a_join_a_caller_gives_is_followed_where_the_caller_is() -> None:
+    """#631's `part()` followed what a caller gives a helper inside the helper, not inside the
+    caller, so a name the caller loops over was never found there and the join was rejected."""
+    body = SYNTH + "def opened(at, name):\n    return nx.open(at / name)\n\n"
+    body += "def test_x(tmp_path):\n    for n in ('a', 'b'):\n"
+    body += "        opened(make_snapshot(tmp_path / 's'), n)\n"
+    assert findings(NAME, body) == []
+
+
 def test_a_finding_names_the_file_and_the_line() -> None:
     body = 'import nexusbt as nx\n\n\ndef test_x():\n    nx.open("data/snap")\n'
     assert findings(NAME, body) == [
