@@ -2,14 +2,22 @@
 
 A static check of one test module's syntax tree (#599). A snapshot is opened by
 `DataConfig(P)` or `DataConfig(path=P)`, `nexusbt`'s `open(P)` (or `open(path=P)`) under any
-name it or `nexusbt.api` is imported as, or a `snapshot=P` keyword (also inside `**{...}`).
-Each P is followed back inside the module (names, `/` joins, subscripts, fixtures, helpers
-and every caller of a helper called by its own name). It passes when it reaches, and only
-then:
+name it or `nexusbt.api` is imported as, a `snapshot=P` keyword (also inside `**{...}`), or
+`tds check` given P: `nexusbt_tds`'s `check(P)`, or a command whose `"check"` is followed by
+P (in a list, a tuple or a name bound to one) or written as one string. Each P is followed
+back inside the module (names, `/` joins, subscripts, fixtures, helpers and every caller of a
+helper called by its own name). It passes when it reaches, and only then, a call that writes
+a synthetic package, each known by where the module imports it from (`WRITES`):
 
-- `make_snapshot(root)`, imported from `nexusbt.testing.synth` and not defined in the module:
-  its package, written by the generator (4.8);
-- a helper of the module that returns one, or its `nx.open` snapshot.
+- `make_snapshot(root)` from `nexusbt.testing.synth`, not defined in the module: its package,
+  written by the generator (4.8);
+- `import_csv(mapping, out)` from `nexusbt_tds`, with `mapping` in the test's temporary folder
+  (`tmp_path`, `mktemp`), so from files the test wrote: the package it returns;
+- `shutil.copytree(src, dst)` with `src` synthetic: the copy it returns;
+- a helper of the module that returns one;
+- the paths inside one (`glob`, `rglob`, `iterdir`), or its `nx.open` snapshot.
+
+Data roots and the conformance packages are #599's next part.
 
 Any other call (`print`, `os.environ.get`, `os.path.join`, a method such as `.parent`)
 gives no source. A path that starts from a string literal never passes, nor a join whose
@@ -28,8 +36,21 @@ from collections.abc import Iterable, Iterator
 
 #: A literal that leaves the folder it is joined to, or names a place outside the test's.
 ESCAPES = re.compile(r"^(/|~|[A-Za-z]:[\\/])|(^|[\\/])\.\.([\\/]|$)")
-#: Where the generator comes from.
-SYNTH = "nexusbt.testing.synth"
+#: A literal after `"check"` that looks like a path rather than an option's value.
+PATHLIKE = re.compile(r"[\\/~]|^\.")
+#: A `tds check` command written as one string, and the calls that run such a string.
+COMMAND = re.compile(r"(\btds|\bnexusbt_tds)\b.*\bcheck\s+\S")
+RUNS = frozenset({"run", "call", "check_call", "check_output", "Popen", "system"})
+#: Calls whose result lists the paths inside their first argument, or that folder's contents.
+LISTS = frozenset({"sorted", "list", "tuple", "reversed"})
+INSIDE = frozenset({"glob", "rglob", "iterdir"})
+#: The calls that write a synthetic package: the module each comes from, and where its
+#: destination is given (position, keyword).
+WRITES = {
+    "make_snapshot": ("nexusbt.testing.synth", 0, "root"),
+    "import_csv": ("nexusbt_tds", 1, "out"),
+    "copytree": ("shutil", 1, "dst"),
+}
 #: A trace that came back to one still being followed: it neither passes nor fails.
 CYCLE = "cycle"
 
@@ -49,39 +70,44 @@ def _arg(call: ast.Call, pos: int, key: str) -> ast.expr | None:
     return call.args[pos] if found is None and pos < len(call.args) else found
 
 
-def _imports(tree: ast.Module) -> dict[str, set[str]]:
-    """What the module calls `nexusbt` (or its `api`), its `open` and the generator (as a
-    name, or the module it is reached through)."""
-    found: dict[str, set[str]] = {"modules": {"nx", "nexusbt"}, "open": set(), "synth": set()}
-    found["synth_modules"] = set()
-    names = {"open": "open", "make_snapshot": "synth", "api": "modules"}
-    what = {"nexusbt": {"open", "api"}, "nexusbt.api": {"open"}, SYNTH: {"make_snapshot"}}
+def _imports(tree: ast.Module) -> dict[str, str]:
+    """Each name the module imports, with the dotted name it stands for."""
+    names = {"nx": "nexusbt", "nexusbt": "nexusbt", "nexusbt_tds": "nexusbt_tds"}
+    names["shutil"] = "shutil"
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
-            key = {"nexusbt": "modules", "nexusbt.api": "modules", SYNTH: "synth_modules"}
-            for a in (a for a in node.names if a.name in key):
-                found[key[a.name]].add(a.asname or a.name)
-        elif isinstance(node, ast.ImportFrom) and node.module in what:
-            for a in (a for a in node.names if a.name in what[node.module]):
-                found[names[a.name]].add(a.asname or a.name)
-    return found
+            for a in node.names:
+                head = a.name.partition(".")[0]
+                names[a.asname or head] = a.name if a.asname else head
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            names |= {a.asname or a.name: f"{node.module}.{a.name}" for a in node.names}
+    return names
 
 
-def _called(call: ast.Call, names: set[str], modules: set[str], attr: str) -> bool:
-    """`call` is `attr` under one of `names`, or `<one of modules>.attr`."""
-    f = call.func
-    if isinstance(f, ast.Name):
-        return f.id in names
-    return isinstance(f, ast.Attribute) and f.attr == attr and ast.unparse(f.value) in modules
+def _is(call: ast.Call, names: dict[str, str], module: str, attr: str) -> bool:
+    """`call` is `attr` of `module` (or of a module inside it), under the module's names."""
+    head, dot, rest = ast.unparse(call.func).partition(".")
+    full = names.get(head, head) + dot + rest
+    return full.startswith(module + ".") and full.endswith("." + attr)
+
+
+def _items(e: ast.expr, assigned: dict[str, list[ast.expr]]) -> list[ast.expr]:
+    """A command's words: a list or tuple, or a name bound once to one in the module."""
+    if isinstance(e, ast.Name) and len(assigned.get(e.id, [])) == 1:
+        e = assigned[e.id][0]
+    return list(e.elts) if isinstance(e, ast.List | ast.Tuple) else [e]
 
 
 def openings(tree: ast.Module) -> Iterator[tuple[ast.Call, ast.expr]]:
     """Each call that opens a snapshot, with the expression of the path it opens."""
-    i = _imports(tree)
+    names, assigned = _imports(tree), dict[str, list[ast.expr]]()
+    for bind in (b for b in ast.walk(tree) if isinstance(b, ast.Assign)):
+        for t in (t for t in bind.targets if isinstance(t, ast.Name)):
+            assigned.setdefault(t.id, []).append(bind.value)
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
-        config, opens = _name(node) == "DataConfig", _called(node, i["open"], i["modules"], "open")
+        config, opens = _name(node) == "DataConfig", _is(node, names, "nexusbt", "open")
         named = [(k.arg, k.value) for k in node.keywords if k.arg]
         for k in node.keywords:  # `**{"snapshot": P}`
             if k.arg is None and isinstance(d := k.value, ast.Dict):
@@ -89,8 +115,20 @@ def openings(tree: ast.Module) -> Iterator[tuple[ast.Call, ast.expr]]:
                           if isinstance(c, ast.Constant) and isinstance(c.value, str)]  # fmt: skip
         paths = ("path",) if config or opens else ()
         yield from ((node, v) for k, v in named if k == "snapshot" or k in paths)
-        if node.args and (config or opens):
+        checks = _is(node, names, "nexusbt_tds", "check")
+        if node.args and (config or opens or checks):
             yield node, node.args[0]
+        lists = [_items(a, assigned) for a in [*node.args, *(v for k, v in named if k == "args")]]
+        for words in [node.args, *lists]:  # `"check"` and its path in one list, or one call
+            for n, w in enumerate(words):
+                after = words[n + 1 :] if isinstance(w, ast.Constant) and w.value == "check" else []
+                for a in after:  # the path, not the options and their values
+                    if not isinstance(a, ast.Constant) or PATHLIKE.search(str(a.value)):
+                        yield node, a
+                        break
+        for w in (w for words in lists for w in words if _name(node) in RUNS):
+            if isinstance(w, ast.Constant | ast.JoinedStr | ast.BinOp):
+                yield from [(node, w)] if COMMAND.search(ast.unparse(w)) else []
 
 
 def _chain(e: ast.expr) -> Iterator[ast.expr]:
@@ -143,7 +181,16 @@ def _returned(fn: ast.AST) -> Iterator[ast.expr]:
             yield from _returned(node)
 
 
+def _empty(e: ast.expr) -> bool:
+    """`e` is an empty list, tuple, set or dict, written as one."""
+    items = e.keys if isinstance(e, ast.Dict) else getattr(e, "elts", None)
+    return isinstance(e, ast.List | ast.Tuple | ast.Set | ast.Dict) and not items
+
+
 def _bound(name: str, target: ast.expr, value: ast.expr) -> Iterator[ast.expr]:
+    """What binding `target` to `value` binds `name` to; `name[...] = value` counts."""
+    if isinstance(target, ast.Subscript):
+        target = target.value
     if isinstance(target, ast.Name) and target.id == name:
         yield value
     elif isinstance(target, ast.Tuple | ast.List):
@@ -181,7 +228,7 @@ class Trace:
     def __init__(self, tree: ast.Module) -> None:
         self.tree = tree
         self.funcs = {n.name: n for n in tree.body if isinstance(n, Function)}
-        self.imports = _imports(tree)
+        self.names = _imports(tree)
         self.scope: dict[int, Function] = {}  # a node → the function it is in
         self._nest(tree, None)
         self.memo: dict[tuple[int, int], Kind] = {}
@@ -222,7 +269,7 @@ class Trace:
             return self.source(e.value, fn)
         if isinstance(e, ast.List | ast.Tuple | ast.Set | ast.Dict):
             items = e.values if isinstance(e, ast.Dict) else e.elts
-            return _all(self.source(x, fn) for x in items)
+            return _all(self.source(x, fn) for x in items) if items else CYCLE  # empty: no say
         if isinstance(e, ast.Name):
             return self._name_source(e, fn)
         return None  # an attribute such as `.parent`, `+`, anything else
@@ -257,16 +304,51 @@ class Trace:
         ]
 
     def _call(self, e: ast.Call, fn: Scope) -> Kind:
-        name, i = _name(e), self.imports
-        if e.args and (name in {"str", "Path"} or _called(e, i["open"], i["modules"], "open")):
-            return self.source(e.args[0], fn)  # the same path, or its snapshot
+        name = _name(e)
+        if e.args and (name in {"str", "Path", *LISTS} or _is(e, self.names, "nexusbt", "open")):
+            return self.source(e.args[0], fn)  # the same path, a list of them, or its snapshot
+        if isinstance(e.func, ast.Attribute) and name in INSIDE:
+            return self.source(e.func.value, fn)  # the paths inside a synthetic folder
         helper = self.funcs.get(name) if isinstance(e.func, ast.Name) else None
         if helper is not None:  # the module's own: judged by what it returns
             return _all(self.source(r, helper) for r in _returned(helper))
-        if _called(e, i["synth"], i["synth_modules"], "make_snapshot"):
-            root = _arg(e, 0, "root")
-            return "make_snapshot" if root is not None and not _literal(root) else None
-        return None
+        return self._writer(e) if self._writes(e, fn) is not None else None
+
+    def _writer(self, call: ast.Call) -> str | None:
+        return next((w for w, (m, *_) in WRITES.items() if _is(call, self.names, m, w)), None)
+
+    def _writes(self, call: ast.Call, fn: Scope) -> ast.expr | None:
+        """Where `call`, one of `WRITES`, writes a synthetic package; None when it does not."""
+        writer = self._writer(call)
+        dest = None if writer is None else _arg(call, *WRITES[writer][1:])
+        if dest is None or _literal(dest):
+            return None
+        if writer == "import_csv":
+            mapping = _arg(call, 0, "mapping")
+            return dest if mapping is not None and self._temporary(mapping, fn) else None
+        source = _arg(call, 0, "src")
+        synthetic = source is not None and _good(self.source(source, fn))
+        return dest if writer == "make_snapshot" or synthetic else None
+
+    def _temporary(self, e: ast.expr, fn: Scope, depth: int = 0) -> bool:
+        """`e` lies in pytest's temporary folder for the test (`tmp_path`, `mktemp`), as every
+        binding of it, or every caller that gives it, says."""
+        base = [*_chain(e)][-1]
+        if isinstance(base, ast.Call):
+            return _name(base) == "mktemp"
+        if fn is None or not isinstance(base, ast.Name) or depth > len(self.funcs) + 8:
+            return False
+        params = _params(fn)
+        if base.id == "tmp_path" and base.id in params:
+            return True
+        given: list[tuple[ast.expr, Scope]] = [
+            (v, fn) for v in _values(base.id, fn) if not _empty(v)
+        ]
+        if base.id in params and base.id not in self.funcs:
+            pos = params.index(base.id)
+            given += [(g, self.scope.get(id(c))) for c in self._calls(fn.name)
+                      if (g := _arg(c, pos, base.id)) is not None]  # fmt: skip
+        return bool(given) and all(self._temporary(v, at, depth + 1) for v, at in given)
 
     def _name_source(self, e: ast.Name, fn: Scope) -> Kind:
         scope = fn
