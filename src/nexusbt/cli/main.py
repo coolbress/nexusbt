@@ -8,11 +8,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
+import warnings
 import zipfile
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from importlib import metadata
 from pathlib import Path
+from typing import Any
 
 from nexusbt import api
 from nexusbt.api import _doctor as api_doctor
@@ -76,14 +79,38 @@ def main(argv: Sequence[str] | None = None) -> int:
     for flag in ("--new-snapshot", "--trust", "--save-detail"):  # 3.10's row
         sub["rerun"].add_argument(flag, action="store_true")
     commands.add_parser("bugreport", help="bundle a run for a bug report").add_argument("run_id")
-    try:
-        return _run(parser.parse_args(argv))
-    except EngineBugError as bug:  # 6.6 E46, from any command: exit code 2
-        print(bug, file=sys.stderr)
-        return 2
-    except NexusBTError as error:  # 3.10: a user error is exit code 1
-        print(error, file=sys.stderr)
-        return 1
+    with warnings.catch_warnings():  # the printer is put back when the command returns
+        warnings.showwarning = _printer(warnings.showwarning)
+        try:
+            return _run(parser.parse_args(argv))
+        except EngineBugError as bug:  # 6.6 E46, from any command: exit code 2
+            print(bug, file=sys.stderr)
+            return 2
+        except NexusBTError as error:  # 3.10: a user error is exit code 1
+            print(error, file=sys.stderr)
+            return 1
+
+
+#: The first line of 6.6's shape, `{ClassName} [{code}]`, which the engine's warnings carry.
+_SHAPE = re.compile(r"[A-Z]\w* \[E\d+\]")
+
+
+def _printer(python: Callable[..., None]) -> Callable[..., None]:
+    """3.10 (#649): a 6.6 warning on standard error as its own lines, as an error is, without
+    Python's `file:line: UserWarning:` and the source line, and each text once in a command.
+    Python applies the person's filters (`-W`, `PYTHONWARNINGS`) before it prints, so they act
+    as before; any other warning goes to `python`, Python's printer."""
+    shown: set[str] = set()
+
+    def show(message: Warning | str, category: type[Warning], *rest: Any, **kw: Any) -> None:
+        text = str(message)
+        if not _SHAPE.match(text):
+            python(message, category, *rest, **kw)
+        elif text not in shown:
+            shown.add(text)
+            print(text, file=sys.stderr)
+
+    return show
 
 
 def _run(args: argparse.Namespace) -> int:
