@@ -21,7 +21,35 @@ parity failure; when the two engines differ elsewhere, the hand calculation (T-2
   (a price level is refused, a ratio and a rank of prices pass). zipline refuses by the flag, so
   a ratio `CustomFactor` without it passes in the engine and is refused by zipline.
 - Spec 8.1 lists the others it knows, compared around as it says: missing values under Filter
-  `~`, tie-breaking of `top` and `rank("ordinal")`, and `VWAP` with a NaN close and a volume.
+  `~`, tie-breaking of `top` and `rank("ordinal")` (compared with `tiebreak = "id"`), and `VWAP`
+  with a NaN close and a volume.
+- `MaxDrawdown` (#253 Decisions, 2026-11-18, PR #546): the engine divides the drop by the
+  running peak, as spec 3.4 says; zipline 3.2.1 divides by the trough. Not compared; the golden
+  case in `tests/golden/factors/` holds the engine's.
+
+## Found by L1-d (ADR 0046, #253)
+
+The test computes both rules from the input values, never from either engine's output, and
+fixes for each case and market the cells compared and left out (`L1D_EXPECTED`).
+
+- `quantiles`: the engine's bucket is 5.4.3's mean-rank `ceil(r q / n)`, 1..q; zipline's is
+  `pandas.qcut` on the values, 0..q-1, and stops the pipeline when two edges are equal. Cells
+  the two buckets differ on are left out.
+- `percentile_between`: the engine's mean-rank percentile (5.4.2) against zipline's values
+  between numpy's linear percentiles; cells on different sides of a bound are left out.
+- `zscore`: the engine adds in the 5.3.10 order, numpy pairwise; compared within L1-a's
+  tolerance.
+- `rank(groupby=)`: groups are `quantiles`, so a cell can be in another group on each side; the
+  cells whose rank in their group differs between the two groupings are left out. zipline ranks a group with a NaN cell as all
+  NaN (scipy's `rankdata`), so both sides pass `mask=x.notnan()`.
+- A Filter outside its mask is unknown in the engine (3.3) and false in zipline: compared as the
+  set of true cells.
+- An instrument on its last session is in the engine's cross-section and not in zipline's;
+  zipline's rules are computed without it, and `zscore` leaves that session out when its x is
+  finite.
+- zipline reads a price as uint32 x 0.001, not always the nearest double of the 3-decimal price,
+  and some KR closes carry the generator's 1-ULP wobble (4.8 (5)): a value within a rounding of
+  another (1e-14) and not equal to it can change order, and is left out of the cases that order.
 
 ## Found by L1 (ADR 0045, spec 8.1, #252)
 

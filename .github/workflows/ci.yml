@@ -45,8 +45,12 @@ permissions:
 
 jobs:
   ci:
-    uses: coolbress/plinth/.github/workflows/python-ci.yml@8fd50527f4c04c1a30f3d0f65f958b0f5a1a2695
+    uses: coolbress/plinth/.github/workflows/python-ci.yml@1ce6fbe65450e98f62366ed4de109b6152590fd9
     with:
+      # `ci / test`'s limit (plinth's input since v2.34.0, default 10). On main the
+      # same code ran 6 min 26 s to 9 min 27 s and pull requests' runs stopped at
+      # 10 minutes with no test failed (#625); pytest stops 2 minutes before this.
+      test-timeout-minutes: 20
       # pyproject declares `requires-python = ">=3.13"` and `.python-version` is
       # 3.13, so there is no other version to test: a value here would run the
       # whole suite a second time on the same interpreter (#378). When
