@@ -25,6 +25,9 @@ from nexusbt.api import describe as describe
 # `open` [V31-PUB-03], T1.1a (#232): one package path, or a parent folder with `LATEST`.
 from nexusbt.api import open as open  # noqa: A004 - the 3.1 name; `builtins.open` is untouched
 
+# `rerun`, T1.15 (#250): a saved run again in a new process, its outputs compared.
+from nexusbt.api import rerun as rerun
+
 # `run_pipeline` and its result `PipelineResult`, T1.13 (#249).
 from nexusbt.api import run_pipeline as run_pipeline
 
