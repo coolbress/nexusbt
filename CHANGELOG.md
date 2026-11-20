@@ -18,7 +18,8 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `environment.machine_id` is the same in every process on a host (#635). On a host
   with no machine-id file where Python finds no hardware address (seen on macOS), it
   was the hash of a random number chosen anew in each process; it is now the hardware
-  UUID on macOS, and `"unknown"` where no host id can be read. A run sealed on such a
-  host before this fix records an id no process matches, so once `rerun` lands
+  UUID on macOS, and `"unknown"` where no host id can be read. A run sealed on any
+  macOS host before this fix records an id that is no longer this host's (the random
+  number, or the network address used before), so once `rerun` lands
   (#250) it will refuse such a run as another machine's (E31): read its `source/`,
   then run it with `nx.rerun(id, trust=True)` or `nexusbt rerun ID --trust`.
