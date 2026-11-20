@@ -19,6 +19,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+from snapshot_sources import GUARD, RUNNER, findings
 
 ROOT = Path(__file__).resolve().parents[2]
 WORDS_ENV = "NEXUSBT_HYGIENE_WORDS_FILE"
@@ -148,6 +149,16 @@ def test_tds_public_has_no_producer_names() -> None:
 
 def test_no_data_files() -> None:
     assert data_files(repo_files(ROOT)) == []
+
+
+def test_fixtures_are_synthetic() -> None:
+    """2.7: every place in `tests/**` that opens a snapshot takes its path from a synthetic
+    source, as `snapshot_sources` traces it in each module's code (#599)."""
+    guard, runner = ((ROOT / p).read_text("utf-8") for p in (GUARD[0], RUNNER))
+    found = [f for name in repo_files(ROOT) if name.startswith("tests/") and name.endswith(".py")
+             and (text := read_text(ROOT / name)) is not None
+             for f in findings(name, text, guard, runner=runner)]  # fmt: skip
+    assert found == []
 
 
 def test_license_headers() -> None:
