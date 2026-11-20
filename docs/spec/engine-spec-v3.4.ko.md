@@ -2727,7 +2727,7 @@ v3 추가: T-18 직사각형 조회 — 미리 발표된 미래 효력 행이 �
 
 | id | 성질 | 생성 |
 |---|---|---|
-| P-CHUNK | 묶음 크기 1년/3년/전체에서 모든 노드 값 비트 동일 [INV-03] | 합성 small, 무작위 그래프 |
+| P-CHUNK | 묶음 크기 1년/3년/전체에서 모든 노드 값 비트 동일 [INV-03] | 합성 small과 그 늦은 바 변형(4.8 규칙 3a), 무작위 그래프 |
 | P-PERM | 종목 열 순서를 섞어도 결과 동일 [INV-04] | |
 | P-CACHE | 캐시 적중 = 미적중 [INV-05] | |
 | P-FUT | 시각 τ 뒤 자료(`ts_available > τ`인 행: 봉, 사건 판(`ts_known > τ`), 폐지 회수액, 환율, 재무)를 지운 스냅숏과 원래 스냅숏에서 `decision_ts ≤ τ` 판단의 목표·주문 동일; 조건이 늦은 사건 판(금액 정정)을 지워도 그 전 판단 같음; 공개 정보가 같고 사후 금액만 다른 두 스냅숏은 모든 세션의 주문(과 `nav_decision`)이 같고 보고 계열(`nav_economic`과 그로 만든 것)만 다름; `nx.ml.factor` 노드가 있으면(#270) τ 뒤 행을 같은 연도 파티션에 더한 스냅숏은 τ 이전 모든 판단에서 같은 `fit_id`·seed·예측·목표를 내고, 훈련 표본의 특징이나 정답 값 하나를 정정하면 `fit_id`가 달라져 앞 학습을 재사용하지 않음(그 예측은 바뀔 수 있다; 모형이 그 값에 둔감할 때만 같으며, 시험은 어느 쪽도 가정하지 않는다) [INV-01, INV-02, R3-01, 5.3.11] | 무작위 τ; G-42 고정 사례 포함 |
@@ -2924,7 +2924,7 @@ README·`docs/`·`examples/`의 ```python 블록 중 `<!-- test -->` 표시가 �
 | 검사 이름 | 내용 | 로컬 명령 | 필수 시작 |
 |---|---|---|---|
 | `engine / parity` | `tests/parity` 환경(Python 3.12, zipline-reloaded 3.2.1)에서 합성 small로 L1·L2 실행 → 엔진 쪽 비교 pytest | `uv sync --project tests/parity --locked && uv run --project tests/parity python -m parity.run --suite all --fixture small && uv run pytest -m parity` | M1 끝(L1), M3 끝(L2) |
-| `engine / property-deep` | hypothesis `deep` 프로필(예 500 사례) | `uv run pytest -m property --hypothesis-profile=deep` | M1 |
+| `engine / property-deep` | hypothesis `deep` 프로필(예 500 사례) | `uv run pytest -m property --hypothesis-profile=deep --hypothesis-show-statistics` | M1 |
 | `engine / perf-smoke` | 7장 CI 성능 연기 시험 | `uv run pytest -m perf_smoke` | M3 |
 | `engine / docs-examples` | 8.5 (기본 `ci / test`에도 들어가지만, `examples/` 전체 실행은 여기) | `uv run pytest tests/docs -m examples` | M2 |
 | `tds / conformance` | **TDS 적합성 검사기 패키지**(`tds/`)의 자체 시험(8.4a: 코드마다 pass·fail 패키지), 그리고 합성 `tiny`·`small`과 모든 `degrade` 조합에 `tds check --level full` | `uv run --package nexusbt-tds pytest tds/tests && uv run python -m nexusbt.testing.synth --preset small --out .scratch/snap --validate` | M0 (T0.14c 끝; `full` 단계는 M1 끝) |
@@ -2935,6 +2935,8 @@ README·`docs/`·`examples/`의 ```python 블록 중 `<!-- test -->` 표시가 �
 계산 기계 수동(필수 검사 아님, 마일스톤 끝 요약 증거 커밋): 전체 성능 `uv run python bench/run.py --all --snapshot <id>`, 실제 자료 대조 `uv run --project tests/parity python -m parity.run --suite all --fixture real:<id>`.
 
 pytest 표시: `unit`, `golden`, `property`, `docs`, `examples`, `parity`, `perf_smoke`, `slow`, `repo`.
+
+`ci / test`의 시간 한도 안에서 `ci` 프로필로 돌리기에 너무 느린 property 시험은 `property`와 함께 `slow`를 단다: 기본 실행은 그것을 빼고, `engine / property-deep`(`-m property`)이 그 시험이 스스로 정한 사례 수로 돌린다(결정 2026-11-20, #254). 이 job은 property 시험마다 사례 수를 출력한다(`--hypothesis-show-statistics`).
 
 **TDS 패키지 운영** (따로 판 매김): `tds/`는 엔진과 같은 저장소의 uv workspace 멤버이지만 판·변경 기록(`tds/CHANGELOG.md`)·태그가 따로다. 배포 상태는 **초안 → RC → 1.0**(태그 `tds-v1.0.0-rc.N` → `tds-v1.0.0`; `tds_version` 문자열은 `MAJOR.MINOR` 그대로 `"1.0"`). 1.0 졸업 조건(TDS 10.5): 독립 생산자 1개(가져오기 도구 경유 가능)와 생산자 내보내기 1개가 `full` 통과, 엔진이 둘을 읽어 같은 예제가 돎, 해시 시험 벡터가 두 구현에서 일치 [RV-I07]. TDS 문서·스키마·검사기를 바꾸는 PR은 제목 범위 `tds`(예 `feat(tds): …`)를 쓰고, TDS 10.2의 MINOR/MAJOR 규칙에 따라 `tds_version`을 올린다. 엔진은 `nexusbt-tds`의 판 범위(`>=1.0,<2`)를 의존으로 적는다. 참조 생산자도 같은 패키지(`pip install nexusbt-tds` 또는 저장소 경로)로 내보내기 직후 `full` 검사를 돈다. `pyproject.toml`의 `addopts = "-m 'not parity and not perf_smoke and not examples and not slow' --hypothesis-profile=ci"`.
 
