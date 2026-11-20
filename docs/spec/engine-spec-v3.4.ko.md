@@ -947,7 +947,7 @@ write: orders.to_csv("orders/{date}.csv")   apply to paper book: nx.fill(book, o
 
 ### 3.10 CLI [R-09]
 
-`nexusbt <명령>`은 같은 이름의 API를 부르고 같은 글자를 출력한다. 종료 코드: 0 성공, 1 사용자 오류(`NexusBTError`), 2 내부 오류, 3 자료 대기(`DataAvailabilityError`, live 전용), 4 대조 불일치(`reconcile`의 `reconciled: NO`, `rerun`의 `outputs differ`).
+`nexusbt <명령>`은 같은 이름의 API를 부르고 같은 글자를 출력한다. 종료 코드: 0 성공, 1 사용자 오류(`NexusBTError`), 2 내부 오류, 3 자료 대기(`DataAvailabilityError`, live 전용), 4 대조 불일치(`reconcile`의 `reconciled: NO`, `--new-snapshot` 없는 `rerun`의 `outputs differ`).
 
 | 명령 | 인자 |
 |---|---|
