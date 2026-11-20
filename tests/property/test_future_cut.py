@@ -119,6 +119,18 @@ def test_a_dataset_left_without_rows_keeps_one_empty_file(original: Path) -> Non
     assert check(at, level="schema").error_count == 0
 
 
+def test_a_late_bar_is_cut_until_it_is_available(original: Path) -> None:
+    """On `late_bars`, τ after a bar's close and before its `ts_available` (KR:T00001's bar of
+    2017-12-12) cuts it: the bars kept are those available by τ, not those closed by τ."""
+    tau, at = dt.datetime(2017, 12, 13, 3, 0, tzinfo=dt.UTC), original.parent / "late-bar"
+    column = known(original)["bars_1d"]
+    late = [r for r in rows(original, "bars_1d") if r["ts_end"] <= tau < r[column]]
+    assert bool(late) == (column == "ts_available")  # only the late-bar variant has some
+    cut_after(shutil.copytree(original, at), tau)
+    kept = [r for r in rows(original, "bars_1d") if r[column] <= tau]
+    assert sorted(map(repr, kept)) == sorted(map(repr, rows(at, "bars_1d")))
+
+
 def test_tau_before_the_first_close_is_refused(original: Path) -> None:
     at = shutil.copytree(original, original.parent / "before")
     with pytest.raises(ValueError, match="before KR's first close"):
