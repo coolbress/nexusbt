@@ -201,9 +201,18 @@ def test_full_check_finds_only_the_rows_allowed(original: Path, tau: dt.datetime
     cut_after(at, tau)
     found = check(at, level="full")
     assert {e.code for e in found.errors} <= {"TDS-D001", "TDS-D003"}
-    seen = {(e.code, str(e.dataset), str((e.key or {}).get("instrument_id"))): e.count
-            for e in found.errors}  # fmt: skip
-    assert seen == expected_findings(original, tau)
+    assert "TDS-D001" not in found.unchecked  # the density check read the package
+    # The checker gives one finding per code and dataset: the first instrument it met as its
+    # key, the rows of every instrument as its count. Compare those, not one per instrument.
+    expected: dict[tuple[str, str], tuple[int, set[str]]] = {}
+    for (code, name, instrument), n in expected_findings(original, tau).items():
+        count, ids = expected.get((code, name), (0, set()))
+        expected[(code, name)] = (count + n, ids | {instrument})
+    seen = {(e.code, str(e.dataset)): e for e in found.errors}
+    assert seen.keys() == expected.keys()
+    for at_key, e in seen.items():
+        assert e.count == expected[at_key][0], at_key
+        assert str((e.key or {}).get("instrument_id")) in expected[at_key][1], at_key
     assert found.error_count == len(found.errors)  # none left out of the list
     if tau in (TAUS[2], TAU):
         assert found.error_count == 0
