@@ -21,10 +21,12 @@ _GETHOSTUUID_WAIT_SECONDS = 2  # the kernel answers at once; bounded so a seal n
 
 def _darwin_host_uuid() -> str | None:
     """macOS's hardware UUID from gethostuuid(2), or None when the call fails."""
-    libc = ctypes.CDLL(None)
     found = (ctypes.c_ubyte * 16)()
     wait = (ctypes.c_long * 2)(_GETHOSTUUID_WAIT_SECONDS, 0)  # a timespec; 0 waits forever
-    if libc.gethostuuid(found, wait) != 0:
+    try:
+        if ctypes.CDLL(None).gethostuuid(found, wait) != 0:
+            return None
+    except (OSError, AttributeError):  # no libc to open, or no such symbol: unread, not a crash
         return None
     return str(uuid.UUID(bytes=bytes(found)))
 

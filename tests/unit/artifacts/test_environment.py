@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import ctypes
 import json
-import subprocess
-import sys
+import multiprocessing
 import uuid
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -13,17 +14,16 @@ import pytest
 from nexusbt.artifacts import RunStore, _environment
 from nexusbt.artifacts._environment import machine_id, same_machine
 
-_PRINT_ID = "from nexusbt.artifacts._environment import machine_id; print(machine_id())"
-
 
 def test_two_processes_on_one_host_give_the_same_machine_id() -> None:
-    def one_process() -> str:
-        done = subprocess.run(  # noqa: S603 - this interpreter and the literal above
-            [sys.executable, "-c", _PRINT_ID], capture_output=True, text=True, check=True
-        )
-        return done.stdout.strip()
+    def one_process() -> str | None:
+        spawn = multiprocessing.get_context("spawn")  # a fresh interpreter, not a fork
+        with ProcessPoolExecutor(max_workers=1, mp_context=spawn) as pool:
+            return pool.submit(machine_id).result()
 
-    assert one_process() == one_process()
+    first = one_process()
+    assert first is not None  # this host has an id: the machine-id files, macOS, or a MAC
+    assert one_process() == first
 
 
 def no_host_id(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, node: int) -> None:
@@ -43,6 +43,16 @@ def test_python_s_random_stand_in_node_is_not_a_host_id(
 def test_a_hardware_address_is_a_host_id(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     no_host_id(monkeypatch, tmp_path, 0x0200_0000_0001)  # unicast
     assert machine_id() == "fe0a29e37dd070ea"  # printf 020000000001 | shasum -a 256
+
+
+def test_a_hardware_uuid_call_that_cannot_be_made_is_unread(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def no_libc(_name: object) -> object:
+        raise OSError("no libc")
+
+    monkeypatch.setattr(ctypes, "CDLL", no_libc)
+    assert _environment._darwin_host_uuid() is None
 
 
 def test_a_run_sealed_without_a_host_id_records_unknown(
