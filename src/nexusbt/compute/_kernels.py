@@ -57,21 +57,34 @@ def window_sum(values: F64, window: int, rows: npt.NDArray[np.int64]) -> F64:
 # The built-in factors' window kernels (3.4) take one `(W, N)` window, row t last, and return
 # `(N,)`. `nanmean`, `nanstd` and `nansum` are "the sum of the non-NaN values added from the left
 # in ascending row order" (3.4); a variance is two passes, the mean first (5.3.10 (2)).
+# Only an input cell is skipped (5.4.1, #632): an overflow is carried through the kernel's own
+# arithmetic and comparisons as IEEE 754 carries it, and comes out as ±inf when it does; a
+# division by a zero of either sign is NaN, its cells named by the `*_zero` functions.
+
+
+def _fold(x: F64, keep: Mask) -> tuple[F64, npt.NDArray[np.int64]]:
+    """Per column, the left fold of the cells where `keep` is true and their count."""
+    acc, n = np.zeros(x.shape[1]), np.zeros(x.shape[1], dtype=np.int64)
+    for r in range(len(x)):
+        acc = acc + np.where(keep[r], x[r], 0.0)
+        n = n + keep[r]
+    return acc, n
 
 
 def _finite_fold(x: F64) -> tuple[F64, npt.NDArray[np.int64]]:
     """Per column, the left fold of the finite cells and their count."""
-    seen = np.isfinite(x)
-    acc, n = np.zeros(x.shape[1]), np.zeros(x.shape[1], dtype=np.int64)
-    for r in range(len(x)):
-        acc = acc + np.where(seen[r], x[r], 0.0)
-        n = n + seen[r]
-    return acc, n
+    return _fold(x, np.isfinite(x))
+
+
+def returns_zero(x: F64) -> Mask:
+    """`Returns`' columns that divide by a zero: `x[0]` is 0 and `x[-1]` is not NaN."""
+    found: Mask = (x[0] == 0) & ~np.isnan(x[-1])
+    return found
 
 
 def window_returns(x: F64) -> F64:
-    """`Returns`: `x[-1]/x[0] - 1`, NaN when either end is NaN."""
-    found: F64 = x[-1] / x[0] - 1.0
+    """`Returns`: `x[-1]/x[0] - 1`, NaN when either end is NaN or `x[0]` is a zero."""
+    found: F64 = np.where(returns_zero(x), np.nan, x[-1] / x[0] - 1.0)
     return found
 
 
@@ -83,9 +96,11 @@ def window_nanmean(x: F64) -> F64:
 
 
 def window_nansum_mean(x: F64) -> F64:
-    """`AverageDollarVolume`: the finite cells' sum over all W rows, a NaN counting as 0."""
-    acc, _ = _finite_fold(x)
-    found: F64 = acc / len(x)
+    """`AverageDollarVolume`: the cells' sum over all W rows, a NaN counting as 0; an `inf`
+    cell is a `close * volume` that overflowed, carried; a NaN only it made (`inf - inf`) comes
+    out as `inf`."""
+    acc, _ = _fold(x, ~np.isnan(x))
+    found: F64 = np.where(np.isnan(acc), np.inf, acc / len(x))
     return found
 
 
@@ -94,7 +109,7 @@ def window_nanstd(x: F64, ddof: int) -> F64:
     Equal cells have 0 even when the folded mean misses them by a rounding, as in `zscore`."""
     acc, n = _finite_fold(x)
     deviation = x - acc / np.maximum(n, 1)
-    squares, _ = _finite_fold(deviation * deviation)
+    squares, _ = _fold(deviation * deviation, np.isfinite(x))  # an overflowed square is carried
     low, high = np.full(x.shape[1], np.inf), np.full(x.shape[1], -np.inf)
     for r in range(len(x)):  # NaN is skipped by fmin and fmax; an infinite cell is not finite
         finite = np.where(np.isfinite(x[r]), x[r], np.nan)
@@ -104,9 +119,25 @@ def window_nanstd(x: F64, ddof: int) -> F64:
     return np.where(equal & (n > ddof), 0.0, found)
 
 
+def daily_zero(x: F64) -> Mask:
+    """`AnnualizedVolatility`'s columns with a daily return over a zero price: `x[i]` is 0 and
+    `x[i+1]` is not NaN."""
+    found: Mask = ((x[:-1] == 0) & ~np.isnan(x[1:])).any(axis=0)
+    return found
+
+
+def daily_overflow(x: F64) -> Mask:
+    """`AnnualizedVolatility`'s columns with a daily return that overflowed."""
+    with np.errstate(all="ignore"):
+        found: Mask = (np.isinf(x[1:] / x[:-1]) & (x[:-1] != 0)).any(axis=0)
+    return found
+
+
 def window_annualized_volatility(x: F64, annualization_factor: float) -> F64:
     """`AnnualizedVolatility` over W + 1 prices: the W daily returns' standard deviation with
-    ddof 0, times `sqrt(annualization_factor)`; NaN when no return is finite."""
+    ddof 0, times `sqrt(annualization_factor)`; NaN when no return is finite. A return over a
+    zero price, or one that overflows, is NaN as `DailyReturns`' own value and left out (3.4,
+    #632); `daily_zero` and `daily_overflow` name those columns for the count."""
     daily: F64 = x[1:] / x[:-1] - 1.0
     found: F64 = window_nanstd(daily, 0) * np.sqrt(annualization_factor)
     return found
@@ -155,45 +186,70 @@ def ewma_weights(window: int, decay_rate: float) -> F64:
 
 
 def window_ewma(x: F64, weights: F64) -> F64:
-    """`EWMA`: `sum(x * w) / sum(w)`, each a left fold in row order; NaN when any cell is NaN."""
+    """`EWMA`: `sum(x * w) / sum(w)`, each a left fold in row order; NaN when any cell is NaN.
+    A NaN that only an overflow made (`inf - inf`) comes out as `inf`."""
     acc, total = np.zeros(x.shape[1]), fold_sum(weights)
     for r in range(len(x)):
         acc = acc + x[r] * weights[r]
-    found: F64 = acc / total
+    found: F64 = np.where(np.isnan(acc) & ~np.isnan(x).any(axis=0), np.inf, acc / total)
     return found
 
 
 def window_vwap(close: F64, volume: F64) -> F64:
     """`VWAP`: `sum(close * volume) / sum(volume)` over the rows whose close and volume are both
-    finite; NaN with no such pair or when their volume sums to 0 (3.4, #278)."""
+    finite; NaN with no such pair or when their volume sums to 0 (3.4, #278). An overflowed
+    product or sum gives `inf`: a division by an infinite Σ volume is not the formula's value."""
     pair = np.isfinite(close) & np.isfinite(volume)
-    paid, n = _finite_fold(np.where(pair, close * volume, np.nan))
-    traded, _ = _finite_fold(np.where(pair, volume, np.nan))
+    paid, n = _fold(close * volume, pair)
+    traded, _ = _fold(volume, pair)
     some = (n > 0) & (traded != 0)
     found: F64 = np.where(some, paid / np.where(some, traded, 1.0), np.nan)
-    return found
+    return np.where(some & ~(np.isfinite(paid) & np.isfinite(traded)), np.inf, found)
 
 
 def window_rsi(x: F64) -> F64:
     """`RSI`: with `d` the W - 1 differences, `up` the mean of `max(d, 0)` and `dn` that of
     `-min(d, 0)`, each over the finite differences (a clipped 0 counts); `100 - 100/(1 + up/dn)`,
-    as zipline: 100 when only `dn` is 0, NaN when both are."""
+    as zipline: 100 when only `dn` is 0, NaN when both are. A difference of two finite cells
+    counts even when it overflows. `up/dn` overflowing from two finite means gives 100, the
+    formula's value; a mean that overflowed itself, beside another that is not 0, comes out as
+    `inf` (100, 0 or `inf / inf` there are not the formula's value, #632)."""
     d = x[1:] - x[:-1]
-    up, dn = window_nanmean(np.maximum(d, 0.0)), np.abs(window_nanmean(np.minimum(d, 0.0)))
+    keep = np.isfinite(x[1:]) & np.isfinite(x[:-1])
+    (ups, n), (downs, _) = _fold(np.maximum(d, 0.0), keep), _fold(np.minimum(d, 0.0), keep)
+    up, dn = np.where(n > 0, ups / np.maximum(n, 1), np.nan), np.abs(downs / np.maximum(n, 1))
     with np.errstate(divide="ignore", invalid="ignore"):
         found: F64 = 100.0 - 100.0 / (1.0 + up / dn)
+    return np.where((np.isinf(dn) & (up != 0)) | (np.isinf(up) & (dn != 0)), np.inf, found)
+
+
+def _peaks(x: F64) -> tuple[F64, F64]:
+    """`MaxDrawdown`'s rows: each row's finite cells (NaN elsewhere) and the running maximum of
+    the finite cells up to it."""
+    finite = np.where(np.isfinite(x), x, np.nan)
+    peaks, peak = np.empty_like(finite), np.full(x.shape[1], np.nan)
+    for r in range(len(x)):  # fmax skips NaN; an infinite cell is not finite
+        peaks[r] = peak = np.fmax(peak, finite[r])
+    return finite, peaks
+
+
+def peak_zero(x: F64) -> Mask:
+    """`MaxDrawdown`'s columns that divide by a zero: a finite row whose running peak is 0."""
+    finite, peaks = _peaks(x)
+    found: Mask = ((peaks == 0) & ~np.isnan(finite)).any(axis=0)
     return found
 
 
 def window_max_drawdown(x: F64) -> F64:
     """`MaxDrawdown`: the largest `(peak - x) / peak` over the finite cells, `peak` the running
-    maximum of the finite cells up to the row; NaN when no cell is finite."""
-    peak, worst = np.full(x.shape[1], np.nan), np.full(x.shape[1], np.nan)
-    for r in range(len(x)):  # fmax skips NaN; an infinite cell is not finite
-        finite = np.where(np.isfinite(x[r]), x[r], np.nan)
-        peak = np.fmax(peak, finite)
-        worst = np.fmax(worst, (peak - finite) / peak)
-    return worst
+    maximum of the finite cells up to the row; NaN when no cell is finite, or when a peak is a
+    zero of either sign (#632). A ratio that overflows is compared as it is."""
+    finite, peaks = _peaks(x)
+    worst = np.full(x.shape[1], np.nan)
+    for r in range(len(x)):
+        worst = np.fmax(worst, (peaks[r] - finite[r]) / peaks[r])
+    found: F64 = np.where(peak_zero(x), np.nan, worst)
+    return found
 
 
 def elementwise(code: int, x: F64) -> F64:
@@ -317,7 +373,8 @@ def demean(x: F64, mask: Mask, groups: Codes, order: I64) -> tuple[F64, int]:
 def zscore(x: F64, mask: Mask, groups: Codes, order: I64) -> tuple[F64, int]:
     """`(x - mean) / std` within each group, std with ddof=0 by two passes (5.3.10 (2)); all NaN
     where std is 0 or the group has fewer than two cells (5.4.2). Equal values have std 0 even
-    when the folded mean misses them by a rounding (0.1 three times)."""
+    when the folded mean misses them by a rounding (0.1 three times). A group whose mean or std
+    overflows is `inf`, so NaN and counted at the term (5.4.1, #632)."""
     out = np.full(len(x), np.nan)
     sections, unknown = _sections(x, mask, groups, order)
     for seq in sections:
@@ -325,7 +382,9 @@ def zscore(x: F64, mask: Mask, groups: Codes, order: I64) -> tuple[F64, int]:
             continue
         deviation = x[seq] - _mean(x[seq])
         std = np.sqrt(_mean(deviation * deviation))
-        if std > 0:
+        if not np.isfinite(std):
+            out[seq] = np.inf
+        elif std > 0:
             out[seq] = deviation / std
     return out, unknown
 
@@ -333,7 +392,8 @@ def zscore(x: F64, mask: Mask, groups: Codes, order: I64) -> tuple[F64, int]:
 def winsorize(x: F64, mask: Mask, groups: Codes, low: float, high: float) -> tuple[F64, int]:
     """`clip(x, q_low, q_high)` within each group, q numpy's linear quantiles (5.4.2), `low`
     and `high` fractions with `0 <= low <= high <= 1`; NaN outside the cross-section. A
-    quantile sums nothing, so the memory order does not move it."""
+    quantile sums nothing, so the memory order does not move it. A group whose bound overflows
+    in the interpolation is `inf`, so NaN and counted at the term (5.4.1, #632)."""
     if not 0 <= low <= high <= 1:
         allowed = "fractions 0 <= min <= max <= 1 (1% is 0.01)"
         raise ValueError(f"winsorize takes {allowed}, not {low}, {high}")
@@ -341,7 +401,8 @@ def winsorize(x: F64, mask: Mask, groups: Codes, low: float, high: float) -> tup
     sections, unknown = _sections(x, mask, groups, np.arange(len(x)))
     for seq in sections:
         bounds = np.quantile(x[seq], [low, high], method="linear")
-        out[seq] = np.clip(x[seq], bounds[0], bounds[1])
+        found = np.clip(x[seq], bounds[0], bounds[1])
+        out[seq] = found if np.isfinite(bounds).all() else np.inf
     return out, unknown
 
 
