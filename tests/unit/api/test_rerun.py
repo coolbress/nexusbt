@@ -366,6 +366,41 @@ def test_the_cli_refuses_a_foreign_run_until_trust(
     assert _index_row(project, new_id) == (None, run_id)
 
 
+@pytest.mark.parametrize("changed", [True, False])
+def test_the_cli_exits_4_when_the_outputs_differ(
+    copied: tuple[Path, str], capsys: pytest.CaptureFixture[str], changed: bool
+) -> None:
+    """3.10 (#655 Decisions): the exit code follows the comparison line, 4 when it starts
+    `outputs differ` (both hashes, or the bytes only); the two lines are as before."""
+    project, run_id = copied
+    _another_table(project / "runs" / run_id, changed=changed)
+    assert main(["rerun", run_id]) == 4
+    first, line = capsys.readouterr().out.splitlines()
+    assert first.endswith(f" from {run_id}")
+    assert line.startswith("outputs differ: pipeline.parquet")
+
+
+def test_the_cli_new_snapshot_exits_0_when_the_outputs_differ(
+    copied: tuple[Path, str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """3.10 (#655 Decisions): `--new-snapshot` is a new run (3.8), and a difference is what it
+    is run to see: exit code 0 whatever its comparison line says."""
+    project, run_id = copied
+    _another_table(project / "runs" / run_id, changed=True)
+    assert main(["rerun", run_id, "--new-snapshot"]) == 0
+    assert capsys.readouterr().out.splitlines()[1].startswith("outputs differ: ")
+
+
+def test_the_cli_missing_snapshot_is_still_exit_code_1(
+    copied: tuple[Path, str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """E15 stays a user error, exit code 1 (3.10), not the comparison's code 4."""
+    project, run_id = copied
+    (project / "pkg").rename(project / "pkg-moved")
+    assert main(["rerun", run_id]) == 1
+    assert "ReplayError [E15]" in capsys.readouterr().err
+
+
 def test_the_cli_save_detail_is_not_built_yet(copied: tuple[Path, str]) -> None:
     """5.9.4's tier-(3) outputs: no run kind writes `detail/` yet."""
     with pytest.raises(NotImplementedError, match="--save-detail"):
