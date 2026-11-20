@@ -26,6 +26,7 @@ import pytest
 
 import nexusbt as nx
 from nexusbt.artifacts import _environment
+from nexusbt.cli.main import main
 from nexusbt.contracts import ReplayError, UntrustedRunError
 from nexusbt.data import table_value_hash
 from nexusbt.testing.synth import make_snapshot
@@ -330,3 +331,39 @@ def test_a_changed_or_missing_outside_helper_is_refused(
     assert f"helper module mylib.helpers {how} since run {run_id}" in text
     assert str(tmp_path.parent) not in text
     assert str(Path.home()) not in text
+
+
+def test_the_cli_prints_the_comparison(
+    copied: tuple[Path, str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Done-means: `nexusbt rerun <id>` gives "outputs identical (value, physical)" (3.10)."""
+    _, run_id = copied
+    assert main(["rerun", run_id]) == 0
+    first, line = capsys.readouterr().out.splitlines()
+    assert first.startswith("run ")
+    assert first.endswith(f" reproduces {run_id}")
+    assert line == _SAME
+
+
+def test_the_cli_refuses_a_foreign_run_until_trust(
+    copied: tuple[Path, str], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """3.10: another machine's run is E31 without `--trust` (a user error, exit code 1);
+    `--trust --new-snapshot` runs it as a new run with `derived_from` (3.8)."""
+    project, run_id = copied
+    manifest = _edit(project / "runs" / run_id / "manifest.json")
+    found = _manifest(manifest.parent)
+    found["environment"]["machine_id"] = "0" * 16
+    manifest.write_text(json.dumps(found, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+    monkeypatch.setattr(_environment, "machine_id", lambda: "1" * 16)
+    assert main(["rerun", run_id]) == 1
+    assert "UntrustedRunError [E31]" in capsys.readouterr().err
+    assert main(["rerun", run_id, "--trust", "--new-snapshot"]) == 0
+    new_id = capsys.readouterr().out.split()[1]
+    assert _index_row(project, new_id) == (None, run_id)
+
+
+def test_the_cli_save_detail_is_not_built_yet(copied: tuple[Path, str]) -> None:
+    """5.9.4's tier-(3) outputs: no run kind writes `detail/` yet."""
+    with pytest.raises(NotImplementedError, match="--save-detail"):
+        main(["rerun", copied[1], "--save-detail"])
