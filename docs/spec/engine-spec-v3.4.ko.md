@@ -2440,7 +2440,7 @@ primary, reference, diagnostics의 모든 값은 평가 기간과 `n_valid`/`n_t
 3. 외부 자료의 `known_on` 없음 → `PointInTimeError`(E3).
 4. 통화 단위 단면을 `across_markets`로 → `UnitError`(E5).
 5. 칼럼 이름 → E7. 창 함수 시운전: `(W, 3)` 1.0 배열로 한 번 불러 반환 모양·dtype과 `IndexError`(→ E8)를 확인. 거기서 함수가 낸 다른 예외는 그대로 올린다(3.3, R-42).
-6. 사용자 함수 순수성과 캐시 의존 [RV-C10]: `co_names`·클로저를 따라가 프로젝트 안 도우미는 소스 해시에 넣고, 읽는 모듈 전역 중 **상수형**(int, float, str, bool, None, 그것들의 tuple·frozenset)은 **값을 노드 해시에 넣는다**(`THRESHOLD = 10 → 20`이면 캐시 열쇠가 바뀜). 그 밖의 전역(배열·DataFrame·dict·list·객체)이나 파일 열기(`open`, `np.load`, `pd.read_*`, `pl.read_*`)를 읽으면 `ImpureFunctionWarning`(E24)이고 그 노드와 그 아래 노드의 L1 캐시를 끈다. 장식자로 감싼 도우미(`functools.lru_cache`, `numba.njit` 등)는 표준 `__wrapped__` 사슬을 따라 그것이 간직한 평범한 함수까지 가서 그 소스(장식자와 그 인자 포함)를 해시에 넣고, 평범한 함수에 닿지 못하는 프로젝트의 호출 가능 객체는 소스를 해시에 넣을 수 없으므로 E24다(#572). 프로젝트 안 파일은 표준 라이브러리(zip으로 묶인 것 포함: `sys.path`의 `.zip` 항목 중 인터프리터 자신의 폴더 아래 있는 것), 환경의 라이브러리 폴더에 설치된 패키지, 엔진 자신의 패키지(`nexusbt`, `nexusbt_tds`)를 뺀 모든 파일이다; 편집 가능 모드(editable)로 설치한 패키지는 그 폴더들 밖에 있으므로 프로젝트 안이고 그 소스가 해시에 들어가며, 그래서 같은 팩터라도 그 패키지가 편집 가능 설치인 곳과 wheel로 설치된 곳에서 그래프 해시가 다르다(결정 2026-11-19, #577). 그 밖에 사용자 함수가 읽는 호출 가능 객체는 참조로 다시 찾아질 때만 순수로 본다: 그것이 `__module__`로 가리키는 프로젝트 밖 모듈이 같은 객체를 그 정규 이름, 이름, 또는 함수가 읽는 이름 아래 갖고 있거나(`np.add`, `len`, `math.sqrt`, `np.random.rand`), 그렇게 찾아지는 객체에 묶인 메서드다(`np.add.reduce`); 그 밖의 호출 가능 객체는 프로그램이 도는 동안 만들어졌고(`np.vectorize(f)`, `operator.methodcaller("pipe", f)`, `operator.itemgetter(1)`, `functools.partial(f, 2)`) 해시가 읽을 수 없는 것을 품고 있으므로 E24다(결정 2026-11-19, #589).
+6. 사용자 함수 순수성과 캐시 의존 [RV-C10]: `co_names`·클로저를 따라가 프로젝트 안 도우미는 소스 해시에 넣고, 읽는 모듈 전역 중 **상수형**(int, float, str, bool, None, 그것들의 tuple·frozenset)은 **값을 노드 해시에 넣는다**(`THRESHOLD = 10 → 20`이면 캐시 열쇠가 바뀜). 그 밖의 전역(배열·DataFrame·dict·list·객체)이나 파일 열기(`open`, `np.load`, `pd.read_*`, `pl.read_*`)를 읽으면 `ImpureFunctionWarning`(E24)이고 그 노드와 그 아래 노드의 L1 캐시를 끈다. 장식자로 감싼 도우미(`functools.lru_cache`, `numba.njit` 등)는 표준 `__wrapped__` 사슬을 따라 그것이 간직한 평범한 함수까지 가서 그 소스(장식자와 그 인자 포함)를 해시에 넣고, 평범한 함수에 닿지 못하는 프로젝트의 호출 가능 객체는 소스를 해시에 넣을 수 없으므로 E24다(#572). 프로젝트 안 파일은 표준 라이브러리(zip으로 묶인 것 포함: `sys.path`의 `.zip` 항목 중 인터프리터 자신의 폴더 아래 있는 것), 환경의 라이브러리 폴더에 설치된 패키지, 엔진 자신의 패키지(`nexusbt`, `nexusbt_tds`)를 뺀 모든 파일이다; 편집 가능 모드(editable)로 설치한 패키지는 그 폴더들 밖에 있으므로 프로젝트 안이고 그 소스가 해시에 들어가며, 그래서 같은 팩터라도 그 패키지가 편집 가능 설치인 곳과 wheel로 설치된 곳에서 그래프 해시가 다르다(결정 2026-11-19, #577). 그 밖에 사용자 함수가 읽는 호출 가능 객체는 참조로 다시 찾아질 때만 순수로 본다: 그것이 `__module__`로 가리키는 프로젝트 밖 모듈이 같은 객체를 그 정규 이름, 이름, 또는 함수가 읽는 이름 아래 갖고 있거나(`np.add`, `len`, `math.sqrt`, `np.random.rand`), 그렇게 찾아지는 객체에 묶인 메서드다(`np.add.reduce`); 그 밖의 호출 가능 객체는 프로그램이 도는 동안 만들어졌고(`np.vectorize(f)`, `operator.methodcaller("pipe", f)`, `operator.itemgetter(1)`, `functools.partial(f, 2)`) 해시가 읽을 수 없는 것을 품고 있으므로 E24다(결정 2026-11-19, #589). 라이브러리 장식자가 `__wrapped__`에 간직한 사용자 함수(`functools.singledispatch`)는 그것이 간직한 프로젝트 함수로 읽는다: 그 소스, 그것이 부르는 도우미, 그것이 읽는 상수가 장식자가 없을 때처럼 해시에 들어간다; 장식자의 래퍼는 위 규칙으로 판정하고, 래퍼가 해시가 읽을 수 없는 것(`singledispatch`의 다른 구현 레지스트리)을 품으면 그 함수는 E24이며, 메시지는 라이브러리 안의 이름이 아니라 그 함수와 장식자를 말한다(결정 2026-11-20, #645).
 7. 고정 종목 목록 유니버스 → `SurvivorshipWarning`(E4).
 8. ML 층: `nx.ml.factor`의 학습 창 규칙(5.3.11)과 검증 방법의 폴드 자르기(6.3a)가 실제 검사다. 시험 묶음 정답이 훈련에 들어갈 수 있는 설정이면 실행 전 `FitLeakError`(E29). 다른 맞춤 상태 변환(`fit_segment`)은 여전히 예약 [SC-19, R4-23].
 9. 자료 능력: 그래프가 쓰는 기능의 필요 자료(4.3 표)가 스냅숏 `capabilities`에 없으면 E18(대체가 있으면 E30, 4.5).
@@ -2510,7 +2510,7 @@ primary, reference, diagnostics의 모든 값은 평가 기간과 `n_valid`/`n_t
 | E21 | `StatisticUnavailable` | 알림 | DSR·PBO 입력 부족 | "DSR n/a ({reason})" / "run longer than 30 sessions or add candidates to the study"; 엔진 산출 계열이 원인이면 data 꼬리 둘째 꼴 `data — run {id} / series {name} / T = {t} (needs 30)`, `more`에 `tds check` 없음 [R4F-22] |
 | E22 | `ProvisionalCostWarning` | 경고 | `provisional` 프로필 | "costs are provisional fixed bps (KR buy 5/sell 25, US 5/5)" / "[costs] profile='realistic' after the cost table is verified" |
 | E23 | `CostTableError` | 실패 | `realistic`인데 표 커버리지 부족 | 빈 (나라, 기간, 쪽, 구성요소) 목록 / "use provisional, or add verified rows to costs/*.csv" |
-| E24 | `ImpureFunctionWarning` | 경고 | 사용자 함수가 전역 배열·파일을 읽음 | "{f} reads global '{name}'; the engine cannot check what it contains" |
+| E24 | `ImpureFunctionWarning` | 경고 | 사용자 함수가 전역 배열·파일을 읽음 | "{f} reads global '{name}'; the engine cannot check what it contains"; 해시가 읽을 수 없는 것을 래퍼가 품은 라이브러리 장식자 아래의 함수는: "{f} is under {decorator}, whose wrapper holds what the engine cannot check" |
 | E25 | `StaleMarkWarning` | 경고 | 보유가 20세션 넘게 묵은 가격으로 평가됨 | 종목·기간 / "exclude {id} from the universe, or check trading_status for {id} with tds check (the mark is the last valid close, 5.6.3)" [R4F-22] |
 | E26 | `IdempotencyNotice` | 알림 | 같은 멱등 열쇠(book, decision, graph, params)의 주문 다시 요청, 같은 `sheet_id`이거나 닫힌 주문표(5.9.6 규칙 1) | "orders for decision {id} already exist in book {b} (state version {v}, sheet {sheet_id}); showing them" |
 | E27 | `TradabilityUnknownWarning` | 경고 | 거래 가능 여부를 모르는 체결 > 0 | 건수·기간 / "[execution] unknown_tradability='block' to see the sensitivity" |
@@ -2731,7 +2731,7 @@ v3 추가: T-18 직사각형 조회 — 미리 발표된 미래 효력 행이 �
 
 | id | 성질 | 생성 |
 |---|---|---|
-| P-CHUNK | 묶음 크기 1년/3년/전체에서 모든 노드 값 비트 동일 [INV-03] | 합성 small, 무작위 그래프 |
+| P-CHUNK | 묶음 크기 1년/3년/전체에서 모든 노드 값 비트 동일 [INV-03] | 합성 small과 그 늦은 바 변형(4.8 규칙 3a), 무작위 그래프 |
 | P-PERM | 종목 열 순서를 섞어도 결과 동일 [INV-04] | |
 | P-CACHE | 캐시 적중 = 미적중 [INV-05] | |
 | P-FUT | 시각 τ 뒤 자료(`ts_available > τ`인 행: 봉, 사건 판(`ts_known > τ`), 폐지 회수액, 환율, 재무)를 지운 스냅숏과 원래 스냅숏에서 `decision_ts ≤ τ` 판단의 목표·주문 동일; 조건이 늦은 사건 판(금액 정정)을 지워도 그 전 판단 같음; 공개 정보가 같고 사후 금액만 다른 두 스냅숏은 모든 세션의 주문(과 `nav_decision`)이 같고 보고 계열(`nav_economic`과 그로 만든 것)만 다름; `nx.ml.factor` 노드가 있으면(#270) τ 뒤 행을 같은 연도 파티션에 더한 스냅숏은 τ 이전 모든 판단에서 같은 `fit_id`·seed·예측·목표를 내고, 훈련 표본의 특징이나 정답 값 하나를 정정하면 `fit_id`가 달라져 앞 학습을 재사용하지 않음(그 예측은 바뀔 수 있다; 모형이 그 값에 둔감할 때만 같으며, 시험은 어느 쪽도 가정하지 않는다) [INV-01, INV-02, R3-01, 5.3.11] | 무작위 τ; G-42 고정 사례 포함 |
@@ -2928,7 +2928,7 @@ README·`docs/`·`examples/`의 ```python 블록 중 `<!-- test -->` 표시가 �
 | 검사 이름 | 내용 | 로컬 명령 | 필수 시작 |
 |---|---|---|---|
 | `engine / parity` | `tests/parity` 환경(Python 3.12, zipline-reloaded 3.2.1)에서 합성 small로 L1·L2 실행 → 엔진 쪽 비교 pytest | `uv sync --project tests/parity --locked && uv run --project tests/parity python -m parity.run --suite all --fixture small && uv run pytest -m parity` | M1 끝(L1), M3 끝(L2) |
-| `engine / property-deep` | hypothesis `deep` 프로필(예 500 사례) | `uv run pytest -m property --hypothesis-profile=deep` | M1 |
+| `engine / property-deep` | hypothesis `deep` 프로필(예 500 사례) | `uv run pytest -m property --hypothesis-profile=deep --hypothesis-show-statistics` | M1 |
 | `engine / perf-smoke` | 7장 CI 성능 연기 시험 | `uv run pytest -m perf_smoke` | M3 |
 | `engine / docs-examples` | 8.5 (기본 `ci / test`에도 들어가지만, `examples/` 전체 실행은 여기) | `uv run pytest tests/docs -m examples` | M2 |
 | `tds / conformance` | **TDS 적합성 검사기 패키지**(`tds/`)의 자체 시험(8.4a: 코드마다 pass·fail 패키지), 그리고 합성 `tiny`·`small`과 모든 `degrade` 조합에 `tds check --level full` | `uv run --package nexusbt-tds pytest tds/tests && uv run python -m nexusbt.testing.synth --preset small --out .scratch/snap --validate` | M0 (T0.14c 끝; `full` 단계는 M1 끝) |
@@ -2939,6 +2939,8 @@ README·`docs/`·`examples/`의 ```python 블록 중 `<!-- test -->` 표시가 �
 계산 기계 수동(필수 검사 아님, 마일스톤 끝 요약 증거 커밋): 전체 성능 `uv run python bench/run.py --all --snapshot <id>`, 실제 자료 대조 `uv run --project tests/parity python -m parity.run --suite all --fixture real:<id>`.
 
 pytest 표시: `unit`, `golden`, `property`, `docs`, `examples`, `parity`, `perf_smoke`, `slow`, `repo`.
+
+`ci / test`의 시간 한도 안에서 `ci` 프로필로 돌리기에 너무 느린 property 시험은 `property`와 함께 `slow`를 단다: 기본 실행은 그것을 빼고, `engine / property-deep`(`-m property`)이 그 시험이 스스로 정한 사례 수로 돌린다(결정 2026-11-20, #254). 이 job은 property 시험마다 사례 수를 출력한다(`--hypothesis-show-statistics`).
 
 **TDS 패키지 운영** (따로 판 매김): `tds/`는 엔진과 같은 저장소의 uv workspace 멤버이지만 판·변경 기록(`tds/CHANGELOG.md`)·태그가 따로다. 배포 상태는 **초안 → RC → 1.0**(태그 `tds-v1.0.0-rc.N` → `tds-v1.0.0`; `tds_version` 문자열은 `MAJOR.MINOR` 그대로 `"1.0"`). 1.0 졸업 조건(TDS 10.5): 독립 생산자 1개(가져오기 도구 경유 가능)와 생산자 내보내기 1개가 `full` 통과, 엔진이 둘을 읽어 같은 예제가 돎, 해시 시험 벡터가 두 구현에서 일치 [RV-I07]. TDS 문서·스키마·검사기를 바꾸는 PR은 제목 범위 `tds`(예 `feat(tds): …`)를 쓰고, TDS 10.2의 MINOR/MAJOR 규칙에 따라 `tds_version`을 올린다. 엔진은 `nexusbt-tds`의 판 범위(`>=1.0,<2`)를 의존으로 적는다. 참조 생산자도 같은 패키지(`pip install nexusbt-tds` 또는 저장소 경로)로 내보내기 직후 `full` 검사를 돈다. `pyproject.toml`의 `addopts = "-m 'not parity and not perf_smoke and not examples and not slow' --hypothesis-profile=ci"`.
 

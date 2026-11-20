@@ -363,24 +363,37 @@ def factor(
                   "source": digest, "captured": reads.captured}  # fmt: skip
         if adjustment is not None:  # absent when not declared: the hash stays as it was
             params["adjustment"] = adjustment
-        if reads.impure:
-            warnings.warn(str(_impure(fn.__name__, reads.impure)), stacklevel=2)
+        if reads.impure or reads.decorator:
+            warning = _impure(fn.__name__, reads.impure, reads.decorator)
+            warnings.warn(str(warning), stacklevel=2)
         return Factor("user", tuple(inputs), tuple(params.items()), function=fn)
 
     return wrap
 
 
-def _impure(name: str, globals_: Sequence[str]) -> ImpureFunctionWarning:
+def _impure(name: str, globals_: Sequence[str], decorator: str = "") -> ImpureFunctionWarning:
+    """E24 for the globals `name` reads, and for the library decorator it is under whose wrapper
+    holds what the hash cannot read (#645): what the user wrote, never a name inside the library."""
     line = _user_line()
     shown = ", ".join(repr(g) for g in globals_)
+    what, fix = [], []
+    if globals_:
+        what.append(f"{name} reads global {shown}; the engine cannot check what it contains")
+        fix.append(f"pass {shown} as an input, or as a constant (int, float, str, bool, None, or a"
+                   " tuple or frozenset of them), whose value goes into the hash; a library's"
+                   " object, read it through its module (`lib.thing`)")  # fmt: skip
+    if decorator:
+        what.append(f"{name} is under {decorator}, whose wrapper holds what the engine cannot"
+                    " check")  # fmt: skip
+        fix.append(f"apply @nx.factor to a function that is not under @{decorator}; the engine"
+                   f" hashes {name}'s own code and the helpers it calls, not what the decorator's"
+                   " wrapper holds")  # fmt: skip
     return ImpureFunctionWarning(
-        what=f"{name} reads global {shown}; the engine cannot check what it contains",
+        what="; ".join(what),
         where=f"function {name}",
         why=f"a hidden input breaks reruns and checks; L1 cache disabled for node {name} and the"
         " nodes that read it",
-        fix=f"pass {shown} as an input, or as a constant (int, float, str, bool, None, or a tuple"
-        " or frozenset of them), whose value goes into the hash; a library's object, read it"
-        " through its module (`lib.thing`)",
+        fix="; ".join(fix),
         more="spec 3.7, 5.3.7 and 6.5 (6)",
         layer=f"your code — {line}",
         at=line.split(" in ")[0],
@@ -397,8 +410,10 @@ def l1_disabled(term: Term) -> bool:
         if node._key in seen:
             continue
         seen.add(node._key)
-        if isinstance(node.function, FunctionType) and _reads(node.function).impure:
-            return True
+        if isinstance(node.function, FunctionType):
+            reads = _reads(node.function)
+            if reads.impure or reads.decorator:
+                return True
         todo += [*node.inputs, *(v for _, v in node.params if isinstance(v, Term))]
     return False
 
@@ -581,11 +596,13 @@ def _holds(node: ast.Lambda, at: tuple[int, int]) -> bool:
 @dataclass(frozen=True, slots=True)
 class _Reads:
     """What a user function reads (6.5 (6)): its project helpers, to any depth; the constant-like
-    values (a helper's as `qualname:name`), hashed; the rest and file reads, E24's (`impure`)."""
+    values (a helper's as `qualname:name`), hashed; the rest and file reads, E24's (`impure`);
+    the library decorator whose wrapper holds what the hash cannot read, E24's too (#645)."""
 
     helpers: tuple[FunctionType, ...]
     captured: tuple[tuple[str, Any], ...]
     impure: tuple[str, ...]
+    decorator: str = ""
 
 
 @functools.cache
@@ -641,10 +658,38 @@ def _project_file(file: str) -> bool:
 
 
 def _reads(fn: FunctionType) -> _Reads:
+    """What `fn` reads; for a library's function keeping a project function in `__wrapped__`
+    (`functools.singledispatch`), both (#645): the project function's reads as if undecorated,
+    and the wrapper's by #589's rule, not again through the project function. The wrapper's own
+    constants go in under the decorator's name (a decorator's argument passed by name is not in
+    the source); the defaults it shows are the project function's, already in. What the wrapper
+    holds that the hash cannot read makes the function E24, naming the decorator."""
+    inner = _helper(fn)
+    if inner is None or inner is fn:
+        return _walk(fn, set())
+    own = _walk(inner, set())
+    held = _walk(fn, {id(inner), *map(id, own.helpers)})
+    helpers = sorted((*own.helpers, *held.helpers), key=lambda h: h.__qualname__)
+    decorator = _decorator(fn)
+    theirs = [(n if ":" in n else f"{decorator}:{n}", v) for n, v in held.captured
+              if not n.endswith("=")]  # fmt: skip
+    captured = sorted((*own.captured, *theirs), key=lambda c: c[0])
+    return _Reads(tuple(helpers), tuple(captured), own.impure, decorator if held.impure else "")
+
+
+def _decorator(wrapper: FunctionType) -> str:
+    """`module.name` of the library decorator that made `wrapper` (`functools.singledispatch`):
+    its code's qualified name up to the decorator's locals, in the module of its globals."""
+    home = wrapper.__globals__.get("__name__", "?")
+    return f"{home}.{wrapper.__code__.co_qualname.split('.<locals>')[0]}"
+
+
+def _walk(fn: FunctionType, seen: set[int]) -> _Reads:
+    """What `fn` and the project helpers it reaches read, skipping the functions in `seen`."""
     found = _defaults(fn)
     helpers: list[FunctionType] = []
     impure: set[str] = set()
-    todo, seen = [fn], set[int]()
+    todo = [fn]
     while todo:
         f = todo.pop()
         if id(f) in seen:
