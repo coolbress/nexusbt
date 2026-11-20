@@ -64,6 +64,19 @@ def test_an_overflow_that_makes_nan_is_counted() -> None:
     assert not zero.any()
 
 
+def test_a_zero_divisor_whose_value_3_4_states_keeps_it_and_is_counted() -> None:
+    """#632 Decisions (counting): `VWAP` whose pairs' volume sums to 0 is NaN, `RSI` with
+    `dn = 0` and `up > 0` is 100, as 3.4 states; both divide by a zero, so both are counted."""
+    vwap, rsi = VWAP(window=2), RSI(window=3)
+    with np.errstate(all="ignore"):
+        paid, paid_zero, _ = diagnosed(vwap, [column(5.0, 5.0), column(1.0, -1.0)])
+        rose, rose_zero, _ = diagnosed(rsi, [column(1.0, 2.0, 3.0)])
+    assert np.isnan(paid).all()
+    assert paid_zero.all()
+    assert rose.tolist() == [100.0]
+    assert rose_zero.all()
+
+
 def test_an_overflow_that_leads_to_a_finite_value_keeps_it() -> None:
     """The decision's two cases: `RSI` whose `up/dn` overflows is 100, as 3.4 gives for `dn = 0`;
     `MaxDrawdown` below a peak under 0, whose ratio overflows to -inf, keeps the finite maximum."""

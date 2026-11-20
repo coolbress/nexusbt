@@ -374,6 +374,8 @@ class _Chunk:
             out = codes.astype(np.float64)
         else:
             out, n = getattr(k, term.op)(x, inside, groups, self.order)
+            if term.op == "zscore":  # 5.4.1 `DivisionByZero`: a std of 0 (#632)
+                self.zero = k.zscore_zero(x, inside, groups, self.order)
         self.unknown += n
         return out
 
