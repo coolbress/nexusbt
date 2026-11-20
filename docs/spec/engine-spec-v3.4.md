@@ -946,7 +946,7 @@ write: orders.to_csv("orders/{date}.csv")   apply to paper book: nx.fill(book, o
 
 ### 3.10 CLI [R-09]
 
-`nexusbt <command>` calls the API of the same name and prints the same text. Exit codes: 0 success, 1 user error (`NexusBTError`), 2 internal error, 3 waiting for data (`DataAvailabilityError`, live only), 4 reconciliation mismatch (`reconciled: NO` of `reconcile`).
+`nexusbt <command>` calls the API of the same name and prints the same text. Exit codes: 0 success, 1 user error (`NexusBTError`), 2 internal error, 3 waiting for data (`DataAvailabilityError`, live only), 4 reconciliation mismatch (`reconciled: NO` of `reconcile`, `outputs differ` of `rerun`).
 
 | Command | Arguments |
 |---|---|
@@ -968,7 +968,7 @@ write: orders.to_csv("orders/{date}.csv")   apply to paper book: nx.fill(book, o
 | `nexusbt book flow BOOK AMOUNT --ccy C --sleeve M [--session D]` | deposits and withdrawals [V31-19] |
 | `nexusbt book acknowledge BOOK DIVERGENCE_ID --note T [--by NAME]` | acknowledges the divergence of a `reconciled: NO`, after which `live` emits sheets again (5.9.6 rule 3) |
 | `nexusbt runs [--study S] [--html] [--prune] [--prune-detail]` | `--prune` deletes only run folders and keeps the index records and attempt counts [R-34]; `--prune-detail` deletes only the tier-3 `detail/` folder of each run and records it as pruned (5.9.5, #206) |
-| `nexusbt rerun RUN_ID [--new-snapshot] [--trust] [--save-detail]` | a run folder made on another machine is refused without `--trust` (E31); `--save-detail` also regenerates and compares the tier-3 outputs (5.9.4, #206) |
+| `nexusbt rerun RUN_ID [--new-snapshot] [--trust] [--save-detail]` | a run folder made on another machine is refused without `--trust` (E31); `--save-detail` also regenerates and compares the tier-3 outputs (5.9.4, #206); exit code 4 when the comparison line starts `outputs differ` and 0 when it starts `outputs identical`; with `--new-snapshot`, 0 whatever the comparison says, as that is a new run (3.8) (#655) |
 | `nexusbt stubs` | regenerates `.pyi` |
 | `nexusbt check FILE[:VAR] [--probes K] [--start-probe]` | |
 
