@@ -101,7 +101,9 @@ def test_graph_without_the_column_runs_as_before(tmp_path: Path) -> None:
     after, said = run(gone, {"c": nx.Price.close.latest})
     assert not none
     assert after == before
-    assert len(said) == 1
+    [message] = said
+    assert all(f"market KR, column {c}" in message for c in ("volume", "value_traded"))
+    assert records(gone) == {("KR", "volume"), ("KR", "value_traded")}
 
 
 def test_tiny_has_value_traded_and_no_fallback(tmp_path: Path) -> None:
