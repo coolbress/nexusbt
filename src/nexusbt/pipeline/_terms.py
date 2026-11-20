@@ -87,7 +87,24 @@ def _xs(
     mask: Filter | None = None, groupby: Classifier | None = None, across_markets: bool = False
 ) -> dict[str, Any]:
     """The 3.3 cross-section keywords: `mask`, `groupby`, `across_markets`."""
+    _one_of("a cross-section method", "across_markets", across_markets, (True, False))
     return {"mask": mask, "groupby": groupby, "across_markets": across_markets}
+
+
+def _one_of(op: str, name: str, value: object, allowed: tuple[object, ...]) -> None:
+    """3.3, 6.6 E16 (#602): an argument with a closed set of values takes one of them, by type
+    as well as value, so `1` is not `True`: one computation, one graph hash. A `str` subclass
+    is a `str` here, as `_canon` hashes it as its plain string."""
+    if any(isinstance(value, type(a)) and value == a for a in allowed):
+        return
+    raise ConfigError(
+        what=f"{name}={value!r} is not a value {op} takes",
+        where=f"{op}({name}=...)",
+        why=f"{op}'s {name} is one of a closed set of values (spec 3.3)",
+        fix=f"{name}= one of {', '.join(map(repr, allowed))}",
+        more="spec 3.3 (Factor methods)",
+        layer=f"config — argument {name}={value!r}",
+    )
 
 
 def _operand(value: object) -> Factor:
@@ -143,6 +160,8 @@ class Factor(Term):
     def notnull(self) -> Filter: return _node(Filter, "notnull", self)
     # `*a, **k`: the 3.3 `mask=None, groupby=None, across_markets=False`, in that order.
     def rank(self, method: str = "ordinal", ascending: bool = True, *a: Any, **k: Any) -> Factor:
+        _one_of("rank", "method", method, ("ordinal", "average", "min", "max", "dense"))
+        _one_of("rank", "ascending", ascending, (True, False))
         return _node(Factor, "rank", self, method=method, ascending=ascending, **_xs(*a, **k))
     def zscore(self, *a: Any, **k: Any) -> Factor: return _node(Factor, "zscore", self, **_xs(*a, **k))  # noqa: E501
     def demean(self, *a: Any, **k: Any) -> Factor: return _node(Factor, "demean", self, **_xs(*a, **k))  # noqa: E501
@@ -153,8 +172,17 @@ class Factor(Term):
     def percentile_between(self, min_percentile: float, max_percentile: float, mask: Filter | None = None, across_markets: bool = False) -> Filter:  # noqa: E501
         return _node(Filter, "percentile_between", self, min=min_percentile, max=max_percentile, **_xs(mask, None, across_markets))  # noqa: E501
     def pct_rank(self, higher_is_better: bool = True, mask: Filter | None = None, groupby: Classifier | None = None, na: Literal["drop", "bottom", "middle"] = "drop", across_markets: bool = False) -> Factor:  # noqa: E501
+        _one_of("pct_rank", "na", na, ("drop", "bottom", "middle"))
+        _one_of("pct_rank", "higher_is_better", higher_is_better, (True, False))
         return _node(Factor, "pct_rank", self, higher_is_better=higher_is_better, na=na, **_xs(mask, groupby, across_markets))  # noqa: E501
     def quantiles(self, bins: int, *a: Any, **k: Any) -> Classifier:
+        if type(bins) is not int or bins < 1:  # #602: E16 at build, not the kernel's at run
+            raise ConfigError(
+                what=f"bins={bins!r} is not a number of bins quantiles takes",
+                where="quantiles(bins=...)", why="a cross-section is cut into 1 or more bins",
+                fix="bins= a whole number, 1 or more (quartiles() is quantiles(4))",
+                more="spec 3.3 (Factor methods), 5.4.3", layer=f"config — argument bins={bins!r}",
+            )  # fmt: skip
         return _node(Classifier, "quantiles", self, bins=bins, **_xs(*a, **k))
     def quartiles(self, *a: Any, **k: Any) -> Classifier: return self.quantiles(4, *a, **k)
     def quintiles(self, *a: Any, **k: Any) -> Classifier: return self.quantiles(5, *a, **k)
