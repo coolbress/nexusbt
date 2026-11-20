@@ -5,6 +5,7 @@ from __future__ import annotations
 import ctypes
 import json
 import multiprocessing
+import sys
 import uuid
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
@@ -43,6 +44,42 @@ def test_python_s_random_stand_in_node_is_not_a_host_id(
 def test_a_hardware_address_is_a_host_id(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     no_host_id(monkeypatch, tmp_path, 0x0200_0000_0001)  # unicast
     assert machine_id() == "fe0a29e37dd070ea"  # printf 020000000001 | shasum -a 256
+
+
+class FakeLibc:
+    """macOS's libc as far as gethostuuid(2) goes: fills the 16 bytes, or fails with -1."""
+
+    def __init__(self, answer: bytes | None) -> None:
+        self.answer = answer
+
+    def gethostuuid(self, found: ctypes.Array[ctypes.c_ubyte], _wait: object) -> int:
+        if self.answer is None:
+            return -1
+        found[:] = list(self.answer)
+        return 0
+
+
+def on_a_mac(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, libc: FakeLibc) -> None:
+    """A Mac with no machine-id file, this libc, and a unicast address from uuid.getnode()."""
+    monkeypatch.setattr(_environment, "_MACHINE_ID_FILES", (tmp_path / "machine-id",))
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(ctypes, "CDLL", lambda _name: libc)
+    monkeypatch.setattr(uuid, "getnode", lambda: 0x0200_0000_0001)
+
+
+def test_on_macos_the_hardware_uuid_comes_before_the_address(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    on_a_mac(monkeypatch, tmp_path, FakeLibc(bytes([1] * 16)))
+    # printf 01010101-0101-0101-0101-010101010101 | shasum -a 256
+    assert machine_id() == "eb192cc58057209e"
+
+
+def test_on_macos_a_failed_hardware_uuid_call_falls_to_the_address(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    on_a_mac(monkeypatch, tmp_path, FakeLibc(None))
+    assert machine_id() == "fe0a29e37dd070ea"  # the address's id, as above
 
 
 def test_a_hardware_uuid_call_that_cannot_be_made_is_unread(
