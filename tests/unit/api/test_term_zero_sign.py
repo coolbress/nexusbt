@@ -80,14 +80,20 @@ def falling(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return _package(tmp_path_factory.mktemp("s") / "pkg", _fall)
 
 
+def _volume(zero: float) -> Callable[[pa.Table], pa.Table]:
+    return lambda bars: _set(bars, "volume", np.full(len(bars), zero))
+
+
 @pytest.fixture(scope="module")
-def volumes(tmp_path_factory: pytest.TempPathFactory) -> dict[float, Path]:
-    """The package with every volume -0.0 (key -1.0), and with every volume +0.0 (key 1.0)."""
+def minus_zero(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """The package with every volume -0.0."""
+    return _package(tmp_path_factory.mktemp("v") / "pkg", _volume(-0.0))
 
-    def zero(sign: float) -> Callable[[pa.Table], pa.Table]:
-        return lambda bars: _set(bars, "volume", np.full(len(bars), 0.0 * sign))
 
-    return {s: _package(tmp_path_factory.mktemp("v") / "pkg", zero(s)) for s in (-1.0, 1.0)}
+@pytest.fixture(scope="module")
+def plus_zero(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """The package with every volume +0.0."""
+    return _package(tmp_path_factory.mktemp("v") / "pkg", _volume(0.0))
 
 
 @pytest.fixture(autouse=True)
@@ -143,26 +149,24 @@ def test_a_user_function_output_has_no_negative_zero(falling: Path) -> None:
     assert zero_signs(falling, {"user": negative_zero}) == {"user": [False] * 45}
 
 
-def test_a_column_read_by_latest_is_plus_zero(volumes: dict[float, Path]) -> None:
+def test_a_column_read_by_latest_is_plus_zero(minus_zero: Path) -> None:
     """`Price.volume.latest` is a term: the package's -0.0 is +0.0 there."""
-    found = zero_signs(volumes[-1.0], {"volume": nx.Price.volume.latest})
+    found = zero_signs(minus_zero, {"volume": nx.Price.volume.latest})
     assert found == {"volume": [False] * 45}
 
 
 def test_a_kernel_over_a_column_window_gives_the_bits_of_plus_zero(
-    volumes: dict[float, Path],
+    minus_zero: Path, plus_zero: Path
 ) -> None:
     """Built-in kernels reading the volume column as a window give, over -0.0 cells, the bits
     they give over +0.0 cells (#632: a kernel does not see a zero's sign; #648: its value is
     +0.0)."""
-    found = {sign: bits(run(path, ON_VOLUME)) for sign, path in volumes.items()}
-    assert found[-1.0] == found[1.0]
-    assert set(found[1.0]["sma"]) == set(found[1.0]["std"]) == {0}  # +0.0 in every cell
+    minus, plus = bits(run(minus_zero, ON_VOLUME)), bits(run(plus_zero, ON_VOLUME))
+    assert minus == plus
+    assert set(plus["sma"]) == set(plus["std"]) == {0}  # +0.0 in every cell
 
 
-def test_a_user_function_sees_the_package_zero_and_returns_plus_zero(
-    volumes: dict[float, Path],
-) -> None:
+def test_a_user_function_sees_the_package_zero_and_returns_plus_zero(minus_zero: Path) -> None:
     """`@nx.factor` over the volume column reads the package's -0.0 in its window: it returns
     -0.0 where `np.signbit` says so and 1.0 where not, and the -0.0 it returns is +0.0 as the
     term's value."""
@@ -171,16 +175,16 @@ def test_a_user_function_sees_the_package_zero_and_returns_plus_zero(
     def signed(volume: Any) -> Any:
         return np.where(np.signbit(volume[-1]), -0.0, 1.0)
 
-    assert zero_signs(volumes[-1.0], {"user": signed}) == {"user": [False] * 45}
+    assert zero_signs(minus_zero, {"user": signed}) == {"user": [False] * 45}
 
 
 def test_a_package_zero_gives_the_same_bits_in_any_chunking(
-    volumes: dict[float, Path], monkeypatch: pytest.MonkeyPatch
+    minus_zero: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """INV-03: the package's -0.0 is read the same in every chunk, so a budget that cuts the
     quarter into months gives the same bits as one chunk."""
     columns = {"latest": nx.Price.volume.latest, **ON_VOLUME}
-    whole = bits(run(volumes[-1.0], columns, "2020-01-02", "2020-03-31"))
+    whole = bits(run(minus_zero, columns, "2020-01-02", "2020-03-31"))
     made: list[int] = []
     spans = _chunks.spans
 
@@ -190,5 +194,5 @@ def test_a_package_zero_gives_the_same_bits_in_any_chunking(
 
     monkeypatch.setattr(_chunks, "GB", 2_500)  # about a month of `tiny` a chunk
     monkeypatch.setattr(_chunks, "spans", recorded)
-    assert bits(run(volumes[-1.0], columns, "2020-01-02", "2020-03-31")) == whole
+    assert bits(run(minus_zero, columns, "2020-01-02", "2020-03-31")) == whole
     assert made[0] > 1
