@@ -3,15 +3,12 @@
 from __future__ import annotations
 
 import datetime as dt
-import json
-import os
-import subprocess
-import sys
 from pathlib import Path
 
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from .alone import measured_alone
 from .conformance_build import build
 
 GROUP = 2_000  # rows in a row group, and in a batch of each part of the full level
@@ -75,14 +72,7 @@ def test_full_level_peak_memory_is_a_few_row_groups(tmp_path: Path) -> None:
     this test cannot measure it; #309's pull request measured it by hand, flat with the rows."""
     package = daily_bars(tmp_path / "pkg", GROUP * GROUPS)
     assert pq.ParquetFile(package / build.BARS).metadata.num_row_groups == GROUPS
-    env = {k: v for k, v in os.environ.items() if not k.startswith("COVERAGE_")}
-    done = subprocess.run(  # noqa: S603 - this interpreter, the script above
-        [sys.executable, "-c", MEASURE, str(package), build.BARS, str(GROUP)],
-        env=env, capture_output=True, text=True, check=False,
-    )  # fmt: skip
-    assert done.returncode == 0, done.stderr
-    seen = json.loads(done.stdout)
-    assert not seen["coverage"], "coverage is loaded where the peak is measured (#359)"
+    seen = measured_alone(MEASURE, str(package), build.BARS, str(GROUP))
     assert not {"TDS-K001", "TDS-H002"} & {*seen["codes"]}
     assert any(n.startswith("key check: 1 temporary file(s)") for n in seen["notes"])  # spilled
     assert seen["peak"] < 4 * seen["row_group"], (seen["peak"], seen["row_group"])
