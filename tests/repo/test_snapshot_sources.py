@@ -3,15 +3,20 @@ written here: what it must reject and what it must accept."""
 
 from __future__ import annotations
 
-import pytest
-from snapshot_sources import findings
+from pathlib import Path
 
+import pytest
+from snapshot_sources import GUARD, findings, guard_holds
+
+ROOT = Path(__file__).resolve().parents[2]
 NAME = "tests/unit/test_x.py"
 
 
 SYNTH = "from nexusbt.testing.synth import make_snapshot\n"
 CSV = SYNTH + "from nexusbt_tds import import_csv\n"
 TINY = "@pytest.fixture\ndef tiny(tmp_path):\n    return make_snapshot(tmp_path / 'p')\n\n"
+#: A helper opening the package `s1` in the data root it is given.
+OPENED = SYNTH + "def opened(path):\n    return nx.open(path / 's1')\n\n"
 
 
 def module(*lines: str, head: str = SYNTH) -> str:
@@ -90,14 +95,33 @@ FAILS = {  # a literal path never passes, nor what the trace cannot follow
     ),
     # #630's item 10: a container changed after it is bound.
     "item set to a literal": module("d = {'a': tiny}", "d['a'] = '/data/snap'", "nx.open(d['a'])"),
+    # Data roots: only in the test's own folder, and only on the way down to a package.
+    "data root outside the temporary folder": OPENED + "def test_x(tmp_path):\n"
+    "    d = Path.home() / 'x'\n    make_snapshot(d / 's1')\n    opened(d)\n",
+    "beside the packages of a data root": module(
+        "make_snapshot(tmp_path / 's1')", "nx.open(tmp_path / 'real')"
+    ),
 }
-PASSES = {  # the sources this part accepts; #599's next part adds data roots and conformance
+PASSES = {  # the sources the check accepts
     "make_snapshot": module("r = make_snapshot(tmp_path)", "open_snapshot(DataConfig(path=r))"),
     "fixture, positional": module("open_snapshot(DataConfig(tiny))"),
     "import_csv": module(
         "k = import_csv(tmp_path / 'm', tmp_path / 'k')", "nx.open(k)", "_tds('check', k)", head=CSV
     ),
     "copy": module("nx.open(shutil.copytree(tiny, tmp_path / 'c'))"),
+    "data root": module(
+        "make_snapshot(tmp_path / 's1')", "open_snapshot(DataConfig(path=tmp_path))"
+    ),
+    "data root, down to a package": OPENED
+    + "def test_x(tmp_path):\n    make_snapshot(tmp_path / 's1')\n    opened(tmp_path)\n",
+    "a helper writes into a folder given": SYNTH
+    + "def write(at):\n    make_snapshot(at / 's1')\n\n"
+    "def test_x(tmp_path):\n    write(tmp_path)\n    nx.open(tmp_path / 's1')\n",
+    "data root from mktemp": module(
+        "d = tmp_path_factory.mktemp('d')",
+        "make_snapshot(d / 's1')",
+        "open_snapshot(DataConfig(d))",
+    ),
     "Snapshot given": module("nx.run_pipeline(q, snapshot=nx.open(tiny))"),
     "a file inside": module("for f in sorted(tiny.rglob('*')):", "    nx.open(f)"),
     "a helper's return": SYNTH + "def made(at):\n    return make_snapshot(at / 's')\n\n"
@@ -133,3 +157,60 @@ def test_a_finding_names_the_file_and_the_line() -> None:
     assert findings(NAME, body) == [
         f"{NAME}:5: snapshot path `'data/snap'` not from a synthetic source"
     ]
+
+
+CONFORMANCE = "ROOT = Path(__file__).resolve().parents[1]\n\n" + module(
+    "bad = shutil.copytree({src}, tmp_path / 'bad')", '_run(["check", str(bad)])'
+)
+REPO = 'ROOT / "tds" / "conformance" / "TDS-S002" / "fail"'
+GUARDED = f"def {GUARD[1]}(tmp_path):\n    build.build(tmp_path)\n    assert tree(A) == tree(B)\n"
+CONFORMANCE_CASES = [
+    pytest.param(REPO, GUARDED, 0, id="the repository's packages, guarded"),
+    pytest.param(REPO, GUARDED.replace("build.build", "copy"), 1, id="guard not rebuilding"),
+    pytest.param(REPO, "def test_other():\n    assert True\n", 1, id="guard gone"),
+    pytest.param("'tds/conformance/TDS-S002/fail'", GUARDED, 1, id="one literal"),
+    pytest.param("'/repo/tds/conformance/TDS-S002/fail'", GUARDED, 1, id="absolute"),
+    pytest.param(
+        REPO.replace("ROOT", "Path(__file__).resolve().parents[2]"),
+        GUARDED,
+        1,
+        id="outside the repository",
+    ),
+    pytest.param(REPO.replace("ROOT", "Path.cwd()"), GUARDED, 1, id="from the current folder"),
+    pytest.param(REPO + ' / ".." / "x"', GUARDED, 1, id="up out of it"),
+]
+
+
+@pytest.mark.parametrize(("src", "guard", "found"), CONFORMANCE_CASES)
+def test_a_conformance_package_passes_only_from_the_repository_and_guarded(
+    src: str, guard: str, found: int
+) -> None:
+    """2.7: `tds/conformance/` packages are the output of `tds/conformance/build.py`, as the
+    guard test shows by rebuilding them; any other way to reach such a folder fails."""
+    body = CONFORMANCE.replace("{src}", src)
+    assert len(findings("tests/test_x.py", body, guard)) == found
+
+
+def test_the_guard_holds_on_the_repository() -> None:
+    """The fact the conformance exception rests on, read from the guard file as it is now."""
+    assert guard_holds((ROOT / GUARD[0]).read_text("utf-8"))
+
+
+#: Test modules of this repository whose data roots go through helpers and `mktemp` (doctor)
+#: and item assignments (`roots[name] = …`); the longest ones (`test_open_snapshot.py`,
+#: `test_market_block.py`) take minutes without the memos, which is why they exist.
+TRACED = ["tests/unit/cli/test_doctor.py", "tests/unit/api/test_run_pipeline_save.py"]
+
+
+def test_the_memos_change_no_verdict() -> None:
+    """The memos only keep the check fast: every case above, and two of the repository's
+    modules with data roots, get the same findings with and without them."""
+    bodies: list[tuple[str, str, str | None]] = [
+        (NAME, b, None) for b in [*FAILS.values(), *PASSES.values()]
+    ]
+    for case in CONFORMANCE_CASES:
+        src, text, _ = (str(v) for v in case.values)
+        bodies.append(("tests/test_x.py", CONFORMANCE.replace("{src}", src), text))
+    bodies += [(p, (ROOT / p).read_text("utf-8"), None) for p in TRACED]
+    for name, body, guard in bodies:
+        assert findings(name, body, guard) == findings(name, body, guard, remember=False), name
