@@ -1,4 +1,4 @@
-"""Spec 8.1's L1-a and L1-b on zipline's side: the pipeline over a market's bundles, each row
+"""Spec 8.1's L1-a, L1-b and L1-d on zipline's side: the pipeline over a market's bundles, each row
 moved to the engine's session (zipline's output for D is the engine's `prev_session(D)`).
 
 Default inputs on both sides; the level factors (SMA, EWMA, VWAP, AverageDollarVolume) read
@@ -39,7 +39,19 @@ def total_cases(market: str) -> dict[str, Any]:
     return {"close_latest": pricing.close.latest,
             **{f"returns_{w}": Returns(window_length=w) for w in (2, 21, 252)},
             "annualized_volatility": AnnualizedVolatility(), "rsi": RSI(),
-            **build(CustomFactor, pricing, THRESHOLDS[market])}  # fmt: skip
+            **build(CustomFactor, pricing, THRESHOLDS[market]), **l1d_cases(pricing)}  # fmt: skip
+
+
+def l1d_cases(pricing: Any) -> dict[str, Any]:
+    """8.1's L1-d (ADR 0046) on a ratio within one bar, which no adjustment moves; the groups
+    are the quintiles of another. The mask keeps NaN out of zipline's grouped rank."""
+    x = pricing.close.latest / pricing.open.latest
+    groups = (pricing.high.latest / pricing.low.latest).quantiles(5)
+    return {"l1d_x": x, "l1d_range": pricing.high.latest / pricing.low.latest,
+            "l1d_top": x.top(20, mask=x > 1.0),
+            "l1d_rank": x.rank("ordinal", mask=x.notnan(), groupby=groups),
+            "l1d_zscore": x.zscore(), "l1d_pct": x.percentile_between(10, 90),
+            "l1d_quantiles": x.quantiles(5)}  # fmt: skip
 
 
 def split_cases(market: str) -> dict[str, Any]:

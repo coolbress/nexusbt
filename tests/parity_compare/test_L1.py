@@ -309,3 +309,161 @@ def test_L1b_adjustment_windows(  # noqa: N802 - spec 8.1's name
     with capsys.disabled():
         print(f"\nL1-b rows compared around an ex-date, after (B): {found}")
     assert found == COVERAGE
+
+
+#: L1-d (ADR 0046): x = close / open within one bar, its groups the quintiles of high / low
+#: NEAR: two x apart by at most this, relative, may swap order (the sides differ by ~4e-16)
+L1D_TOP, L1D_Q, L1D_PCT, NEAR = 20, 5, (10.0, 90.0), 1e-14
+L1D_CASES = ("top", "rank", "zscore", "pct", "quantiles")
+#: Fixed by the first run on `small` (ADR 0046): (cells compared, left out)
+L1D_EXPECTED: dict[str, dict[str, tuple[int, int]]] = {
+    "top": {"KR": (58237, 22), "US": (98612, 10)},
+    "rank": {"KR": (42448, 15811), "US": (73683, 24939)},
+    "zscore": {"KR": (55877, 2382), "US": (92814, 5808)},
+    "pct": {"KR": (58240, 19), "US": (98604, 18)},
+    "quantiles": {"KR": (56294, 1965), "US": (96681, 1941)},
+}
+
+
+@pytest.fixture(scope="module")
+def l1d(manifest: dict[str, Any], tmp_path_factory: pytest.TempPathFactory
+        ) -> dict[str, pd.DataFrame]:  # fmt: skip
+    """Each market's engine L1-d rows, with `tiebreak = "id"` (8.1), beside zipline's."""
+    import nexusbt as nx
+    from nexusbt import Price
+
+    x, high_low = Price.close.latest / Price.open.latest, Price.high.latest / Price.low.latest
+    terms = {"x": x, "range": high_low, "top": x.top(L1D_TOP, mask=x > 1.0),
+             "rank": x.rank("ordinal", mask=x.notnan(), groupby=high_low.quantiles(L1D_Q)),
+             "zscore": x.zscore(), "pct": x.percentile_between(*L1D_PCT),
+             "quantiles": x.quantiles(L1D_Q)}  # fmt: skip
+    folder = tmp_path_factory.mktemp("l1d")
+    (folder / "nexusbt.toml").write_text('[portfolio]\ntiebreak = "id"\n', encoding="utf-8")
+    found = {}
+    with pytest.MonkeyPatch.context() as patch:
+        patch.chdir(folder)
+        for market in THRESHOLDS:
+            theirs = pd.read_parquet(OUT / f"L1-{market}.parquet")
+            theirs = theirs[[*KEYS, *(f"l1d_{c}" for c in terms)]]
+            days = theirs["session_date"]
+            table = nx.run_pipeline(nx.Pipeline(terms), start=str(days.min().date()),
+                                    end=str(days.max().date()), markets=[market],
+                                    snapshot=manifest["snapshot"]).table.to_pandas()  # fmt: skip
+            ours = table.assign(session_date=pd.to_datetime(table["session_date"]),
+                                instrument_id=table["instrument_id"].astype(str))  # fmt: skip
+            both = ours.merge(theirs, on=KEYS, how="left", indicator=True)
+            found[market] = both.sort_values(KEYS, ignore_index=True)  # groupby's order
+    return found
+
+
+def mean_rank(v: np.ndarray) -> np.ndarray:
+    return np.asarray(pd.Series(v).rank(method="average"), dtype=float)
+
+
+def bucket(v: np.ndarray, inside: np.ndarray, rule: str) -> np.ndarray:
+    """Each cell's quintile among the finite `inside` cells, -1 elsewhere: 5.4.3's mean-rank
+    `ceil(r q / n)` (in integers, as 2r) or zipline's `qcut` edges, both 1..q."""
+    out, ok = np.full(len(v), -1), np.isfinite(v) & inside
+    if rule == "5.4.3":
+        twice_r = (2 * mean_rank(v[ok])).astype(int)
+        out[ok] = np.clip(-(-twice_r * L1D_Q // (2 * ok.sum())), 1, L1D_Q)
+    else:
+        out[ok] = pd.qcut(v[ok], L1D_Q, labels=False) + 1
+    return out
+
+
+def between(v: np.ndarray, inside: np.ndarray, rule: str) -> np.ndarray:
+    """`percentile_between(10, 90)` among the finite `inside` cells: 5.4.2's mean-rank
+    percentile or zipline's values between numpy's linear percentiles."""
+    out, ok = np.zeros(len(v), bool), np.isfinite(v) & inside
+    lo, hi = L1D_PCT
+    if rule == "5.4.2":
+        n = ok.sum()
+        p = 100 * (mean_rank(v[ok]) - 1) / (n - 1) if n > 1 else np.full(n, 100.0)
+        out[ok] = (lo <= p) & (p <= hi)
+    else:
+        out[ok] = (np.percentile(v[ok], lo) <= v[ok]) & (v[ok] <= np.percentile(v[ok], hi))
+    return out
+
+
+def top(v: np.ndarray, ids: np.ndarray, inside: np.ndarray) -> np.ndarray:
+    """The first 20 of the `inside` cells with x > 1 by x descending, then `instrument_id`."""
+    ok = np.flatnonzero(np.isfinite(v) & (v > 1.0) & inside)
+    out = np.zeros(len(v), bool)
+    out[ok[np.lexsort((ids[ok], -v[ok]))[:L1D_TOP]]] = True
+    return out
+
+
+def l1d_left_out(f: pd.DataFrame) -> dict[str, np.ndarray]:
+    """ADR 0046: one session's cells left out of each case, from the input values alone (x,
+    high / low, the ids and which rows zipline has), never from either engine's output."""
+    shared = (f["_merge"] == "both").to_numpy()
+    every = np.ones(len(f), bool)
+    ids, x = f["instrument_id"].to_numpy(str), f["x"].to_numpy(float)
+    hl = f["range"].to_numpy(float)
+    xs = np.sort(x[np.isfinite(x)])
+    gap = np.diff(xs)
+    close = (gap > 0) & (gap <= NEAR * np.abs(xs[1:]))
+    near = np.isin(x, np.r_[xs[:-1][close], xs[1:][close]])
+    groups = bucket(hl, every, "5.4.3"), bucket(hl, shared, "qcut")
+    out = {"quantiles": bucket(x, every, "5.4.3") != bucket(x, shared, "qcut"),
+           "pct": between(x, every, "5.4.2") != between(x, shared, "value"),
+           "top": top(x, ids, every) != top(x, ids, shared),
+           "rank": rank(x, ids, groups[0], every) != rank(x, ids, groups[1], shared)}  # fmt: skip
+    out = {case: (left | near) & shared for case, left in out.items()}  # near: order can flip
+    moving = (~shared & np.isfinite(x)).any()  # a finite cell zipline lacks moves the mean
+    return out | {"zscore": np.full(len(f), moving) & shared}
+
+
+def rank(v: np.ndarray, ids: np.ndarray, groups: np.ndarray, inside: np.ndarray) -> np.ndarray:
+    """Each cell's ordinal rank within its group among the finite `inside` cells, by x then
+    `instrument_id` (3.7's `"id"`), 0 elsewhere."""
+    ok = np.flatnonzero(np.isfinite(v) & inside & (groups >= 1))
+    order = ok[np.lexsort((ids[ok], v[ok], groups[ok]))]
+    out = np.zeros(len(v))
+    out[order] = pd.Series(groups[order]).groupby(groups[order]).cumcount().to_numpy() + 1
+    return out
+
+
+def test_L1d_top_rank_zscore_percentile_quantiles(  # noqa: N802 - spec 8.1's name
+    l1d: dict[str, pd.DataFrame], manifest: dict[str, Any], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """8.1 L1-d: sets and ranks exact, `zscore` within L1-a's tolerance (ADR 0046), the cells
+    where zipline's rules answer differently left out and counted."""
+    failed = []
+    for market, frame in l1d.items():
+        shared = frame[frame["_merge"] == "both"]
+        for column in ("x", "range"):  # the rules read the engine's input as zipline's
+            same = compare(column, "input", shared[column].to_numpy(float),
+                           shared[f"l1d_{column}"].to_numpy(float))  # fmt: skip
+            assert same["pass"], (market, same)
+        days = [(f, l1d_left_out(f)) for _, f in frame.groupby("session_date")]
+        for case in L1D_CASES:
+            keep = np.concatenate([(f["_merge"] == "both").to_numpy() & ~o[case] for f, o in days])
+            out = int(sum(o[case].sum() for _, o in days))
+            ours, theirs = frame[case].to_numpy(float), frame[f"l1d_{case}"].to_numpy(float)
+            if case in ("top", "pct"):  # the set of true cells: the engine's unknown is not true
+                ours, theirs = (ours == 1).astype(float), (theirs == 1).astype(float)
+            if case == "quantiles":
+                theirs = np.where(theirs >= 0, theirs + 1, -1)
+            found = compare(f"L1-{market}-l1d_{case}", "exact" if case != "zscore" else "value",
+                            ours[keep], theirs[keep])  # fmt: skip
+            if case != "zscore":
+                found["pass"] = found["nonfinite_disagreeing"] == 0 and found["max_abs"] == 0
+                found["tolerance"] = "exact"
+            found["left_out"] = out
+            evidence(manifest, found, capsys)
+            if not found["pass"] or L1D_EXPECTED.get(case, {}).get(market) != (found["n"], out):
+                failed.append((market, case, found["n"], out, found["pass"]))
+    assert not failed, failed
+
+
+def test_L1d_known_differences_listed() -> None:  # noqa: N802 - spec 8.1's name
+    """8.1, T1.18: `KNOWN_DIFFERENCES.md` lists V31-21's Filter `~` on a missing value, the
+    tie-break of `top` and `rank("ordinal")` (V31-29), and what L1-d found (ADR 0046)."""
+    listed = (ROOT / "tests" / "parity" / "KNOWN_DIFFERENCES.md").read_text(encoding="utf-8")
+    for item in ("missing values under Filter\n  `~`",
+                 'tie-breaking of `top` and `rank("ordinal")`', "`MaxDrawdown`", "`VWAP`",
+                 "## Found by L1-d (ADR 0046", "`quantiles`",
+                 "`percentile_between`", "`zscore`", "`rank(groupby=)`"):  # fmt: skip
+        assert item in listed, item
