@@ -59,7 +59,7 @@ def test_save_seals_a_pipeline_run(tiny: Path, project: Path) -> None:
     assert pq.read_table(folder / "term_diagnostics.parquet").equals(result.term_diagnostics)
     assert result.term_diagnostics.num_rows  # x/0 in every cell: the file holds counts
     manifest = json.loads((folder / "manifest.json").read_text(encoding="utf-8"))
-    assert manifest["source"] == {"entry": "m.py"}
+    assert manifest["source"]["entry"] == "m.py"  # `outside` holds this test's own modules
     assert (folder / "source" / "m.py").read_text(encoding="utf-8") == "# the entry file\n"
     assert manifest["kind"] == "pipeline"
     assert manifest["snapshot_semantic_hash"] == nx.open(tiny).semantic_hash
@@ -170,4 +170,4 @@ def test_an_interactive_session_records_no_entry(
     assert result.run_id is not None
     assert result.run_id.split("-")[2:4] == ["pipeline", "interactive"]
     manifest = json.loads((project / "runs" / result.run_id / "manifest.json").read_text())
-    assert manifest["source"] == {"entry": None}
+    assert manifest["source"]["entry"] is None  # `outside` holds this test's own modules
