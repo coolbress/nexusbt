@@ -148,7 +148,7 @@ case("MaxDrawdown", window(MaxDrawdown(3)), max_drawdown, ([-1.0, 0.0, -1.0],),
      ([-1.0, -0.0, -1.0],), ([1e308, -1e308, 0.5],), ([-1e-300, -1e300, -2e300],))  # fmt: skip
 case("EWMA", window(EWMA(3, 0.5)), lambda x: ewma(x, 0.5), ([1e308, 1e308, 1e308],),
      ([1e308, -1e308, 1e308],))  # fmt: skip
-case("EWMA decay 2", window(EWMA(3, 2.0)), lambda x: ewma(x, 2.0), ([1e308, -1e308, 1e308],))
+# No decay rate above 1: `EWMA` refuses one when the term is built (3.4, #666).
 case("AverageDollarVolume", window(AverageDollarVolume(2)),
      lambda c, v: mean([a * b for a, b in zip(c, v, strict=True)]),
      ([1e200, 1e200], [1e200, 1e100]), ([1e154, 1e154], [1e154, 1e154]),
