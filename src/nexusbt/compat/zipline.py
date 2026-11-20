@@ -37,6 +37,18 @@ _DEFAULT_ONLY: dict[str, tuple[Callable[[Any], bool], str]] = {
 }  # fmt: skip
 
 
+def _kept(fn: FunctionType) -> str:
+    """A method's source and that of each function it keeps along `__wrapped__` (#596): under a
+    project `functools.wraps` decorator its own source is the inner function's, and the method
+    body is the function the inner one keeps. A plain method gives its source alone."""
+    parts, seen, kept = [_readable(fn)], {id(fn)}, getattr(fn, "__wrapped__", None)
+    while isinstance(kept, FunctionType) and id(kept) not in seen:
+        seen.add(id(kept))
+        parts.append(_readable(kept))
+        kept = getattr(kept, "__wrapped__", None)
+    return "\n".join(parts)
+
+
 class _NotPassed:
     """What `compute` gets as `today` and `assets`: reading it stops with the reason (#251)."""
 
@@ -99,7 +111,7 @@ class CustomFactor:
                  if not k.startswith("__") and k not in ("inputs", "mask")}  # fmt: skip
         # what compute may read through `self`: constants and methods' source are hashed; other
         # data is E24 with the L1 cache off, as a non-constant global is (6.5 (6), #561)
-        source = {k: _readable(v) for k, v in named.items() if isinstance(v, FunctionType)}
+        source = {k: _kept(v) for k, v in named.items() if isinstance(v, FunctionType)}
         constants = {k: v for k, v in named.items() if _constant(v)}
         hashed = tuple(sorted((constants | source).items()))
         skip = (*constants, *source)  # and a type, such as zipline's `dtype`
