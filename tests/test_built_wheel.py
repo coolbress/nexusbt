@@ -174,5 +174,5 @@ def test_an_installed_engine_runs_and_saves_a_pipeline(wheels: list[str], tmp_pa
     rows, run_id = done.stdout.split()
     assert rows == "15"  # 3 sessions, 5 KR instruments listed
     manifest = json.loads((project / "runs" / run_id / "manifest.json").read_text())
-    assert manifest["source"] == {"entry": "m.py"}
+    assert manifest["source"] == {"entry": "m.py", "outside": {}}
     assert (project / "runs" / run_id / "SEALED").is_file()

@@ -300,10 +300,12 @@ def _seal(
     try:
         for name, (table, key) in tables.items():
             txn.write_table(name, table, value_sha256=table_value_hash(table, key))
-        files = (getattr(m, "__file__", None) for m in list(sys.modules.values()))
-        imported = [Path(f) for f in files if isinstance(f, str) and _project_file(f)]
+        files = {n: getattr(m, "__file__", None) for n, m in list(sys.modules.items())}
+        modules = {n: Path(f) for n, f in files.items() if isinstance(f, str) and _project_file(f)}
         # a rerun's project is its `source/`, so the new run keeps the same paths (5.9.3)
-        txn.capture_sources(imported, project=_rerun.project(), entry=entry)
+        project = _rerun.project()
+        txn.capture_sources(modules.values(), project=project, entry=entry,
+                            outside=_rerun.outside(modules, project))  # fmt: skip
         used = params["markets"] or opened.markets
         markets = {m: {"calendar_id": i.calendar_id, "currency": i.currency,
                        "rules_pack": i.rules or "untested"}
