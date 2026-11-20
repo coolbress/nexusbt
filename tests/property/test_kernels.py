@@ -20,7 +20,7 @@ from typing import Any
 
 import numpy as np
 import pytest
-from hypothesis import given
+from hypothesis import example, given
 from hypothesis import strategies as st
 
 from nexusbt.compute import _elem, _kernels
@@ -98,6 +98,18 @@ def rsi(c: list[Any]) -> Any:
     return 100.0 - 100.0 / (1.0 + up / dn)
 
 
+Oracle = Callable[..., Any]
+#: The oracles of picking kernels: their value is one of several candidates chosen by an order
+#: (`fmax`, `fmin`, the middle of a sort), not computed from all of them. See `same_bits`.
+PICKING: set[Oracle] = set()
+
+
+def picking(oracle: Oracle) -> Oracle:
+    PICKING.add(oracle)
+    return oracle
+
+
+@picking
 def max_drawdown(c: list[Any]) -> Any:
     peak, worst = NAN, NAN
     for v in c:
@@ -107,33 +119,38 @@ def max_drawdown(c: list[Any]) -> Any:
     return worst
 
 
+@picking
 def median(c: list[Any]) -> Any:
     finite = sorted(v for v in c if np.isfinite(v))
     n = len(finite)
     return (finite[(n - 1) // 2] + finite[n // 2]) / 2 if n else NAN
 
 
+@picking
 def lowest(c: list[Any]) -> Any:
-    """The smallest finite cell by `fmin` in row order, so a tie of 0.0 and -0.0 resolves as
-    the kernel's does; NaN when none."""
+    """The smallest finite cell by `fmin` in row order; NaN when none."""
     low = NAN
     for v in c:
         low = np.fmin(low, v if np.isfinite(v) else NAN)
     return low
 
 
+@picking
+def highest(c: list[Any]) -> Any:
+    return -lowest([-v for v in c])
+
+
+#: `nx.ops.rolling`'s operations, each over a column's cells.
+ROLLING_ORACLES: dict[str, Oracle] = {
+    "mean": mean, "sum": lambda c: fold(c)[0], "std": lambda c: std(c, 1),
+    "min": lowest, "max": highest, "median": median,
+}  # fmt: skip
+
+
 def rolling(c: list[Any], how: str, min_periods: int) -> Any:
     if sum(bool(np.isfinite(v)) for v in c) < min_periods:
         return NAN
-    found: dict[str, Callable[[], Any]] = {
-        "mean": lambda: mean(c),
-        "sum": lambda: fold(c)[0],
-        "std": lambda: std(c, 1),
-        "min": lambda: lowest(c),
-        "max": lambda: -lowest([-v for v in c]),
-        "median": lambda: median(c),
-    }
-    return found[how]()
+    return ROLLING_ORACLES[how](c)
 
 
 #: Each kernel's oracle for one column, given the column's cells and the term's parameters.
@@ -147,24 +164,77 @@ ORACLES: dict[str, Callable[[Any, dict[str, Any]], Any]] = {
     "ExponentialWeightedMovingAverage": lambda c, p: ewma(c, p["decay_rate"]),
     "VWAP": lambda c, _: vwap(*c),
     "RSI": lambda c, _: rsi(c),
-    "MaxDrawdown": lambda c, _: max_drawdown(c),
+    "MaxDrawdown": picking(lambda c, _: max_drawdown(c)),
     "rolling": lambda c, p: rolling(c, p["how"], p["min_periods"]),
 }
 
 
-def same_bits(found: Any, expected: Any) -> bool:
-    """Equal bits, NaN where NaN (a NaN's payload is not a value)."""
+def picks(op: str, params: dict[str, Any]) -> bool:
+    """Whether the kernel's value is picked rather than computed (`PICKING`)."""
+    return (ROLLING_ORACLES[params["how"]] if op == "rolling" else ORACLES[op]) in PICKING
+
+
+def same_bits(found: Any, expected: Any, *, zero_sign: bool = True) -> bool:
+    """Equal bits, NaN where NaN (a NaN's payload is not a value). With `zero_sign=False`, a
+    cell where both sides are zero matches whatever their signs; every other cell keeps its bits.
+
+    Only picking kernels take `zero_sign=False` (`picks`). Which of two equal zeros a pick
+    returns (`fmax(-0.0, 0.0)`, the middle of a sort holding 0.0 and -0.0) is left open by
+    IEEE 754 and by spec 3.4 and 5.3.10, and numpy's paths may answer differently: P-KERNEL
+    failed so on an x86 runner (run 44656168938) and, for the median, on arm64 (#254's
+    Decisions, 2026-11-20). The value hash does not see the sign either: TDS 4.5 writes an
+    `f64` cell as "IEEE-754 bits, 8 bytes little-endian (-0.0 normalised to +0.0; ...)" (its
+    minus sign is U+2212 there). So this test does not ask for that sign. Computing kernels
+    (sums, means, standard deviations, ratios) keep the signed-zero comparison.
+    """
     found, expected = np.asarray(found, dtype=F), np.asarray(expected, dtype=F)
     nan = np.isnan(found)
     if not np.array_equal(nan, np.isnan(expected)):
         return False
-    return bool(np.array_equal(found[~nan].view(np.int64), expected[~nan].view(np.int64)))
+    keep = ~nan if zero_sign else ~nan & ~((found == 0) & (expected == 0))
+    return bool(np.array_equal(found[keep].view(np.int64), expected[keep].view(np.int64)))
+
+
+class Draws:
+    """A stand-in for `st.data()` in an `@example` (which cannot carry its draws): the draw of
+    an integer gives `min_periods`, the draw of a window the same fixed cells each time, so
+    every kernel gets the fixed column."""
+
+    def __init__(self, min_periods: int, cells: list[float]) -> None:
+        self.min_periods, self.cells = min_periods, cells
+
+    def draw(self, strategy: Any) -> Any:
+        return self.min_periods if "integers" in repr(strategy) else list(self.cells)
+
+
+#: The inputs P-KERNEL failed on, 2026-11-20 (#254's Decisions): the `MaxDrawdown` column of
+#: an x86 runner (run 44656168938, as hypothesis shrank it), and a `rolling` median of zeros on
+#: arm64, whose full column was not kept: `[0.0, -0.0, 0.0]` is the shortest column of zeros
+#: whose median sign differs between the kernel and the oracle there.
+MAX_DRAWDOWN_TIE = Draws(1, [np.nan, -1.0, 0.1, np.nan])
+MEDIAN_OF_ZEROS = Draws(1, [0.0, -0.0, 0.0])
 
 
 def test_every_kernel_has_an_oracle() -> None:
     """A kernel added to the executor or to the registered table gets its oracle here."""
     assert set(ORACLES) == set(KERNELS)
     assert set(REGISTERED) - {"window_sum"} <= set(KERNELS)  # `window_sum`: checked below
+
+
+def test_picking_is_the_order_choosing_kernels() -> None:
+    """The kernels whose value is picked: `MaxDrawdown` and `rolling` min, max and median."""
+    picked = {op for op in KERNELS if op != "rolling" and picks(op, {})}
+    picked |= {f"rolling.{how}" for how in ROLLING if picks("rolling", {"how": how})}
+    assert picked == {"MaxDrawdown", "rolling.min", "rolling.max", "rolling.median"}
+
+
+def test_same_bits_without_zero_sign_still_compares_the_rest() -> None:
+    """Only a zero on both sides drops its sign; NaN and every other bit still count."""
+    assert same_bits([0.0, 1.0], [-0.0, 1.0], zero_sign=False)
+    assert not same_bits([0.0, 1.0], [-0.0, 1.0])
+    assert not same_bits([0.0], [5e-324], zero_sign=False)  # the smallest subnormal is not 0
+    assert not same_bits([np.nan], [0.0], zero_sign=False)
+    assert not same_bits([1.0], [np.nextafter(1.0, 2.0)], zero_sign=False)
 
 
 def test_ewma_weights_use_the_compiled_pow(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -189,6 +259,8 @@ def test_ewma_weights_use_the_compiled_pow(monkeypatch: pytest.MonkeyPatch) -> N
     rate=st.floats(0.01, 0.99),
     how=st.sampled_from(sorted(ROLLING)),
 )
+@example(rows=4, cols=1, data=MAX_DRAWDOWN_TIE, factor=1.0, rate=0.5, how="max")
+@example(rows=3, cols=1, data=MEDIAN_OF_ZEROS, factor=1.0, rate=0.5, how="median")
 def test_P_KERNEL_reference_is_left_fold(  # noqa: N802 - spec 10.1's name
     rows: int, cols: int, data: st.DataObject, factor: float, rate: float, how: str
 ) -> None:
@@ -207,7 +279,9 @@ def test_P_KERNEL_reference_is_left_fold(  # noqa: N802 - spec 10.1's name
                        for j in range(cols)]  # fmt: skip
             expected = [ORACLES[op]([[F(v) for v in s] for s in c] if op == "VWAP"
                                     else [F(v) for v in c], params) for c in columns]  # fmt: skip
-        assert same_bits(found, expected), (op, x.tolist(), found, expected)
+        assert same_bits(found, expected, zero_sign=not picks(op, params)), (
+            op, x.tolist(), found, expected,
+        )  # fmt: skip
     x = window(rows)  # `window_sum`: every cell in row order, a NaN making the value NaN
     expected = [functools.reduce(lambda acc, v: acc + v, map(F, x[:, j]), F(0.0))
                 for j in range(cols)]  # fmt: skip
