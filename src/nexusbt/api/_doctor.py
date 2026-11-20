@@ -161,6 +161,12 @@ def doctor() -> str:
     named = [(f, f"{f.dataset}.{f.column}" if f.column else f.dataset) for f in s.fallbacks]
     lines += [("fallback", f"{f.id} {name} {f.market} {f.count}") for f, name in named]  # F-01
     lines += [] if s.fallbacks else [("fallbacks", "none")]
+    # 4.5 F-16: TDS-V011 needs `value_traded`, so without it the unit of `volume` is unchecked;
+    # one line for each dataset, not per market, with `volume` there or not (#650 Decisions)
+    lacking = dict.fromkeys(f.dataset for f in s.fallbacks
+                            if f.id == "F-18" and f.column == "value_traded")  # fmt: skip
+    said = "volume unit unverified (no value_traded, TDS-V011)"
+    lines += [("volume", f"{dataset} {said}") for dataset in lacking]
     for m, info in s.markets.items():
         d = s.daily.get(m)
         rules = "none" if info.rules is None else info.rules.replace(GENERIC, "untested")
