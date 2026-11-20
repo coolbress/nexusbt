@@ -300,10 +300,12 @@ def _seal(
     try:
         for name, (table, key) in tables.items():
             txn.write_table(name, table, value_sha256=table_value_hash(table, key))
-        files = (getattr(m, "__file__", None) for m in list(sys.modules.values()))
-        imported = [Path(f) for f in files if isinstance(f, str) and _project_file(f)]
+        files = {n: getattr(m, "__file__", None) for n, m in list(sys.modules.items())}
+        modules = {n: Path(f) for n, f in files.items() if isinstance(f, str) and _project_file(f)}
         # a rerun's project is its `source/`, so the new run keeps the same paths (5.9.3)
-        txn.capture_sources(imported, project=_rerun.project(), entry=entry)
+        project = _rerun.project()
+        txn.capture_sources(modules.values(), project=project, entry=entry,
+                            outside=_rerun.outside(modules, project))  # fmt: skip
         used = params["markets"] or opened.markets
         markets = {m: {"calendar_id": i.calendar_id, "currency": i.currency,
                        "rules_pack": i.rules or "untested"}
@@ -413,7 +415,7 @@ def runs(*, study: str | None = None, kind: str | None = None, limit: int = 50) 
 def rerun(run_id: str, *, new_snapshot: bool = False, trust: bool = False) -> Run:
     """3.8: the run's `source/` again in a new process (5.9.3), its outputs compared by value
     and bytes (5.9.4); a sealed run of another machine only with `trust=True` (2.6, E31)."""
-    from nexusbt.artifacts._environment import machine_id
+    from nexusbt.artifacts._environment import same_machine
 
     folder = Path(config().values["runs"]["dir"]).resolve() / run_id
     if not (folder / "SEALED").is_file():
@@ -422,7 +424,7 @@ def rerun(run_id: str, *, new_snapshot: bool = False, trust: bool = False) -> Ru
             why="a rerun needs the run it reproduces", fix="nx.runs() lists the runs",
             more="spec 5.9.1", subject=f"run {run_id}", layer=f"data — run {run_id} / manifest",
         )  # fmt: skip
-    if not trust and _rerun.read(folder)["environment"]["machine_id"] != machine_id():
+    if not trust and not same_machine(_rerun.read(folder)["environment"]["machine_id"]):
         raise UntrustedRunError(
             what=f"run {run_id} was created on another machine; its source/ will be executed",
             where=f"run folder {run_id}", why="running code you did not read is unsafe",

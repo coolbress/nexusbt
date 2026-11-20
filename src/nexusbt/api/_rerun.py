@@ -5,10 +5,16 @@ the captured helpers come before same-named files of the working folder. Inside 
 `ACTIVE` names the run reproduced: the snapshot opens with each file's sha256 and must have the
 recorded semantic hash, the config is `source/nexusbt.toml`, and the run sealed is indexed as
 `run_kind = rerun` with `derived_from`. A 6.6 error crosses back to the caller as its class.
+
+A project module outside the project folder (an editable install, 6.5 (6), #577) is not kept in
+`source/`: the run records its name and its file's sha256 (5.9.2 `source.outside`), and a rerun
+whose module now hashes otherwise, or is gone, is E15 naming the module (#250 Decisions).
 """
 
 from __future__ import annotations
 
+import hashlib
+import importlib.util
 import json
 import re
 import runpy
@@ -72,6 +78,46 @@ def sealed(run_id: str) -> None:
         ACTIVE.sealed.append(run_id)
 
 
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def outside(modules: Mapping[str, Path], project: Path) -> dict[str, str]:
+    """5.9.2 `source.outside`: module name → sha256 of each project module whose file is
+    outside `project`, so not in `source/`; a name, never a path (5.9.3 "No local path")."""
+    return {name: _sha256(path) for name, path in modules.items()
+            if name != "__main__" and path.is_file()
+            and not path.resolve().is_relative_to(project)}  # fmt: skip
+
+
+def _check_outside(replay: Replay) -> None:
+    """Each recorded outside module, found as the new process imports it, must hash the same."""
+    for name, digest in replay.manifest["source"].get("outside", {}).items():
+        failed = False
+        try:
+            spec = importlib.util.find_spec(name)
+        except (ImportError, ValueError):
+            spec = None
+        except Exception:  # finding a submodule imports its package, whose changed code may raise
+            spec, failed = None, True
+        file = Path(spec.origin) if spec and spec.origin else None
+        if failed:
+            how = "changed"
+        elif file is None or not file.is_file():
+            how = "is missing"
+        elif _sha256(file) != digest:
+            how = "changed"
+        else:
+            continue
+        raise ReplayError(
+            what=f"helper module {name} {how} since run {replay.run_id} and is not kept in "
+                 "source/: it is outside the project folder",
+            where=f"module {name}", why="a rerun needs the exact code it ran",
+            fix=f"restore {name} as it was at the run", more="spec 5.9.2 source.outside",
+            subject=f"run {replay.run_id}", layer=f"data — run {replay.run_id} / source",
+        )  # fmt: skip
+
+
 def check_snapshot(opened: Snapshot) -> None:
     """3.8: a rerun reads the data it ran on, confirmed by the semantic hash (E15)."""
     recorded = ACTIVE.manifest.get("snapshot_semantic_hash") if ACTIVE else None
@@ -102,6 +148,8 @@ def child(folder: Path, out: Path, new_snapshot: bool) -> int:
     kept = [replay.source / p.relative_to(here) for p in found if p.is_relative_to(here)]
     sys.path[:0] = [str(entry.parent), str(replay.source), *map(str, kept)]
     try:
+        if not new_snapshot:  # a new run is not a reproduction: its code is today's (3.8)
+            _check_outside(replay)
         try:
             runpy.run_path(str(entry), run_name="__main__")
         except SnapshotError as unread:  # the package moved, or a file's bytes differ
@@ -130,9 +178,12 @@ def compare(old: Mapping[str, Any], new: Mapping[str, Any]) -> str:
         got = new["outputs"].get(name, {})
         if which := [h for h in kinds if hashes.get(f"{h}_sha256") != got.get(f"{h}_sha256")]:
             differ.append(f"{name} ({', '.join(which)})")
-    if differ:
-        return "outputs differ: " + "; ".join(differ)
-    return f"outputs identical ({', '.join(kinds)})"
+    if not differ:
+        return f"outputs identical ({', '.join(kinds)})"
+    # #250 Decisions: a manifest saved before `source.outside` is "not recorded", never `{}`
+    unrecorded = "outside" not in old.get("source", {})
+    note = "; this run's outside helpers were not recorded" if unrecorded else ""
+    return "outputs differ: " + "; ".join(differ) + note
 
 
 def rerun(folder: Path, *, new_snapshot: bool) -> tuple[str, str]:

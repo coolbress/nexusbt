@@ -263,7 +263,7 @@ def test_sources_captured_with_helpers(tmp_path: Path) -> None:
     manifest = json.loads((folder / "manifest.json").read_text())
     assert "source/lib/helpers.py" in manifest["outputs"]  # the seal pins the source too
     assert not os.access(source / "strategy.py", os.W_OK)
-    assert manifest["source"] == {"entry": "strategy.py"}
+    assert manifest["source"] == {"entry": "strategy.py", "outside": {}}
     checkout_lock = Path(__file__).resolve().parents[3] / "uv.lock"  # a source checkout's
     assert (source / "engine-uv.lock").read_bytes() == checkout_lock.read_bytes()
 
@@ -282,7 +282,7 @@ def test_engine_written_paths_hold_no_local_path(tmp_path: Path) -> None:
     folder = txn.seal().path
 
     manifest = (folder / "manifest.json").read_text(encoding="utf-8")
-    assert json.loads(manifest)["source"] == {"entry": "_entry/entry.py"}
+    assert json.loads(manifest)["source"] == {"entry": "_entry/entry.py", "outside": {}}
     assert {"daily.parquet", "source/lib/helpers.py"} <= set(json.loads(manifest)["outputs"])
     assert "kim-private" not in manifest
     assert str(tmp_path) not in manifest
@@ -338,7 +338,7 @@ def test_an_entry_file_outside_the_project_is_captured(tmp_path: Path) -> None:
 
     assert (folder / "source" / "_entry" / "my.py").read_text() == "# run me\n"
     manifest = json.loads((folder / "manifest.json").read_text())
-    assert manifest["source"] == {"entry": "_entry/my.py"}  # the path under `source/`
+    assert manifest["source"] == {"entry": "_entry/my.py", "outside": {}}  # under `source/`
     assert "source/_entry/my.py" in manifest["outputs"]  # the seal pins it
 
 
@@ -356,7 +356,7 @@ def test_an_entry_file_inside_the_project_is_captured_though_not_imported(
     assert (folder / "source" / "strategies" / "mom.py").read_text() == "# mom\n"
     assert not (folder / "source" / "_entry").exists()
     manifest = json.loads((folder / "manifest.json").read_text())
-    assert manifest["source"] == {"entry": "strategies/mom.py"}
+    assert manifest["source"] == {"entry": "strategies/mom.py", "outside": {}}
 
 
 def test_a_run_with_no_entry_file_seals_with_a_warning(tmp_path: Path) -> None:
@@ -364,7 +364,8 @@ def test_a_run_with_no_entry_file_seals_with_a_warning(tmp_path: Path) -> None:
     with pytest.warns(UserWarning, match="no entry file"):
         txn.capture_sources([], project=tmp_path, entry=None)
     folder = txn.seal().path
-    assert json.loads((folder / "manifest.json").read_text())["source"] == {"entry": None}
+    source = json.loads((folder / "manifest.json").read_text())["source"]
+    assert source == {"entry": None, "outside": {}}
 
 
 @pytest.mark.parametrize("case", ["missing", "unreadable", "taken"])
