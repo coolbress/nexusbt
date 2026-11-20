@@ -30,7 +30,7 @@ import sys
 import time
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, Literal, NamedTuple
+from typing import Any, Literal, NamedTuple, cast
 
 import exchange_calendars as xc
 import numpy as np
@@ -217,6 +217,9 @@ def _tiny(market: str, events: Sequence[Mapping[str, Any]] = ()) -> dict[str, Ta
             close = price
     actions, exited = _tiny_actions(market, [i for _, i in ids], days, bars, events,
                                     (first, last), ended)  # fmt: skip
+    for b in bars:  # 4.8 (3), as small: after the events moved the bars, 0 without volume
+        v, h, lo, c = (cast(float, b[k]) for k in ("volume", "high", "low", "close"))
+        b["value_traded"] = v * (h + lo + c) / 3 if v > 0 else 0.0
     bars.sort(key=lambda b: (b["session_date"], b[ID]))
     return {"instruments": instruments, "instrument_symbols": _symbols(spans),
             "bars_1d": _columns(bars), "corporate_actions": actions,

@@ -117,6 +117,23 @@ def test_daily_block_does_not_depend_on_dataset_order(tiny: Path, tmp_path: Path
         assert warned == base_warned, first
 
 
+def test_volume_unit_counts_the_daily_bars_only(tmp_path: Path) -> None:
+    """F-16 (4.5) for the daily bars the engine reads (4.3, #547), with `bars_1m` beside them
+    that TDS-V011 also flags: one E30, naming `bars_1d` with its instrument-years only."""
+    lots = make_snapshot(tmp_path / "lots", preset="small", markets=("KR",), n_kr=6,
+                         degrade=["volume_in_lots"])  # fmt: skip
+    base, _ = opened(lots)
+    daily = [r for r in base.fallbacks if r.id == "F-16"]
+    assert daily
+    assert {r.dataset for r in daily} == {"bars_1d"}
+    root = rewritten(lots, tmp_path / "with_1m", minute_bars(True))
+    snap, warned = opened(root)
+    assert snap.warnings["TDS-V011"] == base.warnings["TDS-V011"] + 1  # the checker sees 1m
+    assert [r for r in snap.fallbacks if r.id == "F-16"] == daily
+    [said] = [w for w in warned if "F-16" in w]
+    assert "bars_1m" not in said
+
+
 def test_l0_key_does_not_depend_on_dataset_order(tiny: Path, tmp_path: Path) -> None:
     """#547: the L0 key hashes the daily bars (5.3.9), whichever place `bars_1m` takes."""
     want = l0_key(read_manifest(tiny), "KR", "close", 2020, "strict")
