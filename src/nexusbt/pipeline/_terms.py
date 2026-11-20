@@ -701,16 +701,25 @@ def _found(value: object, read: str) -> bool:
     (#589 Decisions 2): the module outside the project that `value` names as its `__module__`
     holds that very object under its qualified name, its name (`np.random.rand`, qualified
     `RandomState.rand`) or the name `read` it is read by (a library's instance with no name,
-    Decisions 5); or it is a method bound to an object found so (`np.add.reduce`). Any other
-    callable, a project's included (#572 Decisions 2), cannot have what it holds in the hash."""
-    name = getattr(value, "__module__", None)
-    module = sys.modules.get(name) if isinstance(name, str) else None
-    if module is not None and not _project_space(module):
-        names = (getattr(value, "__qualname__", None), getattr(value, "__name__", None), read)
-        if any(isinstance(n, str) and _lookup(module, n) is value for n in names):
-            return True
-    bound = getattr(value, "__self__", None)
-    return not isinstance(bound, ModuleType | None) and _found(bound, "")
+    Decisions 5); or it is a method bound to an object found so (`np.add.reduce`). A method that
+    names no `__module__` (`str.upper`, `random.random`) is looked for in the module of its class.
+    Any other callable, a project's included (#572 Decisions 2), cannot have what it holds in the
+    hash; so is a chain of bound objects longer than a few steps (a lazy proxy)."""
+    for _ in range(4):
+        bound = getattr(value, "__self__", None)
+        home = getattr(value, "__module__", None)
+        if not isinstance(home, str):
+            cls = getattr(value, "__objclass__", None) or (None if bound is None else type(bound))
+            home = getattr(cls, "__module__", None)
+        module = sys.modules.get(home) if isinstance(home, str) else None
+        if module is not None and not _project_space(module):
+            names = (getattr(value, "__qualname__", None), getattr(value, "__name__", None), read)
+            if any(isinstance(n, str) and _lookup(module, n) is value for n in names):
+                return True
+        if isinstance(bound, ModuleType | None):
+            return False
+        value, read = bound, ""
+    return False
 
 
 def _lookup(module: ModuleType, dotted: str) -> object:
@@ -746,10 +755,13 @@ def _project_space(value: ModuleType | type) -> bool:
 
 
 def _held(value: object) -> bool:
-    """Data a function reads that the hash cannot hold: anything not callable, and an instance of
-    a project class, also when it keeps a function in `__wrapped__` (#246). A `functools.partial`
-    is not named: it is not found by reference, so `_found` makes it E24 (#589 Decisions 3)."""
-    return not callable(value) or _project_space(type(value))
+    """Data a function reads that the hash cannot hold: anything not callable, and a callable that
+    carries data, an instance of a project class or a `functools.partial`, also when it keeps a
+    function in `__wrapped__` (#246). The rule of `_found` makes a partial E24 too, but not one
+    given a `__wrapped__` (`functools.update_wrapper`): `_helper` would follow that to the
+    function and leave the partial's arguments out of the hash (#589 Decisions 3)."""
+    carries = isinstance(value, functools.partial) or _project_space(type(value))
+    return not callable(value) or carries
 
 
 def _constant(value: object) -> bool:

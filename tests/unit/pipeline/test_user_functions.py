@@ -660,6 +660,7 @@ def _built(at: Path, file: str, setup: str, name: str = "X", k: int = 2) -> Fact
     ("X = operator.itemgetter(1)", "X"),
     ("X = functools.partial(_helper, 2)", "X"),
     ("X = functools.partial(np.mean, axis=0)", "X"),
+    ("X = functools.update_wrapper(functools.partial(_helper, 2), _helper)", "X"),  # its `2`
     ("add = np.vectorize(_helper)", "add"),  # numpy holds an `add`, another object
     ("reduce = functools.partial(_helper, 2)", "reduce"),  # as functools does
     ("rand = operator.itemgetter(1)", "rand"),
@@ -679,21 +680,37 @@ def test_a_callable_built_at_run_time_is_impure(tmp_path: Path, setup: str, name
         assert l1_disabled(_built(tmp_path, "built", setup, name))
 
 
-@pytest.mark.parametrize("setup", [
-    "X = np.add",
-    "from numpy import nanmean as X",  # found under its qualified name, not the name read
-    "X = len",
-    "X = math.sqrt",
-    "from numpy.random import rand as X",  # qualified `RandomState.rand`: found by `__name__`
-    "X = np.add.reduce",  # bound to `np.add`, which is found
-    "X = datetime.date",  # a class: a namespace, read as before
+@pytest.mark.parametrize(("setup", "name"), [
+    ("X = np.add", "X"),
+    ("from numpy import nanmean as X", "X"),  # found under its qualified name, not the name read
+    ("X = len", "X"),
+    ("X = math.sqrt", "X"),
+    ("from numpy.random import rand as X", "X"),  # qualified `RandomState.rand`: by `__name__`
+    ("X = np.add.reduce", "X"),  # bound to `np.add`, which is found
+    ("X = datetime.date", "X"),  # a class: a namespace, read as before
+    ("from random import random as X", "X"),  # no `__module__`: its object's class's module
+    ("X = str.upper", "X"),  # a compiled class's method: its class's module
+    ("X = np.ndarray.mean", "X"),
+    ("class Bag(list):\n    pass", "Bag.append"),  # a project class's inherited `list.append`
 ])  # fmt: skip
-def test_a_library_callable_found_by_reference_is_pure(tmp_path: Path, setup: str) -> None:
+def test_a_library_callable_found_by_reference_is_pure(
+    tmp_path: Path, setup: str, name: str
+) -> None:
     """#589 Decisions 1, 2: a library's callable read under any name stays pure, no warning and
-    L1 on, when its own module holds it under its own name, or it is bound to one that is."""
+    L1 on, when its own module holds it under its own name, or it is bound to one that is; one
+    that names no `__module__` is looked for in the module of the class it is a method of."""
     with warnings.catch_warnings():
         warnings.simplefilter("error")
-        assert not l1_disabled(_built(tmp_path, "library", setup))
+        assert not l1_disabled(_built(tmp_path, "library", setup, name))
+
+
+def test_a_chain_of_bound_objects_with_no_end_is_impure(tmp_path: Path) -> None:
+    """#589 fresh-context review: an object whose `__self__` is always another such object (a
+    lazy proxy) is followed a few steps, then E24, never a `RecursionError`."""
+    setup = ('class P:\n    __module__ = "json"\n    def __call__(self, *a):\n        return 0\n'
+             "    def __getattr__(self, n):\n        return P()\nX = P()")  # fmt: skip
+    with pytest.warns(UserWarning, match=r"reads global 'X'"):
+        _built(tmp_path, "proxy", setup)
 
 
 @pytest.mark.parametrize("setup", ["X = numba.njit(_helper)", "X = functools.lru_cache(_helper)",
