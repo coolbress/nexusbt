@@ -6,7 +6,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from snapshot_sources import GUARD, findings, guard_holds
+from snapshot_sources import GUARD, PARITY_TEST, RUNNER, findings, guard_holds
 
 ROOT = Path(__file__).resolve().parents[2]
 NAME = "tests/unit/test_x.py"
@@ -214,3 +214,92 @@ def test_the_memos_change_no_verdict() -> None:
     bodies += [(p, (ROOT / p).read_text("utf-8"), None) for p in TRACED]
     for name, body, guard in bodies:
         assert findings(name, body, guard) == findings(name, body, guard, remember=False), name
+
+
+#: A parity runner as 8.1's: a helper makes the package (`{makes}`), `main` names it.
+MAKES = 'tool("uv", "run", "python", "-m", "nexusbt.testing.synth", "--out", str(snapshot))'
+RUNNER_TEXT = (
+    "ROOT = Path(__file__).resolve().parents[3]\n\n"
+    "def fixture(out):\n    snapshot = out / 'snapshot'\n    {makes}\n    return snapshot\n\n"
+    "def main():\n    p = argparse.ArgumentParser()\n"
+    "    p.add_argument('--fixture', choices=['small'], default='small')\n"
+    "    p.add_argument('--out', type=Path, default=ROOT / '.scratch' / 'parity')\n"
+    "    out = p.parse_args().out\n    snapshot = fixture(out)\n"
+    "    manifest = {{'snapshot': str(snapshot)}}\n"
+)
+#: A parity test as `test_L1.py`: its `manifest` fixture reads the runner's manifest.
+PARITY = (
+    "import json\nfrom pathlib import Path\nimport nexusbt as nx\n\n"
+    "ROOT = Path(__file__).resolve().parents[2]\nOUT = ROOT / '.scratch' / 'parity' / 'small'\n\n"
+    "@pytest.fixture(scope='module')\ndef manifest():\n    path = {path}\n"
+    "    found = json.loads(path.read_text(encoding='utf-8'))\n    return found\n\n"
+    "def test_x(manifest):\n    {opens}\n"
+)
+OPENS = "nx.run_pipeline(p, snapshot=manifest['snapshot'])"
+
+
+def parity(path: str = "OUT / 'manifest.json'", opens: str = OPENS) -> str:
+    return PARITY.format(path=path, opens=opens)
+
+
+@pytest.mark.parametrize(
+    ("name", "body", "makes", "found"),
+    [
+        pytest.param(PARITY_TEST, parity(), MAKES, 0, id="the runner's manifest"),
+        pytest.param(
+            PARITY_TEST, parity(), "shutil.copytree(SOURCE, snapshot)", 1, id="runner copytree"
+        ),
+        pytest.param(
+            PARITY_TEST,
+            parity(),
+            MAKES.replace("(snapshot)", "(out)"),
+            1,
+            id="runner's other --out",
+        ),
+        pytest.param("tests/unit/test_x.py", parity(), MAKES, 1, id="another file"),
+        pytest.param(
+            PARITY_TEST,
+            parity(opens="manifest = {'snapshot': '/data/x'}\n    " + OPENS),
+            MAKES,
+            1,
+            id="a manifest dict the test builds",
+        ),
+        pytest.param(
+            PARITY_TEST,
+            parity(path="Path.home() / 'manifest.json'"),
+            MAKES,
+            1,
+            id="fixture reads another file",
+        ),
+        pytest.param(
+            PARITY_TEST,
+            parity(path="ROOT / 'manifest.json'"),
+            MAKES,
+            1,
+            id="fixture reads outside OUT",
+        ),
+        pytest.param(
+            PARITY_TEST,
+            parity(opens=OPENS.replace("'snapshot']", "'fixture']")),
+            MAKES,
+            1,
+            id="another key",
+        ),
+    ],
+)
+def test_the_parity_manifest_passes_only_as_the_runner_makes_it(
+    name: str, body: str, makes: str, found: int
+) -> None:
+    """2.7: the package 8.1's parity runner writes with the generator's command and names in
+    its manifest, opened in `PARITY_TEST` from the fixture that reads that manifest."""
+    assert len(findings(name, body, runner=RUNNER_TEXT.format(makes=makes))) == found
+
+
+def test_the_parity_exception_holds_only_while_the_runner_writes_the_generator_output() -> None:
+    """The repository's own runner and parity test: the two openings pass, and fail again
+    when one line of a copy of the runner gives the generator another `--out`."""
+    runner, test = (ROOT / RUNNER).read_text("utf-8"), (ROOT / PARITY_TEST).read_text("utf-8")
+    broken = runner.replace('"--out", str(snapshot)', '"--out", str(out)')
+    assert broken != runner
+    assert findings(PARITY_TEST, test, runner=runner) == []
+    assert len(findings(PARITY_TEST, test, runner=broken)) == 2

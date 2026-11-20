@@ -20,7 +20,14 @@ a synthetic package, each known by where the module imports it from (`WRITES`):
   folders only inside the test's temporary folder, and from it only the way down to them;
 - the paths inside one (`glob`, `rglob`, `iterdir`), or its `nx.open` snapshot;
 - a package under `tds/conformance/` reached from the repository root (`Path(__file__)` taken
-  up exactly to it), while `GUARD` rebuilds those packages with `build.build` and asserts.
+  up exactly to it), while `GUARD` rebuilds those packages with `build.build` and asserts;
+- in `PARITY_TEST` alone, `manifest["snapshot"]` from its fixture reading the runner's
+  `OUT / "manifest.json"`, while `RUNNER` names there only what it wrote with the generator's
+  command (`runner_writes_synth`).
+
+What it reads is the code: how each path is built, not what a file holds. It does not read
+what a mapping file names or what a test copies into a data root; these, and the ways past it
+listed in #630, are its known limits.
 
 The memos (`Trace`'s `remember`) only keep the check fast; they change no verdict.
 
@@ -259,6 +266,20 @@ def _values(name: str, fn: Function) -> list[ast.expr]:
     return values
 
 
+def _roots(name: str) -> set[str]:
+    """The repository, as the file `name` writes it: `Path(__file__)` taken up exactly to it."""
+    up = len(name.split("/"))  # `tests/x.py`: the repository is `Path(__file__).parents[1]`
+    forms = (f".parents[{up - 1}]", ".parent" * up)
+    return {f"Path(__file__){r}{f}" for r in ("", ".resolve()") for f in forms}
+
+
+def _module_value(tree: ast.Module, name: str) -> ast.expr | None:
+    """What the module binds `name` to at its top level, when it binds it once."""
+    found = [v for n in tree.body if isinstance(n, ast.Assign)
+             for t in n.targets for v in _bound(name, t, n.value)]  # fmt: skip
+    return found[0] if len(found) == 1 else None
+
+
 def _params(fn: Function) -> list[str]:
     return [p.arg for p in [*fn.args.posonlyargs, *fn.args.args, *fn.args.kwonlyargs]]
 
@@ -273,10 +294,7 @@ class Trace:
         self.tree = tree
         self.funcs = {n.name: n for n in tree.body if isinstance(n, Function)}
         self.names = _imports(tree)
-        up = len(name.split("/"))  # `tests/x.py`: the repository is `Path(__file__).parents[1]`
-        forms = (f".parents[{up - 1}]", ".parent" * up)
-        roots = {f"Path(__file__){r}{f}" for r in ("", ".resolve()") for f in forms}
-        self.roots = roots if conformance else set()
+        self.roots = _roots(name) if conformance else set()
         self.scope: dict[int, Function] = {}  # a node → the function it is in
         self._nest(tree, None)
         self.memo: dict[tuple[int, int], Kind] = {}
@@ -533,13 +551,124 @@ def guard_holds(text: str) -> bool:
     return rebuilds and any(isinstance(n, ast.Assert) for n in nodes)
 
 
-def findings(name: str, text: str, guard: str | None = None, remember: bool = True) -> list[str]:
+#: 8.1's parity runner, which writes its package with the generator's command in another
+#: process and names it in its manifest, and the one test module that opens that package.
+RUNNER, PARITY_TEST = "tests/parity/parity/run.py", "tests/parity_compare/test_L1.py"
+
+
+def _path_arg(e: ast.expr) -> str | None:
+    """The name `e` is, or the name in `str(e)`."""
+    if isinstance(e, ast.Call) and _name(e) == "str" and len(e.args) == 1:
+        e = e.args[0]
+    return e.id if isinstance(e, ast.Name) else None
+
+
+def _writes_synth_to(fn: Function, name: str) -> bool:
+    """`fn` runs `-m nexusbt.testing.synth ... --out <name>`."""
+    for call in (c for c in ast.walk(fn) if isinstance(c, ast.Call)):
+        words = [a.value if isinstance(a, ast.Constant) else a for a in call.args]
+        if "-m" in words and "nexusbt.testing.synth" in words and "--out" in words[:-1]:
+            given = words[words.index("--out") + 1]
+            if isinstance(given, ast.expr) and _path_arg(given) == name:
+                return True
+    return False
+
+
+def runner_writes_synth(runner: ast.Module) -> bool:
+    """Every `"snapshot"` the runner records is the name a helper of its own returns, and that
+    helper gave that name as `--out` to the generator's command (4.8)."""
+    funcs = {n.name: n for n in runner.body if isinstance(n, Function)}
+    recorded = [(fn, v) for fn in funcs.values() for d in ast.walk(fn) if isinstance(d, ast.Dict)
+                for k, v in zip(d.keys, d.values, strict=True)
+                if isinstance(k, ast.Constant) and k.value == "snapshot"]  # fmt: skip
+    for fn, value in recorded:
+        name = _path_arg(value)
+        made = _values(name, fn) if name else []
+        helpers = [h for m in made if isinstance(m, ast.Call) and (h := funcs.get(_name(m)))]
+        if not made or len(helpers) != len(made):  # each made by a helper of the runner's own
+            return False
+        for helper in helpers:
+            returned = [_path_arg(r) for r in _returned(helper)]
+            if not returned or not all(r and _writes_synth_to(helper, r) for r in returned):
+                return False
+    return bool(recorded)
+
+
+def _runner_out(runner: ast.Module) -> set[str]:
+    """Where the runner writes its manifest by default: `--out`'s default under its `ROOT`,
+    the repository, joined to each `--fixture` choice."""
+    root, given = _module_value(runner, "ROOT"), dict[str, ast.Call]()
+    for c in (
+        c for c in ast.walk(runner) if isinstance(c, ast.Call) and _name(c) == "add_argument"
+    ):
+        given |= {str(a.value): c for a in c.args[:1] if isinstance(a, ast.Constant)}
+    out = _arg(given["--out"], 99, "default") if "--out" in given else None
+    choices = _arg(given["--fixture"], 99, "choices") if "--fixture" in given else None
+    if root is None or ast.unparse(root) not in _roots(RUNNER) or out is None:
+        return set()
+    names = choices.elts if isinstance(choices, ast.List | ast.Tuple) else []
+    return {f"{ast.unparse(out)} / {n.value!r}" for n in names if isinstance(n, ast.Constant)}
+
+
+def _reads_manifest(tree: ast.Module, outs: set[str]) -> bool:
+    """The module's `manifest` fixture returns only what `json.loads` reads from
+    `OUT / "manifest.json"`, `OUT` being where the runner writes, under the repository."""
+    fixture = next((n for n in tree.body if isinstance(n, Function) and n.name == "manifest"), None)
+    out, root = _module_value(tree, "OUT"), _module_value(tree, "ROOT")
+    if (
+        fixture is None
+        or out is None
+        or root is None
+        or ast.unparse(root) not in _roots(PARITY_TEST)
+    ):
+        return False
+    fixed = any("fixture" in ast.unparse(d) for d in fixture.decorator_list)
+    returned = list(_returned(fixture))
+    loads = [
+        v for r in returned for v in (_values(r.id, fixture) if isinstance(r, ast.Name) else [])
+    ]
+    return (
+        fixed
+        and bool(loads)
+        and len(loads) == len(returned)
+        and ast.unparse(out) in outs
+        and all(_loads_manifest(v, fixture) for v in loads)
+    )
+
+
+def _loads_manifest(e: ast.expr, fixture: Function) -> bool:
+    """`e` is `json.loads(path.read_text(...))`, `path` bound only to `OUT / "manifest.json"`."""
+    if not (isinstance(e, ast.Call) and ast.unparse(e.func) == "json.loads" and e.args):
+        return False
+    read = e.args[0]
+    if not (isinstance(read, ast.Call) and isinstance(f := read.func, ast.Attribute)):
+        return False
+    paths = _values(f.value.id, fixture) if isinstance(f.value, ast.Name) else []
+    return f.attr == "read_text" and [ast.unparse(p) for p in paths] == ["OUT / 'manifest.json'"]
+
+
+def findings(
+    name: str, text: str, guard: str | None = None, remember: bool = True, runner: str | None = None
+) -> list[str]:
     """`file:line` for each snapshot this module opens from a path not traced to a source;
-    `guard` is the text of `GUARD`'s file, read for a conformance package."""
+    `guard` is the text of `GUARD`'s file, read for a conformance package, and `runner` that of
+    `RUNNER`, read for `PARITY_TEST`'s `manifest["snapshot"]` alone."""
     tree = ast.parse(text)
     trace = Trace(tree, name, guard is not None and guard_holds(guard), remember)
+    ran = ast.parse(runner) if name == PARITY_TEST and runner is not None else None
+    parity = (
+        ran is not None and runner_writes_synth(ran) and _reads_manifest(tree, _runner_out(ran))
+    )
+
+    def from_runner(path: ast.expr, call: ast.Call) -> bool:
+        fn = trace.scope.get(id(call))
+        return (
+            parity and fn is not None and ast.unparse(path) == "manifest['snapshot']"
+            and "manifest" in _params(fn) and not trace.bound("manifest", fn)
+        )  # fmt: skip
+
     return [
         f"{name}:{call.lineno}: snapshot path `{ast.unparse(path)}` not from a synthetic source"
         for call, path in openings(tree)
-        if not trace.opened(path, call)
+        if not trace.opened(path, call) and not from_runner(path, call)
     ]

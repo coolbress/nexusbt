@@ -262,7 +262,7 @@ NexusBT는 이 다섯을 한 엔진에 모은다. 각 엔진에서 가져온 장
   4. NautilusTrader(LGPL-3.0)는 E4 다리에서 **선택 의존** `nexusbt[nautilus]`로만, 소스를 복사하지 않고 설치된 라이브러리를 import해서 쓴다. LGPL은 이런 사용을 허용하고 Apache-2.0 코드 쪽에 의무를 지우지 않는다(사용자가 라이브러리를 바꿔 끼울 수 있으면 됨; 파이썬 import는 이를 만족) [추: 법률 자문 아님]. 엔진 기본 설치에는 LGPL 코드가 없다.
   5. 코드 복사 금지 목록(GPL: Freqtrade·backtrader·pysystemtrade, AGPL: Backtesting.py, 비상업: RQAlpha, Commons Clause: vectorbt·**PyBroker**(Apache-2.0 + Commons Clause, `LICENSE` 첫 줄 "Commons Clause License Condition v1.0") [V31-33], 구독: vectorbt PRO, 유료 구현: mlfinlab)은 그대로다. 생각만 빌린다. MIT 코드(ml4t-diagnostic 함수 이식)는 파일 머리에 원 저장소·커밋·라이선스 문구를 남기고 `NOTICE`에 적는다 [Q22].
   6. 개발 전용 의존 hypothesis(MPL-2.0)는 배포물에 들어가지 않는다.
-- **저장소에 넣지 않는 것** (공개 저장소 규칙, 시험으로 강제 — 2.7): 참조 생산자 자료·스냅숏·그 일부, 공급사 자료에서 만든 정답 파일(fixture), 생산자 자료 경로(사용자 홈 아래 절대 경로 등)와 내부 호스트 이름·주소, 비밀값. 모든 시험 자료는 합성 생성기(4.8)로만 만든다. 맥미니 측정·실제 자료 대조의 증거 파일은 **요약 수치만**(행 수, 최대 오차, 통과 여부, `snapshot_id`) 담고 종목별 값·가격을 담지 않는다.
+- **저장소에 넣지 않는 것** (공개 저장소 규칙, 시험으로 강제 — 2.7): 참조 생산자 자료·스냅숏·그 일부, 공급사 자료에서 만든 정답 파일(fixture), 생산자 자료 경로(사용자 홈 아래 절대 경로 등)와 내부 호스트 이름·주소, 비밀값. 모든 시험 자료는 합성 생성기(4.8), 시험의 임시 폴더에 있는 매핑 파일로 가져오는 `nexusbt_tds.import_csv`, 또는 적합성 패키지를 만드는 `tds/conformance/build.py`로만 만든다(2.7). 맥미니 측정·실제 자료 대조의 증거 파일은 **요약 수치만**(행 수, 최대 오차, 통과 여부, `snapshot_id`) 담고 종목별 값·가격을 담지 않는다.
 - Python: **3.13** (`.python-version`). 패키지 관리 `uv`(workspace), 잠금 파일 `uv.lock`(plinth 필수). 대조 시험 환경은 따로 **Python 3.12**(`tests/parity/`, 8.1).
 - 실행 장소: 자료가 있는 사용자의 계산 기계(현재는 맥미니 M4 16 GB; 주소·계정은 저장소 밖 사용자 메모에만). 노트북 PC의 노트북은 그 기계의 Jupyter 커널에 SSH로 붙는다. 엔진은 원격 호출 기능을 만들지 않는다 [Q9, A-17]. 자료 위치는 설정(`[data] root`)이나 환경 변수 `NEXUSBT_DATA_ROOT`로만 받는다.
 
@@ -390,7 +390,7 @@ contracts ← artifacts ← api
 - `::test_no_producer_internal_refs` — `src/**`, `tds/src/**`, `docs/**`(공개판)에서 금지 낱말 목록의 생산자 이름, ` X[0-9]+ ` 티켓 꼴, `.rebuild.lock`이 0건 [RV-I09].
 - `::test_section_numbers_not_ip` — "10.2절", "10.2.3", "172.16", 숫자 다섯짜리 "192.168.1.2.3" 같은 글 사례가 위생 시험에 걸리지 않음.
 - `::test_no_data_files` — 저장소의 `*.parquet`, `*.duckdb`, `*.csv`(단 `src/nexusbt/resources/**`와 `tds/conformance/**` 아래의 손으로 쓴 작은 파일 제외)를 찾으면 실패. `tds/conformance/`와 `tests/` 자료는 생성 스크립트로 만들고 생성 스크립트와 해시가 맞아야 한다.
-- `::test_fixtures_are_synthetic` — `tests/**`에서 스냅숏을 여는 모든 곳은 `nx.testing.synth.make_snapshot`이 만든 경로만 쓴다(정적 검사).
+- `::test_fixtures_are_synthetic` — `tests/**`에서 스냅숏을 여는 모든 곳(`DataConfig(path=…)`, `nx.open(…)`, `snapshot=` 인자, 경로를 준 `tds check`)은 `nx.testing.synth.make_snapshot`이 만든 경로, 시험의 임시 폴더에 있는 매핑 파일로 `nexusbt_tds.import_csv`가 만든 경로, 그런 패키지의 복사본이나 고친 본, 그런 패키지를 써 넣은 폴더(데이터 루트)와 그 안의 경로, 저장소 뿌리에서 닿은 `tds/conformance/` 아래의 패키지(`tds/tests/test_cli.py::test_committed_packages_match_the_generator`가 `tds/conformance/build.py`의 출력임을 보이는 것)와 그 복사본, 또는 8.1의 패리티 실행기가 생성기 명령(`python -m nexusbt.testing.synth --out`)으로 쓰고 자기 매니페스트에 적은 패키지만 쓴다. 문자열 리터럴에서 시작하는 경로는 통과하지 않는다. 정적 검사다. 시험 코드가 경로를 어떻게 만드는지를 읽을 뿐 파일의 내용은 보지 않으므로, 실수로 적은 경로는 잡지만 검사를 피하려고 쓴 코드는 잡지 못한다. 매핑 파일이 가리키는 파일이나 시험이 데이터 루트에 복사해 넣은 것은 읽지 않는다.
 - `::test_license_headers` — `LICENSE`가 Apache-2.0, 이식 파일은 출처 머리말이 있음.
 - `::test_tds_public_has_no_producer_names` — `tds/spec/tds-v1.md`에 특정 생산자 이름·티켓이 없음(TDS 11장은 공개판에서 뺌) [RV-Q04].
 
@@ -1322,7 +1322,7 @@ day_count = 365              # 대차·리베이트·현금 이자 발생식의 
 
 ### 4.8 합성 TDS 패키지 생성기 (`nx.testing.synth`) [TDS-D24]
 
-엔진은 실제 생산자 패키지가 오기 전에, 그리고 저장소의 **모든 시험**에서 이 생성기만 쓴다(2.7). `tiny`는 **손으로 정한 표**(무작위 없음, 사례 yaml이 그대로 행이 됨)이고 `small`·`full`은 아래 무작위 규칙이다 [RV-I05]. 생성기는 TDS v1 패키지(`tds.json`, 해시, 사전 포함)를 쓰고, 출력은 선언한 프로필로 `tds check --level full`을 통과해야 한다(시험 `test_synth_conforms`, INV-17).
+엔진은 실제 생산자 패키지가 오기 전에, 그리고 저장소의 **모든 시험**에서 이 생성기만 쓴다. 시험이 자기 임시 폴더의 매핑 파일로 `nexusbt_tds.import_csv`를 써서 가져온 패키지는 예외다(2.7. M1 동결의 결함 조항으로 고침, #599: 2.7이 이 출처를 들므로, 고치지 않으면 서로 어긋남). `tiny`는 **손으로 정한 표**(무작위 없음, 사례 yaml이 그대로 행이 됨)이고 `small`·`full`은 아래 무작위 규칙이다 [RV-I05]. 생성기는 TDS v1 패키지(`tds.json`, 해시, 사전 포함)를 쓰고, 출력은 선언한 프로필로 `tds check --level full`을 통과해야 한다(시험 `test_synth_conforms`, INV-17).
 
 ```python
 def make_snapshot(root: Path, *, preset: Literal["tiny","small","full","full_ci"] = "small", seed: int = 0,
@@ -3051,7 +3051,7 @@ pytest 표시: `unit`, `golden`, `property`, `docs`, `examples`, `parity`, `perf
 | 0019 | 수치 결정성: 정해진 덧셈 순서, 정렬 색인 줄이기, 같은 환경 약속 | 묶음·순열 불변을 비트 단위로 지키려면 커널의 덧셈 순서가 정의여야 한다. 약속 범위는 **같은 환경**(같은 잠금·CPU 종류)이다. 창은 행 오름차순 왼쪽 접기(정의 A), 단면은 `instrument_id` 정렬 순서로 모아 접기(정확 합 대안 대신; 더 빠름), 누적합 차분·O(1) 합 갱신·실행 합·BLAS·fastmath 금지. 초월 함수는 참조·빠른 경로가 같은 컴파일 원소 함수. 미리 등록한 대안 정의 B(절대 `session_ord // 64` 블록 부분합)는 M1 측정에서 정의 A가 예산을 넘으면 이 ADR을 고쳐 채택한다. 사용자 함수는 "같은 창 → 같은 출력"만. 대가: 일부 빠른 커널이 느려짐(M1에서 잼). [SC-03, OQ-5, RV-C11, RV-D1] |
 | 0020 | 위험 단계 칸과 목표 상태 재귀(완충대; v3.3: 칸의 자세한 규칙은 ADR-0038로 옮기고 이 ADR은 완충대 `prior` = 정규 목표만 [R4-04]; v3.2: `TargetState = (S_long, S_short, missing_streak)`, 배관은 T5.16 [R3-22]) | LEAN식 단계 분리로 `risk=` 칸을 둔다(v3.1까지 "v1은 `none`만"; v3.3부터 v1 내장 규칙 목록과 계좌 층 — ADR-0038 [R6-06]). 완충대는 계좌 보유 대신 앞 판단의 정규 목표 집합에 기대게 정의해 순수 함수·screen=backtest를 지킨다(기준점 포함). 규범은 지금, 구현은 v1 M6 마지막 티켓 T7.1(사용자 결정), 기본 꺼짐. v3.1: 결측 점수 `on_missing`, 산 적 없는 완충대 종목은 집행 단계에서 사지 않음(`band_entries`), `bottom(hold=)` 거울, 공매도·롱숏의 노출 상한 맞춤은 위험 단계의 기계적 단계 [V31-17, V31-LS-03]. [SC-01, SC-02, OQ-1, OQ-2, Q6] |
 | 0021 | zipline 대조 범위를 같은 의미로 좁힘 | (v3.1: 대조가 다르면 손계산이 판정, zipline이 틀리면 알려진 차이 [V31-24]; 롱숏 L2-e 추가 [V31-LS-11]) zipline의 일봉 지정가·손절 발동은 우리 OHLC 불리한 쪽 규칙과 뜻이 다르다[추; 3자 검토가 upstream에서 같은 방향 확인, 고정판 확인은 T3.15b]. 주문 종류는 zipline 의미를 흉내 낸 프리셋으로만 대조하고, 우리 규칙은 손으로 쓴 세션별 산수로 시험한다. 가격 항 대조는 기본 입력끼리(수익 계열 기본 = `close_tr`). 사용자 결정의 "zipline과 비교 시험"은 이 범위로 지킨다(세 검토 권고, 사용자 결정 2026-10-28로 확정 — OI-20 [R6-03]). [SC-12, A-57, RV-I02] |
-| 0022 | 공개 저장소, Apache-2.0, 자료는 저장소 밖 | 엔진·명세·TDS는 공개, 실제 자료는 비공개(사용자 결정). Apache-2.0은 zipline-reloaded와 같고 핵심 의존과 호환되며, Nautilus(LGPL)는 선택 의존으로만. 저장소 위생 시험이 개인 경로·자료·공급사 파생 파일을 막고 시험은 합성 생성기만 쓴다. [사용자 결정 2026-10-27, TDS-Q5] |
+| 0022 | 공개 저장소, Apache-2.0, 자료는 저장소 밖 | 엔진·명세·TDS는 공개, 실제 자료는 비공개(사용자 결정). Apache-2.0은 zipline-reloaded와 같고 핵심 의존과 호환되며, Nautilus(LGPL)는 선택 의존으로만. 저장소 위생 시험이 개인 경로·자료·공급사 파생 파일을 막고 시험은 합성 생성기만 쓴다(어떤 출처가 합성으로 인정되는지는 2.7). [사용자 결정 2026-10-27, TDS-Q5] |
 | 0023 | pickle 금지, 비밀값은 설정 밖, 남의 실행 폴더는 신뢰 표시 뒤에만 | 산출물·캐시·체크포인트는 Parquet·Arrow IPC·JSON만. `nexusbt.toml`에 key/secret/token/password 키 금지. `rerun`은 소스를 실행하므로 다른 기계의 실행 폴더는 `--trust`가 있어야. [SC-27, Qlib 경고] |
 | 0024 | 자료가 모자랄 때의 정해진 대체 동작 | 유효한 패키지가 칼럼·데이터셋을 다 채우지 않았어도 엔진이 쓸모 있게, 대체 동작 표(F-01~F-14)를 정하고 항상 알리고 기록한다. 선언을 어긴 패키지는 고치지 않는다(가져오기 단계의 몫). 결과를 정의할 수 없으면 실패한다. `[data] fallbacks = "fail"`로 끌 수 있다. 오류 문장은 생산자 중립. [R-67, RV-I01, RV-I09] |
 | 0025 | 세 층 캐시 (L0 원 블록, L1 항 값, L2 실행) | 매번 Parquet 해제·사전 색인 변환을 피하려고 압축 없는 Arrow IPC 원 블록 캐시를 메모리 매핑으로 연다. 열쇠는 파티션 파일 sha256, 기업행동 사슬의 모든 판과 공개 시각, 블록의 축 행(축 파일이 아님), 안정 `markets` 필드(워터마크 제외), 전파된 입력 행, 학습 노드의 학습 맥락(`fit_id`·seed·사전학습 식별), 해석된 질의 정책, 외부 입력, 잡힌 상수 전역을 포함해 어긋날 수 없게 한다(상수가 아닌 전역을 읽는 노드는 L1 끔; 선택 `value_sha256`은 신원으로 쓰지 않음; L0는 스냅숏 삭제와 따로 LRU) [R3-04]. 열쇠 규칙은 M1, 구현은 M6. P7은 프로세스 트리 USS도 본다. [SC-15, RV-C10] |
