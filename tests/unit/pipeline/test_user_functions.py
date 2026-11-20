@@ -461,7 +461,7 @@ import numba
 def _logged(f):
     @functools.wraps(f)
     def inner(*args):
-        return f(*args)
+        return f(*args){inner}
     return inner
 
 {decorator}
@@ -473,10 +473,11 @@ def score(close):
 """
 
 
-def _wrapped_hash(at: Path, name: str, decorator: str, k: int) -> str:
-    """The graph hash of `score`, which calls `_helper` with `decorator` and body `x * k`; no
-    warning (a wrapped helper is not E24)."""
-    module = load(at, name, WRAPPED.format(decorator=decorator, k=k))
+def _wrapped_hash(at: Path, name: str, decorator: str, k: int, inner: str = "") -> str:
+    """The graph hash of `score`, which calls `_helper` with `decorator` and body `x * k`, the
+    `_logged` decorator's inner function ending in `inner`; no warning (a wrapped helper is not
+    E24)."""
+    module = load(at, name, WRAPPED.format(decorator=decorator, k=k, inner=inner))
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         return graph_hash(nx.factor(window=2, inputs=[CLOSE])(module.score))
@@ -490,6 +491,27 @@ def test_a_wrapped_helper_is_in_the_hash(tmp_path: Path, decorator: str) -> None
     before = _wrapped_hash(tmp_path, "before", decorator, 2)
     assert _wrapped_hash(tmp_path, "again", decorator, 2) == before
     assert _wrapped_hash(tmp_path, "after", decorator, 5) != before
+
+
+def test_a_wraps_decorators_inner_body_is_in_the_hash(tmp_path: Path) -> None:
+    """6.5 (6), #596: the inner function of a project `functools.wraps` decorator is hashed from
+    its own code, not through `__wrapped__`, so changing what the decorator does
+    (`f(*args) * 1 → * 100`) changes the user term's hash, with no warning."""
+    for decorator in ("@_logged", "@functools.lru_cache\n@_logged"):  # a library's on top too
+        before = _wrapped_hash(tmp_path, "inner_1", decorator, 2, " * 1")
+        assert _wrapped_hash(tmp_path, "inner_1_again", decorator, 2, " * 1") == before
+        assert _wrapped_hash(tmp_path, "inner_100", decorator, 2, " * 100") != before
+        assert _wrapped_hash(tmp_path, "helper_5", decorator, 5, " * 1") != before
+
+
+def test_a_user_function_under_a_library_decorator_is_hashed_from_its_body(tmp_path: Path) -> None:
+    """#596: a user function a library decorator wraps (`functools.singledispatch`, whose inner
+    function lies outside the project) is read as the project function it keeps in
+    `__wrapped__`, as a helper is, so editing its body still changes the hash."""
+    text = "import functools\n@functools.singledispatch\ndef score(close):\n    return close[-1] * "
+    hashes = [graph_hash(nx.factor(window=2, inputs=[CLOSE])(load(tmp_path, f"single_{k}",
+              f"{text}{k}\n").score)) for k in (2, 5)]  # fmt: skip
+    assert hashes[0] != hashes[1]
 
 
 def test_a_decorators_arguments_are_in_the_hash(tmp_path: Path) -> None:
