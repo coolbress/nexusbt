@@ -38,6 +38,20 @@ def begin(runs: Path) -> RunTxn:
     return RunStore(runs).begin("backtest", "mom", None, graph_hash="g1", params={"n": 10})
 
 
+def test_a_table_written_again_keeps_only_its_own_value_hash(tmp_path: Path) -> None:
+    """5.9.2 `outputs`: the value hash `api` hands in goes with the file written last; a table
+    written again without one carries none (#250's PR 1 review, finding 2)."""
+    runs = tmp_path / "runs"
+    txn = begin(runs)
+    txn.write_table("daily", TABLE, value_sha256="a" * 64)
+    txn.write_table("other", TABLE, value_sha256="b" * 64)
+    txn.write_table("daily", TABLE)
+    folder = runs / txn.seal().run_id
+    outputs = json.loads((folder / "manifest.json").read_text(encoding="utf-8"))["outputs"]
+    assert outputs["daily.parquet"].keys() == {"physical_sha256"}
+    assert outputs["other.parquet"]["value_sha256"] == "b" * 64
+
+
 def test_seal_only_on_success(tmp_path: Path) -> None:
     runs = tmp_path / "runs"
     txn = begin(runs)
