@@ -15,6 +15,7 @@ from typing import Any
 import numpy as np
 import pytest
 
+import nexusbt as nx
 from nexusbt.compute import _kernels
 from nexusbt.compute._factors import value
 from nexusbt.factors import (
@@ -23,9 +24,11 @@ from nexusbt.factors import (
     VWAP,
     AnnualizedVolatility,
     AverageDollarVolume,
+    AverageTradedValue,
     MaxDrawdown,
     Returns,
     RollingStd,
+    SimpleMovingAverage,
 )
 
 pytestmark = pytest.mark.unit
@@ -118,6 +121,20 @@ def case(name: str, kernel: Callable[..., Any], exact: Exact, *inputs: Cells) ->
 
 
 case("Returns", window(Returns(2)), returns, ([1e-300, 1e300],), ([1e300, 1e-300],), ([0.0, 5.0],))
+BIGS = ([1e308, 1e308],), ([1e308, -1e308, 1e308],), ([1e200, -1e200, 3.0],)
+case("SimpleMovingAverage", window(SimpleMovingAverage(2)), mean, *BIGS[:1])
+case("SimpleMovingAverage(3)", window(SimpleMovingAverage(3)), mean, *BIGS[1:])
+case("AverageTradedValue", window(AverageTradedValue(2)), mean, *BIGS[:1])
+for how, exact in (
+    ("mean", mean),
+    ("sum", lambda x: sum(x, Decimal(0))),
+    ("std", lambda x: std(x, 1)),
+    ("median", lambda x: quantile(x, 0.5)),
+):
+    rolled = getattr(nx.ops.rolling(nx.Price.close.latest, 2, 1), how)()
+    case(f"rolling.{how}", window(rolled), exact, *BIGS[:1])
+    rolled3 = getattr(nx.ops.rolling(nx.Price.close.latest, 3, 1), how)()
+    case(f"rolling(3).{how}", window(rolled3), exact, *BIGS[1:])  # fmt: skip
 case("RollingStd", window(RollingStd(2)), lambda x: std(x, 1),
      ([1e200, -1e200],), ([1e308, 1.5e308],), ([1e308, 1e308],))  # fmt: skip
 case("AnnualizedVolatility", window(AnnualizedVolatility(2, 252)), lambda x: annualized(x, 252),
