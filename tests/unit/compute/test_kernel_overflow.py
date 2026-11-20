@@ -10,6 +10,7 @@ import pytest
 from nexusbt.compute import _kernels
 from nexusbt.compute._factors import diagnosed, value
 from nexusbt.factors import RSI, VWAP, AverageDollarVolume, MaxDrawdown, RollingStd
+from nexusbt.pipeline import Term
 
 pytestmark = pytest.mark.unit
 
@@ -18,9 +19,9 @@ def column(*cells: float) -> np.ndarray:
     return np.array(cells, dtype=np.float64)[:, None]
 
 
-def at(term: object, *windows: np.ndarray) -> float:
+def at(term: Term, *windows: np.ndarray) -> float:
     with np.errstate(all="ignore"):  # as the executor calls the kernels
-        return float(value(term, list(windows))[0])  # type: ignore[arg-type]
+        return float(value(term, list(windows))[0])
 
 
 def test_the_three_inputs_of_the_issue_are_nan() -> None:
