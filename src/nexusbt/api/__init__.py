@@ -418,7 +418,7 @@ def rerun(run_id: str, *, new_snapshot: bool = False, trust: bool = False) -> Ru
     from nexusbt.artifacts._environment import same_machine
 
     folder = Path(config().values["runs"]["dir"]).resolve() / run_id
-    if not (folder / "SEALED").is_file():
+    if Path(run_id).name != run_id or not (folder / "SEALED").is_file():  # one folder of runs/
         raise ReplayError(
             what=f"run {run_id} is not a sealed run folder", where=f"run {run_id}",
             why="a rerun needs the run it reproduces", fix="nx.runs() lists the runs",
