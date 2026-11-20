@@ -100,10 +100,10 @@ def project(tmp_path_factory: pytest.TempPathFactory) -> Path:
 def packages(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Snapshot]:
     """`small` and its late-bar variant (4.8 rule 3a, #354), 8 KR instruments."""
     root = tmp_path_factory.mktemp("synth")
-    made = {name: make_snapshot(root / name, preset="small", markets=("KR",), n_kr=8,
-                                degrade=degrade)
-            for name, degrade in (("small", ()), ("late_bars", ("late_bars",)))}  # fmt: skip
-    return {name: nx.open(str(path)) for name, path in made.items()}
+    small = make_snapshot(root / "small", preset="small", markets=("KR",), n_kr=8, degrade=())
+    late = make_snapshot(root / "late_bars", preset="small", markets=("KR",), n_kr=8,
+                         degrade=("late_bars",))  # fmt: skip
+    return {"small": nx.open(str(small)), "late_bars": nx.open(str(late))}
 
 
 @contextmanager
