@@ -69,6 +69,14 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def run_h6(graph_hash: str | None, params: Mapping[str, object] | None,
+           settings: Mapping[str, object] | None, semantic: str | None) -> str:  # fmt: skip
+    """5.9.1's h6 of a run id: the same inputs give the same h6."""
+    key = {"graph_hash": graph_hash, "params": dict(params or {})}
+    key |= {"settings": dict(settings or {}), "snapshot_semantic_hash": semantic}
+    return _hash_json(key)[:6]
+
+
 def value_hash(manifest: Mapping[str, object]) -> str:
     """The manifest's logical hash: canonical JSON without `created_at` and `created_by`."""
     kept = {k: v for k, v in manifest.items() if k not in _LOGICAL_EXCLUDED}
@@ -132,17 +140,20 @@ class RunStore:
         settings: Mapping[str, object] | None = None,
         snapshot_semantic_hash: str | None = None,
         snapshot_id: str | None = None,
+        run_kind: str | None = None,
+        derived_from: str | None = None,
     ) -> RunTxn:
         """5.9.1: `run_id` = local time, kind, name, h6; `-2`, `-3` when it already exists.
 
         With `snapshot_id`, the pin (snapshot_id, run_id) goes into the index with the run row.
+        `run_kind` and `derived_from` are 5.9.5's columns (`rerun`; the run it came from).
         """
         for part in (kind, name):
             if not part or part.startswith(".") or "/" in part or "\\" in part:
                 raise ValueError(f"{part!r}: a run kind or name is one folder-name part")
         key = {"graph_hash": graph_hash, "params": dict(params or {})}
         key |= {"settings": dict(settings or {}), "snapshot_semantic_hash": snapshot_semantic_hash}
-        h6 = _hash_json(key)[:6]
+        h6 = run_h6(graph_hash, params, settings, snapshot_semantic_hash)
         now = datetime.now().astimezone()  # the computing machine's local time
         base = f"{now:%Y%m%d-%H%M%S}-{kind}-{name}-{h6}"
         tmp = self.root / f".tmp-{uuid.uuid4().hex}"
@@ -161,10 +172,12 @@ class RunStore:
                     db.execute(
                         "INSERT INTO runs (run_id, kind, study_id, name, ts_created, snapshot_id,"
                         " snapshot_semantic_hash, graph_hash, params_json, settings_hash, status,"
-                        " path) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', ?)",
+                        " path, run_kind, derived_from)"
+                        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', ?, ?, ?)",
                         (run_id, kind, study, name, now.isoformat(), snapshot_id,
                          snapshot_semantic_hash, graph_hash, canonical_json(key["params"]),
-                         _hash_json(key["settings"]), str(self.root / run_id)),
+                         _hash_json(key["settings"]), str(self.root / run_id), run_kind,
+                         derived_from),
                     )  # fmt: skip
                     break
             if snapshot_id is not None:
@@ -287,22 +300,30 @@ class RunTxn:
         _boundary("written")
 
     def capture_sources(
-        self, paths: Iterable[Path], *, project: Path | None = None, entry: Path | None
+        self,
+        paths: Iterable[Path],
+        *,
+        project: Path | None = None,
+        entry: Path | None,
+        outside: Mapping[str, str] | None = None,
     ) -> None:
         """5.9.3: the files inside `project` (paths kept), its toml and lock, params, git state.
 
         `entry` is the file the run started from (#283): one outside `project` goes to
         `source/_entry/<name>`, and the manifest's `source.entry` is its path under `source/`.
         `None` (an interactive session) warns; an entry file or engine lock that cannot be
-        copied aborts the run.
+        copied aborts the run. `outside` is 5.9.2's `source.outside`: module name → sha256 of
+        each project module (6.5 (6)) whose file is outside `project`, so not copied (#250).
         """
         try:
-            self._capture(paths, Path(project or Path.cwd()).resolve(), entry)
+            self._capture(paths, Path(project or Path.cwd()).resolve(), entry, outside or {})
         except OSError:
             self.abort()
             raise
 
-    def _capture(self, paths: Iterable[Path], project: Path, entry: Path | None) -> None:
+    def _capture(
+        self, paths: Iterable[Path], project: Path, entry: Path | None, hashed: Mapping[str, str]
+    ) -> None:
         lock = _engine_lock()
         if entry is not None and not Path(entry).is_file():
             raise FileNotFoundError(f"{entry}: the run's entry file is not a file")
@@ -320,7 +341,7 @@ class RunTxn:
             warnings.warn(
                 f"run {self.run_id}: no entry file, so `rerun` cannot run it", stacklevel=3
             )
-        self._manifest["source"] = {"entry": rel_entry}
+        self._manifest["source"] = {"entry": rel_entry, "outside": dict(sorted(hashed.items()))}
         for path in sorted(found):
             if path.is_relative_to(project) and path.is_file():  # installed packages stay out
                 shutil.copy2(path, self._out(f"source/{path.relative_to(project).as_posix()}"))
