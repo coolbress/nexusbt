@@ -30,10 +30,15 @@ SPECIAL = [int(PLUS), int(MINUS), 0x7FF8000000000000, -0x0008000000000000, 0x7FF
 CELL = st.one_of(st.sampled_from(SPECIAL), st.integers(-(2**63), 2**63 - 1).filter(_not_inf))
 
 
-@given(st.lists(CELL, min_size=1, max_size=64))
-@example([int(MINUS), int(PLUS), 0x7FF8000000000123, -0x0007FFFFFFFFFFFF])
-def test_only_a_minus_zero_changes(cells: list[int]) -> None:
-    found = np.array(cells, dtype=np.int64).view(np.float64)
-    got = term_value(found, np.ones(len(cells), dtype=np.bool_)).view(np.int64)
-    want = np.where(np.array(cells) == MINUS, PLUS, np.array(cells))
+NAN = np.float64(np.nan).view(np.int64)  # an unlisted cell's NaN, as `term_value` writes it
+
+
+@given(st.lists(st.tuples(CELL, st.booleans()), min_size=1, max_size=64))
+@example([(int(MINUS), True), (int(PLUS), True), (0x7FF8000000000123, True),
+          (-0x0007FFFFFFFFFFFF, True), (int(MINUS), False)])  # fmt: skip
+def test_only_a_minus_zero_changes(drawn: list[tuple[int, bool]]) -> None:
+    """A listed cell keeps its bits but -0.0's; an unlisted one is NaN (5.3.1)."""
+    cells, listed = np.array([c for c, _ in drawn]), np.array([v for _, v in drawn])
+    got = term_value(cells.view(np.float64), listed).view(np.int64)
+    want = np.where(listed, np.where(cells == MINUS, PLUS, cells), NAN)
     assert got.tolist() == want.tolist()
