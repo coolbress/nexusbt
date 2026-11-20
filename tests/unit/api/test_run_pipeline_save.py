@@ -4,6 +4,7 @@ Decisions 2026-11-19): the sealed run, its tables, and the entry file the run st
 
 from __future__ import annotations
 
+import hashlib
 import importlib
 import json
 import math
@@ -19,6 +20,7 @@ import nexusbt as nx
 from nexusbt.artifacts import RunTxn
 from nexusbt.factors import SMA
 from nexusbt.testing.synth import make_snapshot
+from nexusbt_tds.hash import encode_table
 
 pytestmark = pytest.mark.unit
 
@@ -61,6 +63,30 @@ def test_save_seals_a_pipeline_run(tiny: Path, project: Path) -> None:
     assert (folder / "source" / "m.py").read_text(encoding="utf-8") == "# the entry file\n"
     assert manifest["kind"] == "pipeline"
     assert manifest["snapshot_semantic_hash"] == nx.open(tiny).semantic_hash
+
+
+def test_outputs_record_the_value_hash_of_each_table(tiny: Path, project: Path) -> None:
+    """5.9.2 `outputs{file: {physical_sha256, value_sha256}}` (#250 Decisions, 2026-11-20): each
+    table's recorded value hash is TDS 4.5's hash of the table in the file, rows in 3.5's and
+    5.4.1's sort order; a captured source file has a physical hash only."""
+    pipe = nx.Pipeline({"close": nx.Price.close.latest, "inv": 1 / (SMA(3) - SMA(3))})
+    result = nx.run_pipeline(pipe, start="2020-01-06", end="2020-01-08", snapshot=str(tiny),
+                             save=True)  # fmt: skip
+    folder = project / "runs" / str(result.run_id)
+    outputs = json.loads((folder / "manifest.json").read_text(encoding="utf-8"))["outputs"]
+    tags = {
+        "pipeline": [("market", "string"), ("session_date", "date"), ("decision_ts", "ts_us"),
+                     ("instrument_id", "string"), ("close", "f64"), ("inv", "f64")],
+        "term_diagnostics": [("market", "string"), ("session_date", "date"), ("term", "string"),
+                             ("diagnostic", "string"), ("n", "i64")],
+    }  # fmt: skip
+    keys = {"pipeline": ("session_date", "market", "instrument_id"),
+            "term_diagnostics": ("session_date", "market", "term", "diagnostic")}  # fmt: skip
+    for name, columns in tags.items():
+        table = pq.read_table(folder / f"{name}.parquet")
+        expected = hashlib.sha256(encode_table(table, columns, keys[name])).hexdigest()
+        assert outputs[f"{name}.parquet"]["value_sha256"] == expected
+    assert outputs["source/m.py"].keys() == {"physical_sha256"}
 
 
 def test_the_root_pin_goes_beside_the_snapshot_opened(
@@ -107,10 +133,10 @@ def test_a_failure_while_saving_aborts_the_run(
     the index says `aborted`."""
     written = RunTxn.write_table
 
-    def full(txn: RunTxn, name: str, table: object) -> None:
+    def full(txn: RunTxn, name: str, table: object, **hashes: str) -> None:
         if name == "term_diagnostics":
             raise OSError(28, "No space left on device")
-        written(txn, name, table)
+        written(txn, name, table, **hashes)
 
     monkeypatch.setattr(RunTxn, "write_table", full)
     pipe = nx.Pipeline({"close": nx.Price.close.latest})
