@@ -516,7 +516,7 @@ Names that are the same as in zipline 3.2.1 follow zipline's missing-value rules
 | `Returns(W, inputs=[Price.close_tr])` | `x[-1]/x[0] − 1` | either end NaN → NaN | both ends | – | W−1 | homogeneous of degree 0 (ratio) |
 | `DailyReturns()` = `Returns(2)` | | | | | 1 | degree 0 |
 | `SimpleMovingAverage(W, inputs=[Price.close])`, alias `SMA` | `nanmean` | NaN ignored, all NaN → NaN | 1 | – | W−1 | homogeneous of degree 1 |
-| `ExponentialWeightedMovingAverage(W, decay_rate, inputs)`, `EWMA`; `.from_span/.from_halflife/.from_center_of_mass` | `average(x, weights=decay^(W−1−i))` | any NaN → NaN | W | – | W−1 | degree 1 |
+| `ExponentialWeightedMovingAverage(W, decay_rate, inputs)`, `EWMA`; `.from_span/.from_halflife/.from_center_of_mass` | `average(x, weights=decay^(W−1−i))`; `0 < decay_rate ≤ 1`, `span > 1`, `halflife > 0`, `center_of_mass > 0`, and any other value (NaN and ±inf included) is refused when the term is built, error E16 naming the argument passed and its value (decision 2026-11-20, #666) | any NaN → NaN | W | – | W−1 | degree 1 |
 | `AverageDollarVolume(W)` | `nansum(close·volume)/W` (zipline's formula) | NaN counted as 0 | 0 | – | W−1 | invariant (value = price × volume) |
 | `AverageTradedValue(W, ccy=None)` (NexusBT) | `nanmean(value_traded)`; `.to(ccy)` when `ccy` | NaN ignored | 1 | – | W−1 | invariant |
 | `AnnualizedVolatility(W=252, annualization_factor=252, inputs=[Price.close_tr])` | `nanstd(DailyReturns window, ddof=0)·√a` | NaN ignored | 1 | 0 | W | degree 0 |
