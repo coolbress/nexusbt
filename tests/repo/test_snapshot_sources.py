@@ -10,6 +10,7 @@ NAME = "tests/unit/test_x.py"
 
 
 SYNTH = "from nexusbt.testing.synth import make_snapshot\n"
+CSV = SYNTH + "from nexusbt_tds import import_csv\n"
 TINY = "@pytest.fixture\ndef tiny(tmp_path):\n    return make_snapshot(tmp_path / 'p')\n\n"
 
 
@@ -23,6 +24,7 @@ FAILS = {  # a literal path never passes, nor what the trace cannot follow
     "Path literal": module('nx.open(Path("/data/snap") / "s1")'),
     "snapshot= literal": module('run_pipeline(q, snapshot="data/snap")'),
     "snapshot= literal name": module('r = Path("~/s")', 'run_pipeline(q, snapshot=str(r / "s1"))'),
+    "tds check f-string": module('pkg._tds("check", f"/data/{name}", "--level", "full")'),
     "synth in literal folder": module('w = Path("/d")', "make_snapshot(w)", "nx.open(w)"),
     "copy beside outside": module('c = merge(tiny, "/d", tmp_path / "c")', "nx.open(c)"),
     "package written by hand": module('by_hand(tmp_path / "pkg")', 'nx.open(tmp_path / "pkg")'),
@@ -33,6 +35,7 @@ FAILS = {  # a literal path never passes, nor what the trace cannot follow
     "open imported by name": module(
         "o('/data/snap')", head=SYNTH + "from nexusbt import open as o\n"
     ),
+    "tds check as one string": module("subprocess.run('tds check /data/snap', shell=True)"),
     "snapshot= in **": module("run(**{'snapshot': '/data/snap'})"),
     "print beside synth": module(
         "d = Path.home() / 'snap'", "s = make_snapshot(tmp_path / 's')", "print(d, s)", "nx.open(d)"
@@ -63,17 +66,46 @@ FAILS = {  # a literal path never passes, nor what the trace cannot follow
         head="from mylib import copy_real as make_snapshot\n",
     ),
     "open(path=)": module("nx.open(path='/data/snap')"),
+    "command in a name": module("cmd = ['tds', 'check', '/data/snap']", "subprocess.run(cmd)"),
+    "command tuple": module("subprocess.run(('tds', 'check', '/data/snap'))"),
+    "args= keyword": module("runner.invoke(cli, args=['check', '/data/snap'])"),
+    "python -m nexusbt_tds": module("subprocess.run('python -m nexusbt_tds check /data/snap')"),
+    "nexusbt_tds check()": module(
+        "check('/data/snap')", head=SYNTH + "from nexusbt_tds import check\n"
+    ),
     "nexusbt.api by another name": module(
         "a.open('/data/snap')", head=SYNTH + "from nexusbt import api as a\n"
     ),
+    # Copies and imports: only of a synthetic source, from the test's own files.
+    "import_csv of files outside": module(
+        "k = import_csv(Path.home() / 'm.yaml', tmp_path / 'k')", "nx.open(k)", head=CSV
+    ),
+    "import_csv from elsewhere": module(
+        "k = import_csv(tmp_path / 'm', tmp_path / 'k')",
+        "nx.open(k)",
+        head=SYNTH + "from mylib import import_csv\n",
+    ),
+    "copytree from elsewhere": module(
+        "nx.open(copytree(tiny, tmp_path / 'c'))", head=SYNTH + "from mylib import copytree\n"
+    ),
+    # #630's item 10: a container changed after it is bound.
+    "item set to a literal": module("d = {'a': tiny}", "d['a'] = '/data/snap'", "nx.open(d['a'])"),
 }
-PASSES = {  # the sources this part accepts; #599's next part adds the others
+PASSES = {  # the sources this part accepts; #599's next part adds data roots and conformance
     "make_snapshot": module("r = make_snapshot(tmp_path)", "open_snapshot(DataConfig(path=r))"),
     "fixture, positional": module("open_snapshot(DataConfig(tiny))"),
+    "import_csv": module(
+        "k = import_csv(tmp_path / 'm', tmp_path / 'k')", "nx.open(k)", "_tds('check', k)", head=CSV
+    ),
+    "copy": module("nx.open(shutil.copytree(tiny, tmp_path / 'c'))"),
     "Snapshot given": module("nx.run_pipeline(q, snapshot=nx.open(tiny))"),
+    "a file inside": module("for f in sorted(tiny.rglob('*')):", "    nx.open(f)"),
     "a helper's return": SYNTH + "def made(at):\n    return make_snapshot(at / 's')\n\n"
     "def test_x(tmp_path):\n    nx.open(made(tmp_path))\n",
+    "option before the path": module("_tds('check', '--level', 'full', str(tiny))"),
     "join a looped literal": module("for n in ('a', 'b'):", "    nx.open(tiny / n)"),
+    "items set in an empty dict": module("d = {}", "d['a'] = tiny", "nx.open(d['a'])"),
+    "check closing its own list": module("parametrize(('source', 'check'), [('x', '/data/x')])"),
 }
 
 
@@ -84,6 +116,15 @@ def test_a_snapshot_opened_from_a_literal_or_unknown_path_fails(body: str) -> No
 
 @pytest.mark.parametrize("body", PASSES.values(), ids=PASSES)
 def test_a_snapshot_opened_from_a_synthetic_source_passes(body: str) -> None:
+    assert findings(NAME, body) == []
+
+
+def test_a_join_a_caller_gives_is_followed_where_the_caller_is() -> None:
+    """#631's `part()` followed what a caller gives a helper inside the helper, not inside the
+    caller, so a name the caller loops over was never found there and the join was rejected."""
+    body = SYNTH + "def opened(at, name):\n    return nx.open(at / name)\n\n"
+    body += "def test_x(tmp_path):\n    for n in ('a', 'b'):\n"
+    body += "        opened(make_snapshot(tmp_path / 's'), n)\n"
     assert findings(NAME, body) == []
 
 
