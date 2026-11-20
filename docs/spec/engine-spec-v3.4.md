@@ -3086,7 +3086,7 @@ In this repository the words below mean exactly this. Code names are in English,
 - Deep modules: change or use only the public interfaces of 2.4. Do not make public a name that is not in the public API (chapter 3). Do not import the `_` internals of another module (import rule test).
 - If something has to differ from the spec, stop implementing, write it in the PR description as "spec deviation", and submit an ADR draft with it. Do not make it green by widening tolerances or skipping tests.
 - PR description: evidence for "Done means" (commands and part of the output), which review ran and the findings of the fresh-context review as it reported them (a new subagent or session given only the diff, the issue's acceptance criteria and the Code Review Rules of `AGENTS.md`; `/implement`'s own `/code-review` is briefed by the session that wrote the change, so it is not that review), what could not be confirmed, the `Assisted-by` line. Update the status of the relevant R in `docs/requirements.md`.
-- If it looks like it will go over 400 lines, stack PRs (the lower PR is the base of the upper one) — leave an issue comment that splits the ticket in two.
+- If it looks like it will go over 400 lines, split the ticket into several PRs, each branched from `main` after the previous one merged (none is stacked on an unmerged PR; 10.0's ticket rules) — record the split, dated, in the issue body's `## Decisions`.
 
 ### 9.6 Steps 5~6: "green + seen with one's own eyes"
 - Green = the plinth required checks + the `engine / *` checks made required by then.
