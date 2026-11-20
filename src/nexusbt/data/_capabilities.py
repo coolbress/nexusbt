@@ -22,7 +22,7 @@ from nexusbt.contracts import (
     FallbacksPolicy,
     SnapshotError,
 )
-from nexusbt.data._block import OHL, partition_values
+from nexusbt.data._block import OHL, TRADED, partition_values
 from nexusbt.data._coverage import BarsExtent, schedule
 from nexusbt.data._datasets import chosen, dataset, doubled
 from nexusbt.data._datasets import layer as _layer
@@ -52,7 +52,10 @@ SAYS = {
     "F-03": "bars expanded to listing period x sessions, empty cells obs_status = missing",
     "F-15": "price grid = currency minor unit",
     "F-16": "volume unit unverified (TDS-V011), no repair",
+    "F-18": "Price.volume/value_traded = NaN, bars without them or null in every row",
 }
+#: The bars columns a package may leave out (4.5) → the fallback that says so.
+_GONE = {**dict.fromkeys(OHL, "F-01"), **dict.fromkeys(TRADED, "F-18")}
 
 
 @dataclass(frozen=True, slots=True)
@@ -165,11 +168,13 @@ def _fallbacks(
                              or "obs_status" not in columns):  # fmt: skip
         taken["backtest"] += [FallbackRecord("F-03", bars["name"], m, int(e.get("rows", 0)))
                               for m, e in extent.by_market().items()]  # fmt: skip
-    ohl = _no_ohl(folder, bars, extent)  # Price.open/high/low read by `price` (3.2)
-    taken["price"] += ohl
-    taken["backtest"] += ohl
+    gone = _gone_columns(folder, bars, extent)  # Price.* read by `price` (3.2)
+    taken["price"] += gone
+    # F-18 `price` only: the backtest's participation cap (5.6.6) is its own ticket's (#584)
+    taken["backtest"] += [r for r in gone if r.id == "F-01"]
+    read = bars["name"] if bars is not None else None  # the bars the engine reads (4.3, #547)
     years = Counter((f.dataset, market_of.get(str((f.key or {}).get(ID_COLUMN)), "-"))
-                    for f in found if f.code == "TDS-V011")  # fmt: skip
+                    for f in found if f.code == "TDS-V011" and f.dataset == read)  # fmt: skip
     taken["backtest"] += [FallbackRecord("F-16", str(d), m, n) for (d, m), n in years.items()]
     taken["grid"] += _no_grid(folder, kinds, rules, extent, market_of)
     return columns
@@ -252,11 +257,11 @@ def _off_calendar(
         )  # fmt: skip
 
 
-def _no_ohl(
+def _gone_columns(
     folder: Path, bars: Mapping[str, Any] | None, extent: BarsExtent
 ) -> list[FallbackRecord]:
-    """F-01 by market and column (4.5): a bars file that can hold the market (its `market=`
-    partition, or none) lacks the column or holds it null in every row by its footer
+    """F-01 and F-18 by market and column (4.5): a bars file that can hold the market (its
+    `market=` partition, or none) lacks the column or holds it null in every row by its footer
     statistics; the count is those files' rows, at most the market's. A file without them
     leaves it undecided, its cells NaN as stored: open reads no row."""
     if bars is None:
@@ -266,14 +271,14 @@ def _no_ohl(
         market = partition_values(f["path"], bars.get("partitioning", [])).get("market")
         files.setdefault(market, []).append(pq.ParquetFile(folder / f["path"]).metadata)
     out: list[FallbackRecord] = []
-    if not any(_gone(x, c) for held in files.values() for x in held for c in OHL):
+    if not any(_gone(x, c) for held in files.values() for x in held for c in _GONE):
         return out  # no record: the bars' extent is not read (#568)
     for m, entry in extent.by_market().items():
         held = [*files.get(m, []), *files.get(None, [])]
-        for c in OHL:
+        for c, id_ in _GONE.items():
             if gone := [x.num_rows for x in held if _gone(x, c)]:
                 count = min(sum(gone), int(entry.get("rows", sum(gone))))
-                out.append(FallbackRecord("F-01", str(bars["name"]), m, count, c))
+                out.append(FallbackRecord(id_, str(bars["name"]), m, count, c))
     return out
 
 
