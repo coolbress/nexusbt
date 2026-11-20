@@ -31,6 +31,7 @@ from nexusbt.data._capabilities import FallbackRecord as FallbackRecord
 from nexusbt.data._capabilities import _columns, _values, check_fields, decide
 from nexusbt.data._coverage import BarsExtent
 from nexusbt.data._datasets import chosen
+from nexusbt.data._outputs import table_value_hash as table_value_hash
 from nexusbt.data._ratios import RatioExclusion as RatioExclusion
 from nexusbt.data._ratios import check_ratios
 from nexusbt.data._schedule import Schedule as Schedule
