@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import datetime as dt
 import math
-import tracemalloc
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +16,7 @@ from nexusbt_tds.check import Level
 from nexusbt_tds.hash import value_hash
 from nexusbt_tds.manifest import read_manifest
 
+from .alone import measured_alone
 from .conformance_build import build
 
 #: The S codes the `schema` level reports.
@@ -480,20 +480,55 @@ def test_k001_without_a_temporary_file_is_unchecked_with_a_note(
     assert any(n.startswith("TDS-K001 not checked: ") for n in result.notes), result.notes
 
 
-def test_k001_memory_holds_a_batch_not_every_key(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+# Run in a process of its own (`alone`): in the suite's, the peak at 40,000 rows twice held
+# every key, on one tree only, and why is not known (#662). The first check, of a third, small
+# package, only imports what the check needs. A second pass over the larger package, after the
+# measured ones, looks at the sorted runs as their merge starts; the measured passes are left
+# unwatched.
+K001_MEASURE = """
+import itertools, json, sys, tracemalloc
+from nexusbt_tds import keys
+from nexusbt_tds.hash import SortedRuns
+from nexusbt_tds.manifest import read_manifest
+
+keys.BATCH_ROWS = 2_000  # 65,536 rows outside the test
+warm, *sized = (read_manifest(p) for p in sys.argv[1:])
+assert keys.check_keys(warm, ["bars_1d"], set()) == []
+peaks = []
+for m in sized:
+    tracemalloc.start()
+    assert keys.check_keys(m, ["bars_1d"], set()) == []
+    peaks.append(tracemalloc.get_traced_memory()[1])
+    tracemalloc.stop()
+
+seen, merged = {}, SortedRuns.merged
+def watched(self):
+    seen.update(runs=len(self.spans) if self.out else int(bool(self.first)),
+                spilled=self.out is not None, in_memory=len(self.first))
+    records = merged(self)
+    first = list(itertools.islice(records, 1))  # each run's first block read
+    top = tracemalloc.take_snapshot().statistics("lineno")[:5]
+    seen["top"] = [str(s) for s in top]
+    return itertools.chain(first, records)
+SortedRuns.merged = watched
+tracemalloc.start()
+keys.check_keys(sized[-1], ["bars_1d"], set())
+tracemalloc.stop()
+print(json.dumps({"peaks": peaks, "coverage": "coverage" in sys.modules, **seen}))
+"""
+
+
+def test_k001_memory_holds_a_batch_not_every_key(tmp_path: Path) -> None:
     """#309: 4 times the rows, about the same peak. The set of every key took about 245 bytes
     a row (2026-11-10), so `bars_1d`'s 60 million rows would have needed about 14 GB."""
-    monkeypatch.setattr(keys, "BATCH_ROWS", 2_000)
-    peaks = []
-    for rows in (10_000, 40_000):
-        m = read_manifest(write(tmp_path / str(rows), _daily_bars(rows)))
-        tracemalloc.start()
-        assert keys.check_keys(m, ["bars_1d"], set()) == []
-        peaks.append(tracemalloc.get_traced_memory()[1])
-        tracemalloc.stop()
-    assert (peaks[1] - peaks[0]) / 30_000 < 20, peaks  # bytes per row added
+    packages = [write(tmp_path / str(n), _daily_bars(n)) for n in (2_001, 10_000, 40_000)]
+    seen = measured_alone(K001_MEASURE, *map(str, packages))
+    peaks = seen["peaks"]
+    told = "\n".join([f"peaks {peaks}; at 40,000 rows, as the merge starts: {seen.get('runs')} "
+                      f"run(s), spill file {seen.get('spilled')}, {seen.get('in_memory')} "
+                      "record(s) in memory; the largest live allocations:",
+                      *seen.get("top", ["(no merge started)"])])  # fmt: skip
+    assert (peaks[1] - peaks[0]) / 30_000 < 20, told  # bytes per row added
 
 
 def test_classification_levels_not_duplicate(tmp_path: Path) -> None:
