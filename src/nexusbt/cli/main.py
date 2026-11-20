@@ -97,18 +97,16 @@ _SHAPE = re.compile(r"[A-Z]\w* \[E\d+\]")
 
 def _printer(python: Callable[..., None]) -> Callable[..., None]:
     """3.10 (#649): a 6.6 warning on standard error as its own lines, as an error is, without
-    Python's `file:line: UserWarning:` and the source line, and each text once in a command.
-    Python applies the person's filters (`-W`, `PYTHONWARNINGS`) before it prints, so they act
-    as before; any other warning goes to `python`, Python's printer."""
-    shown: set[str] = set()
+    Python's `file:line: UserWarning:` and the source line. Python applies the person's filters
+    (`-W`, `PYTHONWARNINGS`; by default a text once per place) before it prints, so which
+    warnings print is as before (#684); any other warning goes to `python`, Python's printer."""
 
     def show(message: Warning | str, category: type[Warning], *rest: Any, **kw: Any) -> None:
         text = str(message)
-        if not _SHAPE.match(text):
-            python(message, category, *rest, **kw)
-        elif text not in shown:
-            shown.add(text)
+        if _SHAPE.match(text):
             print(text, file=sys.stderr)
+        else:
+            python(message, category, *rest, **kw)
 
     return show
 

@@ -103,18 +103,31 @@ def test_distinct_warnings_each_once(
     assert err == "".join(t + "\n" for t in e30s)
 
 
-def test_a_repeated_warning_is_printed_once_and_another_is_left_to_python(
+def test_a_repeated_warning_is_printed_once_and_another_too(
     project: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """The same text given from two places in one command is printed once; a warning not in
-    6.6's shape (a library's) goes to Python's own printer, unchanged."""
+    """The same text given again from the same place in one command is printed once (Python's
+    default filter, as before #649); a different text is printed too."""
     e30 = str(nx.DataProfileWarning.example())
     other = e30.replace("F-08", "F-09")
 
     def doctor() -> str:
-        warnings.warn(e30, stacklevel=1)
-        warnings.warn(e30, stacklevel=1)  # another line: Python's registry would show both
-        warnings.warn(other, stacklevel=1)
+        for text in (e30, e30, other):
+            warnings.warn(text, stacklevel=1)
+        return "result"
+
+    monkeypatch.setattr(api_doctor, "doctor", doctor)
+    capsys.readouterr()
+    assert main(["doctor"]) == 0
+    assert capsys.readouterr() == ("result\n", f"{e30}\n{other}\n")
+
+
+def test_a_library_warning_is_left_to_python(
+    project: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A warning not in 6.6's shape goes to Python's own printer, unchanged."""
+
+    def doctor() -> str:
         warnings.warn("a library's own warning", DeprecationWarning, stacklevel=1)
         return "result"
 
@@ -122,9 +135,7 @@ def test_a_repeated_warning_is_printed_once_and_another_is_left_to_python(
     capsys.readouterr()
     with pytest.warns(DeprecationWarning, match="a library's own warning"):
         assert main(["doctor"]) == 0
-    out, err = capsys.readouterr()
-    assert out == "result\n"
-    assert err == f"{e30}\n{other}\n"
+    assert capsys.readouterr() == ("result\n", "")
 
 
 #: `nexusbt` as the console script runs it, in a process of its own so `-W` applies.
@@ -133,9 +144,9 @@ SCRIPT = "import sys; from nexusbt.cli.main import main; sys.exit(main())"
 
 @pytest.mark.parametrize(
     ("flags", "env", "code"),
-    [([], {}, 0), (["-W", "ignore"], {}, 0), (["-W", "error"], {}, 1),
-     ([], {"PYTHONWARNINGS": "error"}, 1)],
-    ids=["no-filter", "W-ignore", "W-error", "PYTHONWARNINGS-error"],
+    [([], {}, 0), (["-W", "ignore"], {}, 0), (["-W", "always"], {}, 0),
+     (["-W", "error"], {}, 1), ([], {"PYTHONWARNINGS": "error"}, 1)],
+    ids=["no-filter", "W-ignore", "W-always", "W-error", "PYTHONWARNINGS-error"],
 )  # fmt: skip
 def test_the_persons_filters_act_as_before(
     package: Path, project: Path, flags: list[str], env: dict[str, str], code: int
