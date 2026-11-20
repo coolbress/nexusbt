@@ -32,8 +32,10 @@ _SOURCE = {"close_tr": "close", "close_unadjusted": "close", "volume_unadjusted"
 #: Price cells NaN in a halted or missing session (3.2); `no_trade` keeps its reference close.
 _PRICES = frozenset({"open", "high", "low", "close", "close_tr", "close_unadjusted"})
 _VOLUMES = ("volume", "volume_unadjusted")  # 0 in a `no_trade` session (3.2)
-#: The bars columns a package may leave out, read as NaN (4.5 F-01).
+#: The bars columns a package may leave out, read as NaN (4.5 F-01, F-18).
 OHL = ("open", "high", "low")
+TRADED = ("volume", "value_traded")
+_NULLABLE = (*OHL, *TRADED)
 _INTEGER = frozenset({"i8", "i16", "i32", "i64"})
 #: Columns a bars file may lack: the block reads them when present (TDS 5.5, F-03).
 _OPTIONAL = ("obs_status", "ts_end", "ts_available")
@@ -91,10 +93,10 @@ def build_block(
     status = np.full(shape, -1, dtype=np.int8)
     available = np.full(shape, np.datetime64("NaT", "us"))
     source, _ = bars_availability(bars, str(manifest.data["snapshot_id"]))
-    sources = [_SOURCE.get(f, f) for f in fields]  # OHL: NaN where a file lacks them (F-01)
-    wanted = [ID, "session_date", "close", *(s for s in sources if s not in OHL)]
+    sources = [_SOURCE.get(f, f) for f in fields]  # NaN where a file lacks them (F-01, F-18)
+    wanted = [ID, "session_date", "close", *(s for s in sources if s not in _NULLABLE)]
     optional = [*_OPTIONAL, *([source] if source != "ts_close" else []),  # ts_close: calendar's
-                *(s for s in sources if s in OHL)]  # fmt: skip
+                *(s for s in sources if s in _NULLABLE)]  # fmt: skip
     for path in _files(bars, calendar.market, dates) if n else ():
         rows, cols, table = _cells(manifest.root / path, ids, dates, wanted, optional)
         if source not in (*table.column_names, "ts_end", "ts_close"):
