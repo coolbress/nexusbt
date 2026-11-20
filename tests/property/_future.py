@@ -36,9 +36,18 @@ The package's metadata is set as of τ: each market's watermark (TDS 3.8) is its
 closed by τ, every dataset's `processed_through_session` no later than it, and the coverage of
 each dataset that lost rows is read again from its files as the generator writes it.
 
+What still says something after τ, as a producer's package would: in a row known by τ, an
+effective period's end (`instrument_symbols.valid_to`, which can show an exit known later),
+`instrument_symbols.ts_known_to`, and `market_rules.valid_to`; the timeless datasets' rows;
+and the package's `snapshot_id` and `created`, which stay the original's. Not handled, as
+`small` has none: a corporate action first known after the bars it steps (`cum_factor_*` keep
+its step; the generator's `behind` steps them again), and two `delistings` rows of one
+instrument with one cut (its `delisted_on` empties).
+
 Files are rewritten only where rows go; a file left with no row is removed with its manifest
-entry. Row counts and the hashes are rewritten (`write_hashes`). A τ at or after the package's
-end changes nothing, not a byte.
+entry, and a dataset left with none keeps one empty file of its schema, as the generator
+writes it. A τ before a market's first close is refused. Row counts and the hashes are
+rewritten (`write_hashes`). A τ at or after the package's end changes nothing, not a byte.
 """
 
 from __future__ import annotations
@@ -74,6 +83,7 @@ def cut_after(root: Path, tau: dt.datetime) -> dict[str, int]:
         if name in TIMELESS or not (entry.get("availability") or _by_column(entry)):
             continue
         kept = []
+        schema = pq.read_schema(root / entry["files"][0]["path"]) if entry["files"] else None
         for f in entry["files"]:
             rows = pq.read_table(part := root / f["path"])
             keep = pa.array([t is None or t <= tau for t in _instants(name, entry, rows, sessions)])
@@ -87,6 +97,10 @@ def cut_after(root: Path, tau: dt.datetime) -> dict[str, int]:
                 kept.append(f | {"bytes": part.stat().st_size, "rows": left.num_rows})
             else:
                 part.unlink()
+        if entry["files"] and not kept:  # no row left: one empty file, as the generator writes
+            first = entry["files"][0]
+            pq.ParquetWriter(root / first["path"], schema).close()
+            kept = [first | {"bytes": (root / first["path"]).stat().st_size, "rows": 0}]
         entry["files"] = kept
     if not any(deleted.values()) and not any(marks.values()):
         return deleted  # nothing after τ: the package is left as it was, byte for byte
@@ -107,6 +121,8 @@ def _through(manifest: Any, root: Path, entries: Any, tau: dt.datetime) -> dict[
     for market, about in manifest["markets"].items():
         closed = [r for r in calendar
                   if r["calendar_id"] == about["calendar_id"] and r["ts_close"] <= tau]  # fmt: skip
+        if not closed:
+            raise ValueError(f"τ {tau} is before {market}'s first close: no package as of then")
         last = max(closed, key=lambda r: r["session_date"])
         mark = min(last["session_date"].isoformat(), about["complete_through_session"])
         if mark == about["complete_through_session"]:

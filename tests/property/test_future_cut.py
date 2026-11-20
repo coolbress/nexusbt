@@ -66,16 +66,17 @@ def test_no_row_first_known_after_tau(original: Path, cut: Path) -> None:
     for name, column in known(original).items():
         assert not any(after(r[column]) for r in rows(cut, name)), name
         assert any(after(r[column]) for r in rows(original, name)), name  # it had some to cut
-    for r in rows(cut, "corporate_actions"):  # the existence instant
-        told = [t for t in (r["ts_announced"], r["ts_terms_available"]) if t is not None]
-        assert min(told, default=r["ts_effective"]) <= TAU
-    kr = {r["session_date"] for r in rows(cut, "eligibility_daily")
-          if r["instrument_id"].startswith("KR:")}  # fmt: skip
-    assert TAU.date() not in kr  # its close comes after τ
-    tradable = {r["session_date"] for r in rows(cut, "tradability_daily")
-                if r["instrument_id"].startswith("KR:")}  # fmt: skip
-    assert TAU.date() not in tradable  # its session closes after τ, past the watermark
-    assert max(tradable) == max(kr) == dt.date(2017, 6, 14)  # the last session closed by τ
+    for name in ("eligibility_daily", "tradability_daily"):  # by their session's close
+        for market in ("KR:", "US:"):  # both close on 2017-06-14 before τ, KR's 06-15 after
+            days = {r["session_date"] for r in rows(cut, name) if r["instrument_id"][:3] == market}
+            assert max(days) == dt.date(2017, 6, 14), (name, market)
+
+
+def existence(r: dict[str, Any]) -> Any:
+    """A corporate action's existence instant (TDS 6.2): the earlier of its announcement and
+    its terms, else its effect."""
+    told = [t for t in (r["ts_announced"], r["ts_terms_available"]) if t is not None]
+    return min(told, default=r["ts_effective"])
 
 
 def test_kept_rows_are_the_original_rows(original: Path, cut: Path) -> None:
@@ -95,6 +96,33 @@ def test_kept_rows_are_the_original_rows(original: Path, cut: Path) -> None:
     for name, column in known(original).items():
         kept = [r for r in rows(original, name) if not after(r[column])]
         assert sorted(map(repr, kept)) == sorted(map(repr, rows(cut, name))), name
+    kept = [r for r in rows(original, "corporate_actions") if not after(existence(r))]
+    assert sorted(map(repr, kept)) == sorted(map(repr, rows(cut, "corporate_actions")))
+    for name in ("eligibility_daily", "tradability_daily"):  # every session closed by τ, kept
+        kept = [r for r in rows(original, name) if r["session_date"] <= dt.date(2017, 6, 14)]
+        assert sorted(map(repr, kept)) == sorted(map(repr, rows(cut, name))), name
+
+
+def test_a_dataset_left_without_rows_keeps_one_empty_file(original: Path) -> None:
+    """τ before the first exit is known: `delistings` loses every row and keeps an empty file
+    of its schema, so the package still hashes (TDS 4.5)."""
+    at = shutil.copytree(original, original.parent / "early")
+    first_close = dt.datetime(2015, 6, 1, 21, 0, tzinfo=dt.UTC)  # after KR's and US's closes
+    exits = [r["ts_exit_known"] for r in rows(original, "delistings")]
+    assert exits
+    assert all(t is not None and t > first_close for t in exits)  # none known yet
+    cut_after(at, first_close)
+    assert rows(at, "delistings") == []
+    manifest = json.loads((at / "tds.json").read_text(encoding="utf-8"))
+    (entry,) = (d for d in manifest["datasets"] if d["name"] == "delistings")
+    assert [f["rows"] for f in entry["files"]] == [0]
+    assert check(at, level="schema").error_count == 0
+
+
+def test_tau_before_the_first_close_is_refused(original: Path) -> None:
+    at = shutil.copytree(original, original.parent / "before")
+    with pytest.raises(ValueError, match="before KR's first close"):
+        cut_after(at, dt.datetime(2015, 1, 2, 3, 0, tzinfo=dt.UTC))
 
 
 def test_instruments_change_only_in_their_two_exceptions(original: Path, cut: Path) -> None:
