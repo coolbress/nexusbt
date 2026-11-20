@@ -379,7 +379,7 @@ contracts ← artifacts ← api
 
 - **pickle 금지**: 실행 산출물·캐시(L0·L1)·장부 체크포인트·탐침 결과에 pickle을 쓰지 않는다. 표는 Parquet·Arrow IPC, 나머지는 JSON. (2.5 금지 목록이 강제)
 - **비밀값 금지**: `nexusbt.toml`의 어느 표에든 이름에 `key`, `secret`, `token`, `password`가 들어간 키가 있으면 `ConfigError`(E16, "secrets do not belong in nexusbt.toml; use environment variables or the OS keychain"). 증권사 키는 나중 어댑터 ADR에서 환경 변수·키체인으로만. 저장소의 `ci / secrets` 검사와 함께 막는다.
-- **실행되는 코드**: `rerun`은 실행 폴더의 `source/`를 **새 프로세스**에서 실행한다(5.9.3; 현재 세션에 이미 import된 같은 이름 모듈이 끼어들지 않게). 실행 매니페스트의 `environment.machine_id`(= sha256(호스트 고유 id)[:16], 원 호스트 이름은 남기지 않음)가 지금 기계와 다르면 `UntrustedRunError`(E31)로 거절하고, `nx.rerun(id, trust=True)` / `nexusbt rerun ID --trust`일 때만 돌린다.
+- **실행되는 코드**: `rerun`은 실행 폴더의 `source/`를 **새 프로세스**에서 실행한다(5.9.3; 현재 세션에 이미 import된 같은 이름 모듈이 끼어들지 않게). 실행 매니페스트의 `environment.machine_id`(= sha256(호스트 고유 id)[:16], 원 호스트 이름은 남기지 않음)가 지금 기계와 다르면 `UntrustedRunError`(E31)로 거절하고, `nx.rerun(id, trust=True)` / `nexusbt rerun ID --trust`일 때만 돌린다. 호스트 고유 id는 `/etc/machine-id`나 `/var/lib/dbus/machine-id`가 있으면 그것, macOS에서는 하드웨어 UUID(`gethostuuid`), 그 밖에는 `uuid.getnode()`가 읽은 하드웨어 주소이되, 주소를 찾지 못했을 때 파이썬이 대신 돌려주는 무작위 값(멀티캐스트 비트가 켜짐)은 쓰지 않는다; 어느 것도 읽지 못하면 `machine_id`는 지어낸 값이 아니라 `"unknown"`이고, `rerun`은 어느 한쪽이 `"unknown"`이면 다른 기계로 본다(결정 2026-11-20, #635).
 - **자료 수집 없음**: 엔진은 자료를 수집하지 않는다(생산자 몫).
 - **패키지 경로 안전**: 엔진·검사기는 `tds.json`의 경로가 패키지 폴더 밖을 가리키거나(`..`, 절대 경로, 밖으로 나가는 심볼릭 링크) 같은 경로가 두 번 나오면 읽지 않는다(TDS-M012/M013, E14) [RV-I01].
 
