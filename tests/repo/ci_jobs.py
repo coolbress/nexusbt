@@ -47,7 +47,10 @@ CHECKS: dict[str, tuple[Step, ...]] = {
         Step("uv run pytest -m parity"),
     ),
     "engine / property-deep": (
-        Step("uv run pytest -m property --hypothesis-profile=deep", needs_module="hypothesis"),
+        Step(
+            "uv run pytest -m property --hypothesis-profile=deep --hypothesis-show-statistics",
+            needs_module="hypothesis",
+        ),
     ),
     "engine / perf-smoke": (Step("uv run pytest -m perf_smoke"),),
     "engine / docs-examples": (Step("uv run pytest tests/docs -m examples"),),

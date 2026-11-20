@@ -2730,7 +2730,7 @@ Changing the high, low or close of e in (b), (c), (e) and (f) leaves `R` and `ts
 
 | id | property | generation |
 |---|---|---|
-| P-CHUNK | all node values bit-identical with chunk sizes of 1 year / 3 years / everything [INV-03] | synthetic small, random graphs |
+| P-CHUNK | all node values bit-identical with chunk sizes of 1 year / 3 years / everything [INV-03] | synthetic small and its late-bar variant (4.8 rule 3a), random graphs |
 | P-PERM | the same results with the instrument column order shuffled [INV-04] | |
 | P-CACHE | cache hit = miss [INV-05] | |
 | P-FUT | between a snapshot with the data after time τ deleted (rows with `ts_available > τ`: bars, event versions (`ts_known > τ`), delisting recoveries, FX, fundamentals) and the original snapshot, the targets and orders of decisions with `decision_ts ≤ τ` are the same; deleting an event version whose terms come late (an amount amendment) also leaves earlier decisions the same; two snapshots equal in available information and different only in after-the-fact amounts give the same orders (and the same `nav_decision`) on every session, and differ only in the report series (`nav_economic` and what is built from it); with an `nx.ml.factor` node (#270), a snapshot with rows added after τ in the same year partition gives the same `fit_id`, seed, predictions and targets for every decision at or before τ, and one feature or label value of a training sample corrected gives a different `fit_id`, so the earlier fit is not reused (its predictions may change; they are equal only when the model is insensitive to that value, which the test does not assume either way) [INV-01, INV-02, R3-01, 5.3.11] | random τ; includes the fixed case G-42 |
@@ -2927,7 +2927,7 @@ The engine is built with the user's plinth loop (`plinth/2.7.1/docs/how-to/run-a
 | Check name | Content | Local command | Required from |
 |---|---|---|---|
 | `engine / parity` | L1 and L2 on synthetic small in the `tests/parity` environment (Python 3.12, zipline-reloaded 3.2.1) → the engine-side comparison pytest | `uv sync --project tests/parity --locked && uv run --project tests/parity python -m parity.run --suite all --fixture small && uv run pytest -m parity` | end of M1 (L1), end of M3 (L2) |
-| `engine / property-deep` | hypothesis `deep` profile (e.g. 500 cases) | `uv run pytest -m property --hypothesis-profile=deep` | M1 |
+| `engine / property-deep` | hypothesis `deep` profile (e.g. 500 cases) | `uv run pytest -m property --hypothesis-profile=deep --hypothesis-show-statistics` | M1 |
 | `engine / perf-smoke` | the CI performance smoke tests of chapter 7 | `uv run pytest -m perf_smoke` | M3 |
 | `engine / docs-examples` | 8.5 (also in the default `ci / test`, but the full run of `examples/` is here) | `uv run pytest tests/docs -m examples` | M2 |
 | `tds / conformance` | the own tests of the **TDS conformance checker package** (`tds/`) (8.4a: pass and fail packages per code), and `tds check --level full` on synthetic `tiny` and `small` and every `degrade` combination | `uv run --package nexusbt-tds pytest tds/tests && uv run python -m nexusbt.testing.synth --preset small --out .scratch/snap --validate` | M0 (end of T0.14c; the `full` level at the end of M1) |
@@ -2938,6 +2938,8 @@ The engine is built with the user's plinth loop (`plinth/2.7.1/docs/how-to/run-a
 Manual on the compute machine (not a required check; summary evidence committed at the end of a milestone): full performance `uv run python bench/run.py --all --snapshot <id>`, real-data comparison `uv run --project tests/parity python -m parity.run --suite all --fixture real:<id>`.
 
 pytest markers: `unit`, `golden`, `property`, `docs`, `examples`, `parity`, `perf_smoke`, `slow`, `repo`.
+
+A property test too slow to run in the `ci` profile within `ci / test`'s time limit carries `slow` as well as `property`: the default run leaves it out, and `engine / property-deep` (`-m property`) runs it, with the number of cases the test sets for itself (decision 2026-11-20, #254). That job prints each property test's case counts (`--hypothesis-show-statistics`).
 
 **Operating the TDS package** (versioned separately): `tds/` is a uv workspace member in the same repository as the engine, but its version, change log (`tds/CHANGELOG.md`) and tags are separate. The release states are **draft → RC → 1.0** (tags `tds-v1.0.0-rc.N` → `tds-v1.0.0`; the `tds_version` string stays `MAJOR.MINOR`, `"1.0"`). Conditions for graduating to 1.0 (TDS 10.5): one independent producer (it may go through the import tool) and one producer export pass `full`, the engine reads both and the same example runs, and the hash test vectors agree between the two implementations [RV-I07]. PRs that change the TDS documents, schemas or checker use the title scope `tds` (e.g. `feat(tds): …`) and raise `tds_version` according to the MINOR/MAJOR rules of TDS 10.2. The engine writes the version range of `nexusbt-tds` (`>=1.0,<2`) as its dependency. The reference producer also runs the `full` check right after export with the same package (`pip install nexusbt-tds` or a repository path). In `pyproject.toml`, `addopts = "-m 'not parity and not perf_smoke and not examples and not slow' --hypothesis-profile=ci"`.
 
