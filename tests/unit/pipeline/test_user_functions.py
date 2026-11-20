@@ -542,13 +542,14 @@ def test_a_compat_method_under_a_wraps_decorator_is_in_the_hash() -> None:
 def test_a_user_function_under_a_library_decorator_is_hashed_from_its_body(tmp_path: Path) -> None:
     """#596: a user function a library decorator wraps (`functools.singledispatch`, whose inner
     function lies outside the project) is read as the project function it keeps in
-    `__wrapped__`, as a helper is, so editing its body still changes the hash. #589: its reads
-    are walked through the wrapper, whose closure holds `dispatch`, a function `functools` built
-    while the program ran (with the registry the engine cannot read), so it is E24."""
+    `__wrapped__`, as a helper is, so editing its body still changes the hash. #589, #645: the
+    wrapper's closure holds `dispatch`, a function `functools` built while the program ran (with
+    the registry the engine cannot read), so it is E24, naming the decorator."""
     text = "import functools\n@functools.singledispatch\ndef score(close):\n    return close[-1] * "
     hashes = []
+    under = r"(?s)score is under functools.singledispatch.*L1 cache disabled"
     for k in (2, 5):
-        with pytest.warns(UserWarning, match=r"(?s)reads global 'dispatch'.*L1 cache disabled"):
+        with pytest.warns(UserWarning, match=under):
             term = nx.factor(window=2, inputs=[CLOSE])(load(tmp_path, f"single_{k}",
                                                             f"{text}{k}\n").score)  # fmt: skip
         hashes.append(graph_hash(term))
