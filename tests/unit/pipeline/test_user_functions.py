@@ -11,6 +11,7 @@ import traceback
 import warnings
 from collections.abc import Sequence
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 
 import numpy as np
@@ -541,10 +542,16 @@ def test_a_compat_method_under_a_wraps_decorator_is_in_the_hash() -> None:
 def test_a_user_function_under_a_library_decorator_is_hashed_from_its_body(tmp_path: Path) -> None:
     """#596: a user function a library decorator wraps (`functools.singledispatch`, whose inner
     function lies outside the project) is read as the project function it keeps in
-    `__wrapped__`, as a helper is, so editing its body still changes the hash."""
+    `__wrapped__`, as a helper is, so editing its body still changes the hash. #589: its reads
+    are walked through the wrapper, whose closure holds `dispatch`, a function `functools` built
+    while the program ran (with the registry the engine cannot read), so it is E24."""
     text = "import functools\n@functools.singledispatch\ndef score(close):\n    return close[-1] * "
-    hashes = [graph_hash(nx.factor(window=2, inputs=[CLOSE])(load(tmp_path, f"single_{k}",
-              f"{text}{k}\n").score)) for k in (2, 5)]  # fmt: skip
+    hashes = []
+    for k in (2, 5):
+        with pytest.warns(UserWarning, match=r"(?s)reads global 'dispatch'.*L1 cache disabled"):
+            term = nx.factor(window=2, inputs=[CLOSE])(load(tmp_path, f"single_{k}",
+                                                            f"{text}{k}\n").score)  # fmt: skip
+        hashes.append(graph_hash(term))
     assert hashes[0] != hashes[1]
 
 
@@ -620,6 +627,101 @@ def test_a_project_callable_with_no_function_is_E24(fn: Any, shown: str) -> None
     with pytest.warns(UserWarning, match=rf"(?s)reads global '{shown}'.*L1 cache disabled"):
         term = nx.factor(window=2, inputs=[CLOSE])(fn)
     assert l1_disabled(term)
+
+
+#: #589: a file of the user's project whose `score` reads the global `{name}`, set by `{setup}`.
+BUILT = """
+import datetime
+import functools
+import math
+import operator
+import re
+import numba
+import numpy as np
+
+def _helper(x, y=1):
+    return x * {k}
+
+{setup}
+
+def score(close):
+    return {name}(close[-1])
+"""
+
+
+def _built(at: Path, file: str, setup: str, name: str = "X", k: int = 2) -> Factor:
+    module = load(at, file, BUILT.format(setup=setup, name=name, k=k))
+    return nx.factor(window=2, inputs=[CLOSE])(module.score)
+
+
+@pytest.mark.parametrize(("setup", "name"), [
+    ("X = np.vectorize(_helper)", "X"),
+    ('X = operator.methodcaller("pipe", _helper)', "X"),
+    ("X = operator.itemgetter(1)", "X"),
+    ("X = functools.partial(_helper, 2)", "X"),
+    ("X = functools.partial(np.mean, axis=0)", "X"),
+    ("add = np.vectorize(_helper)", "add"),  # numpy holds an `add`, another object
+    ("reduce = functools.partial(_helper, 2)", "reduce"),  # as functools does
+    ("rand = operator.itemgetter(1)", "rand"),
+    ("X = np.vectorize(_helper)\nX.__module__ = __name__", "X"),  # found, but in the project
+    ("X = np.random.default_rng(0)", "X"),  # not callable, or data: E24 as before
+    ('X = re.compile("a+")', "X"),
+    ("X = datetime.date(2020, 1, 1)", "X"),
+    ("X = np.float64(1.5)", "X"),
+])  # fmt: skip
+def test_a_callable_built_at_run_time_is_impure(tmp_path: Path, setup: str, name: str) -> None:
+    """#589 Decisions 1, 2: a callable is found again by reference only when the module outside
+    the project that it names as `__module__` holds that very object under its qualified name, its
+    name or the name it is read by; any other was built while the program ran and holds what the
+    hash cannot read (the function a `np.vectorize` keeps, `itemgetter`'s index): E24, L1 off,
+    whatever its class. A library's name on another object, or a project module, finds nothing."""
+    with pytest.warns(UserWarning, match=rf"(?s)reads global '{name}'.*L1 cache disabled"):
+        assert l1_disabled(_built(tmp_path, "built", setup, name))
+
+
+@pytest.mark.parametrize("setup", [
+    "X = np.add",
+    "from numpy import nanmean as X",  # found under its qualified name, not the name read
+    "X = len",
+    "X = math.sqrt",
+    "from numpy.random import rand as X",  # qualified `RandomState.rand`: found by `__name__`
+    "X = np.add.reduce",  # bound to `np.add`, which is found
+    "X = datetime.date",  # a class: a namespace, read as before
+])  # fmt: skip
+def test_a_library_callable_found_by_reference_is_pure(tmp_path: Path, setup: str) -> None:
+    """#589 Decisions 1, 2: a library's callable read under any name stays pure, no warning and
+    L1 on, when its own module holds it under its own name, or it is bound to one that is."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert not l1_disabled(_built(tmp_path, "library", setup))
+
+
+@pytest.mark.parametrize("setup", ["X = numba.njit(_helper)", "X = functools.lru_cache(_helper)",
+                                   "X = lambda x: _helper(x)"])  # fmt: skip
+def test_a_project_function_a_callable_keeps_is_a_helper(tmp_path: Path, setup: str) -> None:
+    """#589 Decisions table, #572 unchanged: a callable that keeps a project function along
+    `__wrapped__`, or a lambda, is a helper: editing `_helper` changes the hash, no warning."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        before = graph_hash(_built(tmp_path, "helper_2", setup))
+        assert graph_hash(_built(tmp_path, "helper_5", setup, k=5)) != before
+
+
+def test_a_library_object_read_by_its_own_name_is_pure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#589 Decisions 5: a callable a library builds at import, with no qualified name, is found
+    under the name it is read by when that is its module's; read under another name it is E24,
+    the accepted false alarm, and the message says to read it through its module."""
+    lib = ModuleType("_lib589")  # a stand-in library: no file, so outside the project
+    thing = type("Thing", (), {"__module__": "_lib589", "__call__": lambda self, x: x})()
+    vars(lib)["thing"] = thing
+    monkeypatch.setitem(sys.modules, "_lib589", lib)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert not l1_disabled(_built(tmp_path, "own", "from _lib589 import thing", "thing"))
+    with pytest.warns(UserWarning, match=r"(?s)reads global 't'.*through its module \(`lib.t"):
+        _built(tmp_path, "other", "from _lib589 import thing as t", "t")
 
 
 def test_a_wrapped_callable_outside_the_project_is_not_followed() -> None:
