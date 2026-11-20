@@ -217,6 +217,9 @@ def _another_table(folder: Path, *, changed: bool, drop: str | None = None) -> N
 def test_an_id_that_is_no_sealed_run_is_refused(copied: tuple[Path, str]) -> None:
     with pytest.raises(ReplayError, match="run nope is not a sealed run folder"):
         nx.rerun("nope")
+    project, run_id = copied  # a sealed run reached through a path, not a run id
+    with pytest.raises(ReplayError, match="is not a sealed run folder"):
+        nx.rerun(f"../{project.name}/runs/{run_id}")
 
 
 def test_a_run_whose_entry_file_is_gone_is_refused(copied: tuple[Path, str]) -> None:
@@ -341,7 +344,7 @@ def test_the_cli_prints_the_comparison(
     assert main(["rerun", run_id]) == 0
     first, line = capsys.readouterr().out.splitlines()
     assert first.startswith("run ")
-    assert first.endswith(f" reproduces {run_id}")
+    assert first.endswith(f" from {run_id}")
     assert line == _SAME
 
 

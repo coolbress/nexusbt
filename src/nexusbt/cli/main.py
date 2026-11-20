@@ -103,6 +103,6 @@ def _run(args: argparse.Namespace) -> int:
         if args.save_detail:  # 5.9.4's tier (3): no kind writes `detail/` yet
             raise NotImplementedError("nexusbt rerun --save-detail: tier-3 outputs come later")
         run = api.rerun(args.run_id, new_snapshot=args.new_snapshot, trust=args.trust)
-        print(f"run {run.run_id} reproduces {args.run_id}\n{run.comparison}")
+        print(f"run {run.run_id} from {args.run_id}\n{run.comparison}")  # the line says if equal
         return 0
     raise NotImplementedError(f"nexusbt {args.command}: not built yet (its ticket is in spec 10.1)")
