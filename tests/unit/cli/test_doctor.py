@@ -66,7 +66,7 @@ def test_doctor_lists_markets_packs_and_counts(
     for m in ("KR", "US"):  # the tiny preset: 6 instruments, 341 daily rows per market
         line = rf"^market {m} +rules {m}@1 +2020-01-02\.\.2020-03-31 +instruments 6 +rows 341$"
         assert re.search(line, out, re.M), out
-    assert re.search(r"^columns +12 daily bar columns$", out, re.M)  # tiny's bars file has 12
+    assert re.search(r"^columns +13 daily bar columns$", out, re.M)  # tiny's bars file has 13
     assert re.search(r"^free disk +\d+\.\d GB$", out, re.M)
 
 
@@ -111,6 +111,19 @@ def test_doctor_names_the_column_of_a_column_fallback(
     columns = [f"F-01 bars_1d.{c} {m} 341" for m in ("KR", "US") for c in ("open", "high", "low")]
     # one line per record, none merged, in the records' order (4.5)
     assert lines == ["F-02 calendar_sessions KR 62", "F-02 calendar_sessions US 62", *columns]
+
+
+def test_doctor_names_the_columns_of_f18(
+    tmp_path: Path, project: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """#584: bars without `volume` and `value_traded` (4.5 F-18) are a line per market and
+    column, as F-01's are (#604)."""
+    package = make_snapshot(tmp_path / "pkg", preset="tiny", degrade=["no_volume"])
+    with pytest.warns(UserWarning, match=r"\[E30\] F-18"):
+        out = doctor(package, capsys)
+    lines = [line.split(None, 1)[1] for line in out.splitlines() if line.startswith("fallback ")]
+    assert lines == [f"F-18 bars_1d.{c} {m} 341"
+                     for m in ("KR", "US") for c in ("volume", "value_traded")]  # fmt: skip
 
 
 def test_publishing_marker(
