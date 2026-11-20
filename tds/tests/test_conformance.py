@@ -524,9 +524,10 @@ def test_k001_memory_holds_a_batch_not_every_key(tmp_path: Path) -> None:
     packages = [write(tmp_path / str(n), _daily_bars(n)) for n in (2_001, 10_000, 40_000)]
     seen = measured_alone(K001_MEASURE, *map(str, packages))
     peaks = seen["peaks"]
-    told = "\n".join([f"peaks {peaks}; at 40,000 rows, as the merge starts: {seen['runs']} "
-                      f"run(s), spill file {seen['spilled']}, {seen['in_memory']} record(s) "
-                      "in memory; the largest live allocations:", *seen["top"]])  # fmt: skip
+    told = "\n".join([f"peaks {peaks}; at 40,000 rows, as the merge starts: {seen.get('runs')} "
+                      f"run(s), spill file {seen.get('spilled')}, {seen.get('in_memory')} "
+                      "record(s) in memory; the largest live allocations:",
+                      *seen.get("top", ["(no merge started)"])])  # fmt: skip
     assert (peaks[1] - peaks[0]) / 30_000 < 20, told  # bytes per row added
 
 
