@@ -76,6 +76,8 @@ ZERO: Mapping[str, Callable[[F64], Mask]] = {
     "Returns": _kernels.returns_zero,
     "AnnualizedVolatility": _kernels.daily_zero,
     "MaxDrawdown": _kernels.peak_zero,
+    "VWAP": _kernels.vwap_zero,  # NaN by 3.4, counted all the same (#632)
+    "RSI": _kernels.rsi_zero,  # 100 or NaN by 3.4, counted all the same
 }
 OVERFLOW: Mapping[str, Callable[[F64], Mask]] = {"AnnualizedVolatility": _kernels.daily_overflow}
 

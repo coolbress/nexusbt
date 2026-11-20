@@ -324,9 +324,10 @@ def test_kernel_seam_signatures_arrow_only() -> None:
               "window_nansum_mean", "window_nanstd", "window_annualized_volatility",
               "ewma_weights", "window_ewma", "window_vwap", "window_rsi",
               "window_max_drawdown", "returns_zero", "daily_zero", "daily_overflow", "peak_zero",
+              "vwap_zero", "rsi_zero",
               "window_nansum", "window_nanmin", "window_nanmax", "window_nanmedian"}  # fmt: skip
     cross_section = {"demean", "zscore", "winsorize", "rank", "select", "percentile_between",
-                     "quantiles"}  # fmt: skip
+                     "quantiles", "zscore_zero"}  # fmt: skip
     three_valued = {"compare", "codes_in", "kleene_and", "kleene_or", "kleene_all", "kleene_any"}
     assert set(seam_callables(_kernels)) == window | cross_section | three_valued
     assert seam_violations(_kernels) == []

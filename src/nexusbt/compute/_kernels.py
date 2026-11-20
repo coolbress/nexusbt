@@ -195,16 +195,45 @@ def window_ewma(x: F64, weights: F64) -> F64:
     return found
 
 
+def _vwap_sums(close: F64, volume: F64) -> tuple[F64, F64, npt.NDArray[np.int64]]:
+    """`VWAP`'s Σ close·volume and Σ volume over the pairs both finite, and the pairs' count."""
+    pair = np.isfinite(close) & np.isfinite(volume)
+    (paid, n), (traded, _) = _fold(close * volume, pair), _fold(volume, pair)
+    return paid, traded, n
+
+
+def vwap_zero(x: F64) -> Mask:
+    """`VWAP`'s columns (`x` the two windows stacked) whose pairs' volume sums to 0: NaN by 3.4,
+    and a division by a zero all the same (#632)."""
+    _, traded, n = _vwap_sums(x[0], x[1])
+    found: Mask = (n > 0) & (traded == 0)
+    return found
+
+
 def window_vwap(close: F64, volume: F64) -> F64:
     """`VWAP`: `sum(close * volume) / sum(volume)` over the rows whose close and volume are both
     finite; NaN with no such pair or when their volume sums to 0 (3.4, #278). An overflowed
     product or sum gives `inf`: a division by an infinite Σ volume is not the formula's value."""
-    pair = np.isfinite(close) & np.isfinite(volume)
-    paid, n = _fold(close * volume, pair)
-    traded, _ = _fold(volume, pair)
+    paid, traded, n = _vwap_sums(close, volume)
     some = (n > 0) & (traded != 0)
     found: F64 = np.where(some, paid / np.where(some, traded, 1.0), np.nan)
     return np.where(some & ~(np.isfinite(paid) & np.isfinite(traded)), np.inf, found)
+
+
+def _rsi_means(x: F64) -> tuple[F64, F64, npt.NDArray[np.int64]]:
+    """`RSI`'s `up` and `dn` over the differences of two finite cells, and their count."""
+    d = x[1:] - x[:-1]
+    keep = np.isfinite(x[1:]) & np.isfinite(x[:-1])
+    (ups, n), (downs, _) = _fold(np.maximum(d, 0.0), keep), _fold(np.minimum(d, 0.0), keep)
+    return np.where(n > 0, ups / np.maximum(n, 1), np.nan), np.abs(downs / np.maximum(n, 1)), n
+
+
+def rsi_zero(x: F64) -> Mask:
+    """`RSI`'s columns whose `dn` is 0 under some difference: `up/dn` divides by a zero, though 3.4
+    gives 100 (or NaN when `up` is 0 too) (#632)."""
+    _, dn, n = _rsi_means(x)
+    found: Mask = (n > 0) & (dn == 0)
+    return found
 
 
 def window_rsi(x: F64) -> F64:
@@ -214,10 +243,7 @@ def window_rsi(x: F64) -> F64:
     counts even when it overflows. `up/dn` overflowing from two finite means gives 100, the
     formula's value; a mean that overflowed itself, beside another that is not 0, comes out as
     `inf` (100, 0 or `inf / inf` there are not the formula's value, #632)."""
-    d = x[1:] - x[:-1]
-    keep = np.isfinite(x[1:]) & np.isfinite(x[:-1])
-    (ups, n), (downs, _) = _fold(np.maximum(d, 0.0), keep), _fold(np.minimum(d, 0.0), keep)
-    up, dn = np.where(n > 0, ups / np.maximum(n, 1), np.nan), np.abs(downs / np.maximum(n, 1))
+    up, dn, _ = _rsi_means(x)
     with np.errstate(divide="ignore", invalid="ignore"):
         found: F64 = 100.0 - 100.0 / (1.0 + up / dn)
     return np.where((np.isinf(dn) & (up != 0)) | (np.isinf(up) & (dn != 0)), np.inf, found)
@@ -378,15 +404,30 @@ def zscore(x: F64, mask: Mask, groups: Codes, order: I64) -> tuple[F64, int]:
     out = np.full(len(x), np.nan)
     sections, unknown = _sections(x, mask, groups, order)
     for seq in sections:
-        if len(seq) < 2 or x[seq].min() == x[seq].max():
+        if len(seq) < 2:
             continue
-        deviation = x[seq] - _mean(x[seq])
-        std = np.sqrt(_mean(deviation * deviation))
+        deviation, std = _deviations(x[seq])
         if not np.isfinite(std):
             out[seq] = np.inf
         elif std > 0:
             out[seq] = deviation / std
     return out, unknown
+
+
+def _deviations(values: F64) -> tuple[F64, float]:
+    """`zscore`'s `x - mean` and std of one group (two passes); 0 where every value is equal."""
+    deviation = values - _mean(values)
+    equal = values.min() == values.max()
+    return deviation, 0.0 if equal else float(np.sqrt(_mean(deviation * deviation)))
+
+
+def zscore_zero(x: F64, mask: Mask, groups: Codes, order: I64) -> Mask:
+    """`zscore`'s cells that divide by a std of 0: each cell of a group of two or more whose std
+    is 0 (NaN by 5.4.2, a division by a zero all the same, #632)."""
+    found = np.zeros(len(x), dtype=bool)
+    for seq in _sections(x, mask, groups, order)[0]:
+        found[seq] = len(seq) > 1 and _deviations(x[seq])[1] == 0
+    return found
 
 
 def winsorize(x: F64, mask: Mask, groups: Codes, low: float, high: float) -> tuple[F64, int]:
