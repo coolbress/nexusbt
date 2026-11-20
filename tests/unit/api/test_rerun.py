@@ -8,6 +8,7 @@ machine's, so only the E31 test compares a real one.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -19,11 +20,14 @@ from contextlib import closing
 from pathlib import Path
 from typing import Any
 
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
 import nexusbt as nx
 from nexusbt.artifacts import _environment
 from nexusbt.contracts import ReplayError, UntrustedRunError
+from nexusbt.data import table_value_hash
 from nexusbt.testing.synth import make_snapshot
 
 pytestmark = pytest.mark.unit
@@ -151,3 +155,78 @@ def test_foreign_run_requires_trust_E31(  # noqa: N802 - the ticket's name
     with pytest.raises(UntrustedRunError, match="another machine"):
         nx.rerun(run_id)
     assert nx.rerun(run_id, trust=True).comparison == _SAME
+
+
+def _edit(path: Path, text: str | None = None) -> Path:
+    """Make a sealed run's file writable (a read-only seal, 5.9.1); write `text` if given."""
+    path.chmod(path.stat().st_mode | stat.S_IWUSR)
+    if text is not None:
+        path.write_text(text, encoding="utf-8")
+    return path
+
+
+def test_a_snapshot_with_another_semantic_hash_is_refused(copied: tuple[Path, str]) -> None:
+    """3.8: the snapshot is confirmed by the semantic hash. `pkg` replaced by a package that
+    opens and passes its own sha256s but holds other data (a split injected) is E15."""
+    project, run_id = copied
+    shutil.rmtree(project / "pkg")
+    split = {"dataset": "corporate_actions", "kind": "split", "instrument_id": "KR:T00001",
+             "ex_date": "2020-01-08", "ratio_new_per_old": 2.0}  # fmt: skip
+    make_snapshot(project / "pkg", preset="tiny", events=[split])
+    with pytest.raises(ReplayError, match="it has another semantic hash"):
+        nx.rerun(run_id)
+
+
+@pytest.mark.parametrize(("changed", "line"), [
+    (True, "outputs differ: pipeline.parquet (value, physical)"),
+    (False, "outputs differ: pipeline.parquet (physical)"),
+])  # fmt: skip
+def test_outputs_that_differ_are_named_with_the_hash_that_differs(
+    copied: tuple[Path, str], changed: bool, line: str
+) -> None:
+    """5.9.4: the reproduced run's `pipeline.parquet` is rewritten as another run would have
+    written it, its recorded hashes with it: one value changed (both hashes differ), or the
+    same values with another compression (only the bytes differ)."""
+    project, run_id = copied
+    folder = project / "runs" / run_id
+    table = pq.read_table(folder / "pipeline.parquet")
+    if changed:
+        sma = table["sma"].to_pylist()
+        table = table.set_column(table.schema.get_field_index("sma"), "sma",
+                                 pa.array([sma[0] + 1.0, *sma[1:]]))  # fmt: skip
+    pq.write_table(table, _edit(folder / "pipeline.parquet"), compression="snappy")
+    found = _manifest(folder)
+    found["outputs"]["pipeline.parquet"] = {
+        "physical_sha256": hashlib.sha256((folder / "pipeline.parquet").read_bytes()).hexdigest(),
+        "value_sha256": table_value_hash(table, ("session_date", "market", "instrument_id")),
+    }
+    _edit(folder / "manifest.json", json.dumps(found, sort_keys=True, indent=2) + "\n")
+    assert nx.rerun(run_id).comparison == line
+
+
+def test_an_id_that_is_no_sealed_run_is_refused(copied: tuple[Path, str]) -> None:
+    with pytest.raises(ReplayError, match="run nope is not a sealed run folder"):
+        nx.rerun("nope")
+
+
+def test_a_run_whose_entry_file_is_gone_is_refused(copied: tuple[Path, str]) -> None:
+    """E15 (6.6: a rerun dependency, here the source, is missing), before any process starts."""
+    project, run_id = copied
+    (project / "runs" / run_id / "source" / "scripts" / "m.py").unlink()
+    with pytest.raises(ReplayError, match=f"run {run_id} kept no entry file in source/"):
+        nx.rerun(run_id)
+
+
+@pytest.mark.parametrize(("entry", "message"), [
+    ("raise SystemExit(3)\n", "the new process ended 3"),
+    ("print('saves nothing')\n", "it sealed no pipeline run"),
+])  # fmt: skip
+def test_an_entry_file_that_stops_or_saves_nothing_is_said(
+    copied: tuple[Path, str], entry: str, message: str
+) -> None:
+    """The captured entry file stops before it saves, or saves no run of the reproduced run's
+    kind: the caller is told so, and nothing is compared."""
+    project, run_id = copied
+    _edit(project / "runs" / run_id / "source" / "scripts" / "m.py", entry)
+    with pytest.raises(RuntimeError, match=f"rerun of {run_id}: {message}"):
+        nx.rerun(run_id)
