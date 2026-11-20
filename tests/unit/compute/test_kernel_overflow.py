@@ -8,8 +8,8 @@ import numpy as np
 import pytest
 
 from nexusbt.compute import _kernels
-from nexusbt.compute._factors import value
-from nexusbt.factors import RSI, VWAP, MaxDrawdown, RollingStd
+from nexusbt.compute._factors import diagnosed, value
+from nexusbt.factors import RSI, VWAP, AverageDollarVolume, MaxDrawdown, RollingStd
 
 pytestmark = pytest.mark.unit
 
@@ -33,13 +33,15 @@ def test_the_three_inputs_of_the_issue_are_nan() -> None:
 
 
 def test_an_overflowed_divisor_or_bound_is_nan_not_a_wrong_number() -> None:
-    """The three inputs the implementing session found (#632 Decisions, third form): a finite
-    number came out that is not the formula's. `VWAP`'s Σ volume (0.0 for 0.1), `zscore`'s std
-    ([0, -0] for [1, -1]), `winsorize`'s lower bound (the first cell left uncut), and
-    `winsorize(0, 1)`'s `inf * 0` bound: NaN, and `inf` from a cross-section kernel, so the
-    executor counts `InfiniteResult` there."""
+    """The inputs where a finite number came out that is not the formula's (#632 Decisions,
+    third form): `VWAP`'s Σ volume (0.0 for 0.1), `RSI`'s overflowed `dn` (0.0 for about 1e-14)
+    and overflowed `up` (100 for 66.67, from the fresh-context review), `zscore`'s std ([0, -0]
+    for [1, -1]), `winsorize`'s lower bound (the first cell left uncut), and `winsorize(0, 1)`'s
+    `inf * 0` bound: NaN, and `inf` from a cross-section kernel, so the executor counts
+    `InfiniteResult` there."""
     assert np.isnan(at(VWAP(window=2), column(0.1, 0.1), column(1e308, 1e308)))
-    assert np.isnan(at(RSI(window=3), column(1e308, -1e308, -1e308 + 1e292)))  # 0.0 for 1e-14
+    assert np.isnan(at(RSI(window=3), column(1e308, -1e308, -1e308 + 1e292)))
+    assert np.isnan(at(RSI(window=3), column(-1e308, 1e308, 0.0)))
     two, three = np.ones(2, bool), np.ones(3, bool)
     g2, g3 = np.zeros(2, np.int32), np.zeros(3, np.int32)
     with np.errstate(all="ignore"):
@@ -48,6 +50,17 @@ def test_an_overflowed_divisor_or_bound_is_nan_not_a_wrong_number() -> None:
         whole, _ = _kernels.winsorize(np.array([-1e308, 1e308]), two, g2, 0.0, 1.0)
     for found in (scores, cut, whole):
         assert np.isinf(found).all(), found
+
+
+def test_an_overflow_that_makes_nan_is_counted() -> None:
+    """The fresh-context review's input: `AverageDollarVolume`'s products overflow to +inf and
+    -inf, whose sum is NaN; that cell is counted `InfiniteResult` (`diagnosed`'s third part)."""
+    term = AverageDollarVolume(window=2)
+    with np.errstate(all="ignore"):
+        found, zero, infinite = diagnosed(term, [column(1e300, -1e300), column(1e10, 1e10)])
+    assert np.isnan(found).all()
+    assert infinite.all()
+    assert not zero.any()
 
 
 def test_an_overflow_that_leads_to_a_finite_value_keeps_it() -> None:

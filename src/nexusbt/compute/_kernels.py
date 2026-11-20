@@ -97,9 +97,10 @@ def window_nanmean(x: F64) -> F64:
 
 def window_nansum_mean(x: F64) -> F64:
     """`AverageDollarVolume`: the cells' sum over all W rows, a NaN counting as 0; an `inf`
-    cell is a `close * volume` that overflowed, carried."""
+    cell is a `close * volume` that overflowed, carried; a NaN only it made (`inf - inf`) comes
+    out as `inf`."""
     acc, _ = _fold(x, ~np.isnan(x))
-    found: F64 = acc / len(x)
+    found: F64 = np.where(np.isnan(acc), np.inf, acc / len(x))
     return found
 
 
@@ -210,16 +211,16 @@ def window_rsi(x: F64) -> F64:
     """`RSI`: with `d` the W - 1 differences, `up` the mean of `max(d, 0)` and `dn` that of
     `-min(d, 0)`, each over the finite differences (a clipped 0 counts); `100 - 100/(1 + up/dn)`,
     as zipline: 100 when only `dn` is 0, NaN when both are. A difference of two finite cells
-    counts even when it overflows. An overflowed `up` over a finite `dn` gives 100, the formula's
-    value; an overflowed `dn` under an `up` that is not 0 comes out as `inf` (0 or `inf / inf`
-    there are not the formula's value, #632)."""
+    counts even when it overflows. `up/dn` overflowing from two finite means gives 100, the
+    formula's value; a mean that overflowed itself, beside another that is not 0, comes out as
+    `inf` (100, 0 or `inf / inf` there are not the formula's value, #632)."""
     d = x[1:] - x[:-1]
     keep = np.isfinite(x[1:]) & np.isfinite(x[:-1])
     (ups, n), (downs, _) = _fold(np.maximum(d, 0.0), keep), _fold(np.minimum(d, 0.0), keep)
     up, dn = np.where(n > 0, ups / np.maximum(n, 1), np.nan), np.abs(downs / np.maximum(n, 1))
     with np.errstate(divide="ignore", invalid="ignore"):
         found: F64 = 100.0 - 100.0 / (1.0 + up / dn)
-    return np.where(np.isinf(dn) & (up != 0), np.inf, found)
+    return np.where((np.isinf(dn) & (up != 0)) | (np.isinf(up) & (dn != 0)), np.inf, found)
 
 
 def _peaks(x: F64) -> tuple[F64, F64]:

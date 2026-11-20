@@ -108,8 +108,8 @@ def vwap(close: list[Any], volume: list[Any]) -> Any:
 def rsi(c: list[Any]) -> Any:
     d = [c[i + 1] - c[i] for i in range(len(c) - 1)]  # NaN only where an end is NaN
     up, dn = mean([np.maximum(x, 0.0) for x in d]), np.abs(mean([np.minimum(x, 0.0) for x in d]))
-    if np.isinf(dn) and up != 0:
-        return F(np.inf)  # an overflowed `dn`: 0 or `inf / inf`, not the formula's value
+    if (np.isinf(dn) and up != 0) or (np.isinf(up) and dn != 0):
+        return F(np.inf)  # an overflowed mean beside one not 0: not the formula's value
     return 100.0 - 100.0 / (1.0 + up / dn)
 
 
@@ -174,7 +174,7 @@ def rolling(c: list[Any], how: str, min_periods: int) -> Any:
 ORACLES: dict[str, Callable[[Any, dict[str, Any]], Any]] = {
     "Returns": lambda c, _: returns(c),
     "SimpleMovingAverage": lambda c, _: mean(c),
-    "AverageDollarVolume": lambda c, _: fold(c)[0] / len(c),
+    "AverageDollarVolume": lambda c, _: F(np.inf) if np.isnan(s := fold(c)[0]) else s / len(c),
     "AverageTradedValue": lambda c, _: mean(c),
     "AnnualizedVolatility": lambda c, p: annualized(c, p["annualization_factor"]),
     "RollingStd": lambda c, _: std(c, 1),
