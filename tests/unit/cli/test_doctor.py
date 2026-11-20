@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import re
+from collections.abc import Callable
 from pathlib import Path
 
 import pyarrow as pa
@@ -124,6 +125,31 @@ def test_doctor_names_the_columns_of_f18(
     lines = [line.split(None, 1)[1] for line in out.splitlines() if line.startswith("fallback ")]
     assert lines == [f"F-18 bars_1d.{c} {m} 341"
                      for m in ("KR", "US") for c in ("volume", "value_traded")]  # fmt: skip
+
+
+UNVERIFIED = "volume     bars_1d volume unit unverified (no value_traded, TDS-V011)"
+
+
+def test_doctor_says_volume_unit_unverified_without_value_traded(
+    tmp_path: Path,
+    project: Path,
+    capsys: pytest.CaptureFixture[str],
+    package_without_bars_column: Callable[[Path, str], None],
+) -> None:
+    """#650, 4.5 F-16: bars without `value_traded` are one line, not one per market, whether
+    `volume` is there or not (#650 Decisions); bars with it are none."""
+    whole = make_snapshot(tmp_path / "w", preset="tiny")
+    assert "volume unit unverified" not in doctor(whole, capsys)
+    alone = make_snapshot(tmp_path / "a", preset="tiny")
+    package_without_bars_column(alone, "value_traded")
+    neither = make_snapshot(tmp_path / "n", preset="tiny", degrade=["no_volume"])
+    for package in (alone, neither):
+        (project / "nexusbt.toml").unlink()
+        with pytest.warns(UserWarning, match=r"\[E30\] F-18"):
+            out = doctor(package, capsys)
+        assert [line for line in out.splitlines() if "volume unit unverified" in line] == [
+            UNVERIFIED
+        ], out
 
 
 def test_publishing_marker(
