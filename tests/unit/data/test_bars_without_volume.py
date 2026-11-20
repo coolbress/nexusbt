@@ -1,7 +1,8 @@
 """#584: bars without `volume` or `value_traded` (4.5 F-18), read through `nx.run_pipeline`.
 
 `degrade=["no_volume"]` leaves both columns out (4.8); a package with `volume` and without
-`value_traded`, the generator cannot write, is `tiny` with that column dropped here."""
+`value_traded`, the generator cannot write, is `tiny` with that column dropped by the root
+`conftest.py`'s `package_without_bars_column`."""
 
 from __future__ import annotations
 
@@ -9,16 +10,15 @@ import datetime as dt
 import json
 import math
 import warnings
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import pyarrow.compute as pc
-import pyarrow.parquet as pq
 import pytest
 
 import nexusbt as nx
 from nexusbt.testing.synth import make_snapshot, read
-from nexusbt_tds.hash import write_hashes
 
 pytestmark = pytest.mark.unit
 DAY = "2020-01-06"
@@ -36,16 +36,6 @@ def bars_on(root: Path, column: str) -> list[Any]:
     bars = bars.filter(pc.equal(bars["session_date"], dt.date.fromisoformat(DAY)))
     return [v for _, v in sorted(zip(bars["instrument_id"].to_pylist(),
                                      bars[column].to_pylist(), strict=True))]  # fmt: skip
-
-
-def without(root: Path, column: str) -> None:
-    """Every bars file of the package rewritten without `column`, the hashes written again."""
-    data = json.loads((root / "tds.json").read_text(encoding="utf-8"))
-    for f in next(d for d in data["datasets"] if d["kind"] == "bars")["files"]:
-        pq.write_table(pq.read_table(part := root / f["path"]).drop_columns([column]), part)
-        f["bytes"] = part.stat().st_size
-    (root / "tds.json").write_text(json.dumps(data), encoding="utf-8")
-    write_hashes(root)
 
 
 def run(root: Path, terms: dict[str, Any]) -> tuple[dict[str, list[Any]], list[str]]:
@@ -78,11 +68,13 @@ def test_no_volume_reads_nan_with_one_f18(tmp_path: Path) -> None:
     assert records(root) == {(m, c) for m in ("KR", "US") for c in ("volume", "value_traded")}
 
 
-def test_value_traded_alone_left_out(tmp_path: Path) -> None:
+def test_value_traded_alone_left_out(
+    tmp_path: Path, package_without_bars_column: Callable[[Path, str], None]
+) -> None:
     """Bars with `volume` and without `value_traded`: that column NaN, `volume` as stored, one
     E30 naming `value_traded` only."""
     root = make_snapshot(tmp_path / "p", preset="tiny", markets=("KR",))
-    without(root, "value_traded")
+    package_without_bars_column(root, "value_traded")
     got, said = run(root, {"v": nx.Price.volume.latest, "t": nx.Price.value_traded.latest})
     assert all(math.isnan(x) for x in got["t"])
     assert got["v"] == bars_on(root, "volume")
