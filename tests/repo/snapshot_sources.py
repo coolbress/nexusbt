@@ -12,12 +12,17 @@ a synthetic package, each known by where the module imports it from (`WRITES`):
 - `make_snapshot(root)` from `nexusbt.testing.synth`, not defined in the module: its package,
   written by the generator (4.8);
 - `import_csv(mapping, out)` from `nexusbt_tds`, with `mapping` in the test's temporary folder
-  (`tmp_path`, `mktemp`), so from files the test wrote: the package it returns;
-- `shutil.copytree(src, dst)` with `src` synthetic: the copy it returns;
-- a helper of the module that returns one;
-- the paths inside one (`glob`, `rglob`, `iterdir`), or its `nx.open` snapshot.
+  (`tmp_path`, `mktemp`): its package, written into `out` (what the mapping names is not
+  read);
+- `shutil.copytree(src, dst)` with `src` synthetic: a copy, written into `dst`;
+- a helper of the module that returns one, or writes one into a folder it is given;
+- a folder one of these wrote into (a data root) or a path inside it; a folder above such
+  folders only inside the test's temporary folder, and from it only the way down to them;
+- the paths inside one (`glob`, `rglob`, `iterdir`), or its `nx.open` snapshot;
+- a package under `tds/conformance/` reached from the repository root (`Path(__file__)` taken
+  up exactly to it), while `GUARD` rebuilds those packages with `build.build` and asserts.
 
-Data roots and the conformance packages are #599's next part.
+The memos (`Trace`'s `remember`) only keep the check fast; they change no verdict.
 
 Any other call (`print`, `os.environ.get`, `os.path.join`, a method such as `.parent`)
 gives no source. A path that starts from a string literal never passes, nor a join whose
@@ -31,8 +36,12 @@ code written to get around it.
 from __future__ import annotations
 
 import ast
+import json
 import re
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
+from typing import Any, TypeVar, cast
+
+T = TypeVar("T")
 
 #: A literal that leaves the folder it is joined to, or names a place outside the test's.
 ESCAPES = re.compile(r"^(/|~|[A-Za-z]:[\\/])|(^|[\\/])\.\.([\\/]|$)")
@@ -51,13 +60,21 @@ WRITES = {
     "import_csv": ("nexusbt_tds", 1, "out"),
     "copytree": ("shutil", 1, "dst"),
 }
+#: Where the conformance packages are shown to be `tds/conformance/build.py`'s output (2.7).
+GUARD = ("tds/tests/test_cli.py", "test_committed_packages_match_the_generator")
 #: A trace that came back to one still being followed: it neither passes nor fails.
 CYCLE = "cycle"
+#: The kind of a folder above packages, followed by the way down to each, as JSON.
+ABOVE = "above:"
 
 Function = ast.FunctionDef | ast.AsyncFunctionDef
 Scope = Function | None
 #: A source kind, None for a path not synthetic, or CYCLE.
 Kind = str | None
+#: A path as where it starts, then each part joined to it (`*` when not a literal).
+Parts = tuple[str, ...]
+#: A folder a call may write a package into, that call, and the function it is in.
+Dest = tuple[Parts, ast.Call, Scope]
 
 
 def _name(call: ast.Call) -> str:
@@ -150,6 +167,30 @@ def _literal(e: ast.expr) -> bool:
     return isinstance([*_chain(e)][-1], ast.Constant | ast.JoinedStr)
 
 
+def _parts(e: ast.expr) -> Parts:
+    chain = [*_chain(e)]
+    joined = [c.right if isinstance(c, ast.BinOp) else c.slice for c in chain[:-1]
+              if isinstance(c, ast.BinOp | ast.Subscript)]  # fmt: skip
+    texts = [p.value if isinstance(p, ast.Constant) and isinstance(p.value, str) else "*"
+             for p in reversed(joined)]  # fmt: skip
+    return (ast.dump(chain[-1]), *texts)
+
+
+def _within(a: Parts, b: Parts) -> bool:
+    """`b` is `a` or lies in it (`*` stands for any one part)."""
+    return len(a) <= len(b) and all(x == y or "*" in (x, y) for x, y in zip(a, b, strict=False))
+
+
+def _step(above: str, part: str) -> Kind:
+    """One part down from a folder above packages: into one ("root"), still above some, or
+    beside them all (None)."""
+    down = [tuple(d) for d in json.loads(above.removeprefix(ABOVE))]
+    if any(d[:1] == (part,) or d[:1] == ("*",) or part == "*" for d in down if len(d) == 1):
+        return "root"
+    rest = [d[1:] for d in down if len(d) > 1 and _within(d[:1], (part,))]
+    return ABOVE + json.dumps(rest) if rest else None
+
+
 def _safe(e: ast.expr) -> bool:
     """A relative literal that stays inside the folder it is joined to."""
     if isinstance(e, ast.JoinedStr):  # its fixed text; it must start with some
@@ -223,17 +264,42 @@ def _params(fn: Function) -> list[str]:
 
 
 class Trace:
-    """Where the paths of one module come from."""
+    """Where the paths of one module come from; `conformance` when `GUARD` holds. With
+    `remember`, the reads below are kept (`kept`) and the data roots found (`rooted`)."""
 
-    def __init__(self, tree: ast.Module) -> None:
+    def __init__(
+        self, tree: ast.Module, name: str = "", conformance: bool = False, remember: bool = True
+    ) -> None:
         self.tree = tree
         self.funcs = {n.name: n for n in tree.body if isinstance(n, Function)}
         self.names = _imports(tree)
+        up = len(name.split("/"))  # `tests/x.py`: the repository is `Path(__file__).parents[1]`
+        forms = (f".parents[{up - 1}]", ".parent" * up)
+        roots = {f"Path(__file__){r}{f}" for r in ("", ".resolve()") for f in forms}
+        self.roots = roots if conformance else set()
         self.scope: dict[int, Function] = {}  # a node → the function it is in
         self._nest(tree, None)
         self.memo: dict[tuple[int, int], Kind] = {}
+        self.remember, self.kept, self.rooted = remember, dict[object, Any](), dict[object, Kind]()
         self.following: set[tuple[int, int]] = set()
         self.cycles = 0
+
+    def _keep(self, key: object, make: Callable[[], T]) -> T:
+        """`make()`, kept under `key` when the trace remembers."""
+        if key in self.kept:
+            return cast("T", self.kept[key])
+        value = make()
+        if self.remember:
+            self.kept[key] = value
+        return value
+
+    def bound(self, name: str, fn: Function) -> list[ast.expr]:
+        return self._keep(("bound", name, id(fn)), lambda: _values(name, fn))
+
+    def _calls_in(self, fn: Function) -> list[ast.Call]:
+        return self._keep(
+            ("calls in", id(fn)), lambda: [c for c in ast.walk(fn) if isinstance(c, ast.Call)]
+        )
 
     def _nest(self, node: ast.AST, around: Scope) -> None:
         for child in ast.iter_child_nodes(node):
@@ -263,9 +329,18 @@ class Trace:
     def _source(self, e: ast.expr, fn: Scope) -> Kind:
         if isinstance(e, ast.Call):
             return self._call(e, fn)
-        if isinstance(e, ast.BinOp) and isinstance(e.op, ast.Div):
-            return self.source(e.left, fn) if self.part(e.right, fn) else None
-        if isinstance(e, ast.Subscript | ast.Starred):
+        if isinstance(e, ast.BinOp | ast.Subscript):
+            if isinstance(e, ast.BinOp) and not (
+                isinstance(e.op, ast.Div) and self.part(e.right, fn)
+            ):
+                return None
+            if self._conformance(e, fn):
+                return "conformance"
+            inner = self.source(e.left if isinstance(e, ast.BinOp) else e.value, fn)
+            if inner and inner.startswith(ABOVE):  # a step down from a folder above packages
+                inner = _step(inner, _parts(e)[-1])
+            return inner if _good(inner) else self._root(e, fn) or inner
+        if isinstance(e, ast.Starred):
             return self.source(e.value, fn)
         if isinstance(e, ast.List | ast.Tuple | ast.Set | ast.Dict):
             items = e.values if isinstance(e, ast.Dict) else e.elts
@@ -280,13 +355,12 @@ class Trace:
         if _safe(e) or not isinstance(e, ast.Name) or depth > len(self.funcs) + 8:
             return _safe(e)
         scope = fn
-        while scope is not None and not (_values(e.id, scope) or e.id in _params(scope)):
+        while scope is not None and not (self.bound(e.id, scope) or e.id in _params(scope)):
             scope = self.scope.get(id(scope))
         if scope is None:
-            values = [v for n in self.tree.body if isinstance(n, ast.Assign)
-                      for t in n.targets for v in _bound(e.id, t, n.value)]  # fmt: skip
+            values = self._module_values(e.id)
             return bool(values) and all(self.part(v, None, depth + 1) for v in values)
-        given: list[tuple[ast.expr, Scope]] = [(v, scope) for v in _values(e.id, scope)]
+        given: list[tuple[ast.expr, Scope]] = [(v, scope) for v in self.bound(e.id, scope)]
         if e.id in _params(scope):  # what each caller gives, followed where it is given
             pos, calls = _params(scope).index(e.id), self._calls(scope.name)
             given += [(g, self.scope.get(id(c))) for c in calls
@@ -295,13 +369,26 @@ class Trace:
                 return False
         return bool(given) and all(self.part(v, at, depth + 1) for v, at in given)
 
+    def _module_values(self, name: str) -> list[ast.expr]:
+        """What the module binds `name` to at its top level."""
+        return [v for n in self.tree.body if isinstance(n, ast.Assign)
+                for t in n.targets for v in _bound(name, t, n.value)]  # fmt: skip
+
+    def _inside(self, e: ast.expr, fn: Scope) -> bool:
+        """Every join in `e` stays inside the folder it is joined to."""
+        return all(self.part(c.right, fn) for c in _chain(e) if isinstance(c, ast.BinOp))
+
     def _calls(self, name: str) -> list[ast.Call]:
         """The calls of the module's function `name` by its bare name."""
-        return [
-            c
-            for c in ast.walk(self.tree)
-            if isinstance(c, ast.Call) and ast.unparse(c.func) == name
-        ]
+        return self._keep(
+            ("calls of", name),
+            lambda: [c for c in self._calls_in_module() if ast.unparse(c.func) == name],
+        )
+
+    def _calls_in_module(self) -> list[ast.Call]:
+        return self._keep(
+            "calls", lambda: [c for c in ast.walk(self.tree) if isinstance(c, ast.Call)]
+        )
 
     def _call(self, e: ast.Call, fn: Scope) -> Kind:
         name = _name(e)
@@ -311,11 +398,13 @@ class Trace:
             return self.source(e.func.value, fn)  # the paths inside a synthetic folder
         helper = self.funcs.get(name) if isinstance(e.func, ast.Name) else None
         if helper is not None:  # the module's own: judged by what it returns
-            return _all(self.source(r, helper) for r in _returned(helper))
+            returned = self._keep(("returned", id(helper)), lambda: list(_returned(helper)))
+            return _all(self.source(r, helper) for r in returned)
         return self._writer(e) if self._writes(e, fn) is not None else None
 
     def _writer(self, call: ast.Call) -> str | None:
-        return next((w for w, (m, *_) in WRITES.items() if _is(call, self.names, m, w)), None)
+        found = (w for w, (m, *_) in WRITES.items() if _is(call, self.names, m, w))
+        return self._keep(("writer", id(call)), lambda: next(found, None))
 
     def _writes(self, call: ast.Call, fn: Scope) -> ast.expr | None:
         """Where `call`, one of `WRITES`, writes a synthetic package; None when it does not."""
@@ -342,7 +431,7 @@ class Trace:
         if base.id == "tmp_path" and base.id in params:
             return True
         given: list[tuple[ast.expr, Scope]] = [
-            (v, fn) for v in _values(base.id, fn) if not _empty(v)
+            (v, fn) for v in self.bound(base.id, fn) if not _empty(v)
         ]
         if base.id in params and base.id not in self.funcs:
             pos = params.index(base.id)
@@ -350,21 +439,82 @@ class Trace:
                       if (g := _arg(c, pos, base.id)) is not None]  # fmt: skip
         return bool(given) and all(self._temporary(v, at, depth + 1) for v, at in given)
 
+    def _dests(self, call: ast.Call, fn: Scope, seen: frozenset[str] = frozenset()) -> list[Dest]:
+        """Where `call` may write a package, by the code's shape alone: each folder, with the
+        call of `WRITES` that writes it and the function that call is in."""
+        return self._keep(("dests", id(call), id(fn), seen), lambda: self._dests_of(call, fn, seen))
+
+    def _dests_of(self, call: ast.Call, fn: Scope, seen: frozenset[str]) -> list[Dest]:
+        writer = self._writer(call)
+        dest = None if writer is None else _arg(call, *WRITES[writer][1:])
+        if dest is not None:
+            return (
+                [] if _literal(dest) or not self._inside(dest, fn) else [(_parts(dest), call, fn)]
+            )
+        name = _name(call)
+        helper = self.funcs.get(name) if isinstance(call.func, ast.Name) else None
+        if helper is None or name in seen:
+            return []
+        inner = [d for c in self._calls_in(helper) for d in self._dests(c, helper, seen | {name})]
+        out = []
+        for i, p in enumerate(_params(helper)):  # a folder the helper writes into, given here
+            given = _arg(call, i, p)
+            if given is None or _literal(given) or not self._inside(given, fn):
+                continue
+            mark = ast.dump(ast.Name(id=p, ctx=ast.Load()))
+            out += [(_parts(given) + d[1:], c, at) for d, c, at in inner if d[0] == mark]
+        return out
+
+    def _root(self, e: ast.expr, fn: Scope) -> Kind:
+        """`e` is a folder `fn` wrote a synthetic package into or a path inside it ("root"),
+        or, in the test's temporary folder, a folder above such folders (`ABOVE`)."""
+        key, before = (id(e), id(fn)), self.cycles
+        if key in self.rooted:
+            return self.rooted[key]
+        kind = self._root_of(e, fn)
+        if self.remember and self.cycles == before:  # one cut short by a cycle: not kept
+            self.rooted[key] = kind
+        return kind
+
+    def _root_of(self, e: ast.expr, fn: Scope) -> Kind:
+        if fn is None or _literal(e) or not self._inside(e, fn):
+            return None
+        path, down = _parts(e), []
+        for call in self._calls_in(fn):
+            for into, writes, at in self._dests(call, fn):
+                inside, above = _within(into, path), _within(path, into)
+                if not (inside or above) or self._writes(writes, at) is None:
+                    continue  # elsewhere, or not a synthetic package
+                if inside:
+                    return "root"
+                down.append(into[len(path) :])
+        return ABOVE + json.dumps(down) if down and self._temporary(e, fn) else None
+
+    def _conformance(self, e: ast.expr, fn: Scope) -> bool:
+        """`e` is `<the repository> / "tds" / "conformance" / ...`, with the repository written
+        as `Path(__file__)` taken up exactly to it, directly or through one name."""
+        if not self.roots or _parts(e)[1:3] != ("tds", "conformance") or not self._inside(e, fn):
+            return False
+        base = [*_chain(e)][-1]
+        if isinstance(base, ast.Name):
+            values = (self.bound(base.id, fn) if fn else []) or self._module_values(base.id)
+            base = values[0] if len(values) == 1 else base
+        return ast.unparse(base) in self.roots
+
     def _name_source(self, e: ast.Name, fn: Scope) -> Kind:
         scope = fn
         while scope is not None:  # the function, then the ones around it
-            values, params = _values(e.id, scope), _params(scope)
+            values, params = self.bound(e.id, scope), _params(scope)
             if values or e.id in params:
                 if any(_literal(v) for v in values):
                     return None
                 kinds = [self.source(v, scope) for v in values]
                 if e.id in params:
                     kinds.append(self._param(e.id, params.index(e.id), scope))
-                return _all(kinds)
+                kind = _all(kinds)
+                return kind if _good(kind) else self._root(e, scope) or kind
             scope = self.scope.get(id(scope))
-        values = [v for n in self.tree.body if isinstance(n, ast.Assign) for t in n.targets
-                  for v in _bound(e.id, t, n.value)]  # fmt: skip
-        return _all(self.source(v, None) for v in values)
+        return _all(self.source(v, None) for v in self._module_values(e.id))
 
     def _param(self, name: str, pos: int, fn: Function) -> Kind:
         if name in self.funcs:  # a fixture of this module
@@ -373,10 +523,21 @@ class Trace:
         return _all(self.source(g, self.scope.get(id(c))) for c, g in passed if g is not None)
 
 
-def findings(name: str, text: str) -> list[str]:
-    """`file:line` for each snapshot this module opens from a path not traced to a source."""
+def guard_holds(text: str) -> bool:
+    """`GUARD`'s test is in `text`, rebuilds the packages with `build.build` and asserts."""
+    test = next(
+        (n for n in ast.parse(text).body if isinstance(n, Function) and n.name == GUARD[1]), None
+    )
+    nodes = list(ast.walk(test)) if test else []
+    rebuilds = any(isinstance(n, ast.Call) and ast.unparse(n.func) == "build.build" for n in nodes)
+    return rebuilds and any(isinstance(n, ast.Assert) for n in nodes)
+
+
+def findings(name: str, text: str, guard: str | None = None, remember: bool = True) -> list[str]:
+    """`file:line` for each snapshot this module opens from a path not traced to a source;
+    `guard` is the text of `GUARD`'s file, read for a conformance package."""
     tree = ast.parse(text)
-    trace = Trace(tree)
+    trace = Trace(tree, name, guard is not None and guard_holds(guard), remember)
     return [
         f"{name}:{call.lineno}: snapshot path `{ast.unparse(path)}` not from a synthetic source"
         for call, path in openings(tree)
