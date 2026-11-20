@@ -379,7 +379,8 @@ def _impure(name: str, globals_: Sequence[str]) -> ImpureFunctionWarning:
         why=f"a hidden input breaks reruns and checks; L1 cache disabled for node {name} and the"
         " nodes that read it",
         fix=f"pass {shown} as an input, or as a constant (int, float, str, bool, None, or a tuple"
-        " or frozenset of them), whose value goes into the hash",
+        " or frozenset of them), whose value goes into the hash; a library's object, read it"
+        " through its module (`lib.thing`)",
         more="spec 3.7, 5.3.7 and 6.5 (6)",
         layer=f"your code — {line}",
         at=line.split(" in ")[0],
@@ -673,7 +674,7 @@ def _reads(fn: FunctionType) -> _Reads:
                 impure.add(name)  # also when it keeps a function in `__wrapped__`
             elif helper := _helper(value):
                 todo.append(helper)
-            elif _projects(value):  # a project callable with no source to hash
+            elif not _found(value, name.rpartition(".")[2]):  # built while the program ran
                 impure.add(name)
         impure.update(n for n in names if n not in values and n in _FILE_READS)  # `open`
         impure.update(a for a in attrs if a in _FILE_READS or a.startswith("read_"))
@@ -695,13 +696,38 @@ def _helper(value: Callable[..., Any]) -> FunctionType | None:
     return inner if _in_project(inner) else None
 
 
-def _projects(value: object) -> bool:
-    """A callable that names a module of the project as its `__module__` (#572 Decisions 2): a
-    compiled dispatcher with no `__wrapped__`, a class's method. Its source cannot go into the
-    hash, so it is E24, never taken as pure."""
-    name = getattr(value, "__module__", None)
-    module = sys.modules.get(name) if isinstance(name, str) else None
-    return callable(value) and module is not None and _project_space(module)
+def _found(value: object, read: str) -> bool:
+    """A callable found again by reference, the test cloudpickle uses to pickle by reference
+    (#589 Decisions 2): the module outside the project that `value` names as its `__module__`
+    holds that very object under its qualified name, its name (`np.random.rand`, qualified
+    `RandomState.rand`) or the name `read` it is read by (a library's instance with no name,
+    Decisions 5); or it is a method bound to an object found so (`np.add.reduce`). A method that
+    names no `__module__` (`str.upper`, `random.random`) is looked for in the module of its class.
+    Any other callable, a project's included (#572 Decisions 2), cannot have what it holds in the
+    hash; so is a chain of bound objects longer than a few steps (a lazy proxy)."""
+    for _ in range(4):
+        bound = getattr(value, "__self__", None)
+        home = getattr(value, "__module__", None)
+        if not isinstance(home, str):
+            cls = getattr(value, "__objclass__", None) or (None if bound is None else type(bound))
+            home = getattr(cls, "__module__", None)
+        module = sys.modules.get(home) if isinstance(home, str) else None
+        if module is not None and not _project_space(module):
+            names = (getattr(value, "__qualname__", None), getattr(value, "__name__", None), read)
+            if any(isinstance(n, str) and _lookup(module, n) is value for n in names):
+                return True
+        if isinstance(bound, ModuleType | None):
+            return False
+        value, read = bound, ""
+    return False
+
+
+def _lookup(module: ModuleType, dotted: str) -> object:
+    """What `module` holds under the dotted name, or `None`."""
+    found: object = module
+    for part in dotted.split("."):
+        found = getattr(found, part, None)
+    return found
 
 
 def _loads(code: CodeType) -> tuple[set[str], set[str]]:
@@ -729,8 +755,11 @@ def _project_space(value: ModuleType | type) -> bool:
 
 
 def _held(value: object) -> bool:
-    """Data a function reads that the hash cannot hold: anything not callable, and a callable
-    that carries data, a `functools.partial` or an instance of a project class."""
+    """Data a function reads that the hash cannot hold: anything not callable, and a callable that
+    carries data, an instance of a project class or a `functools.partial`, also when it keeps a
+    function in `__wrapped__` (#246). The rule of `_found` makes a partial E24 too, but not one
+    given a `__wrapped__` (`functools.update_wrapper`): `_helper` would follow that to the
+    function and leave the partial's arguments out of the hash (#589 Decisions 3)."""
     carries = isinstance(value, functools.partial) or _project_space(type(value))
     return not callable(value) or carries
 
