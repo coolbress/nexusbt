@@ -947,7 +947,7 @@ write: orders.to_csv("orders/{date}.csv")   apply to paper book: nx.fill(book, o
 
 ### 3.10 CLI [R-09]
 
-`nexusbt <명령>`은 같은 이름의 API를 부르고 같은 글자를 출력한다. 종료 코드: 0 성공, 1 사용자 오류(`NexusBTError`), 2 내부 오류, 3 자료 대기(`DataAvailabilityError`, live 전용), 4 대조 불일치(`reconcile`의 `reconciled: NO`).
+`nexusbt <명령>`은 같은 이름의 API를 부르고 같은 글자를 출력한다. 종료 코드: 0 성공, 1 사용자 오류(`NexusBTError`), 2 내부 오류, 3 자료 대기(`DataAvailabilityError`, live 전용), 4 대조 불일치(`reconcile`의 `reconciled: NO`, `--new-snapshot` 없는 `rerun`의 `outputs differ`).
 
 | 명령 | 인자 |
 |---|---|
@@ -969,7 +969,7 @@ write: orders.to_csv("orders/{date}.csv")   apply to paper book: nx.fill(book, o
 | `nexusbt book flow BOOK AMOUNT --ccy C --sleeve M [--session D]` | 입금·출금 [V31-19] |
 | `nexusbt book acknowledge BOOK DIVERGENCE_ID --note T [--by NAME]` | `reconciled: NO`의 차이를 확인 기록; 그 뒤 `live`가 다시 주문표를 냄(5.9.6 규칙 3) |
 | `nexusbt runs [--study S] [--html] [--prune] [--prune-detail]` | `--prune`은 실행 폴더만 지우고 색인 기록과 시도 수는 남김 [R-34]; `--prune-detail`은 실행마다 3단계 `detail/` 폴더만 지우고 지웠다고 기록(5.9.5, #206) |
-| `nexusbt rerun RUN_ID [--new-snapshot] [--trust] [--save-detail]` | 다른 기계에서 만든 실행 폴더는 `--trust` 없이 거절(E31); `--save-detail`은 3단계 산출물도 다시 만들어 대조(5.9.4, #206) |
+| `nexusbt rerun RUN_ID [--new-snapshot] [--trust] [--save-detail]` | 다른 기계에서 만든 실행 폴더는 `--trust` 없이 거절(E31); `--save-detail`은 3단계 산출물도 다시 만들어 대조(5.9.4, #206); 비교 줄이 `outputs differ`로 시작하면 종료 코드 4, `outputs identical`로 시작하면 0; `--new-snapshot`은 새 실행이므로(3.8) 비교 결과와 상관없이 0 (#655) |
 | `nexusbt stubs` | `.pyi` 다시 생성 |
 | `nexusbt check FILE[:VAR] [--probes K] [--start-probe]` | |
 
