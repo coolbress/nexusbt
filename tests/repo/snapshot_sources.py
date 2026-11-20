@@ -661,9 +661,13 @@ def findings(
     )
 
     def from_runner(path: ast.expr, call: ast.Call) -> bool:
+        """`manifest` is what pytest gives a module-level test or fixture no one calls."""
         fn = trace.scope.get(id(call))
+        if not parity or fn is None or trace.funcs.get(fn.name) is not fn or trace._calls(fn.name):
+            return False
+        fixture = any("fixture" in ast.unparse(d) for d in fn.decorator_list)
         return (
-            parity and fn is not None and ast.unparse(path) == "manifest['snapshot']"
+            (fn.name.startswith("test") or fixture) and ast.unparse(path) == "manifest['snapshot']"
             and "manifest" in _params(fn) and not trace.bound("manifest", fn)
         )  # fmt: skip
 

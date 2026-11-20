@@ -285,6 +285,25 @@ def parity(path: str = "OUT / 'manifest.json'", opens: str = OPENS) -> str:
             1,
             id="another key",
         ),
+        pytest.param(
+            PARITY_TEST,
+            parity()
+            + "\ndef opens(manifest):\n    nx.open(manifest['snapshot'])\n\n"
+            + "def test_y():\n    opens({'snapshot': '/data/x'})\n",
+            MAKES,
+            1,
+            id="a helper given a manifest dict",
+        ),
+        pytest.param(
+            PARITY_TEST,
+            parity(
+                opens="def inner(manifest):\n        nx.open(manifest['snapshot'])\n"
+                "    inner({'snapshot': '/data/x'})"
+            ),
+            MAKES,
+            1,
+            id="a nested function given a manifest dict",
+        ),
     ],
 )
 def test_the_parity_manifest_passes_only_as_the_runner_makes_it(
