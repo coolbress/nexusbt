@@ -661,18 +661,20 @@ def _reads(fn: FunctionType) -> _Reads:
     """What `fn` reads; for a library's function keeping a project function in `__wrapped__`
     (`functools.singledispatch`), both (#645): the project function's reads as if undecorated,
     and the wrapper's by #589's rule, not again through the project function. The wrapper's own
-    constants are left out (the decorator's arguments are in the project function's source); what
-    it holds that the hash cannot read makes the function E24, naming the decorator."""
+    constants go in under the decorator's name (a decorator's argument passed by name is not in
+    the source); the defaults it shows are the project function's, already in. What the wrapper
+    holds that the hash cannot read makes the function E24, naming the decorator."""
     inner = _helper(fn)
     if inner is None or inner is fn:
         return _walk(fn, set())
     own = _walk(inner, set())
     held = _walk(fn, {id(inner), *map(id, own.helpers)})
     helpers = sorted((*own.helpers, *held.helpers), key=lambda h: h.__qualname__)
-    theirs = (c for c in held.captured if ":" in c[0])  # its project helpers' constants
+    decorator = _decorator(fn)
+    theirs = [(n if ":" in n else f"{decorator}:{n}", v) for n, v in held.captured
+              if not n.endswith("=")]  # fmt: skip
     captured = sorted((*own.captured, *theirs), key=lambda c: c[0])
-    decorator = _decorator(fn) if held.impure else ""
-    return _Reads(tuple(helpers), tuple(captured), own.impure, decorator)
+    return _Reads(tuple(helpers), tuple(captured), own.impure, decorator if held.impure else "")
 
 
 def _decorator(wrapper: FunctionType) -> str:

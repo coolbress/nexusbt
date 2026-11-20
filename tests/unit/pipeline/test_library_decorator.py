@@ -182,6 +182,20 @@ def test_a_library_decorators_arguments_are_in_the_hash(tmp_path: Path) -> None:
     assert one != two
 
 
+@pytest.mark.usefixtures("library")
+def test_a_library_decorators_argument_passed_by_name_is_in_the_hash(tmp_path: Path) -> None:
+    """#645 fresh-context review: an argument passed by name (`K = 1`, `@scaled(K)`) is not in
+    the source, only in the wrapper's closure, so the wrapper's constants stay in the hash."""
+    hashes = []
+    for value in (1, 2):
+        module = load(tmp_path, f"named_{value}", f"import _lib645\nK = {value}\n"
+                      "@_lib645.scaled(K)\ndef score(close):\n    return close[-1]\n")  # fmt: skip
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            hashes.append(graph_hash(nx.factor(window=2, inputs=[CLOSE])(module.score)))
+    assert hashes[0] != hashes[1]
+
+
 def test_lru_caches_arguments_are_in_the_hash(tmp_path: Path) -> None:
     """#645: `@functools.lru_cache(maxsize=1)` and `(maxsize=2)` on a helper give two hashes
     (`lru_cache` on the function `@nx.factor` takes is refused: it is not a function)."""
