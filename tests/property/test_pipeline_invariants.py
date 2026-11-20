@@ -47,7 +47,11 @@ GRAPH = st.lists(STEP, min_size=2, max_size=7)
 #: Decisions, 2026-11-20: whether x86 picks a zero's sign by a value's place in the array).
 SIGNED_ZEROS = [("returns", 0, 0, 2), ("zero", 1, 0, 2), ("max", 2, 0, 5), ("min", 2, 0, 5),
                 ("median", 2, 0, 5), ("mdd", 2, 0, 10), ("add", 2, 1, 2), ("mdd", 6, 0, 21),
-                ("sma", 1, 0, 5), ("shift", 8, 0, 2)]  # fmt: skip
+                ("sma", 1, 0, 5), ("shift", 8, 0, 2), ("mdd", 1, 0, 2)]  # fmt: skip
+#: `MaxDrawdown` of an all-zero window is 0/0, NaN, whatever the zeros' signs; its last step,
+#: `MaxDrawdown(2)` of `Returns(2)`, picks between two zero drawdowns (`(p - p) / p`, signed as
+#: `p`) on a rising pair, so its output holds both 0.0 and -0.0 (81 and 49 of 203 rows on
+#: `small`, 2026-11-20).
 CASES = settings(max_examples=5, suppress_health_check=[HealthCheck.too_slow])
 
 
@@ -103,11 +107,11 @@ def packages(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Snapshot]:
 
 
 @contextmanager
-def inside(folder: Path, **patches: Any) -> Iterator[None]:
-    """Run in `folder` with `patches` (`(object, name)` to value) set, then undo both."""
+def inside(folder: Path, pairs: dict[tuple[Any, str], Any] | None = None) -> Iterator[None]:
+    """Run in `folder` with each `(object, name)` of `pairs` set to its value, then undo both."""
     with pytest.MonkeyPatch.context() as mp:
         mp.chdir(folder)
-        for (target, name), value in patches.get("pairs", {}).items():
+        for (target, name), value in (pairs or {}).items():
             mp.setattr(target, name, value)
         yield
 
@@ -119,14 +123,14 @@ def run(pipe: nx.Pipeline, snapshot: Snapshot, *, save: bool = False) -> Any:
 
 def bits(table: pa.Table) -> dict[str, Any]:
     """Each column's values as bytes, NaN where NaN with one payload (a payload is not a
-    value), -0.0 kept apart from 0.0."""
+    value), -0.0 kept apart from 0.0, and where its nulls are."""
     found = {}
     for name in table.column_names:
         column = table[name].combine_chunks()
         if pa.types.is_floating(column.type):
             values = column.to_numpy(zero_copy_only=False).astype(np.float64)
             values = np.where(np.isnan(values), np.nan, values)
-            found[name] = (values.tobytes(), column.null_count)
+            found[name] = (values.tobytes(), column.is_null().to_pylist())
         else:
             found[name] = column.to_pylist()
     return found
