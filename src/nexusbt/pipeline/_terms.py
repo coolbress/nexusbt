@@ -543,8 +543,10 @@ def _window_error(name: str, at: str, what: str, fix: str) -> WindowError:
 
 
 def _readable(fn: FunctionType) -> str:
+    """`fn`'s canonical source; a function a library decorator made is read as the project
+    function it keeps (#596), as a helper is."""
     try:
-        return _source(fn)
+        return _source(_helper(fn) or fn)
     except (OSError, SyntaxError) as error:
         what = f"@nx.factor cannot read the source of {fn.__name__}; its source goes into the"
         raise TypeError(f"{what} term's hash, so define it with `def` in a file") from error
@@ -554,8 +556,10 @@ def _source(fn: FunctionType) -> str:
     """5.3.9 canonical source: the AST dump of the function's own node, so comments and spacing do
     not count. A lambda's source line may hold other lambdas: its node is the innermost Lambda
     whose body holds the code's first real position (the first, `RESUME`, has column 0; a lambda
-    nested in the body starts inside the body, never inside its own)."""
-    raw = inspect.getsource(fn)
+    nested in the body starts inside the body, never inside its own). The source is read from the
+    function's own code, never through `__wrapped__` (#596): a `functools.wraps` decorator's inner
+    function is hashed as the code that runs, and the function it wraps as a helper of its own."""
+    raw = inspect.getsource(fn.__code__)
     tree = ast.parse(textwrap.dedent(raw))
     spots = [(n, c) for n, _, c, e in fn.__code__.co_positions() if n and c is not None and e]
     if fn.__name__ != "<lambda>" or not spots:
@@ -679,14 +683,13 @@ def _reads(fn: FunctionType) -> _Reads:
 
 
 def _helper(value: Callable[..., Any]) -> FunctionType | None:
-    """The project function `value` is, or keeps along the standard `__wrapped__` chain (#572):
-    `functools.lru_cache`, a `functools.wraps` decorator, `numba.njit`. A plain function of the
-    project is taken as it is, so what a `wraps` decorator's inner function reads is still
-    walked (its source, as `inspect.getsource` gives it, is the wrapped function's)."""
-    if _in_project(value):
-        return value
+    """The project function `value` is, or the first one it keeps along the standard
+    `__wrapped__` chain (#572): `functools.lru_cache`, a `functools.wraps` decorator,
+    `numba.njit`. A plain function of the project is taken as it is: a `wraps` decorator's inner
+    function is hashed from its own code (#596), and the function it wraps is reached through its
+    closure."""
     try:
-        inner = inspect.unwrap(value)
+        inner = inspect.unwrap(value, stop=_in_project)
     except ValueError:  # a `__wrapped__` cycle
         return None
     return inner if _in_project(inner) else None
