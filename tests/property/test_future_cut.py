@@ -14,7 +14,7 @@ import pytest
 
 from nexusbt.testing.synth import make_snapshot
 from nexusbt_tds import check
-from property._future import TIMELESS, cut_after
+from property._future import TIMELESS, asof_id, cut_after
 
 pytestmark = pytest.mark.unit
 
@@ -141,9 +141,73 @@ def test_instruments_change_only_in_their_two_exceptions(original: Path, cut: Pa
         assert repr(sorted(r.items())) == repr(sorted(expected.items())), r["instrument_id"]
 
 
-def test_cut_package_passes_full_check(cut: Path) -> None:
-    found = check(cut, level="full")
-    assert found.error_count == 0, [str(e)[:200] for e in found.errors[:5]]
+#: τ at KR's close on 2016-12-29 (inside a late bar's window on `late_bars`: TDS-D001), τ in
+#: KR's session of 2017-05-18 (a symbol known at its open: TDS-D003), τ at US's close on
+#: 2017-06-14 (a close, outside every late window here: no finding), and `TAU`, in KR's
+#: session of 2017-06-15 with no row known since KR's close (no finding).
+TAUS = [dt.datetime(2016, 12, 29, 6, 30, tzinfo=dt.UTC),
+        dt.datetime(2017, 5, 18, 3, 0, tzinfo=dt.UTC),
+        dt.datetime(2017, 6, 14, 20, 0, tzinfo=dt.UTC),
+        TAU]  # fmt: skip
+
+
+def expected_findings(original: Path, tau: dt.datetime) -> dict[tuple[str, str, str], int]:
+    """The findings a cut at `tau` is allowed (#254's Decisions, 2026-11-20), spelled here
+    apart from the helper: TDS-D001 for each late bar cut on a session up to its market's
+    watermark (the last session closed by τ), TDS-D003 for each row kept whose instant lies
+    after that session's close (known between the close and τ)."""
+    manifest = json.loads((original / "tds.json").read_text(encoding="utf-8"))
+    market = {r["instrument_id"]: r["market"] for r in rows(original, "instruments")}
+    close = {}
+    for m, about in manifest["markets"].items():
+        closed = [r["ts_close"] for r in rows(original, "calendar_sessions")
+                  if r["calendar_id"] == about["calendar_id"] and r["ts_close"] <= tau]  # fmt: skip
+        close[m] = max(closed)
+    found: dict[tuple[str, str, str], int] = {}
+    late = known(original)["bars_1d"] == "ts_available"
+    for r in rows(original, "bars_1d") if late else []:
+        if r["ts_end"] <= close[market[r["instrument_id"]]] and r["ts_available"] > tau:
+            key = ("TDS-D001", "bars_1d", r["instrument_id"])
+            found[key] = found.get(key, 0) + 1
+    instants = {name: (lambda r, c=column: r[c]) for name, column in KNOWN.items()
+                if name != "bars_1d"} | {"corporate_actions": existence}  # fmt: skip
+    for name, instant in instants.items():
+        for r in rows(original, name):
+            t = instant(r)
+            if t is not None and close[market[r["instrument_id"]]] < t <= tau:
+                key = ("TDS-D003", name, r["instrument_id"])
+                found[key] = found.get(key, 0) + 1
+    return found
+
+
+@pytest.mark.parametrize("tau", TAUS, ids=["kr-close", "kr-session", "us-close", "tau"])
+def test_full_check_finds_only_the_rows_allowed(original: Path, tau: dt.datetime) -> None:
+    """(a) the cut package's only errors are TDS-D001 and TDS-D003; (b) they are exactly the
+    late bars cut up to the watermark and the rows known between its close and τ; (c) at a
+    close outside every late window there is none, nor at `TAU`."""
+    at = shutil.copytree(original, original.parent / f"tau-{tau:%Y%m%d%H%M}")
+    cut_after(at, tau)
+    found = check(at, level="full")
+    assert {e.code for e in found.errors} <= {"TDS-D001", "TDS-D003"}
+    seen = {(e.code, str(e.dataset), str((e.key or {}).get("instrument_id"))): e.count
+            for e in found.errors}  # fmt: skip
+    assert seen == expected_findings(original, tau)
+    assert found.error_count == len(found.errors)  # none left out of the list
+    if tau in (TAUS[2], TAU):
+        assert found.error_count == 0
+
+
+def test_the_cut_package_has_its_own_snapshot_id(original: Path) -> None:
+    """Its own id, the same for the same τ: nothing keyed by `snapshot_id` mixes it with the
+    original (#254's Decisions, 2026-11-20)."""
+    ids = []
+    for k in range(2):
+        at = shutil.copytree(original, original.parent / f"id-{k}")
+        cut_after(at, TAU)
+        ids.append(json.loads((at / "tds.json").read_text(encoding="utf-8"))["snapshot_id"])
+    first = json.loads((original / "tds.json").read_text(encoding="utf-8"))["snapshot_id"]
+    assert ids[0] == ids[1] == asof_id(first, TAU) != first
+    assert not {"/", ":"} & set(ids[0])  # a folder name (PINS/<snapshot_id>/)
 
 
 def test_tau_after_the_end_gives_the_original(original: Path) -> None:

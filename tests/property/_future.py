@@ -1,53 +1,35 @@
 """P-FUT's earlier snapshot (spec 8.3): a copy of a synthetic package with the data after τ
-deleted, cut in place (#254, ③a; its test, `test_P_FUT_pipeline`, is ③b's).
+deleted, cut in place (#254 ③a; `test_P_FUT_pipeline` is ③b's). The reasons for each rule
+are in #254's Decisions of 2026-11-20.
 
-Spec 8.3 reads: "between a snapshot with the data after time τ deleted (rows with
-`ts_available > τ`: bars, event versions (`ts_known > τ`), delisting recoveries, FX,
-fundamentals) and the original snapshot, …". The list is read as examples (#254's Decisions,
-2026-11-20): every dataset with an availability instant (TDS 6.2: a manifest `availability`,
-or `params.availability_by_column`) loses its rows first known after τ. A row's instant:
-
-- a rule: `ts_end` (null: its session's close), `session_open`, `session_close`;
-- a column (`{"column": c}`): `c`; `instrument_symbols`' null falls back to the open of
-  `valid_from`'s session (TDS 6.2);
+- Every dataset with an availability instant (TDS 6.2) loses its rows first known after τ.
+- A row's instant: its rule (`ts_end`, null: the session's close; `session_open`,
+  `session_close`), or its column (`instrument_symbols`' null: the open of `valid_from`).
 - `corporate_actions`: the existence instant, the earlier of `ts_announced` and the terms
-  column, else the effect column, as the generator's `behind` cuts (spec 4.8); a row known by
-  τ whose terms come later stays, terms and all, so P-FUT sees whether the resolver hides an
-  amount before its terms time (5.3.3a);
-- `delistings`: the exit column (null: the open of `exit_date`'s session); an exit known by τ
-  whose value comes later stays, value and all;
-- `tradability_daily` (`params.availability_by_column`): its session's close, the last of its
-  groups. Its pre-open group is known at the open, but a package holds no row of a session
-  after its market's watermark (TDS-M016), and the watermark as of τ is the last session
-  closed by τ.
-
-A row with no instant (a null with no fallback) stays. Datasets with no availability instant
-are left whole, rows after τ included: `instruments`, `instrument_xref`, `calendar_sessions`
-and `market_rules`. `instruments` is an after-the-fact static table (spec 5.1's table: "a
-static table … `delisted_on`, `last_session` and `name` are not exposed as decision inputs"),
-and a producer's package fills its columns the same way; keeping them is what lets P-FUT see
-that the engine does not lean on them. Two columns are the exception, for the package to stay
-whole: `delisted_on` is emptied for an instrument whose `delistings` row was cut (TDS checks
-an exit against it; the generator's `behind` does the same), and `last_session` where it lies
-after its market's watermark as of τ, the instrument still trading then (TDS-D001 expects a
-bar on every session up to a set `last_session`).
-
-The package's metadata is set as of τ: each market's watermark (TDS 3.8) is its last session
-closed by τ, every dataset's `processed_through_session` no later than it, and the coverage of
-each dataset that lost rows is read again from its files as the generator writes it.
-
-What still says something after τ, as a producer's package would: in a row known by τ, an
-effective period's end (`instrument_symbols.valid_to`, which can show an exit known later),
-`instrument_symbols.ts_known_to`, and `market_rules.valid_to`; the timeless datasets' rows;
-and the package's `snapshot_id` and `created`, which stay the original's. Not handled, as
-`small` has none: a corporate action first known after the bars it steps (`cum_factor_*` keep
-its step; the generator's `behind` steps them again), and two `delistings` rows of one
-instrument with one cut (its `delisted_on` empties).
-
-Files are rewritten only where rows go; a file left with no row is removed with its manifest
-entry, and a dataset left with none keeps one empty file of its schema, as the generator
-writes it. A τ before a market's first close is refused. Row counts and the hashes are
-rewritten (`write_hashes`). A τ at or after the package's end changes nothing, not a byte.
+  column, else the effect column; a row known by τ stays with terms that come later.
+- `delistings`: the exit instant (null: the open of `exit_date`); a row known by τ stays
+  with a value that comes later.
+- `tradability_daily`: its session's close, not its pre-open group's `session_open`.
+- A row with no instant stays.
+- `instruments`, `instrument_xref`, `calendar_sessions` and `market_rules` have no instant
+  and stay whole, rows after τ included.
+- `instruments.delisted_on` is emptied for an instrument whose `delistings` row was cut.
+- `instruments.last_session` is emptied where it lies after its market's watermark as of τ.
+- Each market's watermark (TDS 3.8) becomes its last session closed by τ, and every dataset's
+  `processed_through_session` no later than it.
+- The coverage of each dataset that lost rows is read again from its files.
+- The `snapshot_id` becomes `asof_id`'s; `created` stays.
+- A file left with no row is removed; a dataset left with none keeps one empty file.
+- Row counts and the hashes are rewritten.
+- The cut package can fail `tds check --level full` with TDS-D001 (a late bar cut on a
+  session up to the watermark) and TDS-D003 (a row known between the watermark's close and
+  τ), and with no other code.
+- A τ before a market's first close is refused; one at or after the package's end changes
+  nothing, not a byte.
+- Still saying something after τ: `instrument_symbols.valid_to` and `ts_known_to` and
+  `market_rules.valid_to` in rows known by τ, and the timeless datasets' rows.
+- Not handled, as `small` has none: an action first known after the bars it steps
+  (`cum_factor_*` keep its step), and two `delistings` rows of one instrument with one cut.
 """
 
 from __future__ import annotations
@@ -109,9 +91,17 @@ def cut_after(root: Path, tau: dt.datetime) -> dict[str, int]:
     _as_of(root, entries["instruments"], exits_cut, manifest["markets"], marks)
     for market, day in marks.items():
         manifest["markets"][market] |= day
+    manifest["snapshot_id"] = asof_id(manifest["snapshot_id"], tau)
     (root / "tds.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     write_hashes(root)
     return deleted
+
+
+def asof_id(snapshot_id: str, tau: dt.datetime) -> str:
+    """The cut package's `snapshot_id`: TDS 4.2 asks only for an immutable id, and the engine
+    names a folder by it (`PINS/<snapshot_id>/`), so no `/` or `:`. Its own id keeps anything
+    keyed by `snapshot_id` from mixing the cut package with the original in one process."""
+    return f"{snapshot_id}-asof-{tau.astimezone(dt.UTC):%Y%m%dT%H%M%SZ}"
 
 
 def _through(manifest: Any, root: Path, entries: Any, tau: dt.datetime) -> dict[str, Any]:
