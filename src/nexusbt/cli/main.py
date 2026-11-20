@@ -72,6 +72,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     sub = {name: commands.add_parser(name, help=help_text) for name, help_text in COMMANDS}
     sub["init"].add_argument("--data-root", metavar="PATH")
     sub["init"].add_argument("--new-family", metavar="REASON")
+    sub["rerun"].add_argument("run_id", metavar="RUN_ID")
+    for flag in ("--new-snapshot", "--trust", "--save-detail"):  # 3.10's row
+        sub["rerun"].add_argument(flag, action="store_true")
     commands.add_parser("bugreport", help="bundle a run for a bug report").add_argument("run_id")
     try:
         return _run(parser.parse_args(argv))
@@ -95,5 +98,11 @@ def _run(args: argparse.Namespace) -> int:
         return 0
     if args.command == "stubs":
         print(api.stubs())
+        return 0
+    if args.command == "rerun":  # 3.10; E15 and E31 come out as a user error, exit code 1
+        if args.save_detail:  # 5.9.4's tier (3): no kind writes `detail/` yet
+            raise NotImplementedError("nexusbt rerun --save-detail: tier-3 outputs come later")
+        run = api.rerun(args.run_id, new_snapshot=args.new_snapshot, trust=args.trust)
+        print(f"run {run.run_id} from {args.run_id}\n{run.comparison}")  # the line says if equal
         return 0
     raise NotImplementedError(f"nexusbt {args.command}: not built yet (its ticket is in spec 10.1)")
