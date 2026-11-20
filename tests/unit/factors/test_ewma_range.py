@@ -27,11 +27,14 @@ REFUSED: list[tuple[str, float, Callable[[], Term]]] = [
         for c in (0.0, -0.5, INF, 1e-20)
     ),
     ("span", 1 + 2**-52, lambda: EWMA.from_span(2, 1 + 2**-52)),
+    # An int beyond float64 is refused by name too, not with Python's bare OverflowError.
+    ("decay_rate", 10**400, lambda: EWMA(2, 10**400)),
+    ("span", 10**400, lambda: EWMA.from_span(2, 10**400)),
 ]
 
 
 @pytest.mark.parametrize(
-    ("name", "value", "build"), REFUSED, ids=[f"{n}={v!r}" for n, v, _ in REFUSED]
+    ("name", "value", "build"), REFUSED, ids=[f"{n}={v!r:.24}" for n, v, _ in REFUSED]
 )
 def test_out_of_range_is_refused_at_build_naming_the_argument_passed(
     name: str, value: float, build: Callable[[], Term]

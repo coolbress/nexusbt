@@ -109,6 +109,13 @@ def _ewma_refused(op: str, name: str, value: float, allowed: str, why: str) -> C
     )
 
 
+def _finite(value: float) -> bool:
+    try:
+        return math.isfinite(value)
+    except OverflowError:  # an int beyond float64, such as 10**400
+        return False
+
+
 #: Why a decay rate outside (0, 1] is refused (decision 2026-11-20, #666).
 _RATE_WHY = (
     "a decay rate in (0, 1] gives weights in (0, 1], so their sum is positive and finite;"
@@ -126,7 +133,7 @@ class _EWMA:
     def __call__(
         self, window: int, decay_rate: float, inputs: Inputs = None, *, mask: Filter | None = None
     ) -> Factor:
-        if not 0.0 < float(decay_rate) <= 1.0:  # NaN and ±inf are outside too
+        if not (_finite(decay_rate) and 0.0 < float(decay_rate) <= 1.0):  # NaN, ±inf too
             raise _ewma_refused("EWMA", "decay_rate", decay_rate, "0 < decay_rate <= 1", _RATE_WHY)
         found = _price("close", inputs)
         return _node(Factor, "ExponentialWeightedMovingAverage", *found, window=window,
@@ -146,7 +153,7 @@ class _EWMA:
         """`EWMA.from_<name>(window, value)`: refused in the person's argument when it is not
         finite, outside its range, or gives a decay rate of 0.0 in float64 (#666, decision 7)."""
         op = f"EWMA.from_{name}"
-        if not (math.isfinite(value) and inside(value)):
+        if not (_finite(value) and inside(value)):
             why = f"{_RATE_WHY}; {allowed} is the range that gives one"
             raise _ewma_refused(op, name, value, allowed, why)
         found = rate(value)
