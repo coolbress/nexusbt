@@ -27,7 +27,7 @@ import pytest
 
 import nexusbt as nx
 from nexusbt.compute import _chunks
-from nexusbt.factors import Returns
+from nexusbt.factors import AnnualizedVolatility, MaxDrawdown, Returns, RollingStd
 from nexusbt.pipeline import graph_hash
 from nexusbt.testing._synth_package import _write
 from nexusbt.testing.synth import make_snapshot
@@ -154,6 +154,24 @@ def test_each_diagnostic_counted(scenario: Path) -> None:
     want = [(d, label(big), "InfiniteResult") for d in (2, 3, 6, 7, 8)]
     want += [(d, label(ranked), "UnknownGroup") for d in (2, 3)]
     want += [(7, label(INV), "DivisionByZero")]
+    assert result.term_diagnostics.to_pylist() == [
+        {"market": "KR", "session_date": dt.date(2020, 1, d), "term": t, "diagnostic": name,
+         "n": 5} for d, t, name in sorted(want)]  # fmt: skip
+
+
+def test_a_kernel_counts_its_overflow_and_its_zero_divisor(scenario: Path) -> None:
+    """#632: inside a built-in kernel, each cell once at its term. `RollingStd` of `(1 + RET)`
+    times 1e200 (1e200 times 1, 1.02 and 50/51) squares its deviations past float64
+    (`InfiniteResult`); `MaxDrawdown` and `AnnualizedVolatility` of `RET * 0` divide by a zero
+    peak and a zero price (`DivisionByZero`), the latter counted though 3.4 leaves those returns
+    out. Degree-0 inputs, so a window may read them (3.3)."""
+    zeros = RET * 0.0
+    std = RollingStd(3, inputs=[(RET + 1.0) * 1e200])
+    drawdown, vol = MaxDrawdown(3, inputs=[zeros]), AnnualizedVolatility(2, inputs=[zeros])
+    result = run(scenario, {"std": std, "dd": drawdown, "vol": vol}, "2020-01-13", "2020-01-14")
+    assert all(math.isnan(v) for c in ("std", "dd", "vol") for v in result.table[c].to_pylist())
+    want = [(d, label(std), "InfiniteResult") for d in (13, 14)]
+    want += [(d, label(t), "DivisionByZero") for d in (13, 14) for t in (drawdown, vol)]
     assert result.term_diagnostics.to_pylist() == [
         {"market": "KR", "session_date": dt.date(2020, 1, d), "term": t, "diagnostic": name,
          "n": 5} for d, t, name in sorted(want)]  # fmt: skip

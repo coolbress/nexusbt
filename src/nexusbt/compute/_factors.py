@@ -21,6 +21,7 @@ from nexusbt.compute import _kernels
 from nexusbt.pipeline import Term
 
 F64 = npt.NDArray[np.float64]
+Mask = npt.NDArray[np.bool_]
 #: `EWMA`'s weights, computed once for each window and decay rate and passed as a constant (3.4).
 _weights = functools.cache(_kernels.ewma_weights)
 
@@ -68,11 +69,33 @@ def rows(term: Term) -> int:
     return size + EXTRA.get(term.op, 0)
 
 
-def value(term: Term, windows: Sequence[F64]) -> F64:
-    """The term's values at the window's last row; `AverageDollarVolume` reads `close * volume`,
-    `VWAP` the two windows stacked."""
+#: The kernels that divide inside: the columns whose division has a zero divisor (5.4.1
+#: `DivisionByZero`, #632), and `AnnualizedVolatility`'s returns that overflowed and are left
+#: out (`InfiniteResult`, though the value may be finite).
+ZERO: Mapping[str, Callable[[F64], Mask]] = {
+    "Returns": _kernels.returns_zero,
+    "AnnualizedVolatility": _kernels.daily_zero,
+    "MaxDrawdown": _kernels.peak_zero,
+}
+OVERFLOW: Mapping[str, Callable[[F64], Mask]] = {"AnnualizedVolatility": _kernels.daily_overflow}
+
+
+def diagnosed(term: Term, windows: Sequence[F64]) -> tuple[F64, Mask, Mask]:
+    """The term's values at the window's last row, and its cells to count once there (5.4.1):
+    those with a zero divisor inside the kernel, and those whose overflow came out (as ±inf, made
+    NaN) or left a return out. `AverageDollarVolume` reads `close * volume`, an overflowed product
+    carried; `VWAP` the two windows stacked. An `inf` input cell is NaN before the kernel."""
+    cells = [np.where(np.isinf(w), np.nan, w) for w in windows]
     adv, vwap = term.op == "AverageDollarVolume", term.op == "VWAP"
-    x = windows[0] * windows[1] if adv else np.stack(windows) if vwap else windows[0]
-    found = KERNELS[term.op](np.where(np.isinf(x), np.nan, x), dict(term.params))
+    x = cells[0] * cells[1] if adv else np.stack(cells) if vwap else cells[0]
+    found = KERNELS[term.op](x, dict(term.params))
+    none = np.zeros(found.shape, dtype=bool)
+    zero = ZERO[term.op](x) if term.op in ZERO else none
+    infinite = np.isinf(found) | (OVERFLOW[term.op](x) if term.op in OVERFLOW else none)
     out: F64 = np.where(np.isinf(found), np.nan, found)
-    return out
+    return out, zero, infinite & ~zero
+
+
+def value(term: Term, windows: Sequence[F64]) -> F64:
+    """The term's values at the window's last row (`diagnosed`, without the counts)."""
+    return diagnosed(term, windows)[0]
