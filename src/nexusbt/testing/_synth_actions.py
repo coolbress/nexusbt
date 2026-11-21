@@ -28,6 +28,12 @@ CA = pa.schema({
     "factor_method": _S, "factor_ref_price": _F, "revision_of": _S, "status": _S, "source": _S,
 })  # fmt: skip
 STATUS = {"revised": "effective", "cancelled": "cancelled"}  # a later version's status
+#: What `_move` applied, one entry per cumulative factor it multiplied: (instrument, ex-date,
+#: basis `total` or `split`, `price_factor`, `event_id`), compared with the checker's resolver
+#: (#608, #705). The `event_id` is that of the version `_move` was given, which for a revised
+#: event is its first version's: the chain's id, as the resolver keys it. A wrong version
+#: applied is still caught, since its `price_factor` differs from the one the resolver picks.
+Applied = list[tuple[str, dt.date, str, float, str]]
 #: 4.8 (4): each share event's yearly rate and its ratios, (new, old) shares; a bonus issue
 #: of 0.29 is 129 shares for 100.
 SHARE_EVENTS = {
@@ -59,16 +65,18 @@ def _actions(
     sessions: Table, bars: dict[str, list[Any]], rng: np.random.Generator,
     mics: Sequence[str | None], injected: Mapping[Key, Mapping[str, Any]], currency: str,
     random: bool = True, decimals: int | None = None,
-) -> tuple[pa.Table, list[tuple[int, int, str]]]:  # fmt: skip
+) -> tuple[pa.Table, list[tuple[int, int, str]], Applied]:  # fmt: skip
     """4.8 (4): share events and quarterly cash dividends, ~1 % amended and ~0.5 % cancelled,
     besides the `injected` ones (`EventSpec`); only those without `random` (tiny).
 
     The latest version of each event moves the raw prices (onto the KR grid again, the others
     to `decimals`, 4.8 (5a)) and volumes
     in `bars` from its ex-date on, and its price factor the cumulative factors (TDS 5.11's A001
-    at c = +inf). Returns the rows and each moving event's (instrument, ex-date index, kind).
+    at c = +inf). Returns the rows, each moving event's (instrument, ex-date index, kind), and
+    the record of what was applied (`Applied`).
     """
-    moved = []
+    moved: list[tuple[int, int, str]] = []
+    applied: Applied = []
     days, opens, closes = sessions["session_date"], sessions["ts_open"], sessions["ts_close"]
     keys, drawn, fate = _draw(first, last, rng, set(injected)) if random else ([], {}, {})
     unit = 1 if market == "KR" else 100
@@ -103,11 +111,12 @@ def _actions(
                                    "ts_terms_available": terms if terms and terms > midway
                                    else None, "status": STATUS[fated]})  # fmt: skip
         if fated != "cancelled":
-            _move(bars, k, e - first[k], latest, kind in SHARE_EVENTS, mics[k], decimals)
+            _move(bars, k, e - first[k], latest, kind in SHARE_EVENTS, mics[k], decimals,
+                  (ids[k], applied))  # fmt: skip
             moved.append((k, e, kind))
     for x, row in enumerate(later, len(rows) + 1):  # numbered after every first version
         row["event_id"] = f"{market}:E{x:06d}"
-    return pa.Table.from_pylist(rows + later, schema=CA), moved
+    return pa.Table.from_pylist(rows + later, schema=CA), moved, applied
 
 
 Key = tuple[int, int]  # (instrument, ex-date session index)
@@ -175,12 +184,15 @@ def _revise(
 
 def _move(
     bars: dict[str, list[Any]], k: int, s: int, version: Mapping[str, Any], share: bool,
-    venue: str | None, decimals: int | None = None,
+    venue: str | None, decimals: int | None, record: tuple[str, Applied],
 ) -> None:  # fmt: skip
     """Instrument `k`'s bars from its `s`-th on, moved by one event's factors; an event
-    without a factor (`unavailable`) leaves them, and A001 does not compare its session."""
+    without a factor (`unavailable`) leaves them, and A001 does not compare its session.
+    `record`: the instrument's id and the list each multiplied cumulative factor is written
+    to, in the loop that multiplies the prices, so the record is what was applied."""
     if version["price_factor"] is None:
         return
+    iid, applied = record
     for name in ("open", "high", "low", "close", "cum_factor_total") + (
         ("cum_factor_split",) if share else ()
     ):  # fmt: skip
@@ -189,4 +201,9 @@ def _move(
             bars[name][k][s:] = _snap(
                 bars[name][k][s:], bars["session_date"][k][s:], venue, decimals=decimals
             )
+        else:
+            day = bars["session_date"][k][s]  # numpy in small, a date in tiny
+            ex = day.item() if isinstance(day, np.generic) else day
+            basis = name.removeprefix("cum_factor_")
+            applied.append((iid, ex, basis, version["price_factor"], version["event_id"]))
     bars["volume"][k][s:] = np.round(bars["volume"][k][s:] * version["share_factor"])

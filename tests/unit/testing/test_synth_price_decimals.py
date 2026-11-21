@@ -15,6 +15,7 @@ import numpy as np
 import pyarrow as pa
 import pyarrow.compute as pc
 import pytest
+from _applied import applied, resolved
 
 from nexusbt.testing import _synth_package as pkg
 from nexusbt.testing import synth
@@ -59,6 +60,7 @@ def test_us_and_zz_prices_are_on_the_grid_and_pass_the_full_check(rounded: Path)
     assert done.returncode == 0, done.stdout + done.stderr
     assert re.search(r"\b0 errors\b", done.stdout), done.stdout
     assert a001(done.stdout) == 0  # the checker's count (#608)
+    assert applied(rounded) == resolved(rounded)  # and the record's (#705)
 
 
 def test_rounded_bars_still_enclose_open_and_close(rounded: Path) -> None:

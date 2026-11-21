@@ -28,6 +28,7 @@ import json
 import re
 import sys
 import time
+from collections import Counter
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, Literal, NamedTuple, cast
@@ -42,7 +43,7 @@ from nexusbt.contracts import ID_COLUMN as ID
 from nexusbt.testing import _synth_degrade as dg
 from nexusbt.testing import _synth_events as ev
 from nexusbt.testing import _synth_package as pk
-from nexusbt.testing._synth_actions import BP, CA, YEAR, _actions, _at
+from nexusbt.testing._synth_actions import BP, CA, YEAR, Applied, _actions, _at
 from nexusbt.testing._synth_daily import (
     OHLC,
     PRODUCER,
@@ -83,6 +84,10 @@ PRESETS = {
                    {"KR": 5_500, "US": 22_100, "ZZ": 120}, "synth-full-m1-0001",
                    {"KR": 30, "US": 11, "ZZ": 8}),
 }  # fmt: skip
+#: Per package made in this process (by its resolved folder), per market, what the events
+#: applied to the prices (`Applied`, written in `_move`), after a `behind` cut: kept out of the
+#: package, for the test that compares it with the checker's resolver (#608, #705).
+APPLIED: dict[Path, dict[str, Applied]] = {}
 #: The tds.json `markets` entries. ZZ: a test market without a rules pack (4.8).
 MARKETS = {
     "KR": {"calendar_id": "XKRX", "currency": "KRW", "timezone": "Asia/Seoul"},
@@ -156,32 +161,34 @@ def _instruments(
 def _tiny_actions(
     market: str, ids: Sequence[str], days: Sequence[dt.date], records: list[dict[str, Any]],
     events: Sequence[Mapping[str, Any]], spans: tuple[list[int], list[int]], ended: dict[int, Any],
-) -> tuple[pa.Table, pa.Table]:  # fmt: skip
+) -> tuple[pa.Table, pa.Table, Applied]:  # fmt: skip
     """The injected events and exits (4.8 `EventSpec`) on tiny's hand-set bars, which the
     events move as in small; tiny draws none of its own, and its prices stay off any grid."""
     held = [[r for r in records if r[ID] == iid] for iid in ids]  # each listing's bars
     first, last = spans
     found = targets(events, ids, days, first, last)
     if not found and not ended:
-        return CA.empty_table(), DL.empty_table()
+        return CA.empty_table(), DL.empty_table(), []
     hours = [_hours(MARKETS[market]["calendar_id"], d) for d in days]
     sessions = {"session_date": np.array(days, "datetime64[D]")} | {
         name: np.array([h[j].replace(tzinfo=None) for h in hours], "datetime64[us]")
         for j, name in enumerate(("ts_open", "ts_close"))}  # fmt: skip
     names = (*OHLC, "volume", "cum_factor_split", "cum_factor_total")
     bars = {c: [np.array([r[c] for r in rs]) for rs in held] for c in (*names, "session_date")}
-    actions, _ = _actions(market, ids, first, last, sessions, bars, np.random.default_rng(0),
-                          [None] * len(ids), found, MARKETS[market]["currency"],
-                          random=False)  # fmt: skip
+    actions, _, applied = _actions(market, ids, first, last, sessions, bars,
+                                   np.random.default_rng(0), [None] * len(ids), found,
+                                   MARKETS[market]["currency"], random=False)  # fmt: skip
     for k, c in itertools.product(range(len(ids)), names):
         for r, value in zip(held[k], bars[c][k].tolist(), strict=True):
             r[c] = value
     rng = np.random.default_rng(0)  # 4.8 (6)'s draws for the columns an exit leaves out
     return actions, _delistings(market, ids, first, last, sessions, bars, rng, ended,
-                                MARKETS[market]["currency"])[0]  # fmt: skip
+                                MARKETS[market]["currency"])[0], applied  # fmt: skip
 
 
-def _tiny(market: str, events: Sequence[Mapping[str, Any]] = ()) -> dict[str, Table]:
+def _tiny(
+    market: str, events: Sequence[Mapping[str, Any]] = ()
+) -> tuple[dict[str, Table], Applied]:
     calendar, days = MARKETS[market]["calendar_id"], _sessions(MARKETS[market]["calendar_id"])
     ids = [(n, f"{market}:T{n:05d}") for n in range(1, COUNT + 1)]
     renamed, late = ids[RENAMED - 1][1], ids[COUNT - 1][1]
@@ -215,15 +222,15 @@ def _tiny(market: str, events: Sequence[Mapping[str, Any]] = ()) -> dict[str, Ta
                 "obs_status": "traded", "cum_factor_split": 1.0, "cum_factor_total": 1.0,
             })  # fmt: skip
             close = price
-    actions, exited = _tiny_actions(market, [i for _, i in ids], days, bars, events,
-                                    (first, last), ended)  # fmt: skip
+    actions, exited, applied = _tiny_actions(market, [i for _, i in ids], days, bars, events,
+                                             (first, last), ended)  # fmt: skip
     for b in bars:  # 4.8 (3), as small: after the events moved the bars, 0 without volume
         v, h, lo, c = (cast(float, b[k]) for k in ("volume", "high", "low", "close"))
         b["value_traded"] = v * (h + lo + c) / 3 if v > 0 else 0.0
     bars.sort(key=lambda b: (b["session_date"], b[ID]))
     return {"instruments": instruments, "instrument_symbols": _symbols(spans),
             "bars_1d": _columns(bars), "corporate_actions": actions,
-            "delistings": exited}  # fmt: skip
+            "delistings": exited}, applied  # fmt: skip
 
 
 def _tiny_calendar(calendar: str) -> Table:
@@ -271,8 +278,9 @@ def _listings(
 def _small(
     market: str, n: int, sessions: Table, rng: np.random.Generator,
     events: Sequence[Mapping[str, Any]] = (), life: int = 8, decimals: int | None = None,
-) -> dict[str, Table]:  # fmt: skip
-    """4.8 (2) and (3): listings, ticker histories and dense raw bars of `n` instruments."""
+) -> tuple[dict[str, Table], Applied]:  # fmt: skip
+    """4.8 (2) and (3): listings, ticker histories and dense raw bars of `n` instruments, and
+    the record of what the events applied to them."""
     days, opens, closes = sessions["session_date"], sessions["ts_open"], sessions["ts_close"]
     first, last = _listings(n, len(days), life, rng)
     ids = [f"{market}:T{k:05d}" for k in range(1, n + 1)]
@@ -324,9 +332,9 @@ def _small(
         }.items():  # fmt: skip
             bars.setdefault(name, []).append(values)
     mics = _venues(VENUES.get(market), n, bars, rng, decimals)  # drawn last: the above stay
-    actions, moved = _actions(market, ids, first, last, sessions, bars, rng, mics,
-                              targets(events, ids, days, first, last),
-                              MARKETS[market]["currency"], decimals=decimals)  # fmt: skip
+    actions, moved, applied = _actions(market, ids, first, last, sessions, bars, rng, mics,
+                                       targets(events, ids, days, first, last),
+                                       MARKETS[market]["currency"], decimals=decimals)  # fmt: skip
     status = _tradability(market, first, last, mics, moved, bars, rng,
                           (events, ids, days))  # moves `bars` too  # fmt: skip
     out, payouts, delisted = _delistings(market, ids, first, last, sessions, bars, rng, ended,
@@ -353,7 +361,7 @@ def _small(
             "instrument_symbols": _symbols([s for v in spans.values() for s in v]),
             "corporate_actions": pa.concat_tables([actions, payouts]),
             "delistings": out, "eligibility_daily": eligible,
-            "share_counts": counts}  # fmt: skip
+            "share_counts": counts}, applied  # fmt: skip
 
 
 def _arguments(
@@ -413,7 +421,8 @@ def make_snapshot(
     every market (TDS 4.3, #192), but `behind[name]` sessions earlier for each dataset `name`
     without a row per session, without its rows first known after that session (4.8 `behind`,
     #425). `price_decimals` (an integer 0 to 9, `small` and `full`) puts US and ZZ prices on
-    10^-n, 8.1's CI fixture (4.8 (5a), #252); None changes nothing.
+    10^-n, 8.1's CI fixture (4.8 (5a), #252); None changes nothing. What the events applied to
+    the prices is kept per market in `APPLIED[root]`, never in the package.
     """
     root, chosen = _arguments(root, preset, markets, events, overrides, degrade,
                               (start, end, n_kr, n_us, price_decimals))  # fmt: skip
@@ -422,15 +431,15 @@ def make_snapshot(
     counts = seeded.counts | {k: v for k, v in (("KR", n_kr), ("US", n_us)) if v is not None}
     # one stream per market from PCG64(seed), so a market's rows do not depend on the others
     rngs = dict(zip(MARKETS, np.random.Generator(np.random.PCG64(seed)).spawn(3), strict=True))
-    calendars, tables, entries = {}, {}, {}
+    calendars, tables, entries, applied = {}, {}, {}, {}
     for m in chosen:
         cal = MARKETS[m]["calendar_id"]
         if preset == "tiny":
-            calendars[cal], tables[m] = _tiny_calendar(cal), _tiny(m, events)
+            calendars[cal], (tables[m], applied[m]) = _tiny_calendar(cal), _tiny(m, events)
         else:
             calendars[cal] = _small_calendar(cal, first, final)
-            tables[m] = _small(m, counts[m], calendars[cal], rngs[m], events, seeded.life[m],
-                               price_decimals)  # fmt: skip
+            tables[m], applied[m] = _small(m, counts[m], calendars[cal], rngs[m], events,
+                                           seeded.life[m], price_decimals)  # fmt: skip
         entries[m] = MARKETS[m] | pk._watermark(calendars[cal])
         if degrade:
             closes = pk._arrow(calendars[cal])["ts_close"].combine_chunks()
@@ -445,9 +454,12 @@ def make_snapshot(
     through = pk.processed(behind or {}, set(made) - set(dg.absent(degrade)), days)
     for name in behind or {}:  # `made` reads `tables` when it writes them
         for m in chosen:
-            tables[m] = _cut(
-                tables[m], name, through(name)[m], calendars[MARKETS[m]["calendar_id"]]
-            )
+            was = tables[m]
+            tables[m] = _cut(was, name, through(name)[m], calendars[MARKETS[m]["calendar_id"]])
+            if name == "corporate_actions":  # the prices keep a cut version's move
+                applied[m] = _recut(applied[m], _factors(pk._arrow(was[name])),
+                                    _factors(tables[m][name]))  # fmt: skip
+    APPLIED[root.resolve()] = applied
     return pk.write(root, made, tables, about, degrade, through)
 
 
@@ -490,9 +502,9 @@ def a001(printed: str) -> int | None:
                                           re.M))  # fmt: skip
 
 
-def _factors(actions: pa.Table) -> dict[tuple[str, str], list[tuple[dt.date, float]]]:
-    """(instrument, basis) → each (ex_date, price_factor) the bars' `cum_factor_<basis>` steps
-    by, at c = +inf (`_cut`)."""
+def _factors(actions: pa.Table) -> dict[tuple[str, str], list[tuple[dt.date, float, str]]]:
+    """(instrument, basis) → each (ex_date, price_factor, chain id) the bars' `cum_factor_<basis>`
+    steps by, at c = +inf, as the generator reads its own chains (`_refactor`, `_recut`)."""
     parent = {r["event_id"]: r["revision_of"] for r in actions.to_pylist()}
     latest: dict[str, tuple[Any, dict[str, Any]]] = {}
     for r in sorted(actions.to_pylist(), key=lambda r: r["event_id"]):
@@ -503,11 +515,11 @@ def _factors(actions: pa.Table) -> dict[tuple[str, str], list[tuple[dt.date, flo
         when = min(known, default=r["ts_effective"])
         if root not in latest or when >= latest[root][0]:
             latest[root] = (when, r)
-    want: dict[tuple[str, str], list[tuple[dt.date, float]]] = {}  # (id, basis) → ex, factor
-    for _, r in latest.values():
+    want: dict[tuple[str, str], list[tuple[dt.date, float, str]]] = {}
+    for root, (_, r) in latest.items():
         bases = {"split_and_total": ("total", "split"), "total_only": ("total",)}
         for basis in bases.get(r["affects"], ()) if r["status"] == "effective" else ():
-            want.setdefault((r[ID], basis), []).append((r["ex_date"], r["price_factor"]))
+            want.setdefault((r[ID], basis), []).append((r["ex_date"], r["price_factor"], root))
     return want
 
 
@@ -558,13 +570,30 @@ def _refactor(bars: pa.Table, was: Mapping[Any, Any], now: Mapping[Any, Any]) ->
         for key in {
             k for k in was.keys() | now.keys() if k[1] == basis and was.get(k) != now.get(k)
         }:
-            steps = [(ex, 1 / f) for ex, f in was.get(key, []) if f is not None]
-            steps += [(ex, f) for ex, f in now.get(key, []) if f is not None]
+            steps = [(ex, 1 / f) for ex, f, _ in was.get(key, []) if f is not None]
+            steps += [(ex, f) for ex, f, _ in now.get(key, []) if f is not None]
             for ex, f in steps:  # undo the factors it had, then apply those it has now
                 column[(ids == key[0]) & (days >= np.datetime64(ex))] *= f
         bars = bars.set_column(bars.schema.get_field_index(name), name,
                                pa.array(column, from_pandas=True))  # fmt: skip
     return bars
+
+
+def _recut(applied: Applied, was: Mapping[Any, Any], now: Mapping[Any, Any]) -> Applied:
+    """`applied` once a cut changed the versions known, as `_refactor` steps the bars'
+    `cum_factor_*`: for each (instrument, basis) whose steps it changed, the steps `was` gave
+    taken out and those `now` gives put in; an applied step `was` lacks stays."""
+    changed = {k for k in was.keys() | now.keys() if was.get(k) != now.get(k)}
+    drop = Counter((i, ex, b, f, e) for (i, b) in changed for ex, f, e in was.get((i, b), [])
+                   if f is not None)  # fmt: skip
+    kept = []
+    for step in applied:
+        if drop[step]:
+            drop[step] -= 1
+        else:
+            kept.append(step)
+    return kept + [(i, ex, b, f, e) for (i, b) in sorted(changed)
+                   for ex, f, e in now.get((i, b), []) if f is not None]  # fmt: skip
 
 
 def main(argv: Sequence[str] | None = None) -> int:
