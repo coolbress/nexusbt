@@ -288,10 +288,11 @@ def load(at: Path, name: str, text: str) -> Any:
 def test_source_hash_includes_helpers(tmp_path: Path) -> None:
     """6.5 (6): the helpers a user function calls inside the project, followed to any depth,
     go into its source hash, so changing a helper's body changes the hash; the same files give
-    the same hash."""
-    same = [load(tmp_path, f"same_{i}", USER_FILE.format(inner=2)).score for i in range(2)]
+    the same hash, imported twice under one module name (a helper's constant is keyed by its
+    module, #673)."""
+    same = [load(tmp_path, "same", USER_FILE.format(inner=2)).score for _ in range(2)]
     assert graph_hash(same[0]) == graph_hash(same[1])
-    changed = load(tmp_path, "changed", USER_FILE.format(inner=5)).score
+    changed = load(tmp_path, "same", USER_FILE.format(inner=5)).score
     assert graph_hash(changed) != graph_hash(same[0])
     looped = [nx.factor(window=2, inputs=[CLOSE])(_halve) for _ in "ab"]
     assert graph_hash(looped[0]) == graph_hash(looped[1])  # a recursive function walked once
