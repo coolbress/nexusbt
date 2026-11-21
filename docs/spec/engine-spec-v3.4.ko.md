@@ -3276,7 +3276,7 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 #### M1 — 스냅숏 + Pipeline 조각 + 공개 첫 경로
 
 **T0.7 `feat(testing): synthetic TDS package part 2 - corporate actions with revisions, delistings, tradability, eligibility, share counts`** · `M1` `testing` · M · Blocked by: T0.6 · §4.8 (4)~(7), (10) *(v3: M1로, 정정·취소 사건, 늦은 회수 공개, 자격 공개 `session_close`)*
-- Context: 사건 생성과 `EventSpec` 주입, 정정판(`revision_of`)·취소, `price_factor`·`share_factor`·`factor_method`, `cum_factor_*`가 해석기 최신판과 맞음, `delistings`(일부 `ts_value_available` 늦음), `tradability_daily`(`availability_by_column`), `eligibility_daily`(공개 `session_close`), `share_counts`.
+- Context: 사건 생성과 `EventSpec` 주입, 정정판(`revision_of`)·취소, `price_factor`·`share_factor`·`factor_method`, 사건이 가격에 적용한 것이 해석기 최신판과 맞음(2026-11-22까지는 `cum_factor_*`로, #705), `delistings`(일부 `ts_value_available` 늦음), `tradability_daily`(`availability_by_column`), `eligibility_daily`(공개 `session_close`), `share_counts`.
 - Done means: `--preset small --validate` 출력에 정정·취소 사건 수 줄이 있고, 사건이 적용한 것에 대한 생성기의 기록이 검사기의 해석기와 맞는다(`test_factor_event_reconciliation`; 2026-11-22까지는 출력의 "TDS-A001: 0", #705).
 - Acceptance: `test_synth.py::test_factor_event_reconciliation`, `::test_reverse_split_makes_factor_non_monotonic`, `::test_revisions_and_cancellations_present`, `::test_injected_event_overrides_random`, `::test_delisted_on_matches_delistings`, `::test_eligibility_no_lookahead`.
 
