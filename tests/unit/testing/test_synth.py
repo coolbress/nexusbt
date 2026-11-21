@@ -10,10 +10,12 @@ import inspect
 import itertools
 import json
 import math
+import os
 import re
 import shutil
 import sysconfig
 import textwrap
+from collections import Counter
 from importlib.resources import files
 from pathlib import Path
 from typing import Any
@@ -23,6 +25,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 import pytest
+from _applied import BASES, applied, resolved
 
 from nexusbt.testing import _synth_actions as acts
 from nexusbt.testing import _synth_daily as daily
@@ -255,6 +258,46 @@ def test_command_reads_a001_from_the_check(
     assert synth.a001("") is None  # a checker fault (exit 70) prints no summary: not a 0
 
 
+def test_the_record_of_what_was_applied_stays_out_of_the_package(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#705: `_move`'s record is kept beside the package: the same package, byte for byte and
+    hash for hash, when the record is thrown away."""
+    split = {"dataset": "corporate_actions", "kind": "split", "instrument_id": "KR:T00001",
+             "ex_date": "2020-02-03", "ratio_new_per_old": 2.0}  # fmt: skip
+    kept = make_snapshot(tmp_path / "kept", preset="tiny", events=[split])
+    want = Counter(
+        ("KR:T00001", dt.date(2020, 2, 3), b, 0.5, "KR:E000001") for b in BASES["split_and_total"]
+    )
+    assert applied(kept) == resolved(kept) == want
+    move: Any = acts._move  # called with its own arguments, the record's list thrown away
+    monkeypatch.setattr(acts, "_move", lambda *a: move(*a[:-1], (a[-1][0], [])))
+    lost = make_snapshot(tmp_path / "lost", preset="tiny", events=[split])
+    assert not applied(lost)
+    assert files_of(lost) == files_of(kept)
+
+
+def test_a_cut_puts_back_no_step_the_prices_never_took() -> None:
+    """#705 review: a cut that revises a dividend keeps a payout after the last bar, which was
+    never applied, out of the record, as its 1/f and f cancel on the bars' `cum_factor_total`."""
+    d1, d9 = dt.date(2020, 1, 6), dt.date(2020, 3, 2)
+    was = {("KR:T1", "total"): [(d1, 0.99, "KR:E1"), (d9, 0.5, "KR:L1")]}
+    now = {("KR:T1", "total"): [(d1, 0.98, "KR:E1"), (d9, 0.5, "KR:L1")]}
+    record = synth._recut([("KR:T1", d1, "total", 0.99, "KR:E1")], was, now)
+    assert record == [("KR:T1", d1, "total", 0.98, "KR:E1")]
+
+
+@pytest.mark.skipif(not os.environ.get("NEXUSBT_SYNTH_FULL"), reason="a server's whole full")
+def test_full_record_matches_the_resolver() -> None:
+    """#705 Decisions 28: the whole `full` package compared as the slices below are, built and
+    run once on a server on the day the whole data is built, never in CI:
+
+    NEXUSBT_SYNTH_FULL=<empty folder> uv run pytest tests/unit/testing/test_synth.py -k full_record
+    """
+    full = make_snapshot(Path(os.environ["NEXUSBT_SYNTH_FULL"]), preset="full")
+    assert applied(full) == resolved(full)
+
+
 def test_command_without_validate_prints_and_does_not_check(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -480,7 +523,8 @@ def test_full_is_small_rules_at_full_scale(tmp_path: Path, monkeypatch: pytest.M
             for m in ("KR", "US") for y in (1995, 2024)} <= paths  # fmt: skip
     done = pkg._tds("check", str(full), "--level", "full")
     assert done.returncode == 0, done.stdout + done.stderr
-    assert "0 errors, 0 warnings at level full" in done.stdout
+    assert "0 errors, 0 warnings at level full" in done.stdout  # A001 among them
+    assert applied(full) == resolved(full)  # and the record (#705)
 
 
 @pytest.mark.parametrize(("term", "ref", "unit", "cash"), [
@@ -518,6 +562,7 @@ def test_full_slice_with_a_dividend_above_the_close_conforms(tmp_path: Path) -> 
     assert all(r["price_factor"] > 0 for r in actions if r not in none)
     assert min(b["close"] for b in rows(full, "bars")) > 0  # a negative factor flipped them
     assert a001(full) == 0
+    assert applied(full) == resolved(full)
     assert "0 errors" in pkg._tds("check", str(full), "--level", "full").stdout
 
 
@@ -542,8 +587,13 @@ def a001(package: Path, printed: str | None = None) -> int | None:
 
 
 def test_factor_event_reconciliation(small: Path, small_checked: str, tmp_path: Path) -> None:
+    """#608, #705: on one package the old check and the new agree, side by side: A001 finds no
+    bar whose `cum_factor_*` the events do not explain, and what `_move` applied while it
+    multiplied the prices is what the resolver reads, entry for entry; with the amendments
+    taken out, each sees every one of them."""
     actions = read(small, "corporate_actions")
     assert a001(small, small_checked) == 0
+    assert applied(small) == resolved(small)
     revised = {r["revision_of"]: r for r in actions.to_pylist()
                if r["revision_of"] and r["status"] == "effective"}  # fmt: skip
     total = steps(small, "total")
@@ -557,9 +607,9 @@ def test_factor_event_reconciliation(small: Path, small_checked: str, tmp_path: 
     copy = shutil.copytree(small, tmp_path / "stale")  # `small` is shared: its copy changes
     synth.write_actions(copy, [{c: v.isoformat() if hasattr(v, "isoformat") else v
                                 for c, v in r.items()} for r in stale.to_pylist()])  # fmt: skip
-    assert a001(copy) == len(revised) + sum(
-        r["kind"] != "cash_dividend" for r in revised.values()
-    )  # a share event: split and total
+    seen = len(revised) + sum(r["kind"] != "cash_dividend" for r in revised.values())
+    assert a001(copy) == seen  # a share event: split and total
+    assert sum((applied(small) - resolved(copy)).values()) == seen  # the record, the same
 
 
 def test_reverse_split_makes_factor_non_monotonic(small: Path, small_checked: str) -> None:
@@ -609,6 +659,7 @@ def test_revisions_and_cancellations_present(
     validate_short(monkeypatch, tmp_path / "cli")
     printed = capsys.readouterr().out
     assert "TDS-A001: 0" in printed.splitlines()
+    assert applied(tmp_path / "cli") == resolved(tmp_path / "cli")
     assert re.search(r"^corporate_actions revisions [1-9]\d*, cancellations [1-9]", printed, re.M)
 
 
@@ -917,6 +968,7 @@ def test_injected_event_overrides_random(tmp_path: Path, tiny: Path) -> None:
               and r["ex_date"] == day)  # fmt: skip
     assert (row["ratio_num"], row["ratio_den"], row["price_factor"]) == (2, 1, 0.5)
     assert a001(package) == 0
+    assert applied(package) == resolved(package)
     assert files_of(make_snapshot(tmp_path / "c", **short, events=[split])) == files_of(package)
     # tiny's hand-set bars move too, so A001 stays 0 there
     ex, cash = dt.date(2020, 2, 3), {"kind": "cash_dividend", "cash_per_share": 0.2}
@@ -925,6 +977,7 @@ def test_injected_event_overrides_random(tmp_path: Path, tiny: Path) -> None:
                                 "ts_announced": "2020-01-22T06:00:00+09:00"}]  # fmt: skip
     moved = make_snapshot(tmp_path / "t", preset="tiny", events=injected)
     assert a001(moved) == 0
+    assert applied(moved) == resolved(moved)
     plain = {(b["instrument_id"], b["session_date"]): b for b in rows(tiny, "bars")}
     for b in (b for b in rows(moved, "bars") if b["instrument_id"] == "KR:T00001"):
         was = plain["KR:T00001", b["session_date"]]
@@ -967,6 +1020,7 @@ def exit_agrees(package: Path, iid: str) -> dict[str, Any]:
     assert held[-1]["close"] == out["ref_price"]
     assert "0 errors" in pkg._tds("check", str(package), "--level", "full").stdout
     assert a001(package) == 0
+    assert applied(package) == resolved(package)
     return out
 
 
@@ -1028,6 +1082,7 @@ def test_injected_halt_blanks_its_bar(tmp_path: Path) -> None:
         False, "no_price")  # fmt: skip
     assert "0 errors" in pkg._tds("check", str(package), "--level", "full").stdout
     assert a001(package) == 0
+    assert applied(package) == resolved(package)
 
 
 def test_injected_exits_and_halts_are_refused_with_the_reason(tmp_path: Path) -> None:
@@ -1158,6 +1213,7 @@ def test_synth_conforms_degraded_core(
     # the checker's A001 holds, also across the halted days sparse bars leave out
     assert a001(package, printed) == (
         None if value == "no_cum_factors" else 0)  # fmt: skip
+    assert applied(package) == resolved(package)  # also where A001 has no columns to read
 
 
 def validate_short(monkeypatch: pytest.MonkeyPatch, out: Path, *more: str) -> None:
@@ -1467,6 +1523,7 @@ def test_behind_cuts_the_rows_known_after_the_session(tmp_path: Path) -> None:
     plain = make_snapshot(tmp_path / "plain", **two_years)
     done = pkg._tds("check", str(package), "--level", "full")
     assert "\n0 errors" in done.stdout, done.stdout
+    assert applied(package) == resolved(package) != resolved(plain)  # the record follows too
     for name in CUT:
         assert len(rows(package, name)) < len(rows(plain, name)), name
         assert f"TDS-D003 not checked on {name}:" not in done.stdout
