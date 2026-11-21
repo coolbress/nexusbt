@@ -23,6 +23,7 @@ from hypothesis import strategies as st
 
 import nexusbt as nx
 from nexusbt.data import Snapshot, decision_grid, every
+from nexusbt.factors import Returns
 from nexusbt.testing.synth import make_snapshot
 from property._pipelines import GRAPH, bits, build, inside
 
@@ -87,9 +88,12 @@ def test_P_START(  # noqa: N802 - spec 10.1's name
     """INV-14: a run started 1, 21 or 252 sessions later gives, on every decision both runs
     have, the same table rows and the same `term_diagnostics` rows, bit for bit, on `small` and
     on `late_bars`. The first start is drawn from 2016's first 251 sessions, so every window
-    reads data. With `every(n, offset)` the runs are daily and keep the sessions
-    `decision_grid` gives from each run's own start, so the decisions are compared as well."""
-    snapshot, pipe = packages[package], build(graph)
+    reads data. With `every(n, offset)` the runs are daily, so the later run's first session
+    (the row a start-dependent read changes first) is compared too, and `decision_grid` gives
+    the same sessions from both starts. A column `0 / 0` gives `DivisionByZero` counts on
+    every row, so the counts are compared on rows that hold some."""
+    snapshot = packages[package]
+    pipe = nx.Pipeline({**build(graph).columns, "zero_by_zero": Returns(2) * 0.0 / 0.0})
     event(f"{package}, {'monthly' if schedule is None else 'every(n)'}")
     dates = snapshot.calendar("KR").dates
     base = int(np.searchsorted(dates, np.datetime64("2016-01-04"))) + first
@@ -100,9 +104,13 @@ def test_P_START(  # noqa: N802 - spec 10.1's name
     if schedule is not None:
         n, offset = schedule
         assert all(k % n for k in SHIFTS)
-        grids = [decision_grid(snapshot, every(n, offset % n), s, END) for s in starts]
-        tables = [on(t, g.session_dates) for t, g in zip(tables, grids, strict=True)]
+        grids = [decision_grid(snapshot, every(n, offset % n), s, END).session_dates
+                 for s in starts]  # fmt: skip
+        for k, start, grid in zip(SHIFTS, starts[1:], grids[1:], strict=True):
+            assert grid == tuple(d for d in grids[0] if d >= start), k
+            assert on(since(tables[0], start), grid).num_rows > 0, k
     for k, start, table, later in zip(SHIFTS, starts[1:], tables[1:], found[1:], strict=True):
+        assert table["session_date"][0].as_py() == start or schedule is None, k
         whole = since(tables[0], start)
         assert whole.num_rows > 0, k
         keys = [list(zip(*(t[c].to_pylist() for c in ("session_date", "instrument_id")),
@@ -110,4 +118,5 @@ def test_P_START(  # noqa: N802 - spec 10.1's name
         assert keys[1] == keys[0], (k, sorted(set(keys[0]) ^ set(keys[1]))[:4])
         assert bits(table) == bits(whole), k
         counts = [since(r.term_diagnostics, start) for r in (found[0], later)]
+        assert counts[0].num_rows > 0, k
         assert bits(counts[1]) == bits(counts[0]), k
