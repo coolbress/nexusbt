@@ -58,6 +58,9 @@ SIGNED_ZEROS = [("returns", 0, 0, 2), ("zero", 1, 0, 2), ("max", 2, 0, 5), ("min
 #: `MaxDrawdown(2)` of `Returns(2)`, picks between two zero drawdowns (`(p - p) / p`, signed as
 #: `p`) on a rising pair, so its output holds both 0.0 and -0.0 (81 and 49 of 203 rows on
 #: `small`, 2026-11-20).
+#: A fixed graph that reads 64 rows back, further than 45, through three chained
+#: `MaxDrawdown(21)`, which ignores NaN: the last column follows it that far (#683).
+DEEP = [("mdd", 0, 0, 21), ("mdd", 1, 0, 21), ("mdd", 2, 0, 21)]
 CASES = settings(max_examples=5, suppress_health_check=[HealthCheck.too_slow])
 
 
@@ -81,17 +84,57 @@ def term(kind: str, x: Any, y: Any, w: int) -> Any:
     return getattr(ops.rolling(x, w), kind)()  # min, max, median, mean, std
 
 
+def reach(steps: Sequence[tuple[str, int, int, int]]) -> int:
+    """How many rows before a row the terms of `build(steps)` read, at most, worked out here
+    from the steps and 3.4's warm-up column: `W - 1` for `Returns`, `SMA`, `MaxDrawdown` and a
+    rolling window, `k` for `shift(k)`, nothing for a rank or `* 0.0`, and a sum its further
+    input. Not asked of the engine: an engine whose lookback came out short would lose a row
+    and shorten the column that is there to see it (#683's Decisions, 2026-11-21)."""
+    back = [4]  # the first `Returns(5)`
+    for kind, i, j, w in steps:
+        x, y = back[i % len(back)], back[j % len(back)]
+        match kind:
+            case "returns":
+                back.append(w - 1)
+            case "shift":
+                back.append(x + w)
+            case "zero" | "rank":
+                back.append(x)
+            case "add":
+                back.append(max(x, y))
+            case _:
+                back.append(x + w - 1)
+    return max(back)
+
+
 def build(steps: Sequence[tuple[str, int, int, int]]) -> nx.Pipeline:
     """The pipeline of every term the steps make, after a first `Returns(5)`, and a last
-    column that needs every row it reads, 45 back: `Returns` reads both ends (3.4), `rolling`
-    needs `min_periods` = window finite cells (3.3's default), `shift` the row it names. When
-    that is the graph's furthest read, a chunk that loses even the first row of its lookback
-    changes a value (checked for `SIGNED_ZEROS`, #254)."""
+    column that needs every row it reads, as far back as the furthest read of the others
+    (`reach`) and never less than 45: `Returns` reads both ends (3.4), `rolling` needs
+    `min_periods` = window finite cells (3.3's default), `shift` the row it names. So a chunk
+    that loses even the first row of its lookback changes a value (checked for `SIGNED_ZEROS`,
+    #254, and `DEEP`, #683)."""
     terms: list[Any] = [Returns(5)]
     for kind, i, j, w in steps:
         terms.append(term(kind, terms[i % len(terms)], terms[j % len(terms)], w))
-    terms.append(ops.rolling(Returns(21), 21).mean().shift(5))
+    terms.append(ops.rolling(Returns(21), 21).mean().shift(max(5, reach(steps) - 40)))
     return nx.Pipeline({f"t{k}": t for k, t in enumerate(terms)})
+
+
+@pytest.mark.parametrize(
+    ("steps", "rows"),
+    [
+        ([], 4),  # `Returns(5)` alone: its 5-row window
+        (DEEP, 4 + 20 + 20 + 20),  # three chained 21-row windows
+        ([("mean", 0, 0, 21), ("std", 1, 0, 21), ("median", 2, 0, 21)], 64),
+        ([("returns", 0, 0, 21), ("shift", 1, 0, 10)], 20 + 10),  # `Returns` reads the bars
+        ([("mdd", 0, 0, 10), ("add", 0, 1, 2), ("rank", 2, 0, 3), ("zero", 3, 0, 5)], 13),
+        ([("sma", 7, 0, 5)], 4 + 4),  # index 7 of one term is term 0
+        ([("shift", 0, 0, 2), ("returns", 0, 0, 3)], 6),  # an earlier term reads further
+    ],
+)
+def test_reach_is_the_furthest_read_worked_out_by_hand(steps: list[Any], rows: int) -> None:
+    assert reach(steps) == rows
 
 
 @pytest.fixture(scope="module")
@@ -174,6 +217,8 @@ CHUNKINGS = {
 @given(graph=GRAPH, package=st.sampled_from(["small", "late_bars"]))
 @example(graph=SIGNED_ZEROS, package="small")
 @example(graph=SIGNED_ZEROS, package="late_bars")
+@example(graph=DEEP, package="small")
+@example(graph=DEEP, package="late_bars")
 def test_P_CHUNK(  # noqa: N802 - spec 10.1's name
     graph: list[Any], package: str, packages: dict[str, Snapshot], project: Path
 ) -> None:

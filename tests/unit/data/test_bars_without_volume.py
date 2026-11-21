@@ -18,6 +18,7 @@ import pyarrow.compute as pc
 import pytest
 
 import nexusbt as nx
+from nexusbt.factors import VWAP, AverageDollarVolume, AverageTradedValue
 from nexusbt.testing.synth import make_snapshot, read
 
 pytestmark = pytest.mark.unit
@@ -106,6 +107,56 @@ def test_tiny_has_value_traded_and_no_fallback(tmp_path: Path) -> None:
                           snapshot=str(root)).table["t"].to_pylist()  # fmt: skip
     v, h, lo, c = (bars_on(root, k) for k in ("volume", "high", "low", "close"))
     assert got == [a * (b + d + e) / 3 for a, b, d, e in zip(v, h, lo, c, strict=True)]
+
+
+def traded(root: Path, screen: Any = None) -> nx.PipelineResult:
+    """The three terms over traded value on two sessions with a three-row window, F-18's E30
+    at open left aside (the tests above read it)."""
+    terms = {"adv": AverageDollarVolume(3), "atv": AverageTradedValue(3), "vwap": VWAP(3)}
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message=r".*\[E30\] F-18")
+        return nx.run_pipeline(nx.Pipeline(terms, screen=screen), start="2020-01-13",
+                               end="2020-01-14", snapshot=str(root))  # fmt: skip
+
+
+def test_terms_over_volume_nan_without_it(tmp_path: Path) -> None:
+    """#667, 4.5 F-18 and 3.4: on `no_volume` `AverageDollarVolume` is NaN in every cell, as
+    `AverageTradedValue` and `VWAP` are, not `nansum` of NaN products (0.0); a missing input,
+    so nothing in `term_diagnostics` (5.4.1)."""
+    root = make_snapshot(tmp_path / "p", preset="tiny", degrade=["no_volume"])
+    result = traded(root)
+    assert result.table.num_rows
+    for column in ("adv", "atv", "vwap"):
+        assert all(math.isnan(x) for x in result.table[column].to_pylist()), column
+    assert result.term_diagnostics.num_rows == 0
+
+
+def test_adv_nan_only_in_the_market_f18_records(
+    tmp_path: Path, package_without_bars_column: Callable[..., None]
+) -> None:
+    """#667: KR's bars without `volume`, US's with it: `AverageDollarVolume` NaN in KR alone,
+    the market F-18 records; US's values as on the whole package."""
+    whole = make_snapshot(tmp_path / "w", preset="tiny")
+    root = make_snapshot(tmp_path / "p", preset="tiny")
+    package_without_bars_column(root, "volume", market="KR")
+    with pytest.raises(ValueError, match="market 'JP'"):  # a market no file has
+        package_without_bars_column(root, "volume", market="JP")
+    assert {m for m, c in records(root) if c == "volume"} == {"KR"}
+    before, after = traded(whole).table, traded(root).table
+    kr = pc.equal(after["market"], "KR")
+    assert all(math.isnan(x) for x in after.filter(kr)["adv"].to_pylist())
+    us = after.filter(pc.invert(kr))["adv"].to_pylist()
+    assert us
+    assert us == before.filter(pc.equal(before["market"], "US"))["adv"].to_pylist()
+    assert all(math.isfinite(x) for x in us)
+
+
+def test_adv_filter_unknown_without_volume(tmp_path: Path) -> None:
+    """#667, 5.4.1: `AverageDollarVolume(3) >= 0` is unknown without `volume`, so false at the
+    screen; a 0.0 would keep every row (0 >= 0)."""
+    root = make_snapshot(tmp_path / "p", preset="tiny", degrade=["no_volume"])
+    assert traded(root).table.num_rows
+    assert traded(root, screen=AverageDollarVolume(3) >= 0).table.num_rows == 0
 
 
 def test_no_volume_drops_the_core_declaration(tmp_path: Path) -> None:

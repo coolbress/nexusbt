@@ -596,7 +596,7 @@ def _holds(node: ast.Lambda, at: tuple[int, int]) -> bool:
 @dataclass(frozen=True, slots=True)
 class _Reads:
     """What a user function reads (6.5 (6)): its project helpers, to any depth; the constant-like
-    values (a helper's as `qualname:name`), hashed; the rest and file reads, E24's (`impure`);
+    values (a helper's as `module.qualname:name`, #673), hashed; the rest and file reads, E24's;
     the library decorator whose wrapper holds what the hash cannot read, E24's too (#645)."""
 
     helpers: tuple[FunctionType, ...]
@@ -697,7 +697,7 @@ def _walk(fn: FunctionType, seen: set[int]) -> _Reads:
         seen.add(id(f))
         names, attrs = _loads(f.__code__)
         values = _values(f, names)
-        prefix = "" if f is fn else f"{f.__qualname__}:"
+        prefix = "" if f is fn else f"{f.__globals__.get('__name__', '?')}.{f.__qualname__}:"
         todo += _judge(sorted(values.items()), attrs, prefix, found, impure)
         impure.update(_opens(names, values, attrs))
         helpers += [] if f is fn else [f]
