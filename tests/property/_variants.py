@@ -60,7 +60,12 @@ def scale_prices(root: Path, instrument: str, k: float) -> None:
 
 def append_action(root: Path, row: Mapping[str, Any]) -> None:
     """One row more in `corporate_actions`, in its schema's sort order (`instrument_id`,
-    `ex_date`, `event_id`; TDS-K002), every other row and dataset as it was."""
+    `ex_date`, `event_id`; TDS-K002), every other row and dataset as it was. The dataset is in
+    one file, as the generator writes it; with more, the row would be added to each."""
+    manifest = json.loads((root / "tds.json").read_text(encoding="utf-8"))
+    (entry,) = (d for d in manifest["datasets"] if d["name"] == "corporate_actions")
+    if len(entry["files"]) != 1:
+        raise ValueError(f"corporate_actions is in {len(entry['files'])} files, not one")
 
     def change(rows: pa.Table) -> pa.Table:
         added = pa.concat_tables([rows, pa.Table.from_pylist([dict(row)], schema=rows.schema)])

@@ -334,8 +334,9 @@ CROSS = ("rank", "zscore", "demean", "winsorize", "pct_rank", "top", "bottom",
 def dummy(root: Path, project: Path, pick: int) -> tuple[str, Any, pa.Table]:
     """M-DUMMY's added instrument, its universe and its `Returns(5)` at the decisions: one of the
     instruments with at least the median number of decisions (counted from the package, at
-    least 3 of them), drawn by `pick`; the universe `close_unadjusted > X`, X its highest close
-    at a decision, so it enters the universe at no decision (#255's Decisions, 2026-11-21)."""
+    least 3 of them), drawn by `pick`; the universe `close_unadjusted > X`, X its highest raw
+    close at any session, so it enters the universe at no row a term is computed at, the rows
+    a window reads before a decision included (#255's Decisions, 2026-11-21)."""
     close = Price.close_unadjusted.latest
     with inside(project):
         seen = run(nx.Pipeline({"close": close, "r": Returns(5)}), nx.open(str(root)), FROM,
@@ -347,7 +348,8 @@ def dummy(root: Path, project: Path, pick: int) -> tuple[str, Any, pa.Table]:
     assert len(long) >= 3, long
     name = long[pick % len(long)]
     mine = seen.filter(pc.equal(seen["instrument_id"], name))
-    return name, close > pc.max(mine["close"]).as_py(), mine
+    bars = [r["close"] for r in rows_of(root, "bars_1d") if r["instrument_id"] == name]
+    return name, close > max(c for c in bars if c is not None), mine
 
 
 def without(root: Path, tmp: Path, project: Path, pipe: nx.Pipeline, name: str) -> tuple[Any, Any]:
@@ -367,6 +369,9 @@ def label(term: Any) -> str:
 
 @CASES
 @given(graph=GRAPH, pick=st.integers(0, 10**6))
+# a rank under a 21-row window: computed at rows before a decision too (the review of #255's
+# last pull request; with X from the decisions alone KR:T00005 entered the rank's mask there)
+@example(graph=[("rank", 0, 0, 2), ("sma", 1, 0, 21)], pick=2)
 def test_M_DUMMY(  # noqa: N802 - spec 10.1's name
     graph: list[Any], pick: int, nine: Path, project: Path,
     tmp_path_factory: pytest.TempPathFactory,
@@ -404,6 +409,7 @@ def test_M_DUMMY(  # noqa: N802 - spec 10.1's name
     masked = {label(t) for t in cross}
     assert all(added[k] == 0 for k in added if k[2] in masked)
     event(f"{sum(added.values())} counts one more, of {len(added)}")
+    event(f"{sum(k[2] in masked for k in added)} counts at a masked cross-section")
 
 
 @settings(max_examples=3, suppress_health_check=[HealthCheck.too_slow])
@@ -441,7 +447,7 @@ def test_M_DUMMY_counterexample_unmasked(  # noqa: N802 - spec 10.1's name
 
 
 #: The least share of the cells the unmasked zscore must change: measured 2026-11-21 on the
-#: instruments `dummy` draws from, all of them (KR:T00001 27 of 27, KR:T00003 163 of 163,
+#: instruments `dummy` draws from, all of them (KR:T00001 22 of 22, KR:T00003 161 of 161,
 #: KR:T00005 15 of 15; KR:T00008 and KR:T00009 assumed away above). A cell whose mean and std
 #: moved together to the same z would fail it; none did (#255).
 MOVED = 1.0
