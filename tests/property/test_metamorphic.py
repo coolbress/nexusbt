@@ -254,6 +254,7 @@ def test_M_SCALE_counterexample_threshold(  # noqa: N802 - spec 10.1's name
     with inside(project):
         first = run(nx.Pipeline({"close": close}), nx.open(str(roots["small"])), FROM, "monthly")
     mine = first.table.filter(pc.equal(first.table["instrument_id"], instrument))
+    assert len(mine) > 0, instrument  # else nothing could flip and the test would see nothing
     x = float(np.nanmedian(mine["close"].to_numpy(zero_copy_only=False)))
     pipe = nx.Pipeline({"close": close, "above": close > x, "returns": Returns(5)})
     tmp = tmp_path_factory.mktemp("threshold")
@@ -275,6 +276,7 @@ def test_M_SCALE_counterexample_threshold(  # noqa: N802 - spec 10.1's name
 
 
 #: The least share of the instrument's cells the threshold must flip: measured 2026-11-21 on
-#: `small`'s 8 KR instruments, 0.49 to 0.57 (1 of 1 on KR:T00006), so a change that flips
-#: fewer is seen (#255).
+#: `small`'s 8 KR instruments, 0.49 to 0.57 (1 of 1 on KR:T00006). The set equality above
+#: catches an engine that flips other cells; this catches data or an X under which the
+#: counterexample breaks the relation on few cells or none (#255).
 FLIPS = 0.45
