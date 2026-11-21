@@ -70,7 +70,8 @@ def cut_after(root: Path, tau: dt.datetime) -> dict[str, int]:
         schema = pq.read_schema(root / entry["files"][0]["path"]) if entry["files"] else None
         for f in entry["files"]:
             rows = pq.read_table(part := root / f["path"])
-            keep = pa.array([t is None or t <= tau for t in _instants(name, entry, rows, sessions)])
+            known = _instants(name, entry, rows, sessions)  # a file with no row: a typed mask
+            keep = pa.array([t is None or t <= tau for t in known], pa.bool_())
             deleted[name] = deleted.get(name, 0) + rows.num_rows - (pc.sum(keep).as_py() or 0)
             if name == "delistings":
                 exits_cut |= set(rows.filter(pc.invert(keep))["instrument_id"].to_pylist())

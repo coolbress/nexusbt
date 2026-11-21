@@ -1,4 +1,5 @@
-"""P-CHUNK, P-PERM and P-DET at the pipeline (spec 8.3; INV-03, INV-04, INV-09; T1.19, #254).
+"""P-CHUNK, P-PERM, P-FUT and P-DET at the pipeline (spec 8.3; INV-03, INV-04, INV-02, INV-09;
+T1.19, #254).
 
 Each case builds a random graph of built-in terms (nested windows, `shift`, rolling picks,
 `MaxDrawdown`, a cross-section rank, sums, and a term times 0.0, which is 0.0 or -0.0 by the
@@ -13,7 +14,9 @@ examples (#254's Decisions, 2026-11-20): one run is a few seconds.
 from __future__ import annotations
 
 import dataclasses
+import datetime as dt
 import json
+import shutil
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
@@ -21,8 +24,10 @@ from typing import Any
 
 import numpy as np
 import pyarrow as pa
+import pyarrow.compute as pc
+import pyarrow.parquet as pq
 import pytest
-from hypothesis import HealthCheck, example, given, settings
+from hypothesis import HealthCheck, assume, example, given, settings
 from hypothesis import strategies as st
 
 import nexusbt as nx
@@ -31,6 +36,7 @@ from nexusbt.compute import _chunks
 from nexusbt.data import Snapshot
 from nexusbt.factors import SMA, MaxDrawdown, Returns
 from nexusbt.testing.synth import make_snapshot
+from property._future import cut_after
 
 pytestmark = [pytest.mark.property, pytest.mark.slow]
 
@@ -97,13 +103,19 @@ def project(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 
 @pytest.fixture(scope="module")
-def packages(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Snapshot]:
-    """`small` and its late-bar variant (4.8 rule 3a, #354), 8 KR instruments."""
+def roots(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Path]:
+    """`small` and its late-bar variant (4.8 rule 3a, #354), 8 KR instruments: their folders."""
     root = tmp_path_factory.mktemp("synth")
     small = make_snapshot(root / "small", preset="small", markets=("KR",), n_kr=8, degrade=())
     late = make_snapshot(root / "late_bars", preset="small", markets=("KR",), n_kr=8,
                          degrade=("late_bars",))  # fmt: skip
-    return {"small": nx.open(str(small)), "late_bars": nx.open(str(late))}
+    return {"small": small, "late_bars": late}
+
+
+@pytest.fixture(scope="module")
+def packages(roots: dict[str, Path]) -> dict[str, Snapshot]:
+    """The two packages of `roots`, opened."""
+    return {"small": nx.open(str(roots["small"])), "late_bars": nx.open(str(roots["late_bars"]))}
 
 
 @contextmanager
@@ -224,3 +236,142 @@ def test_P_DET_pipeline(  # noqa: N802 - spec 10.1's name
     assert [{t: o[t] for t in tables} for o in outputs] == [{t: outputs[0][t] for t in tables}] * 2
     assert all(o[t].keys() == {"physical_sha256", "value_sha256"} for o in outputs for t in tables)
     assert ids[0] != ids[1]  # two runs, not one read twice
+
+
+#: τ drawn over the run (8.3's "random τ"), up to before the last session's close so that
+#: every case cuts something (a τ at or after the package's end cuts nothing); one before
+#: KR's first close, which the helper refuses, is assumed away.
+TAU = st.datetimes(min_value=dt.datetime(2015, 1, 1), max_value=dt.datetime(2019, 12, 30),
+                   timezones=st.just(dt.UTC))  # fmt: skip
+#: Fixed τ, each checked in the test to show what it is chosen for, so that a change of the
+#: generator fails its example rather than passing it (#254's Decisions, 2026-11-20).
+#: "bar": a bar closed by τ and available after it (KR:T00005's of 2016-12-29) is cut, and the
+#: December decision reads that session: an engine that read the bar at its close fails here.
+#: "terms" and "version" check the cut only, not the engine: "terms", the cut keeps a dividend
+#: known by τ whose amount comes after it (KR:E000002, 2017-09-22 and 2017-11-16), the same row
+#: on both sides; "version", the cut deletes a later version of an event it keeps (the split
+#: KR:E000015, ratio 5, amended to 7 at 2016-01-13 03:00), and every decision by τ comes
+#: before its ex-date. These 8 KR instruments hold no version known after its ex-date (the
+#: whole `small` holds one, in US). `LATE_EVENT` below bites with a whole event known after
+#: its ex-date; a later version known that late is not tested here (#679).
+CHOSEN = {"terms": dt.datetime(2017, 11, 1, 3, 0, tzinfo=dt.UTC),
+          "version": dt.datetime(2016, 1, 13, 2, 0, tzinfo=dt.UTC),
+          "bar": dt.datetime(2016, 12, 29, 6, 30, tzinfo=dt.UTC)}  # fmt: skip
+
+
+def rows_of(root: Path, name: str) -> list[dict[str, Any]]:
+    manifest = json.loads((root / "tds.json").read_text(encoding="utf-8"))
+    (entry,) = (d for d in manifest["datasets"] if d["name"] == name)
+    return [r for f in entry["files"] for r in pq.read_table(root / f["path"]).to_pylist()]
+
+
+def shown(original: Path, cut: Path, tau: dt.datetime) -> set[str]:
+    """Which of `CHOSEN`'s cases the cut at `tau` holds."""
+    found = set()
+    actions = rows_of(cut, "corporate_actions")
+    if any(r["ts_terms_available"] is not None and r["ts_terms_available"] > tau for r in actions):
+        found.add("terms")
+    kept = {r["event_id"] for r in actions}
+    if any(r["revision_of"] in kept and r["event_id"] not in kept
+           for r in rows_of(original, "corporate_actions")):  # fmt: skip
+        found.add("version")
+    bars = {(r["instrument_id"], r["session_date"]) for r in rows_of(cut, "bars_1d")}
+    if any(r["ts_end"] <= tau < r.get("ts_available", r["ts_end"])
+           and (r["instrument_id"], r["session_date"]) not in bars
+           for r in rows_of(original, "bars_1d")):  # fmt: skip
+        found.add("bar")
+    return found
+
+
+def decided(table: pa.Table, tau: dt.datetime) -> pa.Table:
+    """The rows of a pipeline table with `decision_ts <= tau`, in key order."""
+    by = pc.less_equal(table["decision_ts"], pa.scalar(tau, table["decision_ts"].type))
+    keys = ("market", "session_date", "instrument_id")
+    return table.filter(by).sort_by([(k, "ascending") for k in keys])
+
+
+def closed(diagnostics: pa.Table, root: Path, tau: dt.datetime) -> pa.Table:
+    """The rows of `term_diagnostics` at sessions closed by `tau` (a session's decision is at
+    its close), as 5.4.1 counts a cell at the session of the row that produced it."""
+    manifest = json.loads((root / "tds.json").read_text(encoding="utf-8"))
+    market = {about["calendar_id"]: m for m, about in manifest["markets"].items()}
+    done = {(market[r["calendar_id"]], r["session_date"])
+            for r in rows_of(root, "calendar_sessions")
+            if r["calendar_id"] in market and r["ts_close"] <= tau}  # fmt: skip
+    keys = zip(*(diagnostics[k].to_pylist() for k in ("market", "session_date")), strict=True)
+    return diagnostics.filter(pa.array([key in done for key in keys], pa.bool_()))
+
+
+@CASES
+@given(graph=GRAPH, package=st.sampled_from(["small", "late_bars"]), tau=TAU, chosen=st.just(""))
+@example(graph=SIGNED_ZEROS, package="small", tau=CHOSEN["terms"], chosen="terms")
+@example(graph=SIGNED_ZEROS, package="small", tau=CHOSEN["version"], chosen="version")
+@example(graph=SIGNED_ZEROS, package="late_bars", tau=CHOSEN["bar"], chosen="bar")
+def test_P_FUT_pipeline(  # noqa: N802 - spec 10.1's name
+    graph: list[Any], package: str, tau: dt.datetime, chosen: str, roots: dict[str, Path],
+    packages: dict[str, Snapshot], project: Path, tmp_path_factory: pytest.TempPathFactory,
+) -> None:  # fmt: skip
+    """INV-02 in M1's terms (#254's Decisions, 2026-11-20: M1 has no targets or orders): on the
+    package and on its copy with the data after τ deleted (`cut_after`, 8.3), the pipeline
+    table's rows with `decision_ts <= τ` are the same rows, every column bit for bit, and so
+    are `term_diagnostics`' rows at sessions closed by τ; on `small` and on `late_bars`."""
+    at = shutil.copytree(roots[package], tmp_path_factory.mktemp("asof") / "pkg")
+    try:
+        try:
+            cut_after(at, tau)
+        except ValueError as refused:  # τ before the first close: no package as of then
+            assume("first close" not in str(refused))
+            raise
+        if chosen:
+            assert chosen in shown(roots[package], at, tau), chosen
+        pipe = build(graph)
+        with inside(project):
+            whole, earlier = run(pipe, packages[package]), run(pipe, nx.open(str(at)))
+        old, new = decided(whole.table, tau), decided(earlier.table, tau)
+        assume(old.num_rows > 0)  # τ before the first decision compares nothing
+        if chosen == "bar":  # a decision at τ itself reads the session of the bar cut
+            assert tau in old["decision_ts"].to_pylist()
+        keys =[list(zip(*(t[k].to_pylist() for k in ("market", "session_date", "instrument_id")),
+                         strict=True)) for t in (old, new)]  # fmt: skip
+        assert keys[1] == keys[0], sorted(set(keys[0]) ^ set(keys[1]))[:10]
+        assert bits(new) == bits(old)
+        assert bits(closed(earlier.term_diagnostics, at, tau)) == bits(
+            closed(whole.term_diagnostics, at, tau)
+        )
+    finally:
+        shutil.rmtree(at.parent)
+
+
+#: A dividend first known after its ex-date, injected into `tiny` (4.8 `events`): the 8 KR
+#: instruments above hold no event known that late (#254's Decisions, 2026-11-20).
+#: τ lies between the ex-date and that instant, so the cut deletes the row, and the decision
+#: of 2020-02-28 reads `Returns`' `Price.close_tr` across the ex-date.
+LATE_EVENT = {"dataset": "corporate_actions", "instrument_id": "KR:T00001",
+              "kind": "cash_dividend", "ex_date": "2020-02-25", "cash_per_share": 100.0,
+              "ts_announced": "2020-03-05T06:30:00Z",
+              "ts_terms_available": "2020-03-05T06:30:00Z"}  # fmt: skip
+LATE_TAU = dt.datetime(2020, 3, 2, 3, 0, tzinfo=dt.UTC)
+
+
+def test_P_FUT_pipeline_event_known_after_its_ex_date(  # noqa: N802 - after spec 10.1's name
+    tmp_path: Path, project: Path
+) -> None:
+    """INV-02 as `test_P_FUT_pipeline` states it, at a τ after an event's ex-date and before
+    it is first known: deleting the event leaves the rows decided by τ as they were."""
+    root = make_snapshot(tmp_path / "tiny", preset="tiny", markets=("KR",), events=[LATE_EVENT])
+    (event,) = rows_of(root, "corporate_actions")
+    assert event["ts_effective"] < LATE_TAU < event["ts_announced"]  # what the case is for
+    at = shutil.copytree(root, tmp_path / "cut")
+    assert cut_after(at, LATE_TAU)["corporate_actions"] == 1
+    pipe, period = build(SIGNED_ZEROS), ("2020-01-02", "2020-03-31")
+    with inside(project):
+        whole = nx.run_pipeline(pipe, start=period[0], end=period[1], freq="monthly",
+                                snapshot=nx.open(str(root)))  # fmt: skip
+        earlier = nx.run_pipeline(pipe, start=period[0], end=period[1], freq="monthly",
+                                  snapshot=nx.open(str(at)))  # fmt: skip
+    old, new = decided(whole.table, LATE_TAU), decided(earlier.table, LATE_TAU)
+    assert dt.date(2020, 2, 28) in old["session_date"].to_pylist()  # a decision across it
+    assert bits(new) == bits(old)
+    assert bits(closed(earlier.term_diagnostics, at, LATE_TAU)) == bits(
+        closed(whole.term_diagnostics, at, LATE_TAU)
+    )
