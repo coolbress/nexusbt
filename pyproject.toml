@@ -47,7 +47,7 @@ dev = [
     # Reads the golden case files `tests/golden/cases/*.yaml` (8.2; #59 Decisions). 2.2 pins no
     # YAML library: the newest release, 2025-09-25, exact. MIT, development only.
     "pyyaml==6.0.3",
-    "ruff>=0.17.4",
+    "ruff>=0.17.5",
 ]
 
 # Two distributions: the engine, and the checker `nexusbt-tds` under `tds/`, versioned apart (2.3).
