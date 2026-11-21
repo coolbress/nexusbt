@@ -728,7 +728,7 @@ def _walk(fn: FunctionType, seen: set[int]) -> _Reads:
                 held = _wrapper(value, _prefix(helper), {*seen, id(helper)})
                 helpers += held.helpers
                 found.update(held.captured)
-                if held.decorator:
+                if held.decorator and f is not helper:  # not again by itself, calling itself
                     under.add((f.__name__, name, held.decorator))
         impure.update(_opens(names, values, attrs))
         helpers += [] if f is fn else [f]

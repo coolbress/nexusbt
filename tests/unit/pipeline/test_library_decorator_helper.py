@@ -151,3 +151,20 @@ def test_a_helpers_library_decorator_argument_passed_by_name_is_in_the_hash(
         two = graph_hash(_term(tmp_path, "named_2", "@_lib676.scaled(K)", kk=2, as_="named"))
     assert one == again
     assert one != two
+
+
+def test_a_singledispatch_helper_that_reads_itself_is_named_once(tmp_path: Path) -> None:
+    """#676 fresh-context review: `sd` calling itself is read under its wrapper by `score` and by
+    `sd`; the E24 says once that `score` reads it, never that `sd reads sd`."""
+    path = tmp_path / "recursive.py"
+    path.write_text("import functools\n@functools.singledispatch\ndef sd(x):\n"
+                    "    return sd(x - 1) if x > 0 else x\n"
+                    "def score(close):\n    return sd(close[-1])\n")  # fmt: skip
+    spec = importlib.util.spec_from_file_location("project_recursive", path)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    text = _e24(lambda: nx.factor(window=2, inputs=[CLOSE])(module.score))
+    assert text.count("which is under functools.singledispatch") == 1
+    assert "sd reads sd" not in text
