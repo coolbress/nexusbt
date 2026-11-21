@@ -180,11 +180,13 @@ def _market(
     chunks = spans(dates[first : last + 1], width, most_alive(terms), budget, lookback(terms))
     actions = Actions(functools.partial(snapshot.actions, market), calendar.ts_open)
     counts: Counts = {}
+    gone = frozenset(str(r.column) for r in snapshot.fallbacks  # the records of E30 (#667)
+                     if r.id == "F-18" and r.market == market)  # fmt: skip
     frames = execute(
         terms, rows.tolist(), [(a + first, b + first) for a, b in chunks],
         lambda a, b: snapshot.market_block(market, fields, dates[a : b + 1]),
         calendar.ready, tiebreak=cfg.values["portfolio"]["tiebreak"], actions=actions,
-        counts=counts,
+        counts=counts, gone=gone,
     )  # fmt: skip
     counted += [(market, dates[r].astype(dt.date), key, name, n)
                 for (r, key, name), n in counts.items()]  # fmt: skip
