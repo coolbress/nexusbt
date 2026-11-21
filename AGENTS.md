@@ -22,6 +22,7 @@ uv build                  # `ci / build` is a required check
 ## This project
 
 - The spec `docs/spec/engine-spec-v3.4.md` is the single source of truth; do not invent rules it does not have (use chapter 12 defaults, else stop and ask).
+- When building to the TDS (`docs/tds/`) shows a gap, an ambiguity, or a rule that costs more than it gives, the TDS is changed under its 10.5, in the issue or pull request that found it; the code does not work around it.
 - Public: engine code, the spec, TDS, docs, tests. Never in this repository: a producer's data, snapshots or any part of them, fixtures made from vendor data, producer paths, host names, IP addresses, account names, the producer's name or its internal ticket ids. Test data comes from the synthetic generator (spec §4.8); private words to check against are in the git-ignored `.hygiene-private.txt`.
 
 ## Always
