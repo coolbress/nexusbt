@@ -517,7 +517,7 @@ Names that are the same as in zipline 3.2.1 follow zipline's missing-value rules
 | `DailyReturns()` = `Returns(2)` | | | | | 1 | degree 0 |
 | `SimpleMovingAverage(W, inputs=[Price.close])`, alias `SMA` | `nanmean` | NaN ignored, all NaN → NaN | 1 | – | W−1 | homogeneous of degree 1 |
 | `ExponentialWeightedMovingAverage(W, decay_rate, inputs)`, `EWMA`; `.from_span/.from_halflife/.from_center_of_mass` | `average(x, weights=decay^(W−1−i))`; `0 < decay_rate ≤ 1`; a finite `span > 1`, `halflife > 0` or `center_of_mass > 0` whose decay rate, as float64 computes it, is in that range; any other value (NaN and ±inf included) is refused when the term is built, error E16 naming the argument passed and its value (decision 2026-11-20, #666) | any NaN → NaN | W | – | W−1 | degree 1 |
-| `AverageDollarVolume(W)` | `nansum(close·volume)/W` (zipline's formula) | NaN counted as 0 | 0 | – | W−1 | invariant (value = price × volume) |
+| `AverageDollarVolume(W)` | `nansum(close·volume)/W` (zipline's formula) | NaN counted as 0; NaN in a market where 4.5 F-18 applies to `volume` (its bars without the column, or null in every row) (decision 2026-11-20, #667) | 0 | – | W−1 | invariant (value = price × volume) |
 | `AverageTradedValue(W, ccy=None)` (NexusBT) | `nanmean(value_traded)`; `.to(ccy)` when `ccy` | NaN ignored | 1 | – | W−1 | invariant |
 | `AnnualizedVolatility(W=252, annualization_factor=252, inputs=[Price.close_tr])` | `nanstd(DailyReturns window, ddof=0)·√a` | NaN ignored | 1 | 0 | W | degree 0 |
 | `RollingStd(W, inputs)` (NexusBT) | `nanstd(x, ddof=1)` | NaN ignored | 2 | 1 | W−1 | degree 1 |
@@ -946,7 +946,7 @@ write: orders.to_csv("orders/{date}.csv")   apply to paper book: nx.fill(book, o
 
 ### 3.10 CLI [R-09]
 
-`nexusbt <command>` calls the API of the same name and prints the same text. Exit codes: 0 success, 1 user error (`NexusBTError`), 2 internal error, 3 waiting for data (`DataAvailabilityError`, live only), 4 reconciliation mismatch (`reconciled: NO` of `reconcile`, `outputs differ` of `rerun` without `--new-snapshot`).
+`nexusbt <command>` calls the API of the same name and prints the same text. Exit codes: 0 success, 1 user error (`NexusBTError`), 2 internal error, 3 waiting for data (`DataAvailabilityError`, live only), 4 reconciliation mismatch (`reconciled: NO` of `reconcile`, `outputs differ` of `rerun` without `--new-snapshot`). An error or a warning of 6.6, in the CLI, is printed on standard error in 6.6's shape alone: no Python `file:line: UserWarning:` prefix before it and no source line after it; what the person's own warning filters (`-W`, `PYTHONWARNINGS`) do to a warning, including turning it into an error, is not decided here (#649, #684).
 
 | Command | Arguments |
 |---|---|
