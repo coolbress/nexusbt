@@ -947,7 +947,7 @@ write: orders.to_csv("orders/{date}.csv")   apply to paper book: nx.fill(book, o
 
 ### 3.10 CLI [R-09]
 
-`nexusbt <명령>`은 같은 이름의 API를 부르고 같은 글자를 출력한다. 종료 코드: 0 성공, 1 사용자 오류(`NexusBTError`), 2 내부 오류, 3 자료 대기(`DataAvailabilityError`, live 전용), 4 대조 불일치(`reconcile`의 `reconciled: NO`, `--new-snapshot` 없는 `rerun`의 `outputs differ`).
+`nexusbt <명령>`은 같은 이름의 API를 부르고 같은 글자를 출력한다. 종료 코드: 0 성공, 1 사용자 오류(`NexusBTError`), 2 내부 오류, 3 자료 대기(`DataAvailabilityError`, live 전용), 4 대조 불일치(`reconcile`의 `reconciled: NO`, `--new-snapshot` 없는 `rerun`의 `outputs differ`). CLI에서 6.6의 오류와 경고는 표준 오류에 6.6의 모양으로만 찍힌다. 앞에 파이썬의 `file:line: UserWarning:` 머리도, 뒤에 소스 줄도 붙지 않는다. 사용자의 경고 필터(`-W`, `PYTHONWARNINGS`)가 경고에 하는 일(경고를 오류로 바꾸는 것 포함)은 여기서 정하지 않는다(#649, #684).
 
 | 명령 | 인자 |
 |---|---|
