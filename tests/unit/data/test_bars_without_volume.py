@@ -239,7 +239,8 @@ def test_adv_per_cell_equal_over_chunks(
 
 
 def test_adv_window_with_no_bar_is_not_f18s(tmp_path: Path) -> None:
-    """#688 Decisions (criterion 3 narrowed): in a market whose every file lacks `volume`, a
+    """#688 Decisions (its last acceptance criterion, narrowed 2026-11-21 with the owner's
+    approval): in a market whose every file lacks `volume`, a
     listed instrument's window that holds no bar at all (`sparse_bars` drops a halt's rows, so
     those sessions are missing) reads no F-18 bar: 3.4's value, 0.0, as on a package with
     `volume`; every other cell of that session is NaN."""
