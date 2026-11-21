@@ -946,7 +946,7 @@ write: orders.to_csv("orders/{date}.csv")   apply to paper book: nx.fill(book, o
 
 ### 3.10 CLI [R-09]
 
-`nexusbt <command>` calls the API of the same name and prints the same text. Exit codes: 0 success, 1 user error (`NexusBTError`), 2 internal error, 3 waiting for data (`DataAvailabilityError`, live only), 4 reconciliation mismatch (`reconciled: NO` of `reconcile`, `outputs differ` of `rerun` without `--new-snapshot`). An error or a warning of 6.6, in the CLI, is printed on standard error in 6.6's shape alone: no Python `file:line: UserWarning:` prefix before it and no source line after it (#649).
+`nexusbt <command>` calls the API of the same name and prints the same text. Exit codes: 0 success, 1 user error (`NexusBTError`), 2 internal error, 3 waiting for data (`DataAvailabilityError`, live only), 4 reconciliation mismatch (`reconciled: NO` of `reconcile`, `outputs differ` of `rerun` without `--new-snapshot`). An error or a warning of 6.6, in the CLI, is printed on standard error in 6.6's shape alone: no Python `file:line: UserWarning:` prefix before it and no source line after it; what the person's own warning filters (`-W`, `PYTHONWARNINGS`) do to a warning, including turning it into an error, is not decided here (#649, #684).
 
 | Command | Arguments |
 |---|---|
