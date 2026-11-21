@@ -314,7 +314,7 @@ def _seal(
                           "snapshot_semantic_hash": opened.semantic_hash,
                           "snapshot_value_hash": opened.value_hash,
                           "snapshot_physical_hash": opened.physical_hash,
-                          **opened.recorded()})  # fmt: skip
+                          **opened._recorded()})  # fmt: skip
     except BaseException:
         txn.abort()
         raise

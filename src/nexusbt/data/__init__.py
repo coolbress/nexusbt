@@ -208,7 +208,7 @@ class Snapshot:
     def fallbacks(self) -> list[FallbackRecord]:
         return list(self._decided[2])
 
-    def recorded(self) -> dict[str, Any]:
+    def _recorded(self) -> dict[str, Any]:
         """4.4-5: what a run manifest keeps of the open, as it is: `data.profiles`,
         `data.capabilities`, `data.unchecked`, `data.fallbacks` (`[]` for none; #687) and
         `assumptions`, with one sentence per fallback (1.2). Names, codes and counts only."""
