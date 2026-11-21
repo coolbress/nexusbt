@@ -7,7 +7,6 @@ import bisect
 import csv
 import datetime as dt
 import inspect
-import itertools
 import json
 import math
 import os
@@ -25,7 +24,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 import pytest
-from _applied import BASES, applied, resolved
+from _applied import BASES, applied, resolved, split_at
 
 from nexusbt.testing import _synth_actions as acts
 from nexusbt.testing import _synth_daily as daily
@@ -143,7 +142,7 @@ def test_bars_dense_per_listing(tiny: Path) -> None:
     assert late[0]["session_date"] == dt.date(2020, 2, 18)
     assert len(late) == 31
     assert {b["obs_status"] for b in bars} == {"traded"}
-    assert {b["cum_factor_split"] for b in bars} == {b["cum_factor_total"] for b in bars} == {1.0}
+    assert not {"cum_factor_split", "cum_factor_total"} & set(bars[0])  # TDS C6 (#705)
 
 
 def test_symbol_reuse_present(tiny: Path) -> None:
@@ -202,8 +201,8 @@ def test_command_prints_counts_and_hashes_then_checks(
         f"semantic_sha256 {hashes['semantic_sha256']}",
     ]
     assert re.fullmatch(r"time \d+\.\d s, size \d+ bytes", lines[10])
-    assert lines[11:13] == ["profiles tds:minimal-daily@1.0, tds:equity-daily-core@1.0",
-                            "TDS-A001: 0"]  # fmt: skip
+    assert lines[11] == "profiles tds:minimal-daily@1.0, tds:equity-daily-core@1.0"
+    assert not any(line.startswith("TDS-A001") for line in lines)  # #705: the record's test
     assert "0 errors, 0 warnings at level full" in printed.out
     assert "tds:equity-daily-core@1.0: declared" in printed.out  # with empty events (TDS 7)
 
@@ -219,50 +218,13 @@ def test_command_degrade_prints_declared_profiles_and_results(
     assert "profiles tds:minimal-daily@1.0\n" in printed
     assert re.search(r"^tds:minimal-daily@1\.0: declared, verified to \w+, \w+$", printed, re.M)
     assert "tds:equity-daily-core@1.0" not in printed.replace("profiles tds:minimal", "")
-    assert main(["--preset", "tiny", *args[:2], "--degrade", "no_cum_factors", "--validate"]) == 0
-    assert "TDS-A001: no cum_factor_* columns\n" in capsys.readouterr().out
-
-
-def test_command_reads_a001_from_the_check(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """#608: `TDS-A001: K` is the count the child `tds check --level full` prints, the checker's
-    resolver the only one; a check that could not judge A001 says so, never 0."""
-    split = {"dataset": "corporate_actions", "kind": "split", "instrument_id": "KR:T00001",
-             "ex_date": "2020-02-03", "ratio_new_per_old": 2.0}  # fmt: skip
-    make = synth.make_snapshot
-
-    def given(actions: list[dict[str, Any]]) -> Any:
-        def made(root: Path, **_: Any) -> Path:  # tiny's bars moved by the split, these actions
-            package = make(root, preset="tiny", events=[split])
-            synth.write_actions(package, actions)
-            return package
-
-        return made
-
-    one = make(tmp_path / "one", preset="tiny", events=[split])
-    (row,) = (
-        {c: v.isoformat() if hasattr(v, "isoformat") else v for c, v in r.items()}
-        for r in rows(one, "corporate_actions")
-    )
-    cycle = [row | {"event_id": "E-A", "revision_of": "E-B"},
-             row | {"event_id": "E-B", "revision_of": "E-A"}]  # fmt: skip
-    # no action: the split's step in both cum_factor_* columns of one bar; a revision_of cycle:
-    # the resolver cannot tie the chains, and the checker notes A001 not checked
-    for actions, said in (([row], "0"), ([], "2"), (cycle, "not checked")):
-        monkeypatch.setattr(synth, "make_snapshot", given(actions))
-        code = main(["--preset", "tiny", "--out", str(tmp_path / said), "--validate"])
-        printed = capsys.readouterr().out
-        assert f"TDS-A001: {said}" in printed.splitlines(), printed
-        assert code == (said != "0"), printed  # the checker's errors fail the command
-    assert synth.a001("") is None  # a checker fault (exit 70) prints no summary: not a 0
 
 
 def test_the_record_of_what_was_applied_stays_out_of_the_package(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """#705: `_move`'s record is kept beside the package: the same package, byte for byte and
-    hash for hash, when the record is thrown away."""
+    hash for hash, when the record is thrown away; no file holds a factor column."""
     split = {"dataset": "corporate_actions", "kind": "split", "instrument_id": "KR:T00001",
              "ex_date": "2020-02-03", "ratio_new_per_old": 2.0}  # fmt: skip
     kept = make_snapshot(tmp_path / "kept", preset="tiny", events=[split])
@@ -275,11 +237,15 @@ def test_the_record_of_what_was_applied_stays_out_of_the_package(
     lost = make_snapshot(tmp_path / "lost", preset="tiny", events=[split])
     assert not applied(lost)
     assert files_of(lost) == files_of(kept)
+    names = {n for d in ("kept", "lost") for f in (tmp_path / d).rglob("*.parquet")
+             for n in pq.read_schema(f).names}  # fmt: skip
+    assert not names & {"cum_factor_split", "cum_factor_total", *acts.FACTORS}
 
 
 def test_a_cut_puts_back_no_step_the_prices_never_took() -> None:
     """#705 review: a cut that revises a dividend keeps a payout after the last bar, which was
-    never applied, out of the record, as its 1/f and f cancel on the bars' `cum_factor_total`."""
+    never applied, out of the record, as its 1/f and f cancelled on the bars' `cum_factor_total`
+    before #705."""
     d1, d9 = dt.date(2020, 1, 6), dt.date(2020, 3, 2)
     was = {("KR:T1", "total"): [(d1, 0.99, "KR:E1"), (d9, 0.5, "KR:L1")]}
     now = {("KR:T1", "total"): [(d1, 0.98, "KR:E1"), (d9, 0.5, "KR:L1")]}
@@ -415,8 +381,8 @@ def test_small_hashes_match_on_macos_and_linux(tmp_path: Path) -> None:
     package = make_snapshot(tmp_path / "d", preset="small")  # default markets KR, US; seed 0
     hashes = json.loads((package / "tds.json").read_text())["hashes"]
     assert (hashes["value_sha256"], hashes["semantic_sha256"]) == (
-        "be5d9625deac39764d994d74558799a48cd1227c77a6b9c85f2645a2577e8f9f",
-        "e86cb0abf4d73c2c8650133171561e93557e7710d2db9adae7dd688b47d4775f",  # #231: value_traded
+        "e315ff96bdf394a69208ae07296c55163315dec6434ad37681aa496168ab816d",
+        "348b823f1d049d6951285e2bf3b8f5ccd62bb26bae3f3258876979974b17350d",  # #705: no cum_factor_*
     )
 
 
@@ -523,7 +489,7 @@ def test_full_is_small_rules_at_full_scale(tmp_path: Path, monkeypatch: pytest.M
             for m in ("KR", "US") for y in (1995, 2024)} <= paths  # fmt: skip
     done = pkg._tds("check", str(full), "--level", "full")
     assert done.returncode == 0, done.stdout + done.stderr
-    assert "0 errors, 0 warnings at level full" in done.stdout  # A001 among them
+    assert "0 errors, 0 warnings at level full" in done.stdout
     assert applied(full) == resolved(full)  # and the record (#705)
 
 
@@ -554,72 +520,49 @@ def test_full_slice_with_a_dividend_above_the_close_conforms(tmp_path: Path) -> 
     none = [r for r in actions if r["factor_method"] == "unavailable"]
     assert {(r["instrument_id"], r["kind"]) for r in none} == {("US:T00041", "cash_dividend")}
     assert min(r["ex_date"] for r in none) == dt.date(2015, 12, 14)
-    total = steps(full, "total")
+    moved = {(s[0], s[1]) for s in applied(full)}
     for r in none:  # the one-cent floor reaches the close: no factor, and the bars stay
         assert r["price_factor"] is None
         assert r["cash_per_share"] == 0.01 > r["factor_ref_price"]
-        assert total[r["instrument_id"], r["ex_date"]] == 1.0
+        assert (r["instrument_id"], r["ex_date"]) not in moved
     assert all(r["price_factor"] > 0 for r in actions if r not in none)
     assert min(b["close"] for b in rows(full, "bars")) > 0  # a negative factor flipped them
-    assert a001(full) == 0
     assert applied(full) == resolved(full)
     assert "0 errors" in pkg._tds("check", str(full), "--level", "full").stdout
 
 
-def steps(package: Path, basis: str) -> dict[tuple[str, dt.date], float]:
-    """cum_factor_<basis>[s] / [s-1] of each bar after an instrument's first."""
-    bars = sorted(rows(package, "bars"), key=lambda b: (b["instrument_id"], b["session_date"]))
-    key, col = "instrument_id", f"cum_factor_{basis}"
-    return {(b[key], b["session_date"]): b[col] / a[col]
-            for a, b in itertools.pairwise(bars) if a[key] == b[key]}  # fmt: skip
-
-
-def a001(package: Path, printed: str | None = None) -> int | None:
-    """TDS-A001's count in what `tds check --level full` prints on `package` (`printed`, when a
-    test has it already): the checker's resolver, the only one (#608). None without the
-    `cum_factor_*` columns, as the command's `TDS-A001: no cum_factor_* columns`. Run here, the
-    check judges only `bars_1d`, the dataset A001 is judged on, from every dataset's events."""
-    if "cum_factor_split" not in read(package, "bars_1d").column_names:
-        return None
-    if printed is None:
-        printed = pkg._tds("check", str(package), "--level", "full", "--datasets", "bars_1d").stdout
-    return synth.a001(printed)
-
-
-def test_factor_event_reconciliation(small: Path, small_checked: str, tmp_path: Path) -> None:
-    """#608, #705: on one package the old check and the new agree, side by side: A001 finds no
-    bar whose `cum_factor_*` the events do not explain, and what `_move` applied while it
-    multiplied the prices is what the resolver reads, entry for entry; with the amendments
-    taken out, each sees every one of them."""
+def test_factor_event_reconciliation(small: Path, tmp_path: Path) -> None:
+    """#608, #705: what `_move` applied while it multiplied the prices is what the checker's
+    resolver reads from the events, entry for entry; with the amendments taken out, it sees
+    every one of them."""
     actions = read(small, "corporate_actions")
-    assert a001(small, small_checked) == 0
     assert applied(small) == resolved(small)
     revised = {r["revision_of"]: r for r in actions.to_pylist()
                if r["revision_of"] and r["status"] == "effective"}  # fmt: skip
-    total = steps(small, "total")
+    moved = {(s[0], s[1], s[2]): s[3] for s in applied(small)}
     for old in (r for r in actions.to_pylist() if r["event_id"] in revised):
         new = revised[old["event_id"]]  # the bars move by the amended factor, not the first
         assert new["price_factor"] != old["price_factor"]
-        assert total[new["instrument_id"], new["ex_date"]] == pytest.approx(new["price_factor"])
-    # counter-example: without its amendments the first versions are the latest, and A001 sees it
+        assert moved[new["instrument_id"], new["ex_date"], "total"] == new["price_factor"]
+    # counter-example: without its amendments the first versions are the latest, and the
+    # comparison sees each, on every basis it steps
     amendments = pa.array([r["event_id"] for r in revised.values()])
     stale = actions.filter(pc.invert(pc.is_in(actions["event_id"], amendments)))
     copy = shutil.copytree(small, tmp_path / "stale")  # `small` is shared: its copy changes
     synth.write_actions(copy, [{c: v.isoformat() if hasattr(v, "isoformat") else v
                                 for c, v in r.items()} for r in stale.to_pylist()])  # fmt: skip
     seen = len(revised) + sum(r["kind"] != "cash_dividend" for r in revised.values())
-    assert a001(copy) == seen  # a share event: split and total
-    assert sum((applied(small) - resolved(copy)).values()) == seen  # the record, the same
+    assert sum((applied(small) - resolved(copy)).values()) == seen  # a share event: two bases
 
 
 def test_reverse_split_makes_factor_non_monotonic(small: Path, small_checked: str) -> None:
-    split = steps(small, "split")
+    split = {(s[0], s[1]): s[3] for s in applied(small) if s[2] == "split"}
     reverse = [r for r in rows(small, "corporate_actions") if r["kind"] == "reverse_split"]
     assert reverse
     for r in reverse:  # 1:10 → x10, 1:3 → x3: up, where a split or a dividend goes down
         assert r["price_factor"] == r["ratio_den"] / r["ratio_num"] > 1
     ups = [r for r in reverse if split[r["instrument_id"], r["ex_date"]] > 1]
-    assert ups  # a rising factor is data, not an error: A001 above and tds check below hold
+    assert ups  # a rising factor is data, not an error: the record above and tds check hold
     assert min(split.values()) < 1
     assert "0 errors" in small_checked
 
@@ -658,7 +601,6 @@ def test_revisions_and_cancellations_present(
     capsys.readouterr()
     validate_short(monkeypatch, tmp_path / "cli")
     printed = capsys.readouterr().out
-    assert "TDS-A001: 0" in printed.splitlines()
     assert applied(tmp_path / "cli") == resolved(tmp_path / "cli")
     assert re.search(r"^corporate_actions revisions [1-9]\d*, cancellations [1-9]", printed, re.M)
 
@@ -803,6 +745,7 @@ def test_a_halt_never_hides_a_close_a_factor_uses() -> None:
 
 def test_tradability_rows_by_market(small: Path) -> None:
     bars = {(b["instrument_id"], b["session_date"]): b for b in rows(small, "bars")}
+    split = split_at(small)
     before: dict[str, tuple[float, float]] = {}  # each instrument's last close and its factor
     for s in sorted(rows(small, "tradability_daily"),
                     key=lambda r: (r["instrument_id"], r["session_date"])):  # fmt: skip
@@ -812,7 +755,7 @@ def test_tradability_rows_by_market(small: Path) -> None:
             ratio = s["price_limit_ratio"]
             assert ratio == (0.15 if day < dt.date(2015, 6, 15) else 0.3)
             last = before.get(s["instrument_id"])
-            ref = None if last is None else last[0] * (bar["cum_factor_split"] / last[1])
+            ref = None if last is None else last[0] * (split(s["instrument_id"], day) / last[1])
             assert s["reference_price"] == ref
             if ref is None:
                 assert s["up_limit_price"] is s["down_limit_price"] is None
@@ -830,7 +773,7 @@ def test_tradability_rows_by_market(small: Path) -> None:
         elif market != "KR":
             assert (s["halted_full_day"], s["halt_count"]) == (False, 0)
         if bar["close"] is not None:
-            before[s["instrument_id"]] = (bar["close"], bar["cum_factor_split"])
+            before[s["instrument_id"]] = (bar["close"], split(s["instrument_id"], day))
     admin = [s for s in rows(small, "tradability_daily") if s["admin_status"] == "administrative"]
     assert admin
     manifest = json.loads((small / "tds.json").read_text(encoding="utf-8"))
@@ -927,6 +870,7 @@ def test_share_counts_follow_share_events(small: Path) -> None:
     for iid, day in sorted(bars):
         days.setdefault(iid, []).append(day)
     counts: dict[str, list[dict[str, Any]]] = {}
+    split = split_at(small)
     for r in sorted(rows(small, "share_counts"), key=lambda r: r["as_of_date"]):
         counts.setdefault(r["instrument_id"], []).append(r)
     for iid, held in counts.items():
@@ -934,10 +878,10 @@ def test_share_counts_follow_share_events(small: Path) -> None:
         assert {r["count_kind"] for r in held} == {"listed" if kr else "outstanding"}
         on = [bars[iid, days[iid][bisect.bisect_right(days[iid], r["as_of_date"]) - 1]]
               for r in held]  # the last bar on or before each count  # fmt: skip
-        start = held[0]["shares"] * on[0]["cum_factor_split"]
-        for r, bar in zip(held, on, strict=True):  # the first count moved by the share events
-            moved = on[0]["cum_factor_split"] / bar["cum_factor_split"]  # since, fractions cut
-            assert abs(r["shares"] - start / bar["cum_factor_split"]) < 1 + moved
+        factor = [split(iid, bar["session_date"]) for bar in on]
+        start = held[0]["shares"] * factor[0]
+        for r, bar, f in zip(held, on, factor, strict=True):  # the first count, moved since
+            assert abs(r["shares"] - start / f) < 1 + factor[0] / f  # fractions cut
             if kr:  # every session, known at its close
                 assert (r["as_of_date"], r["ts_available"]) == (bar["session_date"], bar["ts_end"])
             else:  # each quarter's last day, filed 40 days later inside the period
@@ -967,22 +911,22 @@ def test_injected_event_overrides_random(tmp_path: Path, tiny: Path) -> None:
     (row,) = (r for r in rows(package, "corporate_actions") if r["instrument_id"] == iid
               and r["ex_date"] == day)  # fmt: skip
     assert (row["ratio_num"], row["ratio_den"], row["price_factor"]) == (2, 1, 0.5)
-    assert a001(package) == 0
     assert applied(package) == resolved(package)
     assert files_of(make_snapshot(tmp_path / "c", **short, events=[split])) == files_of(package)
-    # tiny's hand-set bars move too, so A001 stays 0 there
+    # tiny's hand-set bars move too, and the record holds what moved them
     ex, cash = dt.date(2020, 2, 3), {"kind": "cash_dividend", "cash_per_share": 0.2}
     injected = [split | {"instrument_id": "KR:T00001", "ex_date": ex.isoformat()},
                 split | cash | {"instrument_id": "US:T00002", "ex_date": ex,
                                 "ts_announced": "2020-01-22T06:00:00+09:00"}]  # fmt: skip
     moved = make_snapshot(tmp_path / "t", preset="tiny", events=injected)
-    assert a001(moved) == 0
     assert applied(moved) == resolved(moved)
     plain = {(b["instrument_id"], b["session_date"]): b for b in rows(tiny, "bars")}
+    split_of = split_at(moved)
     for b in (b for b in rows(moved, "bars") if b["instrument_id"] == "KR:T00001"):
         was = plain["KR:T00001", b["session_date"]]
         after = b["session_date"] >= ex
-        assert (b["close"], b["cum_factor_split"]) == (was["close"] / (1 + after), 1 / (1 + after))
+        assert b["close"] == was["close"] / (1 + after)
+        assert split_of("KR:T00001", b["session_date"]) == 1 / (1 + after)
     (dividend,) = (r for r in rows(moved, "corporate_actions") if r["kind"] == "cash_dividend")
     assert dividend["pay_date"] == dividend["declared_date"] + dt.timedelta(30)
     assert (dividend["resolution_body"], dividend["ts_terms_available"]) == (None, None)
@@ -1019,7 +963,6 @@ def exit_agrees(package: Path, iid: str) -> dict[str, Any]:
     assert held[-1]["session_date"] == out["last_trading_date"] == out["ref_date"]
     assert held[-1]["close"] == out["ref_price"]
     assert "0 errors" in pkg._tds("check", str(package), "--level", "full").stdout
-    assert a001(package) == 0
     assert applied(package) == resolved(package)
     return out
 
@@ -1081,7 +1024,6 @@ def test_injected_halt_blanks_its_bar(tmp_path: Path) -> None:
     assert (on["eligibility_daily"]["is_eligible"], on["eligibility_daily"]["reason"]) == (
         False, "no_price")  # fmt: skip
     assert "0 errors" in pkg._tds("check", str(package), "--level", "full").stdout
-    assert a001(package) == 0
     assert applied(package) == resolved(package)
 
 
@@ -1126,8 +1068,8 @@ def test_injected_exits_and_halts_are_refused_with_the_reason(tmp_path: Path) ->
 SHORT: dict[str, Any] = {"start": dt.date(2019, 1, 2), "n_kr": 20, "n_us": 20}
 CORE, MINIMAL = "tds:equity-daily-core@1.0", "tds:minimal-daily@1.0"
 #: Spec 4.8's core `degrade` values; TDS 7: core needs calendar_sessions, delistings and dense
-#: bars with OHLCV and obs_status, so these four cannot keep it, and the other three can.
-DROPS_CORE = {"no_ohlc": True, "no_sessions": True, "sparse_bars": True, "no_cum_factors": False,
+#: bars with OHLCV and obs_status, so these four cannot keep it, and the others can.
+DROPS_CORE = {"no_ohlc": True, "no_sessions": True, "sparse_bars": True,
               "kr_ex_is_record": False, "us_div_split_adjusted_no_dates": False,
               "no_delistings": True, "no_tick_info": False,  # F-15: market_rules is optional
               "late_bars": False}  # #354: no gap of the 4.5 table, valid data  # fmt: skip
@@ -1176,8 +1118,6 @@ def test_synth_conforms_degraded_core(
         assert kinds["bars"]["params"]["density"] == "sparse"
         assert "obs_status" not in bars.column_names
         assert bars["close"].null_count == 0
-    elif value == "no_cum_factors":  # F-04
-        assert not {"cum_factor_split", "cum_factor_total"} & set(bars.column_names)
     elif value == "kr_ex_is_record":  # F-05: every KR cash dividend, none elsewhere
         kr = [r for r in dividends if r[ID].startswith("KR:")]
         assert kr
@@ -1210,10 +1150,8 @@ def test_synth_conforms_degraded_core(
         assert any(r["delisted_on"] for r in rows(package, "instruments"))
     assert (CORE in manifest["profiles"]) is not DROPS_CORE[value]
     assert MINIMAL in manifest["profiles"]
-    # the checker's A001 holds, also across the halted days sparse bars leave out
-    assert a001(package, printed) == (
-        None if value == "no_cum_factors" else 0)  # fmt: skip
-    assert applied(package) == resolved(package)  # also where A001 has no columns to read
+    # what moved the prices is what the resolver reads, also with the days sparse bars leave out
+    assert applied(package) == resolved(package)
 
 
 def validate_short(monkeypatch: pytest.MonkeyPatch, out: Path, *more: str) -> None:
@@ -1343,7 +1281,7 @@ def test_command_names_the_late_bar_count(
 def test_degrade_drops_declared_profiles(tmp_path: Path) -> None:
     # spec 4.8: a value drops the profiles it cannot keep, and only those
     tiny: dict[str, Any] = {"preset": "tiny", "markets": ("KR",)}
-    both = make_snapshot(tmp_path / "two", **tiny, degrade=["no_cum_factors", "no_delistings"])
+    both = make_snapshot(tmp_path / "two", **tiny, degrade=["kr_ex_is_record", "no_delistings"])
     assert json.loads((both / "tds.json").read_text(encoding="utf-8"))["profiles"] == [MINIMAL]
     # counter-example: declared again, core fails the check where the checker sees the gap
     missing = {"no_sessions": "dataset calendar_sessions", "no_delistings": "dataset delistings",
@@ -1515,8 +1453,9 @@ CUT = dict.fromkeys(("corporate_actions", "delistings", "share_counts", "instrum
 
 def test_behind_cuts_the_rows_known_after_the_session(tmp_path: Path) -> None:
     # #425, spec 4.8 `behind`: each moved dataset loses its rows first known after the cut
-    # session's close, the bars' factors and the instruments follow, and `full` finds nothing,
-    # D003 judging every moved dataset; on two years of SHORT's counts (#475), longer than CUT
+    # session's close, the record of what moved the prices and the instruments follow, and
+    # `full` finds nothing, D003 judging every moved dataset; on two years of SHORT's counts
+    # (#475), longer than CUT
     two_years: dict[str, Any] = SHORT | {"start": dt.date(2018, 1, 2),
                                          "markets": ("KR", "US", "ZZ")}  # fmt: skip
     package = make_snapshot(tmp_path / "cut", **two_years, behind=CUT)
@@ -1527,13 +1466,6 @@ def test_behind_cuts_the_rows_known_after_the_session(tmp_path: Path) -> None:
     for name in CUT:
         assert len(rows(package, name)) < len(rows(plain, name)), name
         assert f"TDS-D003 not checked on {name}:" not in done.stdout
-
-
-def test_behind_cuts_actions_from_bars_without_factors(tmp_path: Path) -> None:
-    # #425: with no_cum_factors (F-04) the bars carry no factor to follow a cut action
-    package = make_snapshot(tmp_path / "bare", preset="tiny", behind={"corporate_actions": 2},
-                            degrade=["no_cum_factors"])  # fmt: skip
-    check_full(package)
 
 
 def test_behind_cuts_nothing_from_a_dataset_without_an_instant(tmp_path: Path) -> None:

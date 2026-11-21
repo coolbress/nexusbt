@@ -1187,7 +1187,7 @@ write: orders.to_csv("orders/{date}.csv")   apply to paper book: nx.fill(book, o
 | F-01 | `bars`의 `open`·`high`·`low`가 없음/null | `Price.open/high/low` = NaN. 그 행의 시가 단계 주문은 `blocked(no_open)`, 장중 단계(지정가·손절·탈출)는 `blocked(no_range)` — 체결 0, 주문은 남아 이월(5.6.5). 한 시장의 실행 기간에서 시가가 모두 없으면 실행 전에 `CapabilityError`(E18): "open prices not in snapshot for {market}; use nx.execution.market(at='close') (recorded), or use a snapshot whose bars include open/high/low". 지정가·손절·`exits`를 쓰는 전략도 같은 조건이면 E18. Abdi–Ranaldo 스프레드는 `min_half_spread_bps`로(건수 보고). 이 대체에서 `equity-daily-core`는 "OHLC 없이 통과"로 기록 | G-31, `degrade=["no_ohlc"]` |
 | F-02 | `calendar_sessions` 없음 | `exchange_calendars` 4.13.2로 각 시장의 `calendar_id` 세션(`ts_open`·`ts_close`, 반일장)을 만든다(그 라이브러리가 모르는 달력이면 E18). 세션 집합 = 그 달력 세션 중 `bars` 첫 날~마지막 날. `bars`에 그 달력 밖 날짜가 있으면 E14(`TDS-R003`). E30과 매니페스트 `assumptions`: "sessions synthesized from exchange_calendars 4.13.2" | `degrade=["no_sessions"]` |
 | F-03 | `bars`가 `density = sparse`이거나 `obs_status` 없음 | 메모리에서 상장 기간 × 세션으로 펼치고 빈 칸은 `obs_status = missing`. `obs_status`가 없으면 가격이 있으면 `traded`, 거래량 0이면 `no_trade`. E30 + 매니페스트 기록 | `degrade=["sparse_bars"]` |
-| F-04 | `bars.cum_factor_*` 없음 | 엔진은 원래 조정의 정답을 사건 표에서 계산한다(5.3.3). 칼럼이 없으면 `corporate_actions`의 `price_factor`로 `C`를 만든다(대체가 아니라 정의; 경고 없음). 칼럼이 있으면 `full` 검사에서 `TDS-A001`로 대조 | `degrade=["no_cum_factors"]` |
+| F-04 | `bars.cum_factor_*` 없음 | 엔진은 원래 조정의 정답을 사건 표에서 계산한다(5.3.3). 칼럼이 없으면 `corporate_actions`의 `price_factor`로 `C`를 만든다(대체가 아니라 정의; 경고 없음). 칼럼이 있으면 `full` 검사에서 `TDS-A001`로 대조 | 없음: 2026-11-22부터 생성기는 `cum_factor_*`를 쓰지 않으므로(#705) 모든 합성 패키지가 이 길을 탄다(`test_fallback_F04_factors_from_resolver`) |
 | F-05 | 한국 현금배당의 `ex_date`가 실제로는 기준일 | 엔진은 `ex_date`를 그대로 쓴다(고치지 않음). KR 현금배당 중 `ex_date = record_date`이고 `x_*_ex_date_method` 칼럼이 없는 행 수를 세어 E30("dividend ex_date may equal record date for {n} KR events; entitlement may be one session late" + `producer.hints`의 `fallback:F-05` 문장이 있으면 그것)과 매니페스트에 남긴다; 매니페스트는 건수와 키 `fallback:F-05`만 두고 문장은 두지 않는다(5.9.3) | `degrade=["kr_ex_is_record"]` |
 | F-06 | `fundamentals_state` 없음 | `Fund.*`를 쓰는 그래프는 만들 때 E18("snapshot lacks fundamentals_state; use a snapshot with fundamentals_state, or Panel.* monthly fundamentals if present"). 다른 기능은 그대로 | `degrade=["no_fundamentals_state"]` |
 | F-07 | `eligibility_daily` 없음 | 3.6의 `feature_panels.is_investable` 대체(`universe_source = "feature_panels"`)와 E30, 그것도 없으면 `investable=True`는 E18 | `degrade=["no_eligibility"]` (T-06) |
@@ -1330,7 +1330,7 @@ def make_snapshot(root: Path, *, preset: Literal["tiny","small","full","full_ci"
                   markets: Sequence[str] = ("KR", "US"),            # "ZZ" = 규칙 팩 없는 시험 시장(XZZZ, 통화 XTS)
                   n_kr: int | None = None, n_us: int | None = None,
                   events: Sequence[EventSpec] = (), overrides: Mapping[str, Any] | None = None,
-                  degrade: Sequence[Literal["no_ohlc","no_sessions","sparse_bars","no_cum_factors",
+                  degrade: Sequence[Literal["no_ohlc","no_sessions","sparse_bars",
                                             "kr_ex_is_record","no_fundamentals_state","no_eligibility",
                                             "no_share_counts","us_div_split_adjusted_no_dates",
                                             "no_fundamentals_events","no_benchmarks","no_delistings",
@@ -3306,7 +3306,7 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 - Acceptance: `tds/tests/test_conformance.py::test_A_codes`, `::test_V_codes`, `::test_reverse_split_not_flagged`, `::test_A001_multiplies_latest_revision_once`.
 
 **T0.16a `feat(testing): degraded synthetic packages for core fallbacks`** **[v3]** · `M1` `testing` · M · Blocked by: T0.7, T0.15b · §4.5, §4.8 *(v3: T0.16을 나눔)*
-- Context: `degrade=` 중 core 자료 값: `no_ohlc`, `no_sessions`, `sparse_bars`, `no_cum_factors`, `kr_ex_is_record`, `us_div_split_adjusted_no_dates`, `no_delistings`; 각 값이 지키지 못하는 프로필을 선언에서 뺌(검사는 여전히 통과).
+- Context: `degrade=` 중 core 자료 값: `no_ohlc`, `no_sessions`, `sparse_bars`, `kr_ex_is_record`, `us_div_split_adjusted_no_dates`, `no_delistings`(`no_cum_factors`는 2026-11-22에 빠짐: 생성기가 `cum_factor_*`를 쓰지 않는다, #705); 각 값이 지키지 못하는 프로필을 선언에서 뺌(검사는 여전히 통과).
 - Done means: `--preset small --degrade no_ohlc,kr_ex_is_record --validate`가 선언 프로필(core 없음)과 세 결과를 출력한다.
 - Acceptance: `test_synth.py::test_synth_conforms_degraded_core[<각 값>]`(7개), `::test_degrade_drops_declared_profiles`.
 

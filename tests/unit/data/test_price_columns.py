@@ -19,6 +19,7 @@ import pytest
 import yaml
 
 import nexusbt as nx
+from nexusbt.testing import synth
 from nexusbt.testing.synth import make_snapshot, read
 from nexusbt_tds.hash import write_hashes
 
@@ -29,6 +30,17 @@ OHL = ("open", "high", "low")
 #: next); the window 2019-05-20 .. 2019-05-28 is seven sessions.
 STOCK, LAST = "KR:T00004", "2019-05-28"
 HALTED, NO_TRADE = dt.date(2019, 5, 20), dt.date(2019, 5, 21)  # each keeps its close
+
+
+def total_at(package: Path, day: dt.date) -> float:
+    """`STOCK`'s running total factor on `day`: the product of the total steps the generator
+    applied to its prices on or before it (`synth.APPLIED`, #705), the engine's resolver not
+    asked, as the bars' `cum_factor_total` held it before #705."""
+    out = 1.0
+    for iid, ex, basis, factor, _ in synth.APPLIED[package.resolve()]["KR"]:
+        if (iid, basis) == (STOCK, "total") and ex <= day:
+            out *= factor
+    return out
 
 
 @pytest.fixture(autouse=True)
@@ -125,13 +137,14 @@ def test_derived_columns_read_their_bars_source(tiny: Path, column: str, source:
 
 def test_close_tr_window_with_a_dividend_is_3_2_formula(small: Path) -> None:
     """3.2: a `close_tr` window over an ex date is `raw[s]·C_total[t]/C_total[s]`, computed here
-    from the package's bars `close` and `cum_factor_total`, NaN where halted or missing; the
-    same window of `close`, split-adjusted only, differs before the ex date."""
+    from the package's bars `close` and the total steps the generator applied to them (its
+    record, #705), NaN where halted or missing; the same window of `close`, split-adjusted
+    only, differs before the ex date."""
     bars = read(small, "bars_1d").filter(pc.field("instrument_id") == STOCK)
     bars = bars.filter((pc.field("session_date") >= HALTED)
                        & (pc.field("session_date") <= dt.date.fromisoformat(LAST)))  # fmt: skip
     raw = np.array(bars["close"].to_pylist(), dtype=float)
-    total = np.array(bars["cum_factor_total"].to_pylist(), dtype=float)
+    total = np.array([total_at(small, d) for d in bars["session_date"].to_pylist()])
     hidden = np.isin(bars["obs_status"].to_pylist(), ["halted", "missing"])
     assert len(raw) == 7
     assert total[0] != total[-1]  # the dividend lies in the window
@@ -152,7 +165,7 @@ def test_no_trade_session_keeps_its_close(small: Path) -> None:
     adjusted to t in a `close_tr` window (the dividend after it applies)."""
     close = bars_on(small, "close", str(NO_TRADE))[STOCK]
     assert latest(small, "close_unadjusted", str(NO_TRADE))[STOCK] == close
-    then, now = (bars_on(small, "cum_factor_total", d)[STOCK] for d in (str(NO_TRADE), LAST))
+    then, now = (total_at(small, d) for d in (NO_TRADE, dt.date.fromisoformat(LAST)))
     assert window_cells(small, "close_tr", 6, LAST)[0] == pytest.approx(close * now / then)
 
 
@@ -178,8 +191,8 @@ def test_t12_returns_on_its_default_input(tmp_path: Path) -> None:
     def change(row: dict[str, Any]) -> dict[str, Any]:
         i = dates.index(str(row["session_date"]))
         return row if row["instrument_id"] != one else row | {
-            "close": None if i == 240 else 100.0 + i, "cum_factor_split": 1.0,
-            "cum_factor_total": 1.0, "obs_status": "halted" if i == 240 else "traded"}  # fmt: skip
+            "close": None if i == 240 else 100.0 + i,
+            "obs_status": "halted" if i == 240 else "traded"}  # fmt: skip
 
     rewrite(root, "bars", change)
     pipe = nx.Pipeline({"m": nx.factors.Returns(232).shift(21)})

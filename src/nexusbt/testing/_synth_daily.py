@@ -129,11 +129,12 @@ def _share_counts(
     """4.8 (7): KR `listed` shares on every session, known at its close; US and ZZ
     `outstanding` shares at each quarter end, filed 40 days later at 21:00Z, the rows filed
     after the period left out. A listing starts with 1e6~1e8 shares, multiplied from each
-    share event's ex-date on (the `cum_factor_split` ratio), fractions dropped."""
+    share event's ex-date on (the ratio of `_split`, the running split factor), fractions
+    dropped."""
     end, out = sessions["session_date"][-1], []
     for k in range(len(bars[ID])):
         base = int(rng.integers(1_000_000, 100_000_000, endpoint=True))
-        dates, split = bars["session_date"][k], bars["cum_factor_split"][k]
+        dates, split = bars["session_date"][k], bars["_split"][k]
         shares, kind = np.floor(base * (split[0] / split)), "listed"
         asof, at, when = dates, np.arange(len(dates)), bars["ts_end"][k]
         if market != "KR":  # each quarter's last day, the last session on or before it
