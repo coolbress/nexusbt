@@ -24,7 +24,7 @@ M2 = ("fundamentals_events", "fundamentals_state")
 NEEDS = {"cash_dividend": ("cash_per_share",)}  # a share event needs a ratio, checked below
 KEYS = ("dataset", ID, "kind", "ex_date")
 #: Columns the generator derives from the terms and the version chain; given ones could
-#: contradict them and break A001, so a spec may not set them.
+#: contradict them and the prices they move, so a spec may not set them.
 DERIVED = frozenset({"event_id", "revision_of", "status", "price_factor", "share_factor",
                      "affects", "factor_method", "factor_ref_price"})  # fmt: skip
 #: #300 Decisions: a delisting's columns a spec may give; 4.8 (6) fills those it leaves out,

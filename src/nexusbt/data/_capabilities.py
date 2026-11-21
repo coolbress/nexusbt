@@ -8,7 +8,7 @@ from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -76,12 +76,11 @@ class CapabilityRequest:
 
 @dataclass(frozen=True, slots=True)
 class DataCapabilities:
-    """The features turned on, the declared profiles v1 reads, and where the cumulative
-    factors come from: the bars' columns, or the resolver from the events (F-04)."""
+    """The features turned on and the declared profiles v1 reads. The cumulative factors come
+    from the resolver over the events, whatever the bars hold (spec 5.3.3, #705)."""
 
     features: frozenset[str]
     supported: frozenset[str]
-    cum_factors: Literal["columns", "resolver"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,7 +114,7 @@ def decide(
     if not extent.partitioned:  # a `market=` partition is the checker's (TDS-M010)
         _declared(folder, data, extent.by_market(), market_of)
     f02 = _calendars(folder, data, kinds, extent, lacking, taken)
-    columns = _fallbacks(folder, kinds, rules, found, extent, market_of, taken)
+    _fallbacks(folder, kinds, rules, found, extent, market_of, taken)
     twice = doubled(data)  # two or more left: off, never by a fallback (4.3, #547, #551)
     for f, reads in READS.items():
         lacking[f] += [k for k in twice if k in reads and k not in lacking[f]]
@@ -125,11 +124,9 @@ def decide(
     wanted = NEEDS.keys() if required is None else required.features
     used = list(dict.fromkeys(r for f in sorted(wanted) if f in on for r in taken[f]))
     _use_fallbacks(folder, data, bars, f02, used, policy, market_of, extent)
-    whole = {"cum_factor_split", "cum_factor_total"} <= columns
-    cum: Literal["columns", "resolver"] = "columns" if whole else "resolver"  # F-04
     supported = frozenset(p for p in data.get("profiles", []) if p in SUPPORTED)
     assumptions = tuple(SAYS[i] for i in ("F-02",) if any(r.id == i for r in used))
-    return DataCapabilities(on, supported, cum), used, assumptions
+    return DataCapabilities(on, supported), used, assumptions
 
 
 Sessions = tuple[list[FallbackRecord], dict[str, set[dt.date]]]
@@ -160,9 +157,9 @@ def _fallbacks(
     folder: Path, kinds: Mapping[str, Mapping[str, Any]], rules: Mapping[str, str | None],
     found: Sequence[Finding], extent: BarsExtent, market_of: Mapping[str, str],
     taken: dict[str, list[FallbackRecord]],
-) -> set[str]:  # fmt: skip
-    """4.5: F-03, F-01, F-16 and F-15, each added to the features that take it; the columns
-    of the bars' first file, which F-03 and F-04 read."""
+) -> None:  # fmt: skip
+    """4.5: F-03, F-01, F-16 and F-15, each added to the features that take it; F-03 reads the
+    columns of the bars' first file."""
     bars = kinds.get("bars")
     columns = _columns(folder, bars)
     if bars is not None and (bars["params"].get("density") == "sparse"
@@ -178,7 +175,6 @@ def _fallbacks(
                     for f in found if f.code == "TDS-V011" and f.dataset == read)  # fmt: skip
     taken["backtest"] += [FallbackRecord("F-16", str(d), m, n) for (d, m), n in years.items()]
     taken["grid"] += _no_grid(folder, kinds, rules, extent, market_of)
-    return columns
 
 
 def _refuse_features(

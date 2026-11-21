@@ -28,7 +28,10 @@ CA = pa.schema({
     "factor_method": _S, "factor_ref_price": _F, "revision_of": _S, "status": _S, "source": _S,
 })  # fmt: skip
 STATUS = {"revised": "effective", "cancelled": "cancelled"}  # a later version's status
-#: What `_move` applied, one entry per cumulative factor it multiplied: (instrument, ex-date,
+#: The running factors `_move` keeps in `bars` beside the prices, never written: a package has
+#: no `cum_factor_*` (TDS C6, #705); `_split` moves the share counts and the limit prices.
+FACTORS = {"_total": "total", "_split": "split"}
+#: What `_move` applied, one entry per running factor it multiplied: (instrument, ex-date,
 #: basis `total` or `split`, `price_factor`, `event_id`), compared with the checker's resolver
 #: (#608, #705). The `event_id` is that of the version `_move` was given, which for a revised
 #: event is its first version's: the chain's id, as the resolver keys it. A wrong version
@@ -71,10 +74,9 @@ def _actions(
     besides the `injected` ones (`EventSpec`); only those without `random` (tiny).
 
     The latest version of each event moves the raw prices (onto the KR grid again, the others
-    to `decimals`, 4.8 (5a)) and volumes
-    in `bars` from its ex-date on, and its price factor the cumulative factors (TDS 5.11's A001
-    at c = +inf). Returns the rows, each moving event's (instrument, ex-date index, kind), and
-    the record of what was applied (`Applied`).
+    to `decimals`, 4.8 (5a)) and volumes in `bars` from its ex-date on, and its price factor
+    the running factors (`FACTORS`). Returns the rows, each moving event's (instrument, ex-date
+    index, kind), and the record of what was applied (`Applied`).
     """
     moved: list[tuple[int, int, str]] = []
     applied: Applied = []
@@ -188,15 +190,13 @@ def _move(
     venue: str | None, decimals: int | None, record: tuple[str, Applied],
 ) -> None:  # fmt: skip
     """Instrument `k`'s bars from its `s`-th on, moved by one event's factors; an event
-    without a factor (`unavailable`) leaves them, and A001 does not compare its session.
-    `record`: the instrument's id and the list each multiplied cumulative factor is written
-    to, in the loop that multiplies the prices, so the record is what was applied."""
+    without a factor (`unavailable`) leaves them, and nothing is recorded for it. `record`:
+    the instrument's id and the list each multiplied running factor is written to, in the loop
+    that multiplies the prices, so the record is what was applied."""
     if version["price_factor"] is None:
         return
     iid, applied = record
-    for name in ("open", "high", "low", "close", "cum_factor_total") + (
-        ("cum_factor_split",) if share else ()
-    ):  # fmt: skip
+    for name in ("open", "high", "low", "close", "_total") + (("_split",) if share else ()):
         bars[name][k][s:] *= version["price_factor"]
         if name in OHLC:
             bars[name][k][s:] = _snap(
@@ -205,6 +205,5 @@ def _move(
         else:
             day = bars["session_date"][k][s]  # numpy in small, a date in tiny
             ex = day.item() if isinstance(day, np.generic) else day
-            basis = name.removeprefix("cum_factor_")
-            applied.append((iid, ex, basis, version["price_factor"], version["event_id"]))
+            applied.append((iid, ex, FACTORS[name], version["price_factor"], version["event_id"]))
     bars["volume"][k][s:] = np.round(bars["volume"][k][s:] * version["share_factor"])
