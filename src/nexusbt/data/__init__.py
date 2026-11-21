@@ -25,10 +25,10 @@ from nexusbt.data._block import MarketBlock as MarketBlock
 from nexusbt.data._block import block_columns, build_block
 from nexusbt.data._calendar import Calendar as Calendar
 from nexusbt.data._calendar import read_calendar
+from nexusbt.data._capabilities import SAYS, _columns, _values, check_fields, decide, said
 from nexusbt.data._capabilities import CapabilityRequest as CapabilityRequest
 from nexusbt.data._capabilities import DataCapabilities as DataCapabilities
 from nexusbt.data._capabilities import FallbackRecord as FallbackRecord
-from nexusbt.data._capabilities import _columns, _values, check_fields, decide, said
 from nexusbt.data._coverage import BarsExtent
 from nexusbt.data._datasets import chosen
 from nexusbt.data._outputs import table_value_hash as table_value_hash
@@ -222,7 +222,8 @@ class Snapshot:
             "fallbacks": [{"id": f.id, "dataset": f.dataset, "market": f.market, "count": f.count,
                            "column": f.column} for f in self.fallbacks],
         }  # fmt: skip
-        return {"data": data, "assumptions": [*self.assumptions, *said(self.fallbacks)]}
+        unsaid = [f for f in self.fallbacks if SAYS[f.id] not in self.assumptions]  # F-02's (4.5)
+        return {"data": data, "assumptions": [*self.assumptions, *said(unsaid)]}
 
     @property
     def markets(self) -> Mapping[str, MarketInfo]:
