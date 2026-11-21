@@ -494,8 +494,8 @@ def write_actions(root: Path, rows: Sequence[Mapping[str, Any]]) -> None:
 
 
 def _factors(actions: pa.Table) -> dict[tuple[str, str], list[tuple[dt.date, float, str]]]:
-    """(instrument, basis) → each (ex_date, price_factor, chain id) the prices move by, at
-    c = +inf, as the generator reads its own chains (`_recut`)."""
+    """(instrument, basis) → each (ex_date, price_factor, chain id) of the effective versions,
+    at c = +inf, as the generator reads its own chains (`_recut` keeps what moved prices)."""
     parent = {r["event_id"]: r["revision_of"] for r in actions.to_pylist()}
     latest: dict[str, tuple[Any, dict[str, Any]]] = {}
     for r in sorted(actions.to_pylist(), key=lambda r: r["event_id"]):

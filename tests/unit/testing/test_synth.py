@@ -12,6 +12,7 @@ import math
 import os
 import re
 import shutil
+import subprocess
 import sysconfig
 import textwrap
 from collections import Counter
@@ -262,6 +263,14 @@ def test_full_record_matches_the_resolver() -> None:
     """
     full = make_snapshot(Path(os.environ["NEXUSBT_SYNTH_FULL"]), preset="full")
     assert applied(full) == resolved(full)
+
+
+def test_validate_fails_when_the_check_fails(tmp_path: Path, monkeypatch: Any) -> None:
+    """#705 review: `--validate` exits with the check's code, which CI's synth job relies on."""
+    tds = pkg._tds
+    failed = subprocess.CompletedProcess(["check"], 1, "1 errors, 0 warnings at level full\n", "")
+    monkeypatch.setattr(pkg, "_tds", lambda *a: failed if a[0] == "check" else tds(*a))
+    assert main(["--preset", "tiny", "--out", str(tmp_path / "f"), "--validate"]) == 1
 
 
 def test_command_without_validate_prints_and_does_not_check(
