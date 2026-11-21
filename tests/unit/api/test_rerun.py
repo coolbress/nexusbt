@@ -256,6 +256,22 @@ def test_a_manifest_without_outside_is_not_recorded_and_runs(copied: tuple[Path,
     )
 
 
+def test_a_manifest_without_the_data_block_reruns(copied: tuple[Path, str]) -> None:
+    """#687 Decisions: a run saved before `data` and `assumptions` is "not recorded", never
+    "no fallback": nothing reads the missing keys, the rerun gives its comparison line, and
+    the new run records the block, `data.fallbacks = []` on this package."""
+    project, run_id = copied
+    found = _manifest(project / "runs" / run_id)
+    assert found["data"]["fallbacks"] == []
+    del found["data"], found["assumptions"]
+    _edit(project / "runs" / run_id / "manifest.json",
+          json.dumps(found, sort_keys=True, indent=2) + "\n")  # fmt: skip
+    run = nx.rerun(run_id)
+    assert run.comparison == _SAME
+    assert run.manifest is not None
+    assert run.manifest["data"]["fallbacks"] == []
+
+
 _OUTSIDE = """\
 import nexusbt as nx
 import mylib.helpers

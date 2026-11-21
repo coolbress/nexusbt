@@ -28,7 +28,7 @@ from nexusbt.data._calendar import read_calendar
 from nexusbt.data._capabilities import CapabilityRequest as CapabilityRequest
 from nexusbt.data._capabilities import DataCapabilities as DataCapabilities
 from nexusbt.data._capabilities import FallbackRecord as FallbackRecord
-from nexusbt.data._capabilities import _columns, _values, check_fields, decide
+from nexusbt.data._capabilities import _columns, _values, check_fields, decide, said
 from nexusbt.data._coverage import BarsExtent
 from nexusbt.data._datasets import chosen
 from nexusbt.data._outputs import table_value_hash as table_value_hash
@@ -207,6 +207,22 @@ class Snapshot:
     @property
     def fallbacks(self) -> list[FallbackRecord]:
         return list(self._decided[2])
+
+    def recorded(self) -> dict[str, Any]:
+        """4.4-5: what a run manifest keeps of the open, as it is: `data.profiles`,
+        `data.capabilities`, `data.unchecked`, `data.fallbacks` (`[]` for none; #687) and
+        `assumptions`, with one sentence per fallback (1.2). Names, codes and counts only."""
+        caps = self.capabilities
+        data = {
+            "profiles": {n: {"declared": p.declared, "verified_level": p.verified_level,
+                             "result": p.result} for n, p in self.profiles.items()},
+            "capabilities": {"features": sorted(caps.features), "supported": sorted(caps.supported),
+                             "cum_factors": caps.cum_factors},
+            "unchecked": list(self.unchecked),
+            "fallbacks": [{"id": f.id, "dataset": f.dataset, "market": f.market, "count": f.count,
+                           "column": f.column} for f in self.fallbacks],
+        }  # fmt: skip
+        return {"data": data, "assumptions": [*self.assumptions, *said(self.fallbacks)]}
 
     @property
     def markets(self) -> Mapping[str, MarketInfo]:
