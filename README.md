@@ -15,10 +15,11 @@ evaluation, a backtest, today's screen and a paper book. Korean translation:
 
 The first milestone (M1) is being built. On `main` today, on synthetic data:
 the `tds` checker and its CSV import; opening and checking a TDS package;
-`nx.run_pipeline` with the built-in factors; `nx.screen` of a factor; saved
-runs and `nexusbt rerun`; `nexusbt init`, `doctor` and `stubs`. Not built yet:
-`nx.evaluate`, `nx.backtest`, paper trading, and the `nexusbt screen` and
-`nexusbt backtest` commands, which stop with `NotImplementedError`. There is no
+`nx.run_pipeline` with the built-in factors over prices; `nx.screen` of a
+factor; saved runs and `nexusbt rerun`; `nexusbt init`, `doctor` and `stubs`.
+Not built yet: fundamentals, `nx.evaluate`, `nx.backtest`, paper trading,
+`nexusbt bugreport` of a saved run, and every other `nexusbt` command (`screen`
+and `backtest` among them), which stops with `NotImplementedError`. There is no
 release, and `nexusbt` on PyPI is a reserved name only: v1 is developed on
 synthetic data and published after it passes verification on real Korean and
 US data. The commands that later tickets add to this README ("first five

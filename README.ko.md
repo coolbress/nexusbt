@@ -12,11 +12,12 @@ NexusBT는 일봉으로 주식 팩터를 연구하는 오픈소스(Apache-2.0) �
 ## 상태
 
 첫 이정표(M1)를 짓는 중이다. 지금 `main`에서 합성 자료로 돌아가는 것:
-`tds` 검사기와 CSV 가져오기, TDS 패키지 열기와 검사, 내장 팩터를 쓰는
-`nx.run_pipeline`, 팩터 하나의 `nx.screen`, 저장된 실행과 `nexusbt rerun`,
-`nexusbt init`·`doctor`·`stubs`. 아직 없는 것: `nx.evaluate`, `nx.backtest`,
-모의 운용, 그리고 `NotImplementedError`로 멈추는 `nexusbt screen`과
-`nexusbt backtest` 명령. 출시판이 없고, PyPI의 `nexusbt`는 이름만 예약해
+`tds` 검사기와 CSV 가져오기, TDS 패키지 열기와 검사, 가격 위의 내장 팩터를
+쓰는 `nx.run_pipeline`, 팩터 하나의 `nx.screen`, 저장된 실행과
+`nexusbt rerun`, `nexusbt init`·`doctor`·`stubs`. 아직 없는 것: 재무 자료,
+`nx.evaluate`, `nx.backtest`, 모의 운용, 저장된 실행의 `nexusbt bugreport`,
+그리고 `NotImplementedError`로 멈추는 나머지 `nexusbt` 명령(`screen`과
+`backtest` 포함). 출시판이 없고, PyPI의 `nexusbt`는 이름만 예약해
 두었다. v1은 합성 자료로 개발하고 한국·미국 실자료 검증을 통과한 뒤
 게시한다. 뒤 티켓들이 이 README에 더할 명령("첫 5분", 팩터 하나 평가, 전략
 하나 백테스트, 한국+미국 함께)은 아직 넣지 않았다.
