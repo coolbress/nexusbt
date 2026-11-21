@@ -24,9 +24,14 @@ from nexusbt_tds.hash import write_hashes
 settings.register_profile("deep", parent=settings.get_profile("ci"), max_examples=500)
 
 
-def _drop_bars_column(root: Path, column: str) -> None:
+def _drop_bars_column(root: Path, column: str, market: str | None = None) -> None:
     data = json.loads((root / "tds.json").read_text(encoding="utf-8"))
-    for f in next(d for d in data["datasets"] if d["kind"] == "bars")["files"]:
+    files = next(d for d in data["datasets"] if d["kind"] == "bars")["files"]
+    if market is not None:
+        files = [f for f in files if f"market={market}" in Path(f["path"]).parts]
+        if not files:
+            raise ValueError(f"no bars file of market {market!r} in {root / 'tds.json'}")
+    for f in files:
         pq.write_table(pq.read_table(part := root / f["path"]).drop_columns([column]), part)
         f["bytes"] = part.stat().st_size
     (root / "tds.json").write_text(json.dumps(data), encoding="utf-8")
@@ -34,9 +39,10 @@ def _drop_bars_column(root: Path, column: str) -> None:
 
 
 @pytest.fixture
-def package_without_bars_column() -> Callable[[Path, str], None]:
+def package_without_bars_column() -> Callable[..., None]:
     """Drops one column from every bars file of a synthetic package, then writes its hashes
-    again, in place.
+    again, in place. `market=` drops it only from the files whose `files[].path` in
+    `tds.json` has the part `market=<market>`; a market no file has is a ValueError.
 
     The generator's `degrade` values cannot write a package whose bars have `volume` and no
     `value_traded` (4.8), so this makes one from a package that has both. It takes only the
