@@ -13,9 +13,8 @@ name: CI
 on:
   push:
     branches: [main]
-  # No `branches:` filter on pull requests: a filter skips stacked pull
-  # requests (base is another branch), and the diff-size limit pushes towards
-  # stacking. Each piece is checked against its own base.
+  # No `branches:` filter on pull requests: a filter would skip a pull
+  # request whose base is another branch, and checking it harms nothing.
   # `edited` besides the default types: a retitled pull request re-runs the
   # title check, and an edited description re-reads the diff-size warning,
   # without a push (plinth #322). The whole workflow re-runs; concurrency
@@ -45,7 +44,7 @@ permissions:
 
 jobs:
   ci:
-    uses: coolbress/plinth/.github/workflows/python-ci.yml@1ce6fbe65450e98f62366ed4de109b6152590fd9
+    uses: coolbress/plinth/.github/workflows/python-ci.yml@e9b2095ddba00e1eadbc412e9ca25385dc2c869b
     with:
       # `ci / test`'s limit (plinth's input since v2.34.0, default 10). On main the
       # same code ran 6 min 26 s to 9 min 27 s and pull requests' runs stopped at
