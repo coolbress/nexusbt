@@ -518,7 +518,7 @@ zipline 3.2.1과 같은 이름은 zipline의 결측 규칙과 **입력 의미**�
 | `DailyReturns()` = `Returns(2)` | | | | | 1 | 0차 |
 | `SimpleMovingAverage(W, inputs=[Price.close])`, 별칭 `SMA` | `nanmean` | NaN 무시, 전부 NaN → NaN | 1 | – | W−1 | 1차 동차 |
 | `ExponentialWeightedMovingAverage(W, decay_rate, inputs)`, `EWMA`; `.from_span/.from_halflife/.from_center_of_mass` | `average(x, weights=decay^(W−1−i))`; `0 < decay_rate ≤ 1`; 유한한 `span > 1`, `halflife > 0`, `center_of_mass > 0`이면서 float64로 계산한 감쇠율이 그 범위 안인 값; 그 밖의 값(NaN, ±inf 포함)은 항을 만들 때 넘긴 인자의 이름과 값을 말하는 오류 E16으로 거부한다(결정 2026-11-20, #666) | NaN 하나라도 → NaN | W | – | W−1 | 1차 |
-| `AverageDollarVolume(W)` | `nansum(close·volume)/W` (zipline 식) | NaN을 0으로 셈; 4.5 F-18이 `volume`에 적용되는 시장(그 열이 bars에 없거나 모든 행이 null)에서는 NaN(결정 2026-11-20, #667) | 0 | – | W−1 | 불변(값=가격×거래량) |
+| `AverageDollarVolume(W)` | `nansum(close·volume)/W` (zipline 식) | NaN을 0으로 셈; 창이 4.5 F-18이 `volume`에 대해 덮는 bars 파일(그 열이 없거나 그 열의 모든 행이 null인 파일)의 바를 하나라도 읽는 칸에서는 NaN(결정 2026-11-20, #667; 2026-11-21, #688) | 0 | – | W−1 | 불변(값=가격×거래량) |
 | `AverageTradedValue(W, ccy=None)` (NexusBT) | `nanmean(value_traded)`; `ccy`면 `.to(ccy)` | NaN 무시 | 1 | – | W−1 | 불변 |
 | `AnnualizedVolatility(W=252, annualization_factor=252, inputs=[Price.close_tr])` | `nanstd(DailyReturns 창, ddof=0)·√a` | NaN 무시 | 1 | 0 | W | 0차 |
 | `RollingStd(W, inputs)` (NexusBT) | `nanstd(x, ddof=1)` | NaN 무시 | 2 | 1 | W−1 | 1차 |

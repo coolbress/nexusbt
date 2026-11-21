@@ -133,7 +133,8 @@ def execute(
     5.4.1's counts of every row each term is computed at, as `(row, graph hash, diagnostic):
     n`: the rows the plan gives, decisions or not, whatever the chunks (a row two chunks
     compute is counted once). `gone` are the bars columns the market's F-18 records name
-    (4.5): a factor `_factors.WITHOUT` ties to one of them is NaN. A user function's
+    (4.5): a factor `_factors.WITHOUT` ties to one of them is NaN in a column whose window
+    reads a cell the block marks for it (`MarketBlock.gone`, #688). A user function's
     exception comes out as raised, the frames down to it hidden (`__tracebackhide__`, 6.6, R-42)."""
     __tracebackhide__ = True
     wanted = np.unique(np.fromiter(decisions, dtype=np.int64))
@@ -335,10 +336,9 @@ class _Chunk:
 
     def kernel(self, term: Term, t: int) -> F64:
         """A built-in factor's kernel at row t over its domain (3.4); NaN while the window
-        starts before the axis, or in a market without the column `_factors.WITHOUT` names
-        (F-18, #667): a missing input, counted nowhere (5.4.1)."""
-        if _factors.WITHOUT.get(term.op) in self.gone:
-            return np.full(len(self.block.instrument_ids), np.nan)
+        starts before the axis, and in a column whose window reads a seen cell (5.1.2) of a
+        file without the column `_factors.WITHOUT` names, in a market F-18 records it for
+        (#667, #688): a missing input, counted nowhere (5.4.1)."""
         if t - (size := _factors.rows(term)) + 1 < 0:
             return np.full(len(self.block.instrument_ids), np.nan)
         kernel = REGISTERED.get(term.op)  # `rolling` reads only terms, so it has no class
@@ -346,6 +346,11 @@ class _Chunk:
         windows = [self.window(i, t, size, raw) for i in term.inputs]
         found, zero, infinite = _factors.diagnosed(term, windows)
         inside = self.domain(term, t)
+        column = _factors.WITHOUT.get(term.op)
+        if column in self.gone and (covered := self.block.gone.get(str(column))) is not None:
+            a, b = t - size + 1 - self.low, t + 1 - self.low
+            seen = self.block.ts_available[a:b] <= self.ready[t]
+            inside = inside & ~(covered[a:b] & seen).any(axis=0)
         self.zero, self.infinite = zero & inside, infinite & inside  # 5.4.1, inside the kernel
         return np.where(inside, found, np.nan)
 
