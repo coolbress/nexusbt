@@ -20,17 +20,24 @@ import numpy as np
 import pyarrow as pa
 import pyarrow.compute as pc
 import pytest
-from hypothesis import HealthCheck, event, example, given, settings
+from hypothesis import HealthCheck, assume, event, example, given, settings
 from hypothesis import strategies as st
 
 import nexusbt as nx
 from nexusbt.data import Snapshot, decision_grid, every
 from nexusbt.factors import SMA, Returns
-from nexusbt.pipeline import Price
+from nexusbt.pipeline import Price, graph_hash
 from nexusbt.pipeline._degree import ZERO, _walk
+from nexusbt.pipeline._terms import describe_term
 from nexusbt.testing.synth import make_snapshot
 from property._pipelines import GRAPH, WINDOWS, bits, build, inside
-from property._variants import scale_prices
+from property._variants import (
+    append_action,
+    drop_instrument,
+    neutral_split,
+    rows_of,
+    scale_prices,
+)
 
 pytestmark = [pytest.mark.property, pytest.mark.slow]
 
@@ -177,11 +184,12 @@ def level(steps: list[tuple[str, str, int, int, int]]) -> list[Any]:
 
 
 def nodes(roots: list[Any]) -> list[Any]:
+    """Every term of the graph once, the terms in its inputs and in its parameters (a mask)."""
     found, todo = {}, list(roots)
     while todo:
         if (t := todo.pop())._key not in found:
             found[t._key] = t
-            todo += [i for i in t.inputs if hasattr(i, "_key")]
+            todo += [i for i in (*t.inputs, *(v for _, v in t.params)) if hasattr(i, "_key")]
     return list(found.values())
 
 
@@ -280,3 +288,166 @@ def test_M_SCALE_counterexample_threshold(  # noqa: N802 - spec 10.1's name
 #: catches an engine that flips other cells; this catches data or an X under which the
 #: counterexample breaks the relation on few cells or none (#255).
 FLIPS = 0.45
+
+
+@CASES
+@given(graph=GRAPH, instrument=st.sampled_from(IDS), pick=st.integers(0, 10**6))
+def test_M_SPLIT_NEUTRAL(  # noqa: N802 - spec 10.1's name
+    graph: list[Any], instrument: str, pick: int, roots: dict[str, Path], project: Path,
+    tmp_path_factory: pytest.TempPathFactory,
+) -> None:  # fmt: skip
+    """INV-15, M-SPLIT-NEUTRAL: a fake split of ratio 1.0 added on a session the instrument
+    trades and has no other event leaves the table and `term_diagnostics` the same, bit for
+    bit (8.3 has no precondition for it)."""
+    root = roots["small"]
+    events = {r["ex_date"] for r in rows_of(root, "corporate_actions")
+              if r["instrument_id"] == instrument}  # fmt: skip
+    traded = [r["session_date"] for r in rows_of(root, "bars_1d")
+              if r["instrument_id"] == instrument and r["obs_status"] == "traded"]  # fmt: skip
+    days = [d for d in traded[1:] if d not in events and d > FROM]
+    ex_date = days[pick % len(days)]
+    event(f"{instrument}, ex-date in {ex_date.year}")
+    at = shutil.copytree(root, tmp_path_factory.mktemp("split") / "pkg")
+    try:
+        append_action(at, neutral_split(at, instrument, ex_date))
+        pipe = build(graph)
+        with inside(project):
+            whole = run(pipe, nx.open(str(root)), FROM, "monthly")
+            split = run(pipe, nx.open(str(at)), FROM, "monthly")
+    finally:
+        shutil.rmtree(at.parent)
+    assert bits(split.table) == bits(whole.table)
+    assert bits(split.term_diagnostics) == bits(whole.term_diagnostics)
+
+
+#: Written here, not shared, as `roots` above (#630 39): 9 KR instruments, so one is deleted.
+@pytest.fixture(scope="module")
+def nine(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    return make_snapshot(tmp_path_factory.mktemp("synth") / "nine", preset="small",
+                         markets=("KR",), n_kr=9, degrade=())  # fmt: skip
+
+
+CROSS = ("rank", "zscore", "demean", "winsorize", "pct_rank", "top", "bottom",
+         "percentile_between", "quantiles")  # fmt: skip
+
+
+def dummy(root: Path, project: Path, pick: int) -> tuple[str, Any, pa.Table]:
+    """M-DUMMY's added instrument, its universe and its `Returns(5)` at the decisions: one of the
+    instruments with at least the median number of decisions (counted from the package, at
+    least 3 of them), drawn by `pick`; the universe `close_unadjusted > X`, X its highest raw
+    close at any session, so it enters the universe at no row a term is computed at, the rows
+    a window reads before a decision included (#255's Decisions, 2026-11-21)."""
+    close = Price.close_unadjusted.latest
+    with inside(project):
+        seen = run(nx.Pipeline({"close": close, "r": Returns(5)}), nx.open(str(root)), FROM,
+                   "monthly").table  # fmt: skip
+    seen = seen.filter(pc.is_finite(seen["close"]))
+    counts = dict(zip(*pc.value_counts(seen["instrument_id"]).flatten(), strict=True))
+    long = sorted(i.as_py() for i, n in counts.items() if n.as_py() >= np.median(
+        [n.as_py() for n in counts.values()]))  # fmt: skip
+    assert len(long) >= 3, long
+    name = long[pick % len(long)]
+    mine = seen.filter(pc.equal(seen["instrument_id"], name))
+    bars = [r["close"] for r in rows_of(root, "bars_1d") if r["instrument_id"] == name]
+    return name, close > max(c for c in bars if c is not None), mine
+
+
+def without(root: Path, tmp: Path, project: Path, pipe: nx.Pipeline, name: str) -> tuple[Any, Any]:
+    """The run on the package at `root`, and on its copy with `name` deleted."""
+    at = shutil.copytree(root, tmp / "without")
+    drop_instrument(at, name)
+    with inside(project):
+        return run(pipe, nx.open(str(root)), FROM, "monthly"), run(
+            pipe, nx.open(str(at)), FROM, "monthly"
+        )
+
+
+def label(term: Any) -> str:
+    """How `term_diagnostics` names a term (5.4.1, until T2.11)."""
+    return f"{describe_term(term).splitlines()[0]} {graph_hash(term)[:12]}"
+
+
+@CASES
+@given(graph=GRAPH, pick=st.integers(0, 10**6))
+# a rank under a 21-row window: computed at rows before a decision too (the review of #255's
+# last pull request; with X from the decisions alone KR:T00005 entered the rank's mask there)
+@example(graph=[("rank", 0, 0, 2), ("sma", 1, 0, 21)], pick=2)
+def test_M_DUMMY(  # noqa: N802 - spec 10.1's name
+    graph: list[Any], pick: int, nine: Path, project: Path,
+    tmp_path_factory: pytest.TempPathFactory,
+) -> None:  # fmt: skip
+    """INV-15, M-DUMMY: an instrument that enters the universe at no decision, outside every
+    cross-section's mask, leaves the result table the same, every column and row bit for bit.
+    `term_diagnostics` counts every listed cell (5.4.1), so the owner's rule of 2026-11-21: per
+    (market, session, term, diagnostic), the count with the instrument is the count without
+    it or one more (its own cell); no count exists only without it; the counts of another
+    market, and of every cross-section masked by the universe, are the same."""
+    name, universe, _ = dummy(nine, project, pick)
+    event(f"{name} added")
+    # a random graph may hold no rank: two fixed masked cross-sections are in every case
+    columns = {**build(graph, mask=universe).columns, "zero_by_zero": Returns(2) * 0.0 / 0.0,
+               "rank": Returns(5).rank(mask=universe),
+               "zscore": Returns(5).zscore(mask=universe)}  # fmt: skip
+    pipe = nx.Pipeline(columns, screen=universe)
+    cross = [t for t in nodes([*columns.values()]) if t.op in CROSS]
+    assert all(dict(t.params).get("mask") is universe for t in cross)  # the precondition
+    tmp = tmp_path_factory.mktemp("dummy")
+    try:
+        whole, less = without(nine, tmp, project, pipe, name)
+    finally:
+        shutil.rmtree(tmp)
+    assume(whole.table.num_rows > 0)  # a universe that holds no one compares nothing
+    assert name not in whole.table["instrument_id"].to_pylist()
+    assert bits(less.table) == bits(whole.table)
+    keys = ("market", "session_date", "term", "diagnostic")
+    counts = [{tuple(r[k] for k in keys): r["n"] for r in t.term_diagnostics.to_pylist()}
+              for t in (whole, less)]  # fmt: skip
+    assert counts[1].keys() <= counts[0].keys()
+    added = {k: n - counts[1].get(k, 0) for k, n in counts[0].items()}
+    assert set(added.values()) <= {0, 1}
+    assert all(added[k] == 0 for k in added if k[0] != name.split(":")[0])
+    masked = {label(t) for t in cross}
+    assert all(added[k] == 0 for k in added if k[2] in masked)
+    event(f"{sum(added.values())} counts one more, of {len(added)}")
+    event(f"{sum(k[2] in masked for k in added)} counts at a masked cross-section")
+
+
+@settings(max_examples=3, suppress_health_check=[HealthCheck.too_slow])
+@given(pick=st.integers(0, 10**6))
+def test_M_DUMMY_counterexample_unmasked(  # noqa: N802 - spec 10.1's name
+    pick: int, nine: Path, project: Path, tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    """8.3's counterexample, a universe on top of a `zscore` without a mask: with the added
+    instrument in the zscore's cross-section, a cell of it changes only at a decision where
+    that instrument's `Returns(5)` is finite (it then moves the mean), and nearly every such
+    cell does; the same zscore masked by the universe is the same, bit for bit."""
+    name, universe, mine = dummy(nine, project, pick)
+    finite = set(mine.filter(pc.is_finite(mine["r"]))["session_date"].to_pylist())
+    columns = {"z": Returns(5).zscore(), "masked": Returns(5).zscore(mask=universe)}
+    tmp = tmp_path_factory.mktemp("unmasked")
+    try:
+        whole, less = without(nine, tmp, project, nx.Pipeline(columns, screen=universe), name)
+    finally:
+        shutil.rmtree(tmp)
+    old, new = whole.table, less.table
+    assume(old.num_rows > 0)  # a universe that holds no one (KR:T00008's X) compares nothing
+    assert old.select(["session_date", "instrument_id"]) == new.select(
+        ["session_date", "instrument_id"]
+    )
+    days, z = old["session_date"].to_pylist(), old["z"].to_pylist()
+    a, b = old["z"].to_numpy(zero_copy_only=False), new["z"].to_numpy(zero_copy_only=False)
+    changed = {n for n in range(len(z)) if a[n].tobytes() != b[n].tobytes()}
+    expected = {n for n in range(len(z)) if days[n] in finite and np.isfinite(z[n])}
+    event(f"{name}: z changed on {len(changed)} of {len(expected)} cells it can change")
+    assert changed <= expected
+    # KR:T00009's Returns(5) is finite at no decision the universe holds anyone: nothing to show
+    assume(expected)
+    assert len(changed) >= MOVED * len(expected)
+    assert bits(new.select(["masked"])) == bits(old.select(["masked"]))
+
+
+#: The least share of the cells the unmasked zscore must change: measured 2026-11-21 on the
+#: instruments `dummy` draws from, all of them (KR:T00001 22 of 22, KR:T00003 161 of 161,
+#: KR:T00005 15 of 15; KR:T00008 and KR:T00009 assumed away above). A cell whose mean and std
+#: moved together to the same z would fail it; none did (#255).
+MOVED = 1.0
