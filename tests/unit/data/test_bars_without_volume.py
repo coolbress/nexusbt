@@ -14,6 +14,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+import pyarrow as pa
 import pyarrow.compute as pc
 import pytest
 
@@ -157,6 +159,98 @@ def test_adv_filter_unknown_without_volume(tmp_path: Path) -> None:
     root = make_snapshot(tmp_path / "p", preset="tiny", degrade=["no_volume"])
     assert traded(root).table.num_rows
     assert traded(root, screen=AverageDollarVolume(3) >= 0).table.num_rows == 0
+
+
+START, END = dt.date(2019, 12, 2), dt.date(2020, 1, 31)  # bars files year=2019 and year=2020
+SPLIT = "nexusbt.compute._chunks.spans"
+
+
+def adv(root: Path, start: str, end: str) -> pa.Table:
+    """`AverageDollarVolume(3)` and `Price.volume.latest` in one pipeline (one block per
+    chunk, read by both), the open's E30 left aside."""
+    terms = {"adv": AverageDollarVolume(3), "v": nx.Price.volume.latest}
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")  # F-18's E30, and F-03's on `sparse_bars`
+        result = nx.run_pipeline(nx.Pipeline(terms), start=start, end=end, snapshot=str(root))
+    assert result.term_diagnostics.num_rows == 0
+    return result.table
+
+
+def by_session(table: pa.Table, column: str) -> dict[dt.date, list[float]]:
+    found: dict[dt.date, list[float]] = {}
+    for day, value in zip(table["session_date"].to_pylist(), table[column].to_pylist(),
+                          strict=True):  # fmt: skip
+        found.setdefault(day, []).append(value)
+    return found
+
+
+def test_adv_nan_where_its_window_reads_the_file_without_volume(
+    tmp_path: Path, package_without_bars_column: Callable[..., None]
+) -> None:
+    """#688 Decisions 1, 2: `volume` left out of the 2019 file only. `AverageDollarVolume(3)`
+    is NaN at the sessions whose window reads a 2019 bar (2020's first two) and the whole
+    package's value at every later one, where `Price.volume.latest` is the same number."""
+    whole = make_snapshot(tmp_path / "w", preset="small", markets=("KR",), n_kr=3, start=START,
+                          end=END)  # fmt: skip
+    root = make_snapshot(tmp_path / "p", preset="small", markets=("KR",), n_kr=3, start=START,
+                         end=END)  # fmt: skip
+    package_without_bars_column(root, "volume", year=2019)
+    with pytest.raises(ValueError, match="year 2018"):  # a year no file has
+        package_without_bars_column(root, "volume", year=2018)
+    assert records(root) == {("KR", "volume")}
+    before, after = adv(whole, "2020-01-02", "2020-01-31"), adv(root, "2020-01-02", "2020-01-31")
+    assert after["v"].to_pylist() == before["v"].to_pylist()
+    assert all(math.isfinite(x) for x in after["v"].to_pylist())
+    days = sorted(by_session(after, "adv"))
+    reaching, inside = days[:2], days[2:]
+    assert reaching == [dt.date(2020, 1, 2), dt.date(2020, 1, 3)]
+    found, known = by_session(after, "adv"), by_session(before, "adv")
+    assert all(math.isnan(x) for d in reaching for x in found[d])
+    assert inside
+    assert all(found[d] == known[d] for d in inside)
+    assert all(math.isfinite(x) for d in inside for x in found[d])
+
+
+def test_adv_per_cell_equal_over_chunks(
+    tmp_path: Path, package_without_bars_column: Callable[..., None],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:  # fmt: skip
+    """INV-03 for #688 (P-CHUNK's KINDS has no `AverageDollarVolume`): a run cut into chunks
+    at 2020's first session and at each later week equals the run in one chunk, bit for bit,
+    the second chunk's windows reading the first chunk's bars of the file without `volume`."""
+    root = make_snapshot(tmp_path / "p", preset="small", markets=("KR",), n_kr=3, start=START,
+                         end=END)  # fmt: skip
+    package_without_bars_column(root, "volume", year=2019)
+    monkeypatch.setattr(SPLIT, lambda dates, *_, **__: [(0, len(dates) - 1)])
+    one = adv(root, "2019-12-20", "2020-01-31")
+
+    def weeks(dates: Any, *_: Any, **__: Any) -> list[tuple[int, int]]:
+        days = list(np.asarray(dates, dtype="datetime64[D]"))
+        cuts = [k for k in range(1, len(days)) if days[k].astype(object).year == 2020
+                and (days[k - 1].astype(object).year == 2019 or k % 5 == 0)]  # fmt: skip
+        return list(zip([0, *cuts], [c - 1 for c in cuts] + [len(days) - 1], strict=True))
+
+    monkeypatch.setattr(SPLIT, weeks)
+    cut = adv(root, "2019-12-20", "2020-01-31")
+    for column in ("adv", "v"):
+        assert cut[column].to_numpy().tobytes() == one[column].to_numpy().tobytes(), column
+    assert math.isnan(by_session(one, "adv")[dt.date(2020, 1, 2)][0])
+    assert math.isfinite(by_session(one, "adv")[dt.date(2020, 1, 6)][0])
+
+
+def test_adv_window_with_no_bar_is_not_f18s(tmp_path: Path) -> None:
+    """#688 Decisions (criterion 3 narrowed): in a market whose every file lacks `volume`, a
+    listed instrument's window that holds no bar at all (`sparse_bars` drops a halt's rows, so
+    those sessions are missing) reads no F-18 bar: 3.4's value, 0.0, as on a package with
+    `volume`; every other cell of that session is NaN."""
+    root = make_snapshot(tmp_path / "p", preset="small", markets=("KR",),
+                         degrade=["sparse_bars", "no_volume"])  # fmt: skip
+    halt, day = "KR:T00069", "2015-03-18"  # halted 2015-03-16 to at least 03-20 before degrade
+    table = adv(root, day, day)
+    ids, values = table["instrument_id"].to_pylist(), table["adv"].to_pylist()
+    assert halt in ids
+    assert values[ids.index(halt)] == 0.0
+    assert all(math.isnan(x) for i, x in zip(ids, values, strict=True) if i != halt)
 
 
 def test_no_volume_drops_the_core_declaration(tmp_path: Path) -> None:

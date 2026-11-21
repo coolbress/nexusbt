@@ -52,8 +52,9 @@ ROLLING: Mapping[str, Callable[[F64], F64]] = {
     "max": _kernels.window_nanmax,
     "median": _kernels.window_nanmedian,
 }
-#: The bars column whose F-18 fallback (4.5) in a market makes the factor NaN there (3.4,
-#: #667): the one built-in whose rule gives a finite value over a window of NaN cells.
+#: The bars column whose F-18 fallback (4.5) makes the factor NaN in a cell whose window reads
+#: a bar of a file without it (3.4, #667, #688): the one built-in whose rule gives a finite
+#: value over a window of NaN cells.
 WITHOUT = {"AverageDollarVolume": "volume"}
 #: Rows a factor reads beyond its W: `AnnualizedVolatility` takes W returns, so W + 1 prices.
 EXTRA = {"AnnualizedVolatility": 1}

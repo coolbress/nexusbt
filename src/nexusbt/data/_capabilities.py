@@ -23,6 +23,7 @@ from nexusbt.contracts import (
     SnapshotError,
 )
 from nexusbt.data._block import OHL, TRADED, partition_values
+from nexusbt.data._block import gone as _gone
 from nexusbt.data._coverage import BarsExtent, schedule
 from nexusbt.data._datasets import chosen, dataset, doubled
 from nexusbt.data._datasets import layer as _layer
@@ -280,17 +281,6 @@ def _gone_columns(
                 count = min(sum(gone), int(entry.get("rows", sum(gone))))
                 out.append(FallbackRecord(id_, str(bars["name"]), m, count, c))
     return out
-
-
-def _gone(meta: pq.FileMetaData, column: str) -> bool:
-    """The file lacks `column`, or its footer says null in every row; False when it cannot say."""
-    if column not in meta.schema.names:
-        return True
-    at = meta.schema.names.index(column)
-    stats = [meta.row_group(g).column(at).statistics for g in range(meta.num_row_groups)]
-    if any(s is None or not s.has_null_count for s in stats):
-        return False
-    return bool(sum(s.null_count for s in stats) == meta.num_rows)
 
 
 def _columns(folder: Path, dataset: Mapping[str, Any] | None) -> set[str]:
