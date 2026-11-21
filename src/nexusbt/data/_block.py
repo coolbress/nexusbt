@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -47,7 +47,10 @@ class MarketBlock:
     chunk (5.3.1). Every array is `(rows, columns)`: `values[field]` float64, `exists` the
     listing mask, `obs_status` codes into `OBS_STATUS`, `ts_available` each cell's availability
     instant (NaT without a bar), which a reader compares with `ready(t)` (5.1.2); a late bar
-    stays in its session's row. The first `overlap` rows are the previous chunk's tail."""
+    stays in its session's row. The first `overlap` rows are the previous chunk's tail.
+    `gone[c]`, for a bars column `c` of `OHL` or `TRADED` that a file read lacks or holds null
+    in every row (`gone`, 4.5 F-01, F-18), is true at the cells read from such a file; a column
+    no file read lacks has no entry (#688)."""
 
     market: str
     dates: NDArray[np.datetime64]
@@ -57,6 +60,7 @@ class MarketBlock:
     exists: NDArray[np.bool_]
     obs_status: NDArray[np.int8]
     ts_available: NDArray[np.datetime64]
+    gone: Mapping[str, NDArray[np.bool_]] = field(default_factory=dict)
 
 
 def partition_values(path: str, partitioning: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
@@ -97,8 +101,13 @@ def build_block(
     wanted = [ID, "session_date", "close", *(s for s in sources if s not in _NULLABLE)]
     optional = [*_OPTIONAL, *([source] if source != "ts_close" else []),  # ts_close: calendar's
                 *(s for s in sources if s in _NULLABLE)]  # fmt: skip
+    covered: dict[str, NDArray[np.bool_]] = {}  # only a column some file read lacks (F-18)
     for path in _files(bars, calendar.market, dates) if n else ():
-        rows, cols, table = _cells(manifest.root / path, ids, dates, wanted, optional)
+        meta = pq.read_metadata(manifest.root / path)
+        rows, cols, table = _cells(manifest.root / path, meta, ids, dates, wanted, optional)
+        for s in dict.fromkeys(s for s in sources if s in _NULLABLE):
+            if gone(meta, s):
+                covered.setdefault(s, np.zeros(shape, dtype=bool))[rows, cols] = True
         if source not in (*table.column_names, "ts_end", "ts_close"):
             raise _absent(manifest, bars, path, source)
         for f, s in zip(fields, sources, strict=True):
@@ -120,7 +129,7 @@ def build_block(
         values[f][status == 1] = 0.0  # no_trade (3.2)
     status[~exists] = -1
     return MarketBlock(calendar.market, dates, first - start, ids, values, exists, status,
-                       available)  # fmt: skip
+                       available, covered)  # fmt: skip
 
 
 def _files(entry: Mapping[str, Any], market: str, dates: NDArray[np.datetime64]) -> list[str]:
@@ -196,18 +205,31 @@ def _absent(manifest: Manifest, bars: Mapping[str, Any], path: str, column: str)
     )  # fmt: skip
 
 
+def gone(meta: pq.FileMetaData, column: str) -> bool:
+    """The file lacks `column`, or its footer says null in every row; False when it cannot say.
+    F-01 and F-18 (4.5) take a file this says yes to, for the record and for the block's cells."""
+    if column not in meta.schema.names:
+        return True
+    at = meta.schema.names.index(column)
+    stats = [meta.row_group(g).column(at).statistics for g in range(meta.num_row_groups)]
+    if any(s is None or not s.has_null_count for s in stats):
+        return False
+    return bool(sum(s.null_count for s in stats) == meta.num_rows)
+
+
 def _cells(
     path: Path,
+    meta: pq.FileMetaData,
     ids: tuple[str, ...],
     dates: NDArray[np.datetime64],
     wanted: Sequence[str],
     optional: Sequence[str],
 ) -> tuple[NDArray[np.intp], NDArray[np.intp], pa.Table]:
     """A file's rows that fall in the block, with their row and column numbers; the `optional`
-    columns are read when the file has them. The dictionary of `instrument_id` is mapped to
-    column numbers once, then each row's index is looked up in that small table (5.3.1,
-    A-05). `ids` is sorted and not empty."""
-    names = set(pq.read_schema(path).names)
+    columns are read when the file has them (`meta`, its footer). The dictionary of
+    `instrument_id` is mapped to column numbers once, then each row's index is looked up in
+    that small table (5.3.1, A-05). `ids` is sorted and not empty."""
+    names = set(meta.schema.to_arrow_schema().names)
     columns = list(dict.fromkeys([*wanted, *(c for c in optional if c in names)]))
     table = pq.read_table(path, columns=columns, read_dictionary=[ID])
     sorted_ids = np.array(ids, dtype=object)
