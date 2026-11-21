@@ -582,7 +582,9 @@ def _refactor(bars: pa.Table, was: Mapping[Any, Any], now: Mapping[Any, Any]) ->
 def _recut(applied: Applied, was: Mapping[Any, Any], now: Mapping[Any, Any]) -> Applied:
     """`applied` once a cut changed the versions known, as `_refactor` steps the bars'
     `cum_factor_*`: for each (instrument, basis) whose steps it changed, the steps `was` gave
-    taken out and those `now` gives put in; an applied step `was` lacks stays."""
+    taken out and those `now` gives put in; an applied step `was` lacks stays, and a step in
+    both that was never applied (a payout after the last bar) stays out, as its 1/f and f
+    cancel on the bars."""
     changed = {k for k in was.keys() | now.keys() if was.get(k) != now.get(k)}
     drop = Counter((i, ex, b, f, e) for (i, b) in changed for ex, f, e in was.get((i, b), [])
                    if f is not None)  # fmt: skip
@@ -592,8 +594,13 @@ def _recut(applied: Applied, was: Mapping[Any, Any], now: Mapping[Any, Any]) -> 
             drop[step] -= 1
         else:
             kept.append(step)
-    return kept + [(i, ex, b, f, e) for (i, b) in sorted(changed)
-                   for ex, f, e in now.get((i, b), []) if f is not None]  # fmt: skip
+    for step in ((i, ex, b, f, e) for (i, b) in sorted(changed)
+                 for ex, f, e in now.get((i, b), []) if f is not None):  # fmt: skip
+        if drop[step]:  # in `was` but never applied: not applied now either
+            drop[step] -= 1
+        else:
+            kept.append(step)
+    return kept
 
 
 def main(argv: Sequence[str] | None = None) -> int:

@@ -277,11 +277,23 @@ def test_the_record_of_what_was_applied_stays_out_of_the_package(
     assert files_of(lost) == files_of(kept)
 
 
+def test_a_cut_puts_back_no_step_the_prices_never_took() -> None:
+    """#705 review: a cut that revises a dividend keeps a payout after the last bar, which was
+    never applied, out of the record, as its 1/f and f cancel on the bars' `cum_factor_total`."""
+    d1, d9 = dt.date(2020, 1, 6), dt.date(2020, 3, 2)
+    was = {("KR:T1", "total"): [(d1, 0.99, "KR:E1"), (d9, 0.5, "KR:L1")]}
+    now = {("KR:T1", "total"): [(d1, 0.98, "KR:E1"), (d9, 0.5, "KR:L1")]}
+    record = synth._recut([("KR:T1", d1, "total", 0.99, "KR:E1")], was, now)
+    assert record == [("KR:T1", d1, "total", 0.98, "KR:E1")]
+
+
 @pytest.mark.skipif(not os.environ.get("NEXUSBT_SYNTH_FULL"), reason="a server's whole full")
 def test_full_record_matches_the_resolver() -> None:
     """#705 Decisions 28: the whole `full` package compared as the slices below are, built and
-    run once on a server on the day the whole data is built, never in CI: `NEXUSBT_SYNTH_FULL=
-    <empty folder> uv run pytest tests/unit/testing/test_synth.py -k full_record`."""
+    run once on a server on the day the whole data is built, never in CI:
+
+    NEXUSBT_SYNTH_FULL=<empty folder> uv run pytest tests/unit/testing/test_synth.py -k full_record
+    """
     full = make_snapshot(Path(os.environ["NEXUSBT_SYNTH_FULL"]), preset="full")
     assert applied(full) == resolved(full)
 
@@ -511,7 +523,8 @@ def test_full_is_small_rules_at_full_scale(tmp_path: Path, monkeypatch: pytest.M
             for m in ("KR", "US") for y in (1995, 2024)} <= paths  # fmt: skip
     done = pkg._tds("check", str(full), "--level", "full")
     assert done.returncode == 0, done.stdout + done.stderr
-    assert "0 errors, 0 warnings at level full" in done.stdout
+    assert "0 errors, 0 warnings at level full" in done.stdout  # A001 among them
+    assert applied(full) == resolved(full)  # and the record (#705)
 
 
 @pytest.mark.parametrize(("term", "ref", "unit", "cash"), [

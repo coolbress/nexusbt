@@ -32,7 +32,8 @@ STATUS = {"revised": "effective", "cancelled": "cancelled"}  # a later version's
 #: basis `total` or `split`, `price_factor`, `event_id`), compared with the checker's resolver
 #: (#608, #705). The `event_id` is that of the version `_move` was given, which for a revised
 #: event is its first version's: the chain's id, as the resolver keys it. A wrong version
-#: applied is still caught, since its `price_factor` differs from the one the resolver picks.
+#: applied is still caught whenever it moves the prices differently, since its `price_factor`
+#: then differs from the one the resolver picks.
 Applied = list[tuple[str, dt.date, str, float, str]]
 #: 4.8 (4): each share event's yearly rate and its ratios, (new, old) shares; a bonus issue
 #: of 0.29 is 129 shares for 100.
