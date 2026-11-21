@@ -374,11 +374,18 @@ def _no_grid(
         "instruments", 0))) for m in unsourced]  # fmt: skip
 
 
+def said(records: Sequence[FallbackRecord]) -> list[str]:
+    """One sentence per fallback id, as its E30 says it: the manifest's `assumptions` (1.2)."""
+    ids = dict.fromkeys(r.id for r in records)
+    return [f"fallback {i} used: {SAYS[i]} for "
+            f"{', '.join(dict.fromkeys(r.market for r in records if r.id == i))}"
+            for i in ids]  # fmt: skip
+
+
 def _warning(data: Mapping[str, Any], records: Sequence[FallbackRecord]) -> DataProfileWarning:
     first = records[0]
     return DataProfileWarning(
-        what=f"fallback {first.id} used: {SAYS[first.id]} for "
-             f"{', '.join(dict.fromkeys(r.market for r in records))}",
+        what=said(records)[0],
         where="; ".join(f"dataset {r.dataset}, market {r.market}, "
                         f"{f'column {r.column}, ' if r.column else ''}{r.count}" for r in records),
         why="a fallback changes what a term means (4.5)",

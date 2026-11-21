@@ -313,7 +313,8 @@ def _seal(
         txn.set_manifest({"kind": kind, "snapshot_id": opened.id, "markets": markets,
                           "snapshot_semantic_hash": opened.semantic_hash,
                           "snapshot_value_hash": opened.value_hash,
-                          "snapshot_physical_hash": opened.physical_hash})  # fmt: skip
+                          "snapshot_physical_hash": opened.physical_hash,
+                          **opened._recorded()})  # fmt: skip
     except BaseException:
         txn.abort()
         raise
