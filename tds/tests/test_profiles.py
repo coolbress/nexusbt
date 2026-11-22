@@ -286,6 +286,14 @@ def test_a_bars_dataset_needs_open_high_low_volume_only_for_its_own_equities(
     assert {f.dataset for f in result.errors} <= {"levels"}
 
 
+def test_bars_ids_that_are_no_text_are_the_schema_checks_not_a_crash(tmp_path: Path) -> None:
+    # the second review of #705's 3a: bars ids that cannot be cast to string (exit 70 before)
+    manifest, files = build.base()
+    build._bars(instrument_id=pa.array([b"\xff"], pa.binary()))(manifest, files)
+    result = check(Path(build.write(tmp_path, manifest, files)), level="schema")
+    assert [f.code for f in result.errors] == ["TDS-S002"]
+
+
 @pytest.mark.parametrize("ids", [["US:AAA", None], [1, 2]], ids=["a null id", "integer ids"])
 def test_ids_of_another_kind_are_the_schema_checks_not_a_crash(
     ids: list[Any], tmp_path: Path
