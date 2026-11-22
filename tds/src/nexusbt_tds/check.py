@@ -49,7 +49,7 @@ Severity = Literal["error", "warning"]
 _ROW_CODES = (
     "S001 S002 S003 S004 S005 S006 S007 S008 S009 S010 K001 K002 K003 K004 K010 K011"
     " R001 R002 R003 R004 R005 R006 R007 R008 R009 T001 T002 T003 T004 T005 T006 T007 T008"
-    " T010 T011 T012 D001 D002 D003 D004 A001 A002 A003 A004 A005 A006 A007 A008 A009 A010 A011"
+    " T010 T011 T012 D001 D002 D003 D004 A003 A004 A005 A006 A007 A008 A009 A010 A011"
     " V001 V002 V004 V005 V010 V011 V012 V020 V030 V031 V032 V040 V041 V050 H001 H002 H003 H004"
 )
 UNCHECKED_AT_MANIFEST = tuple(f"TDS-{c}" for c in _ROW_CODES.split())
@@ -198,7 +198,7 @@ def check(
             finally:
                 notes.extend([spilled_note(spilled, "key check")] if spilled else [])
             found += check_refs(manifest, datasets, blind)
-            found += check_actions(manifest, datasets, blind, notes)
+            found += check_actions(manifest, datasets, blind)
             found += check_values(manifest, datasets, blind, notes)
             found += check_books(manifest, datasets, blind, notes)
             found += check_sequences(manifest, datasets, blind)
@@ -248,7 +248,8 @@ def check(
 HASH_CODES = ("TDS-H001", "TDS-H002", "TDS-H003", "TDS-H004")
 KEY_CODES = ("TDS-K001", "TDS-K002", "TDS-K003", "TDS-K004", "TDS-K010", "TDS-K011")  # `keys`
 REF_CODES = tuple(f"TDS-R{n:03}" for n in range(1, 10))  # `refs` checks them
-ACTION_CODES = tuple(f"TDS-A{n:03}" for n in range(1, 12))  # `adjustments` checks them
+#: `adjustments` checks them; A001 and A002 are retired with `cum_factor_*` (TDS 8.3, #705).
+ACTION_CODES = tuple(f"TDS-A{n:03}" for n in range(3, 12))
 #: `values` checks them; `books` V031 (#430); `sequences` V032 (#348, #432).
 VALUE_CODES = tuple(f"TDS-V{n:03}" for n in (1, 2, 4, 5, 10, 11, 12, 20, 30, 40, 41, 50))
 BOOK_CODES = ("TDS-V031",)

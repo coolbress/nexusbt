@@ -89,7 +89,7 @@ def test_manifest_level_never_reports_unchecked_as_pass(tmp_path: Path) -> None:
     result = check(package, level="manifest", profiles=met)
     assert (result.errors, result.warnings) == ((), ())
     assert {s.result for s in result.profiles.values()} == {"not_checked"}
-    assert {"TDS-K001", "TDS-S001", "TDS-H001", "TDS-A001"} <= set(result.unchecked)
+    assert {"TDS-K001", "TDS-S001", "TDS-H001", "TDS-A003"} <= set(result.unchecked)
     assert not [c for c in result.unchecked if c.startswith("TDS-M0") and c < "TDS-M015"]
     summary = result.summary()
     assert summary["level"] == "manifest"

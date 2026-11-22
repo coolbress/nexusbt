@@ -533,12 +533,11 @@ def action_table(rows: list[dict[str, Any]]) -> pa.Table:
 
 
 def _actions(
-    *events: dict[str, Any], split: tuple[float, ...] = (1.0, 0.5), total: Any = None,
-    on: tuple[int, ...] = (2, 3), bars_on: tuple[int, ...] = (), with_bbb: bool = False,
+    *events: dict[str, Any], on: tuple[int, ...] = (2, 3), bars_on: tuple[int, ...] = (),
+    with_bbb: bool = False,
 ) -> Change:  # fmt: skip
     """`events` (each a change of SPLIT) in `corporate_actions`, XNYS sessions on days `on` and
-    US:AAA's bars on days `bars_on` (default `on`) with `cum_factor_split` `split` and
-    `cum_factor_total` `total` (default `split`); `with_bbb` adds instrument US:BBB."""
+    US:AAA's bars on days `bars_on` (default `on`); `with_bbb` adds instrument US:BBB."""
 
     def change(m: dict[str, Any], files: Files) -> None:
         n = len(bars_on or on)
@@ -547,8 +546,7 @@ def _actions(
         _sessions(0, on)(m, files)
         days = pa.array([dt.date(2024, 1, d) for d in bars_on or on])
         _bars(instrument_id=pa.array(["US:AAA"] * n), session_date=days,
-              close=pa.array([10.0] * n), cum_factor_split=pa.array(split),
-              cum_factor_total=pa.array(total or split))(m, files)  # fmt: skip
+              close=pa.array([10.0] * n))(m, files)  # fmt: skip
         if with_bbb:
             bbb = instruments(instrument_id=pa.array(["US:BBB"]))
             rewrite(m, files, INSTRUMENTS, pa.concat_tables([instruments(), bbb]))
@@ -564,8 +562,7 @@ _MERGER = {"kind": "stock_merger", "new_instrument_id": "US:BBB", "price_factor"
            "affects": "none", "factor_method": "vendor"}  # fmt: skip
 _SPINOFF = {"kind": "spinoff", "new_instrument_id": "US:BBB", "price_factor": 0.8,
             "affects": "total_only", "factor_method": "spinoff_first_close"}  # fmt: skip
-_SPUN: dict[str, Any] = {"split": (1.0, 1.0), "total": (1.0, 0.8), "with_bbb": True}
-_EXIT_DIVIDEND = _actions(_DIVIDEND | {"price_factor": 0.9}, split=(1.0,), bars_on=(2,))
+_EXIT_DIVIDEND = _actions(_DIVIDEND | {"price_factor": 0.9}, bars_on=(2,))
 
 
 def _fx(rate: float) -> Change:
@@ -796,23 +793,21 @@ CASES: dict[str, tuple[Change, Change]] = {
     "TDS-R007": (_facts("F1"), _facts("F9")),
     "TDS-R008": (_exits(delisted=True), _exits(delisted=False)),  # an exit, no delisted_on
     "TDS-R009": (_facts("F1"), _facts("F1", state_item="net_income")),
-    "TDS-A001": (_actions({}), _actions({}, split=(1.0, 0.4))),
-    "TDS-A002": (_actions({}), _actions({}, split=(2.0, 1.0))),  # the ratio is still 0.5
-    "TDS-A003": (  # a null factor: A001 does not compare across it
-        _actions({"price_factor": None, "factor_method": "unavailable"}, split=(1.0, 0.4)),
-        _actions({"price_factor": None}, split=(1.0, 0.4)),
+    "TDS-A003": (
+        _actions({"price_factor": None, "factor_method": "unavailable"}),
+        _actions({"price_factor": None}),
     ),
     "TDS-A004": (  # 1 - 1.0/10.0 = 0.9
-        _actions(_DIVIDEND | {"price_factor": 0.9}, split=(1.0, 1.0), total=(1.0, 0.9)),
-        _actions(_DIVIDEND | {"price_factor": 0.95}, split=(1.0, 1.0), total=(1.0, 0.95)),
+        _actions(_DIVIDEND | {"price_factor": 0.9}),
+        _actions(_DIVIDEND | {"price_factor": 0.95}),
     ),
     "TDS-A005": (  # sessions on the 2nd and 4th: the 3rd is no session
         _actions({"ex_date": dt.date(2024, 1, 4), "ts_effective": _at(4)}, on=(2, 4)),
         _actions({}, on=(2, 4)),
     ),
     "TDS-A006": (
-        _actions(_MERGER, split=(1.0, 1.0), with_bbb=True),
-        _actions(_MERGER | {"new_instrument_id": None}, split=(1.0, 1.0), with_bbb=True),
+        _actions(_MERGER, with_bbb=True),
+        _actions(_MERGER | {"new_instrument_id": None}, with_bbb=True),
     ),
     "TDS-A007": (
         _actions({}, _REVISED),
@@ -823,8 +818,8 @@ CASES: dict[str, tuple[Change, Change]] = {
         _actions({"ts_terms_available": _at(3, 15)}),  # after the 14:30 open it takes effect
     ),
     "TDS-A009": (  # the 3rd's close is 21:00; a spinoff is no A008, its share count stays
-        _actions(_SPINOFF | {"ts_terms_available": _at(3, 21, 0)}, **_SPUN),
-        _actions(_SPINOFF | {"ts_terms_available": _at(3, 20, 0)}, **_SPUN),
+        _actions(_SPINOFF | {"ts_terms_available": _at(3, 21, 0)}, with_bbb=True),
+        _actions(_SPINOFF | {"ts_terms_available": _at(3, 20, 0)}, with_bbb=True),
     ),
     "TDS-A010": (  # missing, one-sided, zero, 1/8 against ratio_new_per_old 2.0
         _actions({"share_factor": 2.0}),
@@ -911,7 +906,6 @@ FAILS: dict[str, tuple[str | None, ...]] = {
     "TDS-K011": ("calendar_sessions",),
     "TDS-R007": ("fundamentals_state",),
     "TDS-R009": ("fundamentals_state",),
-    **dict.fromkeys(["TDS-A001", "TDS-A002"], ("bars_1d",)),
     **dict.fromkeys(
         [f"TDS-A00{n}" for n in range(3, 10)], ("corporate_actions",)
     ),
