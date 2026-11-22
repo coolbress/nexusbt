@@ -44,7 +44,7 @@ permissions:
 
 jobs:
   ci:
-    uses: coolbress/plinth/.github/workflows/python-ci.yml@e9b2095ddba00e1eadbc412e9ca25385dc2c869b
+    uses: coolbress/plinth/.github/workflows/python-ci.yml@07cd74792d1089c0fc21d65233440ea2840c90ff
     with:
       # `ci / test`'s limit (plinth's input since v2.34.0, default 10). On main the
       # same code ran 6 min 26 s to 9 min 27 s and pull requests' runs stopped at
