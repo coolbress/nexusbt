@@ -574,7 +574,7 @@
 | ts_start | ts_us/ns | 일봉 예 / 장중 아니오 | 구간 시작(포함). 일봉에서 null이면 세션 `ts_open` |
 | ts_end | ts_us/ns | 일봉 예 / 장중 아니오 | 구간 끝(제외). 일봉에서 null이면 세션 `ts_close`. **봉은 `ts_end`에 다 만들어진다** |
 | price_type | code | 예 | `last`(기본, 체결가) / `bid` / `ask` / `mid` (Nautilus price_type) |
-| open, high, low, close | f64 | 예 | 원가격(현지 통화). `halted`·`missing`·`no_trade` 행에서는 null. `equity`·`etf` 종목의 `traded` 행에서는 넷 모두 필수, `index`·`rate`는 `close`만(V004, 7장) [2026-11-22, #705] |
+| open, high, low, close | f64 | 예 | 원가격(현지 통화). `halted`·`missing` 행에서는 null. `no_trade` 행에서는 `open`·`high`·`low`가 null이고 `close`에는 거래소의 기준가가 있을 수 있다. `equity`·`etf` 종목의 `traded` 행에서는 넷 모두 필수, `index`·`rate`는 `close`만(V004, 7장) [2026-11-22, #705] |
 | volume | f64 | 예 | 원 거래량(주·계약·코인). `no_trade`·`halted` 행에서는 0, `missing` 행에서는 null. `equity`·`etf` 종목의 `traded` 행에서는 필수(V004) [2026-11-22, #705] |
 | value_traded | f64 | 예 | 거래대금(현지 통화) |
 | trade_count | i64 | 예 | 체결 수(Massive `transactions`) |

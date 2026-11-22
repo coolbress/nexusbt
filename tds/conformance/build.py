@@ -212,14 +212,15 @@ def _bars_on(*days: int) -> Change:
 
 
 def _no_close(status: str) -> Change:
-    """A bar of `status` without a close, then a traded one with it: the dataset holds `close`,
-    which `tds:minimal-daily` requires (M008, #352)."""
+    """A bar of `status` without a price, volume 0 (5.5 for `halted`), then a traded one with
+    them: the dataset holds `close`, which `tds:minimal-daily` requires (M008, #352)."""
+    price = pa.array([None, 10.0])
     return _bars(
         instrument_id=pa.array(["US:AAA"] * 2),
         session_date=pa.array([dt.date(2024, 1, 2), dt.date(2024, 1, 3)]),
-        close=pa.array([None, 10.0]),
+        open=price, high=price, low=price, close=price, volume=pa.array([0.0, 100.0]),
         obs_status=pa.array([status, "traded"]),
-    )
+    )  # fmt: skip
 
 
 def _ranged(second_from: str) -> Change:

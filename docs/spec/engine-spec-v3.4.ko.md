@@ -1839,7 +1839,7 @@ v1은 이 절의 정의를 규범으로 고정하고(INV-08 문구, `DecisionCon
 - 지정가·손절을 일봉으로 판정한 체결에는 `FillWarning`(오류 E11, 경고)을 실행 경고에 한 번 남긴다: "daily-bar fills for limit/stop orders are approximations; intraday sequencing requires minute/tick data (E4)" [조사 2.5].
 - 분·틱 자료가 생기면(E4) 장중 순서는 그 자료로 판정한다(11장). v1 일봉 규칙은 그때도 일봉 모드로 남는다.
 - **체결 기록** [SC-11]: 체결마다 `fill_resolution`(v1 = `"1d"`; 나중 `"1m"`, `"tick"`), `fill_rule`(`open`, `gap_open`(시가가 손절가를 넘어 시가 체결), `limit_open`, `intraday_adverse`(장중 H/L 판정), `close`, `zipline_close`(프리셋)), `arrival_price`(집행 세션 원 시가 O; 없으면 null)를 남긴다. 판정 해상도가 섞인 실행은 보고서에 "x/n fills judged on daily bars"를 보인다(E11의 정량화). `decision_price`·`arrival_price`로 구현 부족(체결가 vs 판단가)을 사후 계산할 수 있다(나중 TCA).
-- `O`가 null이면 시가 단계 대상 주문은 `blocked(no_open)`, `H` 또는 `L`이 null이면 장중 단계 대상 주문은 `blocked(no_range)`(체결 0, 이월). `C`가 null인데 `obs_status = traded`면 E14(`TDS-V004`)라 여기 오지 않는다.
+- `O`가 null이면 시가 단계 대상 주문은 `blocked(no_open)`, `H` 또는 `L`이 null이면 장중 단계 대상 주문은 `blocked(no_range)`(체결 0, 이월). `C`가 null인데 `obs_status = traded`면 E14(`TDS-V004`)라 여기 오지 않는다. 2026-11-22부터는 `equity`·`etf` 행에서 `obs_status = traded`인데 `O`·`H`·`L`·`V`가 null인 것도 그렇다(TDS 5.5, #705).
 - **숏 쪽 거울** [V31-LS-06]: 공매도(`sell_short`)는 표의 "매도" 줄을, 환매(`buy_to_cover`)는 "매수" 줄을 그대로 쓴다(지정가 공매도 Lp: O ≥ Lp → O, 장중 H > Lp → Lp; 환매 손절 Sp: O ≥ Sp → O(갭), 장중 H ≥ Sp → Sp). 한 숏 보유의 OCO에서 손절(위)과 이익실현(아래)이 같은 봉에 둘 다 닿으면 손절만(불리한 쪽). 같은 봉 진입 뒤 숏 손절은 `H ≥ Sp`(불리한 쪽) [R3-10]. 비용(½스프레드·충격)은 쪽과 무관하게 같은 식이다.
 
 #### 5.6.4a 가격 격자 [V31-05]

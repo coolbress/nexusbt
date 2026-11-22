@@ -286,6 +286,21 @@ def test_a_bars_dataset_needs_open_high_low_volume_only_for_its_own_equities(
     assert {f.dataset for f in result.errors} <= {"levels"}
 
 
+@pytest.mark.parametrize("ids", [["US:AAA", None], [1, 2]], ids=["a null id", "integer ids"])
+def test_ids_of_another_kind_are_the_schema_checks_not_a_crash(
+    ids: list[Any], tmp_path: Path
+) -> None:
+    # the fresh-context review of #705's 3a: these stopped the checker (exit 70)
+    manifest, files = build.base()
+    kind = pa.int64() if isinstance(ids[0], int) else pa.string()
+    rows = pa.concat_tables([build.instruments(instrument_id=pa.array([i], kind)) for i in ids])
+    build.rewrite(manifest, files, build.INSTRUMENTS, rows)
+    if isinstance(ids[0], int):
+        build._bars(instrument_id=pa.array([1]))(manifest, files)
+    result = check(Path(build.write(tmp_path, manifest, files)), level="schema")
+    assert "TDS-M008" not in {f.code for f in result.errors}  # the bars hold OHLCV anyway
+
+
 def test_a_column_null_in_every_row_is_lacking(tmp_path: Path) -> None:
     # the `no_ohlc` shape: the column is there and holds no value (#352, decided 2026-11-11)
     null = pa.nulls(1, pa.float64())

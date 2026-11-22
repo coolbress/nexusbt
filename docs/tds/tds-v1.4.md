@@ -574,7 +574,7 @@ Parameters (`params`): `freq` (`1d`, `1w`, `1mo`, `1h`, `30m`, `5m`, `1m`, `1s` 
 | ts_start | ts_us/ns | daily yes / intraday no | Interval start (inclusive). If null on a daily bar, the session `ts_open` |
 | ts_end | ts_us/ns | daily yes / intraday no | Interval end (exclusive). If null on a daily bar, the session `ts_close`. **A bar is complete at `ts_end`** |
 | price_type | code | yes | `last` (default, trade price) / `bid` / `ask` / `mid` (Nautilus price_type) |
-| open, high, low, close | f64 | yes | Raw prices (local currency). Null on a `halted`, `missing` or `no_trade` row. On a `traded` row of an `equity` or `etf` instrument all four are required, of an `index` or `rate` only `close` (V004, chapter 7) [2026-11-22, #705] |
+| open, high, low, close | f64 | yes | Raw prices (local currency). Null on a `halted` or `missing` row; on a `no_trade` row `open`, `high` and `low` are null and `close` may hold the exchange's reference price. On a `traded` row of an `equity` or `etf` instrument all four are required, of an `index` or `rate` only `close` (V004, chapter 7) [2026-11-22, #705] |
 | volume | f64 | yes | Raw volume (shares, contracts, coins). 0 on a `no_trade` or `halted` row, null on a `missing` one; required on a `traded` row of an `equity` or `etf` instrument (V004) [2026-11-22, #705] |
 | value_traded | f64 | yes | Traded value (local currency) |
 | trade_count | i64 | yes | Number of trades (Massive `transactions`) |

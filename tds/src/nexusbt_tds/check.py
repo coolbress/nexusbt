@@ -1001,7 +1001,8 @@ def _traded(m: Manifest, root: Path) -> set[Any]:
                     t = pq.ParquetFile(root / rel).read(columns=["instrument_id", "asset_class"])
                 except (OSError, KeyError, pa.ArrowException):
                     continue
-                out.update(i for i, a in zip(*t.to_pydict().values(), strict=True) if a in TRADED)
+                pairs = zip(*t.to_pydict().values(), strict=True)
+                out.update(i for i, a in pairs if a in TRADED and isinstance(i, str))  # else S's
     return out
 
 
@@ -1009,8 +1010,11 @@ def _names(root: Path, ds: Mapping[str, Any], ids: set[Any]) -> bool:
     """Whether `ds`'s `instrument_id` column names one of `ids`, reading that column only."""
     want = pa.array(sorted(ids), pa.string())
     for ids_of_file in _column(root, ds, "instrument_id") if ids else ():
-        if pc.any(pc.is_in(ids_of_file.cast(pa.string()), value_set=want)).as_py():
-            return True
+        try:
+            if pc.any(pc.is_in(ids_of_file.cast(pa.string()), value_set=want)).as_py():
+                return True
+        except pa.ArrowException:  # an id column of another type: S002's, not this check's
+            continue
     return False
 
 
