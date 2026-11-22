@@ -1139,6 +1139,14 @@ def test_V011_on_a_session_date_that_is_no_date_leaves_the_other_V_codes_judged(
     assert (result.warnings, "TDS-V011" in result.unchecked) == ((), True)
 
 
+def test_reverse_split_not_flagged(tmp_path: Path) -> None:
+    """1:10 on the 3rd (m = 10, ratio below 1), 2:1 on the 4th: no A code fires (A003, A010)."""
+    reverse = {"kind": "reverse_split", "ratio_num": 1, "ratio_den": 10, "price_factor": 10.0,
+               "ratio_new_per_old": 0.1}  # fmt: skip
+    split = {"event_id": "US:E2", "ex_date": dt.date(2024, 1, 4), "ts_effective": build._at(4)}
+    assert codes(write(tmp_path, build._actions(reverse, split, on=(2, 3, 4))), "full") == []
+
+
 @pytest.mark.parametrize(
     ("change", "found", "unchecked"),
     [  # a revision_of cycle (A007) leaves no other A code unchecked

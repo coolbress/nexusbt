@@ -1162,7 +1162,7 @@ write: orders.to_csv("orders/{date}.csv")   apply to paper book: nx.fill(book, o
 | 프로필 | 엔진이 읽는 데이터셋 | 켜지는 엔진 기능 | 없으면 |
 |---|---|---|---|
 | `tds:minimal-daily@1.0` | `instruments`, `bars(1d)`(조정가 허용, `price_basis` 선언) | 분석 경로만: `Price.close`, `run_pipeline`, `screen(factor)`, `evaluate(target="fwd_return_adj")` | backtest·경제 정답 E18 [RV-I03] |
-| `tds:equity-daily-core@1.0` | `instruments`, `calendar_sessions`, `bars`(freq=1d, raw, dense, OHLCV, `obs_status`), `corporate_actions`, `delistings` | `Price.*`, OHLC 체결 규칙, 분할·배당·폐지 회계, `backtest`·`screen` | 4.5의 F-01~F-03·F-13 대체(F-04는 정의); 그래도 `bars` 종가가 없으면 E14 |
+| `tds:equity-daily-core@1.0` | `instruments`, `calendar_sessions`, `bars`(freq=1d, raw, dense, OHLCV, `obs_status`), `corporate_actions`, `delistings` | `Price.*`, OHLC 체결 규칙, 분할·배당·폐지 회계, `backtest`·`screen` | 4.5의 F-01~F-03·F-13 대체; 그래도 `bars` 종가가 없으면 E14 |
 | `tds:equity-daily-research@1.0` | 위 + `tradability_daily`, `eligibility_daily`, `instrument_symbols`, `fx_rates`(시장 둘 이상), `fundamentals_state`, `classifications`, `dictionary/columns`, `dictionary/items` (+ 선택 `share_counts`, `universe_membership`, `instrument_xref`) | 거래 가능 규칙, 투자 대상 유니버스, KR+US 슬리브, `Fund.*`, `Meta.*`, `.to(ccy)` | F-05~F-10 |
 | `tds:panels@1.0` | `feature_panels`, `label_panels` | `Panel.*`, `evaluate(target=Label.*)`, 유니버스 대체 | `Panel.*`·`Label.*` → E18; `evaluate`의 기본 `fwd_return`은 그대로 됨 |
 | `tds:pit-fundamentals@1.0` | `fundamentals_events` + `fundamentals_state`(TDS 7장이 정본) | `nx.explain`의 원출처 계보 | F-11 |
@@ -1180,7 +1180,7 @@ write: orders.to_csv("orders/{date}.csv")   apply to paper book: nx.fill(book, o
 
 ### 4.5 대체 동작 [R-67, RV-I01, RV-I09]
 
-아래 표는 **유효한 패키지가 어떤 칼럼·데이터셋을 채우지 않았을 때** 엔진이 하는 정해진 일이다(어떤 생산자든). 모든 대체는 예외 없이 E30 경고 + 매니페스트 기록이고, 숨은 대체가 아니다(INV-12). F-04는 대체가 아니라 정의다(경고 없음). 행이 E18로 끝나면 그 E18은 대체가 아니라 거절이다: 그 기능을 대신하지 않는다. 합성 생성기의 `degrade=` 옵션(4.8)으로 각 대체를 시험한다. 엔진 오류·경고 문장은 TDS 코드와 `producer.hints`만 말한다. 엔진 M0~M6은 합성 패키지(4.8)로 끝낼 수 있다.
+아래 표는 **유효한 패키지가 어떤 칼럼·데이터셋을 채우지 않았을 때** 엔진이 하는 정해진 일이다(어떤 생산자든). 모든 대체는 예외 없이 E30 경고 + 매니페스트 기록이고, 숨은 대체가 아니다(INV-12). F-04는 은퇴했고 그 번호는 다시 쓰지 않는다(2026-11-22, #705): 사건에서 하는 조정은 대체가 아니라 정의이고(5.3.3), 엔진은 `cum_factor_*`를 읽지 않는다. 행이 E18로 끝나면 그 E18은 대체가 아니라 거절이다: 그 기능을 대신하지 않는다. 합성 생성기의 `degrade=` 옵션(4.8)으로 각 대체를 시험한다. 엔진 오류·경고 문장은 TDS 코드와 `producer.hints`만 말한다. 엔진 M0~M6은 합성 패키지(4.8)로 끝낼 수 있다.
 
 | id | 모자란 것 (TDS 빈 곳) | 엔진 동작 | 시험 |
 |---|---|---|---|
@@ -1221,7 +1221,7 @@ write: orders.to_csv("orders/{date}.csv")   apply to paper book: nx.fill(book, o
 | `calendar_sessions` | `calendar_id, session_date, ts_open, ts_close, is_half_day` | 시각의 유일한 원천(5.1.1). 가격제한폭·규칙 판은 여기 없다(TDS-D8) |
 | `bars` (freq=1d) | `instrument_id, session_date, open, high, low, close, volume, value_traded, obs_status`(+ 공개 시각 규칙, 기본 `ts_end` = `ts_close`; 칼럼 규칙이면 `params.ready_delay`) | 가격 비교 전 봉 가격을 시장 최소 단위 정수로 바꾼다(5.6.4a; US `0.6768000000000001` → 6768 × 0.0001); 1e-9 안으로 맞지 않는 값은 옮기지 않고 `off_grid_bar`로 센다 [V31-05, R3-02]. 거래량 단위는 F-16 [V31-16]. `price_basis = raw`면 전체 기능. 조정가(`minimal-daily`)면 분석 경로만(4.3): `Price.close`·`open/high/low` = 그 값, `close_tr`·`volume` 조정 = 같은 값(조정 없음), 경제 정답·backtest E18 [RV-I03]. 일봉은 `KR_close`와 마찬가지로 정규장 종가를 뜻하며, 시간외 거래는 넣지 않는다(1.2). KR에서 이 종가는 KRX 정규장 종가이며, NXT(넥스트레이드, 대체거래소)의 체결은 정규장 시간과 겹치는 것이라도 종가·OHLC·거래량·거래대금(`value_traded`)에 넣지 않는다(결정 2026-11-01). 행이 굳는 시각은 5.1.2의 `ready(s)`. `shares_out`은 봉에 없다(TDS-D9) |
 | `tradability_daily` | `instrument_id, session_date, status_known, halted_full_day, limit_up_close, limit_down_close, locked_up, locked_down, price_limit_ratio, up_limit_price, down_limit_price, reference_price, admin_status` | 5.6.5. 칼럼 묶음별 공개 시각(`params.availability_by_column`, TDS v1.1에서 이 표에 필수)은 판단 입력으로 쓸 때만 의미가 있고, Pipeline 항으로 노출될 때 하루 끝에 아는 값(`locked_*`, `halted_full_day`, `limit_*_close`)은 `session_close` [RV-Q10](상태 기계는 그 세션 집행 때 같은 세션 값을 쓴다 — 집행 세션의 가격·상태는 그 세션에 일어난 사실). `trading_status_events`는 v1에서 읽지 않는다 |
-| `corporate_actions` | 모든 칼럼(TDS 5.11) | **해석기(5.3.3a)만 읽는다**: 정정·취소·`status`·존재 시각·조건 공개 시각을 기준 시각마다 풀고 [R3-01] 조정(5.3.3·5.3.4)·회계(5.6.10~5.6.12)·검사(A001)가 그 결과를 쓴다 [RV-C03]. **종류 대응**: 아래 표 |
+| `corporate_actions` | 모든 칼럼(TDS 5.11) | **해석기(5.3.3a)만 읽는다**: 정정·취소·`status`·존재 시각·조건 공개 시각을 기준 시각마다 풀고 [R3-01] 조정(5.3.3·5.3.4)·회계(5.6.10~5.6.12)가 그 결과를 쓴다 [RV-C03]. **종류 대응**: 아래 표 |
 | `delistings` | 모든 칼럼(TDS 5.13; v1.2 `ret_observed_includes_distributions` 포함) | 5.6.13(폐지 직전 분배와 종료가치를 한 번만, 관측 포함·관측 제외·정책 세 기준 [V31-04, R3-05]). 회수액은 `ts_value_available` 전까지 판단 크기에 넣지 않는다(금액 모르는 권리, INV-01) [RV-C01]. 정답에서는 `ts_label_available`의 입력(5.8) |
 | `share_counts` | `instrument_id, count_kind, as_of_date, shares, ts_available` | 5.3.5a |
 | `market_rules` (TDS v1.2 5.27, 선택) | `rule_id, market, rule_kind, venue_group, valid_from, valid_to, price_from, price_to, tick_size, limit_ratio, source, verified` | `verified`는 출시 증거 규칙 목록에 그대로 [R3-15]. `rule_kind = tick_band`는 가격 격자(5.6.4a), `price_limit`은 5.6.5의 `pct` 원천(`tradability_daily` 다음, 규칙 팩 표 앞). 있으면 규칙 팩 표보다 먼저 쓴다 [V31-05] |
@@ -3295,14 +3295,14 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 - Acceptance: `tds/tests/test_conformance.py::test_T_codes`, `::test_D_codes`, `::test_T012_rectangle_examples_1_to_5`.
 
 **T0.15a `feat(tds): corporate action resolver parameterized by knowledge cutoff`** **[v3]** · `M1` `tds` · M · Blocked by: T0.14a · §5.3.3a, TDS 5.11 *(v3.2: 존재 시각과 조건 시각 분리, 늦게 알게 된 사건, 사슬 해시 도우미 [R3-01, R3-04])* *(v3: 새 티켓, RV-C03)*
-- Context: `nexusbt_tds.actions.resolve(events: pa.Table, cutoff) -> ResolvedActions`(사슬, 존재 시각 `ts_known`으로 고른 판, 상태, 조건 시각 `ts_terms` 대기, 네 효과, 정정 차이 계산 도우미, 늦게 알게 된 사건 표시, L0 열쇠용 사슬 정규 해시 `chain_digest(market, year_end)`). pyarrow만, 순수 함수. 엔진(`Snapshot.actions`)과 검사기(A001)가 같은 함수를 쓴다.
+- Context: `nexusbt_tds.actions.resolve(events: pa.Table, cutoff) -> ResolvedActions`(사슬, 존재 시각 `ts_known`으로 고른 판, 상태, 조건 시각 `ts_terms` 대기, 네 효과, 정정 차이 계산 도우미, 늦게 알게 된 사건 표시, L0 열쇠용 사슬 정규 해시 `chain_digest(market, year_end)`). pyarrow만, 순수 함수. 엔진(`Snapshot.actions`)과, 2026-11-22까지는(#705) 검사기(A001)가 같은 함수를 쓴다.
 - Done means: 예제가 한 종목의 정정 사슬을 세 기준 시각에서 푼 결과(고른 판·가격 계수·수량 계수·권리)를 표로 출력.
 - Acceptance: `tds/tests/test_actions.py::test_resolver_at_cutoffs`(정정 분할·취소 배당·지급 뒤 정정·분할 + 배당 같은 날·권리 소멸·계수 없음 × 3 기준 시각), `::test_share_factor_explicit_not_inferred`, `::test_revision_cycle_A007`, `::test_late_terms_revision_visible_at_ex_date`, `::test_existence_time_ignores_effective_when_announced`, `::test_late_discovered_event_flagged`, `::test_chain_digest_includes_all_revisions_and_times`.
 
 **T0.15b `feat(tds): adjustment and value checks via the resolver`** **[v3]** · `M1` `tds` · M · Blocked by: T0.15a · TDS 5.11, 8.3 *(v3: T0.15를 나눔, 크기 S → M; A008·A009)*
 - Context: A001~A009(A001은 해석기 `c = +∞`로 정정 사슬마다 최신판 하나만 곱함; A008 수량 사건 조건이 효력 뒤 공개; A009 분할설립 계수 공개 시각 < 효력 세션 종가), V001~V050.
-- Done means: 역분할이 있는 패키지에서 계수가 단조가 아니어도 A001이 나지 않고, 정정 사슬의 옛 판과 새 판을 둘 다 곱한 계수는 A001로 잡힌다(A001과 그 두 테스트는 2026-11-22 `cum_factor_*`와 함께 은퇴, #705).
-- Acceptance: `tds/tests/test_conformance.py::test_A_codes`, `::test_V_codes`; 2026-11-22까지는 `::test_reverse_split_not_flagged`, `::test_A001_multiplies_latest_revision_once`도.
+- Done means: 역분할이 있는 패키지에서 계수가 단조가 아니어도 A001이 나지 않고, 정정 사슬의 옛 판과 새 판을 둘 다 곱한 계수는 A001로 잡힌다(A001은 2026-11-22 `cum_factor_*`와 함께 은퇴, #705; 역분할 테스트는 이제 어느 A 코드도 나지 않음을 본다).
+- Acceptance: `tds/tests/test_conformance.py::test_A_codes`, `::test_V_codes`, `::test_reverse_split_not_flagged`; 2026-11-22까지는 `::test_A001_multiplies_latest_revision_once`도.
 
 **T0.16a `feat(testing): degraded synthetic packages for core fallbacks`** **[v3]** · `M1` `testing` · M · Blocked by: T0.7, T0.15b · §4.5, §4.8 *(v3: T0.16을 나눔)*
 - Context: `degrade=` 중 core 자료 값: `no_ohlc`, `no_sessions`, `sparse_bars`, `kr_ex_is_record`, `us_div_split_adjusted_no_dates`, `no_delistings`(`no_cum_factors`는 2026-11-22에 빠짐: 생성기가 `cum_factor_*`를 쓰지 않는다, #705); 각 값이 지키지 못하는 프로필을 선언에서 뺌(검사는 여전히 통과).
