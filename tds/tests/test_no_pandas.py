@@ -172,7 +172,7 @@ def test_an_instant_past_int64_nanoseconds_is_judged(
     result = check(build.write(tmp_path, manifest, files), level="full")
     said = (*result.errors, *result.warnings)  # A008 is a warning
     assert [f.code for f in said] == [found]
-    assert {"TDS-T012", "TDS-A001"} & set(result.unchecked) == set()
+    assert {"TDS-T012", "TDS-A008"} & set(result.unchecked) == set()
     if found == "TDS-T012":  # the corner both rows are seen at, as before
         assert "at known time 2020-03-06T00:00:00+00:00 on 2020-03-20, 2 rows" in said[0].message
 

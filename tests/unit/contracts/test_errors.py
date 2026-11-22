@@ -92,21 +92,21 @@ def test_only_listed_kinds_are_accepted() -> None:
 def test_snapshot_error_carries_tds_codes_and_hints() -> None:
     err = nx.SnapshotError.from_check(
         path="snap/2026-10-30",
-        counts={"TDS-A001": 3, "TDS-M012": 1},
-        dataset="bars",
-        file="bars/year=2020/part-0.parquet",
-        key="instrument_id=A1, session_date=2020-03-02",
-        hint="cum_factor_split does not match corporate_actions",
+        counts={"TDS-A003": 3, "TDS-M012": 1},
+        dataset="corporate_actions",
+        file="corporate_actions/part-0.parquet",
+        key="event_id=7",
+        hint="price_factor null while factor_method is not unavailable",
         snapshot_id="s1",
         producer="synthetic",
-        producer_hints={"TDS-A001": "rebuild cum factors (export step 'factors')"},
+        producer_hints={"TDS-A003": "re-export price factors (export step 'factors')"},
     )
     text = str(err)
     assert err.code == "E14"
-    assert err.layer == "data — snapshot s1 / bars / column - / producer synthetic"
-    assert "TDS-A001" in text.splitlines()[2]  # the first code leads `what`
-    assert "TDS-A001 (3), TDS-M012 (1)" in text
-    assert "producer hint (TDS-A001): rebuild cum factors (export step 'factors')" in text
+    assert err.layer == "data — snapshot s1 / corporate_actions / column - / producer synthetic"
+    assert "TDS-A003" in text.splitlines()[2]  # the first code leads `what`
+    assert "TDS-A003 (3), TDS-M012 (1)" in text
+    assert "producer hint (TDS-A003): re-export price factors (export step 'factors')" in text
     assert "tds check snap/2026-10-30 --level full; nexusbt doctor --full" in text
 
 

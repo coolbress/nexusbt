@@ -721,7 +721,7 @@ def test_R009_names_the_missing_dictionary_once_per_dataset(
     assert all(f"no {dictionary}" in f.message for f in r009)
 
 
-A_CODES = [f"TDS-A{n:03}" for n in range(1, 10)]
+A_CODES = [f"TDS-A{n:03}" for n in range(3, 10)]  # A001 and A002 retired (#705)
 
 
 @pytest.mark.usefixtures("refs_batches")
@@ -1139,64 +1139,10 @@ def test_V011_on_a_session_date_that_is_no_date_leaves_the_other_V_codes_judged(
     assert (result.warnings, "TDS-V011" in result.unchecked) == ((), True)
 
 
-def _files_reversed(change: Any) -> Any:
-    """`change`, then its two bars rows in two files of one folder, listed last file first."""
-
-    def out(m: dict[str, Any], f: Any) -> None:
-        change(m, f)
-        table, folder = pq.read_table(pa.BufferReader(f.pop(build.BARS))), build.BARS[:-18]
-        build.bars(m)["files"] = []
-        for n in (1, 0):
-            rel = f"{folder}/part-{n:05}.parquet"
-            f[rel] = build.parquet(table.slice(n, 1), "bars_1d")
-            build.bars(m)["files"].append({"path": rel, "rows": 1, "bytes": len(f[rel])})
-
-    return out
-
-
-def test_reverse_split_not_flagged(tmp_path: Path) -> None:
-    """1:10 on the 3rd (m = 10), 2:1 on the 4th (m = 0.5): the factor goes up, then down."""
-    reverse = {"kind": "reverse_split", "ratio_num": 1, "ratio_den": 10, "price_factor": 10.0,
-               "ratio_new_per_old": 0.1}  # fmt: skip
-    split = {"event_id": "US:E2", "ex_date": dt.date(2024, 1, 4), "ts_effective": build._at(4)}
-    change = build._actions(reverse, split, split=(1.0, 10.0, 5.0), on=(2, 3, 4))
-    assert codes(write(tmp_path, change), "full") == []
-
-
-_LATER = dt.datetime(2024, 1, 2, tzinfo=dt.UTC)  # E2 is known after E1 (TDS 5.11 step 2)
-
-
-@pytest.mark.parametrize(
-    ("revision", "after", "found"),
-    [
-        ({"ratio_num": 4, "ratio_new_per_old": 4.0, "price_factor": 0.25}, 0.25, []),
-        ({"ratio_num": 4, "ratio_new_per_old": 4.0, "price_factor": 0.25}, 0.125, ["TDS-A001"]),
-        ({"ratio_num": 4, "ratio_new_per_old": 4.0, "price_factor": 0.25}, 0.5, ["TDS-A001"]),
-        ({"status": "cancelled"}, 1.0, []),  # a cancelled chain is 1.0
-        ({"status": "cancelled"}, 0.5, ["TDS-A001"]),
-    ],
-)
-def test_A001_multiplies_latest_revision_once(
-    revision: dict[str, Any], after: float, found: list[str], tmp_path: Path
-) -> None:
-    amended = {"event_id": "US:E2", "revision_of": "US:E1", "ts_announced": _LATER} | revision
-    change = build._actions({}, amended, split=(1.0, after))
-    assert codes(write(tmp_path, change), "full") == found
-
-
 @pytest.mark.parametrize(
     ("change", "found", "unchecked"),
-    [  # sparse bars on the 2nd and 4th: the 3rd's split lies between them
-        (build._actions({}, on=(2, 3, 4), bars_on=(2, 4), split=(1.0, 0.5)), [], []),
-        (build._actions({}, on=(2, 3, 4), bars_on=(2, 4), split=(1.0, 1.0)), ["TDS-A001"], []),
-        # two bars files listed in reverse: read in path order, the 2nd is the first bar
-        (_files_reversed(build.CASES["TDS-A001"][0]), [], []),
-        (_files_reversed(build.CASES["TDS-A001"][1]), ["TDS-A001"], []),
-        # no corporate_actions: a factor that moves is not judged; one that does not, is
-        (build._bars(cum_factor_split=pa.array([1.0])), [], []),
-        (_without("corporate_actions", build.CASES["TDS-A001"][0]), [], ["TDS-A001"]),
-        # chains the resolver cannot tie (A007) leave A001 unchecked
-        (build.CASES["TDS-A007"][1], ["TDS-A007"], ["TDS-A001"]),
+    [  # a revision_of cycle (A007) leaves no other A code unchecked
+        (build.CASES["TDS-A007"][1], ["TDS-A007"], []),
         # no calendar: the sessions A005 and A009 look up are unknown
         (_without("calendar_sessions", build.CASES["TDS-A009"][0]), [],
          ["TDS-A005", "TDS-A009"]),
