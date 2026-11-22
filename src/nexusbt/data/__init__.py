@@ -216,8 +216,8 @@ class Snapshot:
         data = {
             "profiles": {n: {"declared": p.declared, "verified_level": p.verified_level,
                              "result": p.result} for n, p in self.profiles.items()},
-            "capabilities": {"features": sorted(caps.features), "supported": sorted(caps.supported),
-                             "cum_factors": caps.cum_factors},
+            "capabilities": {"features": sorted(caps.features),
+                             "supported": sorted(caps.supported)},
             "unchecked": list(self.unchecked),
             "fallbacks": [{"id": f.id, "dataset": f.dataset, "market": f.market, "count": f.count,
                            "column": f.column} for f in self.fallbacks],

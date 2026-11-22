@@ -23,7 +23,6 @@ CORE = {
     "no_ohlc": True,  # F-01: OHLCV
     "no_sessions": True,  # F-02: calendar_sessions
     "sparse_bars": True,  # F-03: density = dense, obs_status
-    "no_cum_factors": False,  # F-04: required in no profile
     "kr_ex_is_record": False,  # F-05
     "us_div_split_adjusted_no_dates": False,  # F-09
     "no_delistings": True,  # F-13: delistings
@@ -142,8 +141,6 @@ GAPS: dict[str, tuple[str | None, Gap]] = {
     "sparse_bars": (None, lambda m, t, c, s: {  # F-03: the sessions it traded, no obs_status
         "bars_1d": t["bars_1d"].filter(pc.equal(t["bars_1d"]["obs_status"], "traded"))
         .drop_columns(["obs_status"])}),
-    "no_cum_factors": (None, lambda m, t, c, s: {  # F-04
-        "bars_1d": t["bars_1d"].drop_columns(["cum_factor_split", "cum_factor_total"])}),
     "kr_ex_is_record": ("KR", lambda m, t, c, s: {  # F-05
         "corporate_actions": _rows(t["corporate_actions"],
                                    lambda r: r | {"record_date": r["ex_date"]})}),
@@ -164,7 +161,7 @@ def apply(market: str, tables: Tables, degrade: Sequence[str],
     `us_div_split_adjusted_no_dates` divides only the dividends with a share event after them;
     seed 0's `small` has none, so a test of F-09's A004 count injects one (`EventSpec`).
     `kr_ex_is_record` writes `record_date = ex_date` and keeps the bars' ex-dates, which the
-    cumulative factors follow (A001)."""
+    prices moved on."""
     out = dict(tables)
     for value, (only, gap) in GAPS.items():
         if value in degrade and only in (None, market):

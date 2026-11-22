@@ -39,7 +39,7 @@ from nexusbt.data import (
 )
 from nexusbt.data._capabilities import _columns
 from nexusbt.testing._synth_daily import RULES
-from nexusbt.testing.synth import make_snapshot
+from nexusbt.testing.synth import make_snapshot, read
 from nexusbt_tds import ProfileStatus
 from nexusbt_tds.hash import declared_value_hash, package_hashes, write_hashes
 
@@ -399,14 +399,14 @@ def test_fallback_F03_densify(tmp_path: Path) -> None:  # noqa: N802 - the ticke
     assert open_snapshot(DataConfig(path=sparse), required=CapabilityRequest()).fallbacks == []
 
 
-def test_fallback_F04_factors_from_resolver(tiny: Path, tmp_path: Path) -> None:  # noqa: N802 - the ticket's test name
-    """F-04 is a definition: no cumulative factor columns, the resolver's factors, no warning."""
-    assert open_snapshot(DataConfig(path=tiny), required=BACKTEST).capabilities.cum_factors == (
-        "columns")  # fmt: skip
-    bare = make_snapshot(tmp_path / "f", preset="tiny", degrade=["no_cum_factors"])
-    s = open_snapshot(DataConfig(path=bare), required=BACKTEST)  # filterwarnings: no warning
-    assert (s.capabilities.cum_factors, s.fallbacks) == ("resolver", [])
+def test_fallback_F04_factors_from_resolver(tiny: Path) -> None:  # noqa: N802 - the ticket's test name
+    """F-04 is a definition: the resolver's factors from the events, no warning, and since
+    #705 no package of the generator has the columns and the run manifest no label for them."""
+    s = open_snapshot(DataConfig(path=tiny), required=BACKTEST)  # filterwarnings: no warning
+    assert s.fallbacks == []
     assert "backtest" in s.capabilities.features
+    assert not {"cum_factor_split", "cum_factor_total"} & set(read(tiny, "bars_1d").column_names)
+    assert set(s._recorded()["data"]["capabilities"]) == {"features", "supported"}
 
 
 def test_fallbacks_fail_mode_raises_E14(tmp_path: Path) -> None:  # noqa: N802 - the ticket's test name

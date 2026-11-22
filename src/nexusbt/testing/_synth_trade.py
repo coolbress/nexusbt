@@ -166,7 +166,7 @@ def _status(
     hits: Hits, admin: Days,
 ) -> dict[str, Any]:  # fmt: skip
     """Instrument `k`'s `tradability_daily` rows; `i` is its first session index."""
-    dates, close, split = bars["session_date"][k], bars["close"][k], bars["cum_factor_split"][k]
+    dates, close, split = bars["session_date"][k], bars["close"][k], bars["_split"][k]
     ref = np.full(len(dates), np.nan)  # the last close before, over halts, moved by the share
     for s, p in enumerate(_last_traded(close), 1):  # events since (an ex-date's base price)
         ref[s] = np.nan if p is None else close[p] * (split[s] / split[p])

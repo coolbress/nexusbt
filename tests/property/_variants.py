@@ -28,7 +28,7 @@ from nexusbt_tds.hash import write_hashes
 #: M-SCALE's "all raw prices of one instrument times k, volume times 1/k, factors unchanged":
 #: each dataset's columns and the power of k each is multiplied by. A cash amount per share is
 #: a raw price too, and with its reference price times k a dividend's `price_factor` stays as
-#: it is; `cum_factor_*`, `price_factor`, `value_traded` (price times volume) and
+#: it is; `price_factor`, `value_traded` (price times volume) and
 #: `share_counts` are not changed (8.3 names prices and volume).
 PRICES = {
     "bars_1d": {"open": 1, "high": 1, "low": 1, "close": 1, "volume": -1},
