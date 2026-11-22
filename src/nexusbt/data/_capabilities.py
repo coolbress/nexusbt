@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import functools
 import warnings
 from collections import Counter
 from collections.abc import Mapping, Sequence
@@ -83,6 +84,8 @@ class DataCapabilities:
 
     features: frozenset[str]
     supported: frozenset[str]
+    #: Bars columns with no value that no declared profile requires: E18 when read (#705).
+    unread: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,7 +117,7 @@ def decide(
     taken: dict[str, list[FallbackRecord]] = {f: [] for f in NEEDS}
     market_of = _market_of(folder, kinds.get("instruments"))  # TDS K1: ids are opaque
     _no_close(folder, data, bars, market_of)  # 4.4-3, before step 4's market checks (#698)
-    _breaks_profile(folder, data, bars, kinds.get("instruments"))  # 4.4-3 (#705)
+    unread = _breaks_profile(folder, data, bars, kinds.get("instruments"))  # 4.4-3 (#705)
     if not extent.partitioned:  # a `market=` partition is the checker's (TDS-M010)
         _declared(folder, data, extent.by_market(), market_of)
     f02 = _calendars(folder, data, kinds, extent, lacking, taken)
@@ -130,7 +133,7 @@ def decide(
     _use_fallbacks(folder, data, bars, f02, used, policy, market_of, extent)
     supported = frozenset(p for p in data.get("profiles", []) if p in SUPPORTED)
     assumptions = tuple(SAYS[i] for i in ("F-02",) if any(r.id == i for r in used))
-    return DataCapabilities(on, supported), used, assumptions
+    return DataCapabilities(on, supported, unread), used, assumptions
 
 
 Sessions = tuple[list[FallbackRecord], dict[str, set[dt.date]]]
@@ -417,13 +420,14 @@ def _no_close(
 def _breaks_profile(
     folder: Path, data: Mapping[str, Any], bars: Mapping[str, Any] | None,
     instruments: Mapping[str, Any] | None,
-) -> None:  # fmt: skip
+) -> frozenset[str]:  # fmt: skip
     """4.4-3 (#705 Decisions 48, 50): E14 at open when the bars hold no value of `close`, or
     of a column a declared profile requires of them (TDS 7), as TDS-M008 reads it: in no file,
     or null in every row of the dataset. A file without footer statistics has that one column
-    read; `open`, `high`, `low` and `volume` are required where the bars name an equity or etf."""
+    read; `open`, `high`, `low` and `volume` are required where the bars name an equity or etf.
+    Else the columns of `OHL` with no value, which a term reading them meets as E18 (48 (c))."""
     if bars is None:
-        return
+        return frozenset()
     params: Mapping[str, Any] = g if isinstance(g := bars.get("params"), dict) else {}
     need: dict[str, str] = {"close": "every engine feature (4.3)"}
     traded: dict[str, str] = {}
@@ -437,6 +441,7 @@ def _breaks_profile(
              for f in bars["files"]]  # fmt: skip
     rows = sum(meta.num_rows for _, meta in files)
 
+    @functools.cache
     def lacks(column: str) -> bool:
         for path, meta in files:
             if column not in meta.schema.names or _gone(meta, column):
@@ -466,7 +471,7 @@ def _breaks_profile(
         if not lacking and (gaps := [(c, why) for c, why in traded.items() if lacks(c)]):
             lacking = gaps if names_traded() else []
     except (pa.ArrowException, KeyError):  # a column twice or of another type: the checker's
-        return  # S codes say it (TDS-S002, TDS-S011), as its own M008 leaves them
+        return frozenset()  # S codes say it (TDS-S002, TDS-S011), as its own M008 leaves them
     for column, why in lacking[:1]:
         raise SnapshotError(
             what=f"the bars hold no value of {column}, which {why} requires",
@@ -478,6 +483,10 @@ def _breaks_profile(
             more=f"tds check {folder} --level schema; spec 4.4 step 3",
             layer=_layer(data, str(bars["name"])),
         )  # fmt: skip
+    try:  # after the E14, so a column the check cannot read never hides it
+        return frozenset(c for c in OHL if lacks(c))
+    except (pa.ArrowException, KeyError):
+        return frozenset()
 
 
 def _refused(data: Mapping[str, Any], used: Sequence[FallbackRecord]) -> SnapshotError:
@@ -493,10 +502,23 @@ def _refused(data: Mapping[str, Any], used: Sequence[FallbackRecord]) -> Snapsho
 
 def check_fields(data: Mapping[str, Any], caps: DataCapabilities, fields: Sequence[str]) -> None:
     """4.3: `close_tr` needs the `adjusted` feature (raw bars, corporate actions, sessions); an
-    adjusted-price package gives `close` as it is and refuses `close_tr` with E18."""
+    adjusted-price package gives `close` as it is and refuses `close_tr` with E18. A column the
+    bars hold no value of, which no declared profile requires, is E18 too (4.4-3, #705)."""
+    bars = chosen(data).get("bars") or {}
+    for column in (c for c in fields if c in caps.unread):
+        raise CapabilityError(
+            what=f"Price.{column} is not in snapshot {data['snapshot_id']}: the bars hold no "
+                 f"value of {column}",
+            where=f"dataset {bars.get('name', 'bars')}, column {column}: in no file, or null "
+                  "in every row",
+            why="no fallback stands in for it, and no profile the package declares requires "
+                "it (4.4 step 3; TDS 7)",
+            fix=f"use a package whose bars hold {column} (tds:equity-daily-core@1.0 requires "
+                "it of equities and etfs), or a graph that does not read it",
+            more="spec 4.4 step 3; TDS 7", layer=_layer(data, str(bars.get("name", "bars"))),
+        )  # fmt: skip
     if "close_tr" not in fields or "adjusted" in caps.features:
         return
-    bars = chosen(data).get("bars") or {}
     basis = bars.get("params", {}).get("price_basis", "-")
     raise CapabilityError(
         what=f"Price.close_tr is not in snapshot {data['snapshot_id']}: economic labels need "

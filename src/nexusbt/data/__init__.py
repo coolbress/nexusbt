@@ -241,8 +241,14 @@ class Snapshot:
         """The dense block of the daily bars' `fields` over the calendar rows from the first to
         the last of `sessions`, after up to `overlap` rows of the previous chunk (5.3.1).
         `close_tr` on an adjusted-price package is E18 (4.3), at the first chunk's read."""
-        check_fields(self._manifest.data, self.capabilities, fields)
+        self._check_fields(fields)
         return build_block(self._manifest, self.calendar(market), fields, sessions, overlap)
+
+    def _check_fields(self, fields: Sequence[str]) -> None:
+        """E18 for a bars column the graph reads that this package cannot give (4.3, 4.4-3):
+        `close_tr` without raw prices, or a column with no value no declared profile requires.
+        `run_pipeline` calls it once the graph is built, before any value (#705); not public."""
+        check_fields(self._manifest.data, self.capabilities, fields)
 
     def block_columns(self, market: str, sessions: object) -> tuple[str, ...]:
         """The instruments `market_block` would hold over `sessions`, no bar read: what a run
