@@ -111,3 +111,43 @@ def test_a_minimal_package_without_open_opens(tmp_path: Path) -> None:
         result = nx.run_pipeline(pipeline, start="2020-01-06", end="2020-01-08", snapshot=str(pkg))
     values = result.table["c"].to_pylist()
     assert any(v is not None and v == v for v in values)
+
+
+def test_core_bars_of_indices_alone_need_no_open_but_a_read_is_e18(tmp_path: Path) -> None:
+    """#705 Decisions 39 and 48: core asks open of bars naming an equity or etf; bars of
+    indices alone open without it, and a term reading it is E18 (c), not NaN."""
+    pkg = make_snapshot(tmp_path / "pkg", preset="tiny")  # declares core
+    data = json.loads((pkg / "tds.json").read_text(encoding="utf-8"))
+    for f in next(d for d in data["datasets"] if d["kind"] == "instruments")["files"]:
+        table = pq.read_table(part := pkg / f["path"])
+        at = table.schema.get_field_index("asset_class")
+        pq.write_table(table.set_column(at, "asset_class", pa.array(["index"] * len(table))), part)
+        f["bytes"] = part.stat().st_size
+    (pkg / "tds.json").write_text(json.dumps(data), encoding="utf-8")
+    _null(pkg, "open")  # writes the hashes
+    with pytest.warns(UserWarning, match=r"\[E30\] F-01"):  # opens: no E14 (until 4b, F-01)
+        nx.open(str(pkg))
+    with (
+        pytest.warns(UserWarning, match=r"\[E30\] F-01"),
+        pytest.raises(nx.CapabilityError, match=r"Price\.open is"),
+    ):
+        _run(pkg, "open")
+
+
+def test_a_file_the_check_cannot_read_is_left_to_the_checker(tmp_path: Path) -> None:
+    """A bars file storing `close` twice, without statistics, cannot be read for that column:
+    the check raises neither E14 nor pyarrow's error, and leaves it to TDS-S011."""
+    from nexusbt.data._capabilities import _breaks_profile
+
+    (tmp_path / "bars").mkdir()
+    twice = pa.table([pa.array([1.0]), pa.array([None], pa.float64())], names=["close", "close"])
+    pq.write_table(twice, tmp_path / "bars" / "a.parquet", write_statistics=False)
+    bars = {"name": "bars_1d", "params": {}, "files": [{"path": "bars/a.parquet"}]}
+    data = {"profiles": ["tds:minimal-daily@1.0"], "snapshot_id": "s"}
+    assert _breaks_profile(tmp_path, data, bars, None) == frozenset()
+    # the review of 4a-ii: an `open` it cannot read never hides the E14 of a close with no value
+    columns = [pa.array([None], pa.float64()), pa.array([1.0]), pa.array([1.0])]
+    no_close = pa.table(columns, names=["close", "open", "open"])
+    pq.write_table(no_close, tmp_path / "bars" / "a.parquet", write_statistics=["close"])
+    with pytest.raises(SnapshotError, match="the bars hold no value of close"):
+        _breaks_profile(tmp_path, data | {"layers": {}}, bars, None)

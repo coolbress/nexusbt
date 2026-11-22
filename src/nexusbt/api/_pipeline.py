@@ -86,6 +86,7 @@ def run(
     nodes = _nodes(terms)
     _refuse_across_markets(nodes)
     fields = _price_fields(nodes)
+    opened._check_fields(fields)  # E18 at graph build, before any value is computed (#705)
     every = sorted(opened.markets, key=str.encode)
     names = dict.fromkeys(markets if markets is not None else every)  # each market once
     periods: dict[str, tuple[int, int]] = {}

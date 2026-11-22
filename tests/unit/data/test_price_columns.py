@@ -249,21 +249,33 @@ def test_f01_by_market_when_null_in_every_row(tmp_path: Path) -> None:
     assert not any(math.isnan(v) for v in kr)
 
 
-def test_f01_once_per_run_when_columns_left_out(tmp_path: Path, monkeypatch: Any) -> None:
-    """4.5 F-01: bars files without the columns give NaN, not pyarrow's `ArrowInvalid`, with
-    one E30 for the run however many chunks it computes (here two)."""
+@pytest.mark.parametrize("column", OHL)
+def test_a_term_over_a_column_left_out_is_e18_before_any_value(
+    column: str, tmp_path: Path, monkeypatch: Any
+) -> None:
+    """#705 Decisions 48 (c): a minimal-daily package whose bars files leave out `open`, `high`
+    and `low` opens (F-01's E30 until 4b), and a run reading one stops with E18 naming the
+    column and the profile that holds it, before any chunk is computed (not NaN, not pyarrow's
+    `ArrowInvalid`)."""
     from nexusbt.compute import _chunks
 
-    # minimal-daily only: under core this is E14 at open (#705 Decisions 48, b)
     root = make_snapshot(tmp_path / "p", preset="tiny", markets=("KR",), degrade=["no_ohlc"])
     without_ohl(root, "KR", drop=True)
-    monkeypatch.setattr(_chunks, "spans", lambda dates, *_: [(0, 1), (2, len(dates) - 1)])
-    pipe = nx.Pipeline({c: getattr(nx.Price, c).latest for c in OHL})
-    with pytest.warns(UserWarning, match="F-01") as caught:
-        table = nx.run_pipeline(pipe, start=DAY, end="2020-01-10", snapshot=str(root)).table
-    assert len(f01(caught.list)) == 1
-    assert len(table) > 5
-    assert all(math.isnan(v) for c in OHL for v in table[c].to_pylist())
+    computed: list[object] = []
+
+    def spans(*args: object) -> list[tuple[int, int]]:
+        computed.append(args)
+        return []
+
+    monkeypatch.setattr(_chunks, "spans", spans)
+    pipe = nx.Pipeline({"c": nx.Price.close.latest, "x": getattr(nx.Price, column).latest})
+    with pytest.warns(UserWarning, match="F-01"), pytest.raises(nx.CapabilityError) as raised:
+        nx.run_pipeline(pipe, start=DAY, end="2020-01-10", snapshot=str(root))
+    text = str(raised.value)
+    assert text.startswith("CapabilityError [E18]")
+    assert f"Price.{column} is not in snapshot" in text
+    assert "tds:equity-daily-core@1.0 requires it" in text
+    assert not computed
 
 
 def test_f01_when_one_year_file_lacks_them(tmp_path: Path) -> None:
@@ -285,14 +297,14 @@ def test_f01_when_one_year_file_lacks_them(tmp_path: Path) -> None:
     assert {r.column for r in snapshot.fallbacks if r.id == "F-01"} == set(OHL)
 
 
-def test_f01_undecided_without_footer_statistics(tmp_path: Path) -> None:
-    """Without footer statistics, null in every row is not known without reading the rows,
-    which open does not do for a column no declared profile requires: no F-01, the cells NaN
-    as stored. One a declared profile requires is read (#705 Decisions 50)."""
+def test_a_column_without_footer_statistics_is_read_then_e18(tmp_path: Path) -> None:
+    """Without footer statistics, F-01 cannot say null in every row (no E30), so open reads
+    that one column (#705 Decisions 50): null in every row, a run reading it is E18, never NaN
+    passed on in silence."""
     root = make_snapshot(tmp_path / "p", preset="tiny", markets=("KR",), degrade=["no_ohlc"])
     without_ohl(root, "KR", drop=False, stats=False)
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        values = latest(root, "open")
+        with pytest.raises(nx.CapabilityError, match=r"Price\.open is not in snapshot"):
+            latest(root, "open")
     assert not f01(caught)
-    assert all(math.isnan(v) for v in values.values())
