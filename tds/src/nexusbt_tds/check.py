@@ -539,8 +539,9 @@ def _check_schema(
         version = _VERSION.fullmatch(str(ds.get("schema_version")))
         if only is not None and ds.get("name") not in only:
             continue
-        if schema is None and ds.get("kind") not in DICTIONARIES:
-            blind.update(SCHEMA_CODES)  # a kind with no schema file (`x_custom`): not checked
+        out += _same_columns(root, ds, schema)  # S011 needs no schema file: every kind
+        if schema is None and ds.get("kind") not in DICTIONARIES:  # `x_custom`: not checked
+            blind.update(c for c in SCHEMA_CODES if c != "TDS-S011")
         if schema is None or not version or int(version[1]) != SUPPORTED_MAJOR:  # M009
             continue
         out += _check_declared(ds, schema)
@@ -556,7 +557,6 @@ def _check_schema(
                     found += _undeclared_markets(root / rel, m.data)
                 out += [replace(f, dataset=ds.get("name"), file=rel) for f in found
                         if not rows or f.code not in CELL_CODES]  # fmt: skip
-        out += _same_columns(root, ds, schema)
     return out
 
 
@@ -569,14 +569,18 @@ def _same_columns(root: Path, ds: Mapping[str, Any], schema: Any) -> list[Findin
 
     declared = {str(c.get("name")) for c in ds.get("columns") or [] if isinstance(c, dict)
                 and c.get("type")}  # fmt: skip
-    typed = {c.name for c in resolved_columns(ds, schema.columns) if c.type} | declared
-    out, first = [], None
+    typed = {c.name for c in resolved_columns(ds, schema.columns if schema else ()) if c.type}
+    out, first, seen = [], None, set()
     for rel, meta in _footers(root, ds):
-        if meta is None:
-            continue  # S010's
-        arrow = meta.schema.to_arrow_schema()
+        if meta is None or rel in seen:
+            continue  # S010's; a path listed twice is M013's, read once
+        seen.add(rel)
+        try:
+            arrow = meta.schema.to_arrow_schema()
+        except (pa.ArrowException, ValueError):  # a type Arrow does not read: S010's
+            continue
         parts = {p.split("=")[0] for p in Path(rel).parts if "=" in p}
-        stored = [(f.name, None if f.name in typed else str(f.type)) for f in arrow]
+        stored = [(f.name, None if f.name in typed | declared else _same(f.type)) for f in arrow]
         stored = [(n, t) for n, t in stored if n not in parts]
         if twice := sorted({n for n, _ in stored if [s for s, _ in stored].count(n) > 1}):
             message = f"column(s) stored twice in one file: {', '.join(twice)}"
@@ -590,6 +594,21 @@ def _same_columns(root: Path, ds: Mapping[str, Any], schema: Any) -> list[Findin
             message = f"columns unlike {first[0]}'s: {', '.join(names)}"
             out.append(Finding("TDS-S011", "error", message, dataset=ds.get("name"), file=rel))
     return out
+
+
+_UTC = frozenset({"UTC", "Etc/UTC", "+00:00", "Z"})
+
+
+def _same(t: pa.DataType) -> str:
+    """S011's type of an untyped column: dictionary encoding, `large_` strings and binaries and
+    the spellings of UTC are no difference (TDS 3.6, 3.7)."""
+    if pa.types.is_dictionary(t):
+        t = t.value_type
+    if pa.types.is_large_string(t) or pa.types.is_large_binary(t):
+        t = pa.string() if pa.types.is_large_string(t) else pa.binary()
+    if pa.types.is_timestamp(t) and t.tz in _UTC:
+        t = pa.timestamp(t.unit, "UTC")
+    return str(t)
 
 
 def _undeclared_markets(path: Path, data: Mapping[str, Any]) -> list[Finding]:

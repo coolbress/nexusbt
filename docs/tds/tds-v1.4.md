@@ -265,7 +265,7 @@ This is the canonical English text; a Korean translation is in tds-v1.4.ko.md.
 - The type of a partition value is written in the dataset schema (e.g. `year` = i16, `date` = date32, `market` = code). An integer value is ASCII digits with an optional leading `-` and no leading zero (`year=2024`, not `year=02024`, `-0` or full-width digits), so each value has one path [v1.4, 2026-11-04].
 - File names: `part-<5-digit sequence>.parquet` (e.g. `part-00000.parquet`). Tables split by time range, like tick data, MAY use `<ts_min>_<ts_max>.parquet` (Nautilus style, with `:` and `.` in the RFC 3339 times replaced by `-`). Time ranges of files in the same partition MUST NOT overlap (K004).
 - Small tables (security master etc.) have no partition: `<dataset>/part-00000.parquet`.
-- **Every file of one dataset has the same columns** [2026-11-22, #705]: the same set of column names, partition columns left out and `x_` columns counted, in any order; a file holds each column once; a column neither the schema file nor the manifest's `columns[].type` types has the same type in every file (S002 judges the typed ones). A file that differs is S011.
+- **Every file of one dataset has the same columns** [2026-11-22, #705]: the same set of column names, partition columns left out and `x_` columns counted, in any order; a file holds each column once; a column neither the schema file nor the manifest's `columns[].type` types has the same type in every file (S002 judges the typed ones), where dictionary encoding, the `large_` string and binary types and the spellings of UTC are no difference. A file that differs is S011, in every kind, the `dictionary/` tables and kinds with no schema file included.
 
 ### 3.7 Parquet physical rules (recommended and required)
 
