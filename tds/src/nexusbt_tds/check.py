@@ -539,7 +539,8 @@ def _check_schema(
         version = _VERSION.fullmatch(str(ds.get("schema_version")))
         if only is not None and ds.get("name") not in only:
             continue
-        out += _same_columns(root, ds, schema)  # S011 needs no schema file: every kind
+        if not version or int(version[1]) == SUPPORTED_MAJOR:  # M009's: not read as 1.0
+            out += _same_columns(root, ds, schema)  # S011 needs no schema file: every kind
         if schema is None and ds.get("kind") not in DICTIONARIES:  # `x_custom`: not checked
             blind.update(c for c in SCHEMA_CODES if c != "TDS-S011")
         if schema is None or not version or int(version[1]) != SUPPORTED_MAJOR:  # M009

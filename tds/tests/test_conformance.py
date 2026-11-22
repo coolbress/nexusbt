@@ -1776,6 +1776,10 @@ def _declares(name: str, tag: str | None, **columns: Any) -> Any:
         (_two_x(pa.array(["a"]), pa.array([1]), "string"), ["TDS-S002"]),  # typed: S002's
         (_two_x(pa.array(["a"]), pa.array(["b"]).dictionary_encode()), []),  # one type (3.7)
         (_two_x(pa.array(["a"]), pa.array(["b"], pa.large_string())), []),
+        (_two_x(pa.array([TS[0].as_py()], TS.type), pa.array([TS[0].as_py()],
+                pa.timestamp("us", "+00:00"))), []),  # UTC spelt two ways
+        (lambda m, f: (build.bars(m).update(schema_version="2.0"), _two_x(
+            pa.array(["a"]), pa.array([1]))(m, f)), []),  # M009: not read as 1.0, no S011
         (lambda m, f: (build.rewrite(m, f, build.BARS, build.bars_table().append_column(
             "close", pa.array([1.0]))), build.bars(m)["files"].append(
             dict(build.bars(m)["files"][0]))), ["TDS-S011"]),  # listed twice (M013): S011 once
