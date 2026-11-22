@@ -72,7 +72,8 @@ def test_doctor_lists_markets_packs_and_counts(
     for m in ("KR", "US"):  # the tiny preset: 6 instruments, 341 daily rows per market
         line = rf"^market {m} +rules {m}@1 +2020-01-02\.\.2020-03-31 +instruments 6 +rows 341$"
         assert re.search(line, out, re.M), out
-    assert re.search(r"^columns +13 daily bar columns$", out, re.M)  # tiny's bars file has 13
+    # tiny's bars file has 11: 13 before #705 took `cum_factor_split` and `cum_factor_total`
+    assert re.search(r"^columns +11 daily bar columns$", out, re.M)
     assert re.search(r"^free disk +\d+\.\d GB$", out, re.M)
 
 

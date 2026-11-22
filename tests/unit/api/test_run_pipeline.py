@@ -98,7 +98,7 @@ def test_markets_from_snapshot(tiny: Path, tmp_path: Path) -> None:
 
 def t07(at: Path) -> Path:
     """`tiny` KR with KR:T00001's bars and events those of the golden case T-07 (8.2): the
-    closes, volumes and `cum_factor_*` of its eight rows, `C = 5` after them."""
+    closes and volumes of its eight rows; the engine's `C` from the case's events alone."""
     case = yaml.safe_load((CASES / "T-07.yaml").read_text())
     root = make_snapshot(at, preset="tiny", markets=("KR",))
     write_actions(root, case["corporate_actions"])
@@ -108,9 +108,8 @@ def t07(at: Path) -> Path:
     rows = pq.read_table(root / file["path"]).to_pylist()
     given = {dt.date.fromisoformat(b["session_date"]): b for b in case["bars"]}
     for row in (r for r in rows if r["instrument_id"] == ID):
-        bar = given.get(row["session_date"], {"cum_factor_split": 5.0})
+        bar = given.get(row["session_date"], {})
         row.update({k: v for k, v in bar.items() if k != "session_date"})
-        row["cum_factor_total"] = row["cum_factor_split"]
     schema = pq.read_schema(root / file["path"])
     file.update(_write(root, file["path"], entry["name"], pa.Table.from_pylist(rows, schema)))
     (root / "tds.json").write_text(json.dumps(manifest), encoding="utf-8")

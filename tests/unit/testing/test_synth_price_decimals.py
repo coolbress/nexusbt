@@ -19,7 +19,7 @@ from _applied import applied, resolved
 
 from nexusbt.testing import _synth_package as pkg
 from nexusbt.testing import synth
-from nexusbt.testing.synth import a001, main, make_snapshot, read
+from nexusbt.testing.synth import main, make_snapshot, read
 
 OHLC = ("open", "high", "low", "close")
 SHORT: dict[str, Any] = {"markets": ("KR", "US", "ZZ"), "end": dt.date(2015, 12, 31),
@@ -59,8 +59,7 @@ def test_us_and_zz_prices_are_on_the_grid_and_pass_the_full_check(rounded: Path)
     done = pkg._tds("check", str(rounded), "--level", "full")
     assert done.returncode == 0, done.stdout + done.stderr
     assert re.search(r"\b0 errors\b", done.stdout), done.stdout
-    assert a001(done.stdout) == 0  # the checker's count (#608)
-    assert applied(rounded) == resolved(rounded)  # and the record's (#705)
+    assert applied(rounded) == resolved(rounded)  # rounding moved no factor (#608, #705)
 
 
 def test_rounded_bars_still_enclose_open_and_close(rounded: Path) -> None:

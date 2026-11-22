@@ -10,13 +10,14 @@ draws and + - x / instead of 4.8 (3)'s exp, normal and lognormal draws, so that 
 not depend on the platform's math library (#128). Both write `instruments`,
 `instrument_symbols`, an empty `instrument_xref`, `calendar_sessions`, `corporate_actions`
 and `delistings` (both empty in `tiny`; in `small` 4.8 (4) and (6)) and dense daily `bars`
-whose raw prices and cumulative factors follow the events (all 1.0 in `tiny`); `small` also
+whose raw prices follow the events (none in `tiny` unless injected); `small` also
 `tradability_daily` (4.8 (5), whose KR grid, halts and limits move its bars), `share_counts`
 (4.8 (7)), `eligibility_daily` (4.8 (10)), the bars' `value_traded` and, with KR, `market_rules`
 (4.8 (11a)). The hashes in
 `tds.json` and `--validate`'s check are the `tds` command's, run as a separate process: spec
-2.5 draws no arrow from `testing` to `nexusbt_tds`, so this module does not import it, and
-`--validate`'s `TDS-A001` count is the one that check prints (#608).
+2.5 draws no arrow from `testing` to `nexusbt_tds`, so this module does not import it. What
+the events applied to the prices is recorded beside the package, never in it (`APPLIED`), and
+a test compares it with the checker's resolver (#608, #705).
 """
 
 from __future__ import annotations
@@ -43,7 +44,7 @@ from nexusbt.contracts import ID_COLUMN as ID
 from nexusbt.testing import _synth_degrade as dg
 from nexusbt.testing import _synth_events as ev
 from nexusbt.testing import _synth_package as pk
-from nexusbt.testing._synth_actions import BP, CA, YEAR, Applied, _actions, _at
+from nexusbt.testing._synth_actions import BP, CA, FACTORS, YEAR, Applied, _actions, _at
 from nexusbt.testing._synth_daily import (
     OHLC,
     PRODUCER,
@@ -173,8 +174,9 @@ def _tiny_actions(
     sessions = {"session_date": np.array(days, "datetime64[D]")} | {
         name: np.array([h[j].replace(tzinfo=None) for h in hours], "datetime64[us]")
         for j, name in enumerate(("ts_open", "ts_close"))}  # fmt: skip
-    names = (*OHLC, "volume", "cum_factor_split", "cum_factor_total")
+    names = (*OHLC, "volume")
     bars = {c: [np.array([r[c] for r in rs]) for rs in held] for c in (*names, "session_date")}
+    bars |= {f: [np.ones(len(rs)) for rs in held] for f in FACTORS}  # moved, never written
     actions, _, applied = _actions(market, ids, first, last, sessions, bars,
                                    np.random.default_rng(0), [None] * len(ids), found,
                                    MARKETS[market]["currency"], random=False)  # fmt: skip
@@ -219,7 +221,7 @@ def _tiny(
                 ID: iid, "session_date": day, "ts_start": ts_open,
                 "ts_end": ts_close, "open": open_, "high": max(open_, price),
                 "low": min(open_, price), "close": price, "volume": 1000.0 * n,
-                "obs_status": "traded", "cum_factor_split": 1.0, "cum_factor_total": 1.0,
+                "obs_status": "traded",
             })  # fmt: skip
             close = price
     actions, exited, applied = _tiny_actions(market, [i for _, i in ids], days, bars, events,
@@ -328,7 +330,7 @@ def _small(
             "low": np.minimum(open_, close) / wick[1], "close": close,
             "volume": rng.integers(1_000, 100_000, j - i, endpoint=True).astype(np.float64),
             "obs_status": ["traded"] * (j - i),
-            "cum_factor_split": np.ones(j - i), "cum_factor_total": np.ones(j - i),
+            **{f: np.ones(j - i) for f in FACTORS},  # moved by the events, never written
         }.items():  # fmt: skip
             bars.setdefault(name, []).append(values)
     mics = _venues(VENUES.get(market), n, bars, rng, decimals)  # drawn last: the above stay
@@ -353,6 +355,7 @@ def _small(
             {
                 c: pa.array(np.concatenate(v), from_pandas=True)  # NaN → null
                 for c, v in t.items()
+                if c not in FACTORS  # the running factors stay out of the package
             }
         ).sort_by(order)
         for t in (bars, status, eligible)
@@ -490,21 +493,9 @@ def write_actions(root: Path, rows: Sequence[Mapping[str, Any]]) -> None:
         raise RuntimeError(f"tds hash --write {root} exited {done.returncode}: {done.stderr}")
 
 
-def a001(printed: str) -> int | None:
-    """TDS-A001's count in what `tds check --level full` printed, over its daily bars datasets;
-    None where it notes A001 not checked, or printed no summary line (a checker fault). The
-    checker's resolver is the only one (#608)."""
-    if re.search(r"^note: TDS-A001 not checked\b", printed, re.M) or not re.search(
-        r"^\d+ errors, \d+ warnings at level ", printed, re.M
-    ):
-        return None
-    return sum(int(n) for n in re.findall(r"^error TDS-A001 .*: (\d+) cumulative factor", printed,
-                                          re.M))  # fmt: skip
-
-
 def _factors(actions: pa.Table) -> dict[tuple[str, str], list[tuple[dt.date, float, str]]]:
-    """(instrument, basis) → each (ex_date, price_factor, chain id) the bars' `cum_factor_<basis>`
-    steps by, at c = +inf, as the generator reads its own chains (`_refactor`, `_recut`)."""
+    """(instrument, basis) → each (ex_date, price_factor, chain id) of the effective versions,
+    at c = +inf, as the generator reads its own chains (`_recut` keeps what moved prices)."""
     parent = {r["event_id"]: r["revision_of"] for r in actions.to_pylist()}
     latest: dict[str, tuple[Any, dict[str, Any]]] = {}
     for r in sorted(actions.to_pylist(), key=lambda r: r["event_id"]):
@@ -525,10 +516,10 @@ def _factors(actions: pa.Table) -> dict[tuple[str, str], list[tuple[dt.date, flo
 
 def _cut(table: Mapping[str, Any], name: str, day: str, sessions: Table) -> dict[str, Any]:
     """One market's tables without dataset `name`'s rows first known after the close of
-    session `day` (spec 4.8 `behind`, #425), and what derives from them: a cut action no longer
-    steps the bars' `cum_factor_*` (their prices keep its move), a cut exit leaves its
-    instrument's `delisted_on` null. The instant is TDS 4.3's: an action's existence instant
-    (5.11), an exit's `ts_exit_known`, a column form's column; a null one stays."""
+    session `day` (spec 4.8 `behind`, #425), and what derives from them: a cut exit leaves its
+    instrument's `delisted_on` null; a cut action's move stays in the prices (`_recut`). The
+    instant is TDS 4.3's: an action's existence instant (5.11), an exit's `ts_exit_known`, a
+    column form's column; a null one stays."""
     known = pk.FIELDS.get(name, {}).get("availability", {})
     out = dict(table)
     if not known.keys() & {"terms", "exit", "column"}:
@@ -547,8 +538,6 @@ def _cut(table: Mapping[str, Any], name: str, day: str, sessions: Table) -> dict
     ]
     keep = pa.array([t is None or t <= close for t in at], pa.bool_())
     out[name] = rows.filter(keep)
-    if name == "corporate_actions" and "bars_1d" in out:
-        out["bars_1d"] = _refactor(pk._arrow(out["bars_1d"]), _factors(rows), _factors(out[name]))
     if name == "delistings":
         held = pk._arrow(out["instruments"])
         gone = pc.is_in(held[ID], value_set=rows.filter(pc.invert(keep))[ID])
@@ -558,33 +547,12 @@ def _cut(table: Mapping[str, Any], name: str, day: str, sessions: Table) -> dict
     return out
 
 
-def _refactor(bars: pa.Table, was: Mapping[Any, Any], now: Mapping[Any, Any]) -> pa.Table:
-    """`bars` with each `cum_factor_*` stepping by the factors `now` instead of `was`."""
-    if "cum_factor_split" not in bars.column_names:  # degrade no_cum_factors (F-04)
-        return bars
-    ids = np.asarray(bars[ID].to_pylist())
-    days = bars["session_date"].to_numpy(zero_copy_only=False)
-    for basis in ("total", "split"):
-        name = f"cum_factor_{basis}"
-        column = bars[name].to_numpy(zero_copy_only=False).copy()
-        for key in {
-            k for k in was.keys() | now.keys() if k[1] == basis and was.get(k) != now.get(k)
-        }:
-            steps = [(ex, 1 / f) for ex, f, _ in was.get(key, []) if f is not None]
-            steps += [(ex, f) for ex, f, _ in now.get(key, []) if f is not None]
-            for ex, f in steps:  # undo the factors it had, then apply those it has now
-                column[(ids == key[0]) & (days >= np.datetime64(ex))] *= f
-        bars = bars.set_column(bars.schema.get_field_index(name), name,
-                               pa.array(column, from_pandas=True))  # fmt: skip
-    return bars
-
-
 def _recut(applied: Applied, was: Mapping[Any, Any], now: Mapping[Any, Any]) -> Applied:
-    """`applied` once a cut changed the versions known, as `_refactor` steps the bars'
-    `cum_factor_*`: for each (instrument, basis) whose steps it changed, the steps `was` gave
-    taken out and those `now` gives put in; an applied step `was` lacks stays, and a step in
-    both that was never applied (a payout after the last bar) stays out, as its 1/f and f
-    cancel on the bars."""
+    """`applied` once a cut changed the versions known, as the bars' `cum_factor_*` were
+    refactored before #705: for each (instrument, basis) whose steps it changed, the steps
+    `was` gave taken out and those `now` gives put in; an applied step `was` lacks stays, and
+    a step in both that was never applied (a payout after the last bar) stays out, as its 1/f
+    and f cancelled on the bars."""
     changed = {k for k in was.keys() | now.keys() if was.get(k) != now.get(k)}
     drop = Counter((i, ex, b, f, e) for (i, b) in changed for ex, f, e in was.get((i, b), [])
                    if f is not None)  # fmt: skip
@@ -638,11 +606,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     bars = read(root, "bars_1d")
     done = pk._tds("check", str(root), "--level", "full")
-    bad = a001(done.stdout)  # the checker's count (#608)
-    if "cum_factor_split" not in bars.column_names:  # degrade no_cum_factors (F-04)
-        print("TDS-A001: no cum_factor_* columns")
-    else:
-        print(f"TDS-A001: {'not checked' if bad is None else bad}")
     if "ts_available" in bars.column_names:  # degrade late_bars (#354)
         late = pa.compute.greater(bars["ts_available"], bars["ts_end"])
         print(f"late bars {pa.compute.sum(late).as_py()}")

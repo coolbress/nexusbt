@@ -29,7 +29,7 @@ are in #254's Decisions of 2026-11-20.
 - Still saying something after τ: `instrument_symbols.valid_to` and `ts_known_to` and
   `market_rules.valid_to` in rows known by τ, and the timeless datasets' rows.
 - Not handled, as `small` has none: an action first known after the bars it steps
-  (`cum_factor_*` keep its step), and two `delistings` rows of one instrument with one cut.
+  (the prices keep its move), and two `delistings` rows of one instrument with one cut.
 - Not reached by `small`'s data, so untested: the null fallbacks above, and terms before
   `ts_announced` in the existence instant.
 """
