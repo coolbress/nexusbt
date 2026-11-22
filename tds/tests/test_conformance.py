@@ -20,7 +20,7 @@ from .alone import measured_alone
 from .conformance_build import build
 
 #: The S codes the `schema` level reports.
-S_CODES = [f"TDS-S{n:03}" for n in range(1, 11)]
+S_CODES = [f"TDS-S{n:03}" for n in range(1, 12)]  # S011 since #705
 
 
 def codes(path: Path, level: Level = "manifest", **kwargs: Any) -> list[str]:
@@ -1330,14 +1330,15 @@ def test_a_kind_without_a_schema_file_is_not_checked(tmp_path: Path) -> None:
 
     result = check(write(tmp_path / "custom", custom), level="schema")
     assert (result.errors, result.warnings) == ((), ())
-    assert set(S_CODES) <= set(result.unchecked)  # not a silent pass
+    assert set(S_CODES) - {"TDS-S011"} <= set(result.unchecked)  # not a silent pass
+    assert "TDS-S011" not in result.unchecked  # it needs no schema file (#705 3b's review)
 
     def under_dictionary(m: dict[str, Any], f: Any) -> None:  # the kind decides, not the path
         custom(m, f)
         m["datasets"][-1]["path"] = "dictionary/x"
 
     unchecked = check(write(tmp_path / "d", under_dictionary), level="schema").unchecked
-    assert set(S_CODES) <= set(unchecked)
+    assert set(S_CODES) - {"TDS-S011"} <= set(unchecked)
     # `dictionary/codes` (TDS 4.4) has no schema file either, and hides nothing
     package = build.write(tmp_path / "codes", *build.package("TDS-S007", "pass"))
     assert not set(S_CODES) - {"TDS-S009"} & set(check(package, level="schema").unchecked)
@@ -1684,6 +1685,41 @@ def test_D002_from_the_statistics(change: Any, found: list[str], tmp_path: Path)
 
 
 _bars, TS, VERSION_1_9 = build._bars, build.TS, build.VERSION_1_9
+
+
+def test_s011_reads_the_dictionary_tables_too(tmp_path: Path) -> None:
+    # the fresh-context review of #705's 3b: every kind, also those 4.4 holds no S code for
+    def change(m: dict[str, Any], f: Any) -> None:
+        build._codes(m, f)
+        rel = "dictionary/codes/part-00001.parquet"
+        f[rel] = build.parquet(pa.table({"field": ["category"]}), "dictionary/codes")
+        m["datasets"][-1]["files"].append({"path": rel, "rows": 1, "bytes": len(f[rel])})
+
+    result = check(write(tmp_path, change), level="schema")
+    assert [(x.code, x.dataset) for x in result.errors] == [("TDS-S011", "dictionary/codes")]
+
+
+def test_a_float_column_stored_twice_is_reported_at_full_not_a_crash(tmp_path: Path) -> None:
+    # found building #705's 3b: `cells` raised KeyError on it, on main as well
+    twice = build.bars_table().append_column("close", pa.array([1.0]))
+    package = write(tmp_path, lambda m, f: build.rewrite(m, f, build.BARS, twice))
+    result = check(package, level="full")
+    assert [f.code for f in result.errors] == ["TDS-S011"]
+    assert {"TDS-S006", "TDS-S007", "TDS-S009"} <= set(result.unchecked)  # its rows unseen
+
+
+def _two_x(first: pa.Array, second: pa.Array, declared: str | None = None) -> Any:
+    """Two bars files whose `x_note` holds `first`, then `second`; `declared` its tds.json type."""
+
+    def change(m: dict[str, Any], f: Any) -> None:
+        if declared:
+            build.bars(m)["columns"] = [{"name": "x_note", "type": declared}]
+        build.rewrite(m, f, build.BARS, build.bars_table(x_note=first))
+        build._two_bars(x_note=second)(m, f)
+
+    return change
+
+
 TS_NS = TS.cast(pa.timestamp("ns", "UTC"))
 
 
@@ -1733,7 +1769,20 @@ def _declares(name: str, tag: str | None, **columns: Any) -> Any:
         (lambda m, f: (build.bars(m).update(columns=[{"name": "momentum", "type": "f64"}]),
                        _bars(momentum=pa.array([1.0]))(m, f)), []),  # a declared column is known
         (lambda m, f: build.rewrite(m, f, build.BARS, build.bars_table().append_column(
-            "close", pa.array([1.0]))), []),  # a column written twice: no crash
+            "close", pa.array([1.0]))), ["TDS-S011"]),  # a column written twice: S011 (#705)
+        # S011 (#705 Decisions 40): an untyped column's type is the same in every file
+        (_two_x(pa.array(["a"]), pa.array([1])), ["TDS-S011"]),
+        (_two_x(pa.array(["a"]), pa.array(["b"])), []),
+        (_two_x(pa.array(["a"]), pa.array([1]), "string"), ["TDS-S002"]),  # typed: S002's
+        (_two_x(pa.array(["a"]), pa.array(["b"]).dictionary_encode()), []),  # one type (3.7)
+        (_two_x(pa.array(["a"]), pa.array(["b"], pa.large_string())), []),
+        (_two_x(pa.array([TS[0].as_py()], TS.type), pa.array([TS[0].as_py()],
+                pa.timestamp("us", "+00:00"))), []),  # UTC spelt two ways
+        (lambda m, f: (build.bars(m).update(schema_version="2.0"), _two_x(
+            pa.array(["a"]), pa.array([1]))(m, f)), []),  # M009: not read as 1.0, no S011
+        (lambda m, f: (build.rewrite(m, f, build.BARS, build.bars_table().append_column(
+            "close", pa.array([1.0]))), build.bars(m)["files"].append(
+            dict(build.bars(m)["files"][0]))), ["TDS-S011"]),  # listed twice (M013): S011 once
         (lambda m, f: (build.bars(m).update(schema_version="1.9"),
                        _bars(VERSION_1_9, note=pa.array(["a"]))(m, f)), []),  # M011: ignored
         (lambda m, f: (build.bars(m).update(schema_version="2.0"),

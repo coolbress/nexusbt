@@ -68,7 +68,8 @@ def _check(m: Manifest, only: Sequence[str] | None, blind: set[str]) -> list[Fin
         for rel, _ in listed(root, ds):
             try:
                 found = _check_file(root / rel, columns, codes)
-            except (OSError, pa.ArrowException):  # S010's: this file's rows unseen, not others'
+            except (OSError, KeyError, pa.ArrowException):  # S010's or S011's (a name twice):
+                # this file's rows unseen, not others'
                 blind.update(CELL_CODES)
                 continue
             out += [replace(f, dataset=ds.get("name"), file=rel) for f in found]
