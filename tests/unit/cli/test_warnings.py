@@ -23,14 +23,17 @@ from nexusbt.testing.synth import make_snapshot
 #: warning into an error (pyproject), so the commands run here under Python's default.
 pytestmark = pytest.mark.filterwarnings("default")
 
-#: `tiny` without open, high and low: one E30 for F-01 (4.5), six `fallback` lines.
-F01 = [f"fallback   F-01 bars_1d.{c} {m} 341"
-       for m in ("KR", "US") for c in ("open", "high", "low")]  # fmt: skip
+#: `tiny` without volume and value_traded: one E30 for F-18 (4.5), four `fallback` lines (F-01,
+#: the sample before, retired, #705).
+F18 = [f"fallback   F-18 bars_1d.{c} {m} 341"
+       for m in ("KR", "US") for c in ("volume", "value_traded")]  # fmt: skip
 
 
 @pytest.fixture(scope="module")
 def package(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    return make_snapshot(tmp_path_factory.mktemp("pkg") / "s1", preset="tiny", degrade=["no_ohlc"])
+    return make_snapshot(
+        tmp_path_factory.mktemp("pkg") / "s1", preset="tiny", degrade=["no_volume"]
+    )
 
 
 @pytest.fixture
@@ -56,11 +59,11 @@ def test_doctor_prints_the_warning_in_its_own_shape_once(
     assert main(["doctor"]) == 0
     out, err = capsys.readouterr()
     (e30,) = announced(package)
-    assert e30.startswith("DataProfileWarning [E30] F-01\n  layer  data — snapshot")
+    assert e30.startswith("DataProfileWarning [E30] F-18\n  layer  data — snapshot")
     assert err == e30 + "\n"  # no prefix, no source line, nothing else
     for python in ("UserWarning", "_doctor.py", "open_snapshot"):  # its prefix and source line
         assert python not in err
-    assert [line for line in out.splitlines() if line.startswith("fallback")] == F01
+    assert [line for line in out.splitlines() if line.startswith("fallback")] == F18
 
 
 def test_the_python_api_still_warns_after_a_command(
@@ -68,7 +71,7 @@ def test_the_python_api_still_warns_after_a_command(
 ) -> None:
     """The CLI's printer is the command's alone: once it returns, `nx.open` warns as before."""
     assert main(["doctor"]) == 0
-    with pytest.warns(UserWarning, match=r"^DataProfileWarning \[E30\] F-01\n"):
+    with pytest.warns(UserWarning, match=r"^DataProfileWarning \[E30\] F-18\n"):
         nx.open(package)
 
 
@@ -89,7 +92,7 @@ def test_distinct_warnings_each_once(
     tmp_path: Path, project: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Two fallbacks from the same line of `doctor` are two warnings, neither dropped."""
-    both = make_snapshot(tmp_path / "both", preset="tiny", degrade=["no_ohlc", "no_sessions"])
+    both = make_snapshot(tmp_path / "both", preset="tiny", degrade=["no_volume", "no_sessions"])
     (project / "nexusbt.toml").unlink()
     assert main(["init", "--data-root", str(both)]) == 0
     capsys.readouterr()
@@ -98,7 +101,7 @@ def test_distinct_warnings_each_once(
     e30s = announced(both)
     assert [t.split("\n", 1)[0] for t in e30s] == [
         "DataProfileWarning [E30] F-02",
-        "DataProfileWarning [E30] F-01",
+        "DataProfileWarning [E30] F-18",
     ]  # in the records' order (4.5), as the `fallback` lines are
     assert err == "".join(t + "\n" for t in e30s)
 
@@ -168,4 +171,4 @@ def test_the_persons_filters_act_as_before(
         assert done.stdout == ""
     else:
         assert done.stderr == ("" if "ignore" in flags else e30 + "\n")
-        assert re.search(r"^fallback +F-01 bars_1d\.open KR 341$", done.stdout, re.M)
+        assert re.search(r"^fallback +F-18 bars_1d\.volume KR 341$", done.stdout, re.M)

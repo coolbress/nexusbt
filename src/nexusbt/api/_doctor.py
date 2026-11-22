@@ -159,7 +159,7 @@ def doctor() -> str:
     lines.append(("unchecked", ", ".join(s.unchecked) or "none"))
     lines.append(("codes", ", ".join(f"{c} {n}" for c, n in sorted(s.warnings.items())) or "none"))
     named = [(f, f"{f.dataset}.{f.column}" if f.column else f.dataset) for f in s.fallbacks]
-    lines += [("fallback", f"{f.id} {name} {f.market} {f.count}") for f, name in named]  # F-01
+    lines += [("fallback", f"{f.id} {name} {f.market} {f.count}") for f, name in named]  # F-18
     lines += [] if s.fallbacks else [("fallbacks", "none")]
     # 4.5 F-16: TDS-V011 needs `value_traded`, so without it the unit of `volume` is unchecked;
     # one line for each dataset, not per market, with `volume` there or not (#650 Decisions)

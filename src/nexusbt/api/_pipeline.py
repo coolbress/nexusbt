@@ -98,6 +98,8 @@ def run(
             unrun.append(none)
     if not periods:  # no market has a session: the period is wrong
         raise unrun[0]
+    for m in periods:  # a market whose files hold no value of a field: E18 before any (#705)
+        opened._check_fields(fields, m)
     counted: list[tuple[str, dt.date, str, str, int]] = []
     tables = [_market(pipeline, terms, fields, opened, m, p, freq, cfg, counted)
               for m, p in periods.items()]  # fmt: skip

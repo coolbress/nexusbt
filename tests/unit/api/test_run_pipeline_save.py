@@ -156,26 +156,27 @@ def test_the_manifest_records_the_fallbacks_the_run_used(
     each as `FallbackRecord` holds it (`column` too), with `data.profiles`,
     `data.capabilities`, `data.unchecked`, and the fallback's sentence in `assumptions` (1.2);
     none of it names the package's or the project's folder (5.9.3)."""
-    pkg = make_snapshot(tmp_path_factory.mktemp("no_ohlc") / "pkg", preset="tiny",
-                        degrade=["no_ohlc"])  # fmt: skip
+    pkg = make_snapshot(  # F-18 in F-01's place, retired (#705)
+        tmp_path_factory.mktemp("no_volume") / "pkg", preset="tiny", degrade=["no_volume"]
+    )
     pipe = nx.Pipeline({"c": nx.Price.close.latest})
-    with pytest.warns(UserWarning, match=r"\[E30\] F-01"):
+    with pytest.warns(UserWarning, match=r"\[E30\] F-18"):
         result = nx.run_pipeline(pipe, start="2020-01-06", end="2020-01-08", snapshot=str(pkg),
                                  save=True)  # fmt: skip
     manifest = json.loads((project / "runs" / str(result.run_id) / "manifest.json").read_text())
     data = manifest["data"]
     assert data["fallbacks"] == [
-        {"id": "F-01", "dataset": "bars_1d", "market": m, "count": 341, "column": c}
-        for m in ("KR", "US") for c in ("open", "high", "low")
+        {"id": "F-18", "dataset": "bars_1d", "market": m, "count": 341, "column": c}
+        for m in ("KR", "US") for c in ("volume", "value_traded")
     ]  # fmt: skip
     assert set(data) == {"profiles", "capabilities", "unchecked", "fallbacks"}
     assert data["profiles"]["tds:minimal-daily@1.0"] == {  # the checker reports no `pass`
         "declared": True, "verified_level": "manifest", "result": "not_checked"}  # fmt: skip
     assert "price" in data["capabilities"]["features"]
     assert isinstance(data["unchecked"], list)
-    assert [a for a in manifest["assumptions"] if "F-01" in a] == [
-        "fallback F-01 used: Price.open/high/low = NaN, bars without them or null in every row "
-        "for KR, US"
+    assert [a for a in manifest["assumptions"] if "F-18" in a] == [
+        "fallback F-18 used: Price.volume/value_traded = NaN, bars without them or null in every "
+        "row for KR, US"
     ]
     said = json.dumps([data, manifest["assumptions"]])
     assert not [p for p in (pkg.parent, project, Path.home()) if str(p) in said]

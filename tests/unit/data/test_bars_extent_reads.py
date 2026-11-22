@@ -1,8 +1,8 @@
-"""#568: the bars' extent (spec 4.5 F-01, F-02, F-03, F-15) is read from the bars files only
+"""#568: the bars' extent (spec 4.5 F-18, F-02, F-03, F-15) is read from the bars files only
 when a fallback uses it, and once per open. A test counts the engine's Parquet row reads of
 the bars files: `read_table`, and a `ParquetFile`'s `read`, `read_row_group(s)` and
 `iter_batches`. The footer (`read_schema`, `read_metadata`, a `ParquetFile`'s `metadata`) is
-not counted: `obs_status` being a column decides F-03, and F-01 reads its statistics."""
+not counted: `obs_status` being a column decides F-03, and F-18 reads its statistics."""
 
 from __future__ import annotations
 
@@ -96,7 +96,7 @@ def test_no_fallback_reads_no_bars_file(tmp_path: Path, reads: Counter[str]) -> 
 
 #: degrade, markets, the feature asked for: each fallback whose record reads the bars' extent
 #: (the cases of `test_open_without_coverage.py`).
-CASES = {"F-01": (["no_ohlc"], ("KR", "US"), "price"),
+CASES = {"F-18": (["no_volume"], ("KR", "US"), "price"),  # F-01's place, retired (#705)
          "F-02": (["no_sessions"], ("KR", "US"), "backtest"),
          "F-03": (["sparse_bars"], ("KR", "US"), "backtest"),
          "F-15": (["no_tick_info"], ("KR", "ZZ"), "grid")}  # fmt: skip

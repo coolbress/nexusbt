@@ -111,25 +111,11 @@ def test_doctor_lists_fallbacks_and_unchecked(
 
 
 @DEFAULT
-def test_doctor_names_the_column_of_a_column_fallback(
-    tmp_path: Path, project: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """#604: F-01 is one record per market and column (4.5); each line says which column, as
-    `dataset.column` (the owner's format, #604 Decisions), and one with none prints as before."""
-    package = make_snapshot(tmp_path / "pkg", preset="tiny", degrade=["no_ohlc", "no_sessions"])
-    out = doctor(package, capsys, r"DataProfileWarning \[E30\] F-0[12]\n")
-    lines = [line.split(None, 1)[1] for line in out.splitlines() if line.startswith("fallback ")]
-    columns = [f"F-01 bars_1d.{c} {m} 341" for m in ("KR", "US") for c in ("open", "high", "low")]
-    # one line per record, none merged, in the records' order (4.5)
-    assert lines == ["F-02 calendar_sessions KR 62", "F-02 calendar_sessions US 62", *columns]
-
-
-@DEFAULT
 def test_doctor_names_the_columns_of_f18(
     tmp_path: Path, project: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """#584: bars without `volume` and `value_traded` (4.5 F-18) are a line per market and
-    column, as F-01's are (#604)."""
+    """#584, #604: bars without `volume` and `value_traded` (4.5 F-18) are a line per market
+    and column, as `dataset.column` (the owner's format, #604 Decisions)."""
     package = make_snapshot(tmp_path / "pkg", preset="tiny", degrade=["no_volume"])
     out = doctor(package, capsys, r"DataProfileWarning \[E30\] F-18\n")
     lines = [line.split(None, 1)[1] for line in out.splitlines() if line.startswith("fallback ")]

@@ -32,10 +32,11 @@ _SOURCE = {"close_tr": "close", "close_unadjusted": "close", "volume_unadjusted"
 #: Price cells NaN in a halted or missing session (3.2); `no_trade` keeps its reference close.
 _PRICES = frozenset({"open", "high", "low", "close", "close_tr", "close_unadjusted"})
 _VOLUMES = ("volume", "volume_unadjusted")  # 0 in a `no_trade` session (3.2)
-#: The bars columns a package may leave out, read as NaN (4.5 F-01, F-18).
+#: `open`, `high`, `low` without a value are E14 or E18 at open (4.4-3; F-01 retired, #705);
+#: the traded columns a package may leave out, read as NaN (4.5 F-18).
 OHL = ("open", "high", "low")
 TRADED = ("volume", "value_traded")
-_NULLABLE = (*OHL, *TRADED)
+_NULLABLE = TRADED
 _INTEGER = frozenset({"i8", "i16", "i32", "i64"})
 #: Columns a bars file may lack: the block reads them when present (TDS 5.5, F-03).
 _OPTIONAL = ("obs_status", "ts_end", "ts_available")
@@ -48,8 +49,8 @@ class MarketBlock:
     listing mask, `obs_status` codes into `OBS_STATUS`, `ts_available` each cell's availability
     instant (NaT without a bar), which a reader compares with `ready(t)` (5.1.2); a late bar
     stays in its session's row. The first `overlap` rows are the previous chunk's tail.
-    `gone[c]`, for a bars column `c` of `OHL` or `TRADED` that a file read lacks or holds null
-    in every row (`gone`, 4.5 F-01, F-18), is true at the cells read from such a file; a column
+    `gone[c]`, for a bars column `c` of `TRADED` that a file read lacks or holds null
+    in every row (`gone`, 4.5 F-18), is true at the cells read from such a file; a column
     no file read lacks has no entry (#688)."""
 
     market: str
@@ -97,7 +98,7 @@ def build_block(
     status = np.full(shape, -1, dtype=np.int8)
     available = np.full(shape, np.datetime64("NaT", "us"))
     source, _ = bars_availability(bars, str(manifest.data["snapshot_id"]))
-    sources = [_SOURCE.get(f, f) for f in fields]  # NaN where a file lacks them (F-01, F-18)
+    sources = [_SOURCE.get(f, f) for f in fields]  # NaN where a file lacks them (F-18)
     wanted = [ID, "session_date", "close", *(s for s in sources if s not in _NULLABLE)]
     optional = [*_OPTIONAL, *([source] if source != "ts_close" else []),  # ts_close: calendar's
                 *(s for s in sources if s in _NULLABLE)]  # fmt: skip
@@ -207,7 +208,7 @@ def _absent(manifest: Manifest, bars: Mapping[str, Any], path: str, column: str)
 
 def gone(meta: pq.FileMetaData, column: str) -> bool:
     """The file lacks `column`, or its footer says null in every row; False when it cannot say.
-    F-01 and F-18 (4.5) take a file this says yes to, for the record and for the block's cells."""
+    F-18 (4.5) takes a file this says yes to, for the record and for the block's cells."""
     if column not in meta.schema.names:
         return True
     at = meta.schema.names.index(column)
