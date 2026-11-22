@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pyarrow.parquet as pq
 import pytest
 
 from nexusbt.contracts import SnapshotError, VerifyPolicy
@@ -93,3 +94,18 @@ def test_a_missing_close_comes_before_the_undeclared_market(tmp_path: Path) -> N
         open_snapshot(DataConfig(path=pkg))
     assert "the bars of market ZZ have no close column" in str(raised.value)  # its instrument's
     assert "TDS-M010" not in str(raised.value)
+
+
+def test_bars_without_close_or_ids_are_still_the_close_e14(tmp_path: Path) -> None:
+    """The second review of #705's 3c: the market cannot be read from the file's ids (it has
+    none), and pyarrow's error does not take the E14's place."""
+    pkg = undeclared_market_package(tmp_path, BARS.replace(",close", "").replace(",185.64", ""))
+    data = json.loads((pkg / "tds.json").read_text(encoding="utf-8"))
+    (entry,) = next(d for d in data["datasets"] if d["kind"] == "bars")["files"]
+    pq.write_table(pq.read_table(part := pkg / entry["path"]).drop_columns(["instrument_id"]), part)
+    entry["bytes"] = part.stat().st_size  # the default `manifest` level reads no hash
+    (pkg / "tds.json").write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(SnapshotError) as raised:
+        open_snapshot(DataConfig(path=pkg))
+    assert "the bars of market - have no close column" in str(raised.value)
+    assert "FieldRef" not in str(raised.value)

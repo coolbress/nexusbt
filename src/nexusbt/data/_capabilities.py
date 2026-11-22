@@ -395,8 +395,12 @@ def _no_close(
             continue
         market = partition_values(f["path"], bars.get("partitioning", [])).get("market")
         if market is None:  # no `market=`: its instruments' markets (TDS K1)
-            ids = pq.read_table(folder / f["path"], columns=[ID_COLUMN])[ID_COLUMN].to_pylist()
-            market = ", ".join(sorted({market_of.get(str(i), "-") for i in ids})) or "-"
+            try:
+                ids = pq.read_table(folder / f["path"], columns=[ID_COLUMN])[ID_COLUMN]
+            except (pa.ArrowException, KeyError):  # no id column, or two: the checker's
+                ids = pa.array([])
+            market = ", ".join(sorted({market_of.get(str(i), "-") for i in ids.to_pylist()}))
+            market = market or "-"
         raise SnapshotError(
             what=f"the bars of market {market} have no close column",
             where=f"dataset {bars['name']}, file {f['path']}, column close",
