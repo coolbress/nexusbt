@@ -1,6 +1,7 @@
 """#698: a bars file without a `close` column stops the open with E14 (spec 4.3, 4.4 step 3),
 naming the market and the column, whatever the run reads; pyarrow's error never reaches the
-person. Only an absent column: one null in every row is data (#698 Decisions, item 3)."""
+person. Since #705 Decisions 48 and 50, also a close null in every row, and a column a declared
+profile requires."""
 
 from __future__ import annotations
 
@@ -55,20 +56,58 @@ def test_a_run_of_another_market_stops_too(
         _run(pkg, "close", markets=["US"])
 
 
-def test_a_close_null_in_every_row_is_data_not_e14(tmp_path: Path) -> None:
-    """#698 Decisions, item 3: a close column with no value opens; `Price.close` is NaN there,
-    as for any missing bar (the checker's M008 calls it missing, at `schema` and above)."""
-    pkg = make_snapshot(tmp_path / "pkg", preset="tiny")
+def _null(pkg: Path, column: str, *, statistics: bool = True, keep: int = 0) -> None:
+    """`column` of every bars file null in every row but the first `keep`, footers written with
+    or without statistics."""
     data = json.loads((pkg / "tds.json").read_text(encoding="utf-8"))
     for f in next(d for d in data["datasets"] if d["kind"] == "bars")["files"]:
         table = pq.read_table(part := pkg / f["path"])
-        at = table.schema.get_field_index("close")
-        pq.write_table(table.set_column(at, "close", pa.nulls(len(table), pa.float64())), part)
+        at = table.schema.get_field_index(column)
+        kept = table[column].slice(0, keep).cast(pa.float64())
+        values = pa.concat_arrays([*kept.chunks, pa.nulls(len(table) - len(kept), pa.float64())])
+        pq.write_table(table.set_column(at, column, values), part, write_statistics=statistics)
         f["bytes"] = part.stat().st_size
     (pkg / "tds.json").write_text(json.dumps(data), encoding="utf-8")
     write_hashes(pkg)
+
+
+@pytest.mark.parametrize("statistics", [True, False], ids=["footer", "no statistics"])
+def test_a_close_null_in_every_row_is_missing_e14(statistics: bool, tmp_path: Path) -> None:
+    """#705 Decisions 50 (in place of #698's item 3): a close with no value is a missing close,
+    as TDS-M008 reads it; a file without statistics has that column read, never passed."""
+    pkg = make_snapshot(tmp_path / "pkg", preset="tiny", degrade=["no_ohlc"])  # minimal only
+    _null(pkg, "close", statistics=statistics)
+    with pytest.raises(SnapshotError) as raised:
+        _run(pkg, "close")
+    assert str(raised.value).startswith("SnapshotError [E14]")
+    assert "the bars hold no value of close" in str(raised.value)
+
+
+def test_a_close_with_one_value_opens_without_statistics(tmp_path: Path) -> None:
+    # counter-example: one value is not "null in every row", read from the column itself
+    pkg = make_snapshot(tmp_path / "pkg", preset="tiny")
+    _null(pkg, "close", statistics=False, keep=1)
+    nx.open(str(pkg))
+
+
+@pytest.mark.parametrize("column", ["open", "volume"])
+def test_a_declared_profiles_column_is_e14_at_open(column: str, tmp_path: Path) -> None:
+    """#705 Decisions 48 (b): `tiny` declares core, which requires an equity's open, high, low
+    and volume (TDS 7); a package that breaks it is E14 at open, never F-01 or F-18."""
+    pkg = make_snapshot(tmp_path / "pkg", preset="tiny")
+    _null(pkg, column)
+    with pytest.raises(SnapshotError) as raised:
+        nx.open(str(pkg))
+    text = str(raised.value)
+    assert f"the bars hold no value of {column}, which tds:equity-daily-core@1.0 requires" in text
+    assert "or declare tds:minimal-daily@1.0" in text
+
+
+def test_a_minimal_package_without_open_opens(tmp_path: Path) -> None:
+    # counter-example (#705 Decisions 48 (c)): minimal-daily asks close alone; the run reads it
+    pkg = make_snapshot(tmp_path / "pkg", preset="tiny", degrade=["no_ohlc"])
     pipeline = nx.Pipeline({"c": nx.Price.close.latest})
-    result = nx.run_pipeline(pipeline, start="2020-01-06", end="2020-01-08", snapshot=str(pkg))
+    with pytest.warns(UserWarning, match=r"\[E30\] F-01"):  # F-01's E30 leaves in plan item 4b
+        result = nx.run_pipeline(pipeline, start="2020-01-06", end="2020-01-08", snapshot=str(pkg))
     values = result.table["c"].to_pylist()
-    assert values
-    assert all(v is None or v != v for v in values)  # NaN or null, never a price
+    assert any(v is not None and v == v for v in values)

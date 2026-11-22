@@ -254,7 +254,8 @@ def test_f01_once_per_run_when_columns_left_out(tmp_path: Path, monkeypatch: Any
     one E30 for the run however many chunks it computes (here two)."""
     from nexusbt.compute import _chunks
 
-    root = make_snapshot(tmp_path / "p", preset="tiny", markets=("KR",))
+    # minimal-daily only: under core this is E14 at open (#705 Decisions 48, b)
+    root = make_snapshot(tmp_path / "p", preset="tiny", markets=("KR",), degrade=["no_ohlc"])
     without_ohl(root, "KR", drop=True)
     monkeypatch.setattr(_chunks, "spans", lambda dates, *_: [(0, 1), (2, len(dates) - 1)])
     pipe = nx.Pipeline({c: getattr(nx.Price, c).latest for c in OHL})
@@ -286,8 +287,9 @@ def test_f01_when_one_year_file_lacks_them(tmp_path: Path) -> None:
 
 def test_f01_undecided_without_footer_statistics(tmp_path: Path) -> None:
     """Without footer statistics, null in every row is not known without reading the rows,
-    which open does not do: no F-01, the cells NaN as stored."""
-    root = make_snapshot(tmp_path / "p", preset="tiny", markets=("KR",))
+    which open does not do for a column no declared profile requires: no F-01, the cells NaN
+    as stored. One a declared profile requires is read (#705 Decisions 50)."""
+    root = make_snapshot(tmp_path / "p", preset="tiny", markets=("KR",), degrade=["no_ohlc"])
     without_ohl(root, "KR", drop=False, stats=False)
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
