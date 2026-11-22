@@ -17,6 +17,7 @@ other, so a new command in either document changes this file or the list.
 | `git push` | It publishes the branch to the host, where other people can read it, and a project is public by default. The approval is the person seeing what leaves the machine. |
 | `gh pr create` | The same: it publishes a title and a description to the host. |
 | `gh pr merge` | It runs only on the person's word for that pull request, as `AGENTS.md` says; a rule would let a yes for one carry to the next. |
+| `gh pr update-branch` | It pushes a merge commit to the pull request's branch on the host and starts its checks again; only the session merging the open pull requests runs it, one at a time, as `CONTRIBUTING.md` step 7 says. |
 
 ## Named only as what not to do
 

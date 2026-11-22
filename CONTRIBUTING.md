@@ -126,13 +126,37 @@ one narrow ignore in `pyproject.toml`, with its reason.
    commit pushed after it stops the merge. It pins the commits only; the
    description is read when the command runs, so finish editing it first.
 
+   When several pull requests are open, only the session the person names,
+   or the person, merges them, one at a time. Read the next one's head
+   (`gh pr view <n> --json headRefOid --jq .headRefOid`) and whether it is
+   behind `main` (`gh pr view <n> --json mergeStateStatus --jq
+   .mergeStateStatus`, read again while it says `UNKNOWN`). Only when it says
+   `BEHIND`, bring only that one up to date (`gh pr update-branch <n>`) and
+   read its head again until it differs from the head before the update (the
+   command can return before the new head shows). Otherwise it is current:
+   `gh pr update-branch` would answer that it is already up to date and the
+   head would not move, so go on with the head you read. Then wait for its
+   required checks, merge it with the command above and `--match-head-commit`
+   on that head, and take the next. Each merge leaves every other pull request behind `main`, so
+   bringing them all up to date after each merge costs about N(N-1)/2 CI runs
+   instead of N. A session not told to merge leaves its own pull request
+   behind. Leave the description alone while waiting: `ci.yml` runs on
+   `pull_request: edited`, so an edit starts the whole workflow again and
+   cancels the run in progress, `ci / test` included, and `label.yml` runs
+   on it too.
+
 ## Pull request size
 
 Aim at 200 changed lines and stay under 400; `ci / diff-size` blocks above.
 The figure comes from the largest published code-review case study (Cisco,
 one team): review effect falls off around 200 lines and 400 is its ceiling.
 Documentation and lockfiles are not counted. A bigger change is split into
-stacked pull requests; CI runs on each against its own base.
+pull requests that land one after another, each branched from `main` after the
+one before it is merged. A stack, each branched from the one below, costs
+more under squash merges: the lower one lands as one new commit, so the upper
+one needs `main` merged in, and when the lower one changed after the upper one
+branched, a local merge of `origin/main` to resolve the conflict and a normal
+push.
 
 ## Tests
 
