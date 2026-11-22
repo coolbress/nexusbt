@@ -3156,7 +3156,7 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 | T0.14 | T0.14a(K·R, M1), T0.14b(T·D, M1), T0.14c(값·의미 해시 + 시험 벡터, M0) | 크기, 해시는 1.0 전 |
 | T0.15 | T0.15a(기업행동 해석기, `nexusbt_tds.actions`, M1), T0.15b(A·V 검사, M1) | 해석기 하나(RV-C03), 크기 |
 | T0.16 | T0.16a(core `degrade`, M1), T0.16b(research `degrade`, M2) | M1이 M0 전체를 기다리지 않게 |
-| T1.1 | T1.1a(열기·검사·E14·규칙 팩), T1.1b(능력·세 결과·대체 F-02~F-04·핀) | 크기 |
+| T1.1 | T1.1a(열기·검사·E14·규칙 팩), T1.1b(능력·세 결과·대체 F-02~F-04(F-04는 2026-11-22 은퇴, #705)·핀) | 크기 |
 | T1.7 | T1.7a(계획·창·shift 전파), T1.7b(참조 실행기·고정 합 순서·묶음 크기) | 크기 |
 | T1.14 | T1.14a(봉인 폴더·복구·소스 잡기), T1.14b(색인: 후보·관측·집단·핀, 수치 환경) | 크기 |
 | T2.10 | T2.10a(evaluate API·FactorReport), T2.10b(report.html 구조 시험) | 크기, 눈 확인을 구조 시험으로 |
@@ -3300,7 +3300,7 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 - Acceptance: `tds/tests/test_actions.py::test_resolver_at_cutoffs`(정정 분할·취소 배당·지급 뒤 정정·분할 + 배당 같은 날·권리 소멸·계수 없음 × 3 기준 시각), `::test_share_factor_explicit_not_inferred`, `::test_revision_cycle_A007`, `::test_late_terms_revision_visible_at_ex_date`, `::test_existence_time_ignores_effective_when_announced`, `::test_late_discovered_event_flagged`, `::test_chain_digest_includes_all_revisions_and_times`.
 
 **T0.15b `feat(tds): adjustment and value checks via the resolver`** **[v3]** · `M1` `tds` · M · Blocked by: T0.15a · TDS 5.11, 8.3 *(v3: T0.15를 나눔, 크기 S → M; A008·A009)*
-- Context: A001~A009(A001은 해석기 `c = +∞`로 정정 사슬마다 최신판 하나만 곱함; A008 수량 사건 조건이 효력 뒤 공개; A009 분할설립 계수 공개 시각 < 효력 세션 종가), V001~V050.
+- Context: A001~A009(A001은 2026-11-22까지(#705) 해석기 `c = +∞`로 정정 사슬마다 최신판 하나만 곱했다; A008 수량 사건 조건이 효력 뒤 공개; A009 분할설립 계수 공개 시각 < 효력 세션 종가), V001~V050.
 - Done means: 역분할이 있는 패키지에서 계수가 단조가 아니어도 A001이 나지 않고, 정정 사슬의 옛 판과 새 판을 둘 다 곱한 계수는 A001로 잡힌다(A001은 2026-11-22 `cum_factor_*`와 함께 은퇴, #705; 역분할 테스트는 이제 어느 A 코드도 나지 않음을 본다).
 - Acceptance: `tds/tests/test_conformance.py::test_A_codes`, `::test_V_codes`, `::test_reverse_split_not_flagged`; 2026-11-22까지는 `::test_A001_multiplies_latest_revision_once`도.
 
@@ -3320,7 +3320,7 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 - Acceptance: `tests/unit/data/test_open_snapshot.py::test_latest_resolved_once`, `::test_E14_carries_tds_code_and_hint_not_ticket`, `::test_unknown_required_rule_E14`, `::test_market_without_pack_E18`, `::test_allow_untested_recorded`, `::test_semantic_hash_exposed`, `::test_open_path_and_latest_parent`(v3.1 `nx.open`·`[data] path` [V31-PUB-03]), `::test_cloned_and_hardlinked_partitions_ok`, `::test_malformed_exact_ratio_E13`, `::test_missing_exact_ratio_excludes_instrument_from_event`(기본 `exclude_instrument`: 스냅숏은 열리고 그 종목만 사건이 보이는 시각부터 빠진다 [R7-01]).
 
 **T1.1b `feat(data): capabilities, profile results, core fallbacks and pins`** **[v3]** · `M1` `data` · M · Blocked by: T1.1a, T0.16a · §4.3–4.5, §4.2 *(v3.2: 핀 기본 `index+root`·`retention: unmanaged`, 도장 파일 신원 [R3-16, R3-17])* *(v3: T1.1을 나눔; 그래프 의존 요구, 세 결과, 핀 정본 = 색인)*
-- Context: `CapabilityRequest`(그래프가 쓰는 기능 → 필요 자료, 4.3 표), 프로필 세 결과, `capabilities`·`fallbacks`, F-02(세션 표 대체)·F-03(밀집화)·F-04(계수는 해석기에서), 선언 위반 패키지는 E14(대체 없음), 핀(색인 + 루트가 기본, 실패는 경고 + `retention: unmanaged`), `verify` 도장(`runs/.cache/verified/`, 파일마다 `(dev, inode, size, mtime_ns)`).
+- Context: `CapabilityRequest`(그래프가 쓰는 기능 → 필요 자료, 4.3 표), 프로필 세 결과, `capabilities`·`fallbacks`, F-02(세션 표 대체)·F-03(밀집화)·F-04(계수는 해석기에서; 2026-11-22 은퇴, #705), 선언 위반 패키지는 E14(대체 없음), 핀(색인 + 루트가 기본, 실패는 경고 + `retention: unmanaged`), `verify` 도장(`runs/.cache/verified/`, 파일마다 `(dev, inode, size, mtime_ns)`).
 - Done means: `Price`만 쓰는 그래프가 core 데이터셋만 있는 패키지에서 돌고; `degrade=["no_sessions"]` 스냅숏에서 E30 한 줄과 `s.fallbacks`에 F-02; 읽기 전용 자료 루트에서 실행이 되고 핀은 색인에 있다; 파일 하나를 바꾸면 `verify="full"`에서 E14(`TDS-H001`); 도장 뒤에 파일 하나를 제자리에서 고치면 다음 열기에서 신원이 달라 sha256을 다시 계산하고 E14.
 - Acceptance: `test_open_snapshot.py::test_three_status_distinct`, `::test_price_only_graph_needs_core_only`, `::test_declared_but_broken_is_E14_not_fallback`, `::test_full_verify_detects_tamper`, `::test_readonly_root_runs`, `::test_pin_in_index`, `::test_fallback_F02_sessions`, `::test_fallback_F03_densify`, `::test_fallback_F04_factors_from_resolver`, `::test_fallbacks_fail_mode_raises_E14`, `::test_volume_unit_warning_lifted_E30` [V31-16], `::test_fallback_F15_grid_minor_unit` [V31-05], `::test_verified_stamp_detects_later_tamper`, `::test_inplace_edit_invalidates_stamp_and_l0`, `::test_readonly_package_all_consumption_paths`, `::test_default_pins_written_to_root_or_warn`, `::test_default_pin_survives_three_publications` [R3-16, R3-17], `::test_bars_keep_ts_available` (G-TIME-LATE: 연 스냅숏이 봉마다 `ts_available`을 지님).
 
@@ -4561,7 +4561,7 @@ v1 명세의 O1~O11, 청사진 OQ-1~OQ-15, TDS Q1~Q16을 하나로 모았고, v3
 | A-77 | 파티션 `country=` | TDS-D5 | `market=` | TDS |
 | A-78 | `instrument_master`·`symbol_history` | TDS-D6, D7 | `instruments`, `instrument_symbols`(+ `instrument_xref`). `Meta.country/exchange`는 `Meta.market/venue_mic`의 별칭 | TDS |
 | A-79 | 세션 표의 `price_limit_pct`·`rule_version` | TDS-D8 | 세션 표에서 빠짐. 제한폭 찾는 순서 = `tradability_daily` 가격 → 비율 × 기준가 → 엔진 CSV | TDS |
-| A-80 | 봉의 `shares_out`·계수 이름 | TDS-D9, TDS-Q4 | 주식 수는 `share_counts` 시점 조회(5.3.5a), 계수 `cum_factor_*`(뜻 같음) | TDS |
+| A-80 | 봉의 `shares_out`·계수 이름 | TDS-D9, TDS-Q4 | 주식 수는 `share_counts` 시점 조회(5.3.5a), 계수는 옮기지 않고 사건에서 계산(2026-11-22부터 TDS-D9, #705; 그 전에는 `cum_factor_*`, 뜻 같음) | TDS |
 | A-81 | `tradability_1d` 칼럼 | TDS-D10 | `halted_full_day`, `price_limit_ratio`, `reference_price`, `admin_status`; `trading_status_events`는 v1에서 읽지 않음 | TDS |
 | A-82 | 기업행동 종류가 늘어남 vs 엔진 v1 처리 범위 | TDS-D11 | 종류 → 처리 대응표(4.6). `price_factor` null은 숨은 1.0 대신 창 NaN(INV-12). `exchange_offer`는 지원 안 함(정책) | TDS + 명세 |
 | A-83 | 분류 `known_at` 하나 vs 두 시간축 | TDS-D12 | 효력 기간 + 앎 기간 둘 다 만족 | TDS |
