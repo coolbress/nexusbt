@@ -174,7 +174,20 @@ def test_a_package_error_fails_every_profile(tmp_path: Path) -> None:
 def test_the_columns_chapter_7_names_per_profile() -> None:
     # TDS 7, the "required" cell of each row that names a column, by the dataset that holds it
     raw_dense = "bars(freq=1d, price_basis=raw, density=dense)"
-    core = {raw_dense: "open high low close volume obs_status"}
+    core = {raw_dense: "close obs_status"}
+    traded = {  # and in a dataset that holds an equity or etf instrument (#705 Decisions 37)
+        name.removeprefix("tds:").removesuffix("@1.0"): {
+            describe((need,)): " ".join(columns) for need, columns in profile.traded
+        }
+        for name, profile in PROFILES.items()
+        if profile.traded
+    }
+    ohlv = "open high low volume"
+    assert traded == {
+        "minimal-daily": {"bars(freq=1d, price_basis)": ohlv},
+        "equity-daily-core": {raw_dense: ohlv},
+        "equity-daily-research": {raw_dense: ohlv},
+    }
     recorded = ("events", "fundamentals_events")  # #397 Decisions
     named = {
         name.removeprefix("tds:").removesuffix("@1.0"): {
@@ -206,11 +219,13 @@ _OHLCV = ("open", "high", "low", "close", "volume")
 
 
 def _core(
-    tmp_path: Path, columns: dict[str, Any], profile: str = CORE, level: Any = "schema"
-) -> CheckResult:
-    """`profile` checked on a package with core's datasets and one traded, whole daily bar,
-    its bars' `columns` replaced (`None`: left out)."""
+    tmp_path: Path, columns: dict[str, Any], profile: str = CORE, level: Any = "schema",
+    asset: str = "equity",
+) -> CheckResult:  # fmt: skip
+    """`profile` checked on a package with core's datasets and one traded, whole daily bar of
+    an `asset` instrument, its bars' `columns` replaced (`None`: left out)."""
     manifest, files = build.base()
+    build._instruments(asset_class=pa.array([asset]))(manifest, files)
     build.bars(manifest)["params"] = dict(build.DENSE)
     whole = dict.fromkeys(_OHLCV, pa.array([10.0])) | {"obs_status": pa.array(["traded"])}
     build.rewrite(manifest, files, build.BARS, build.bars_table(**(whole | columns)))
@@ -227,21 +242,48 @@ def test_a_whole_core_package_has_no_error(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("column", ["open", "high", "low", "volume", "obs_status"])
 def test_core_bars_without_a_required_column_are_M008(column: str, tmp_path: Path) -> None:
-    # TDS 7: core's bars hold OHLCV and `obs_status` (#352); the footer shows it
+    # TDS 7: core's bars hold `obs_status` (#352) and, holding an equity, OHLCV (#705)
     result = _core(tmp_path / "a", {column: None})
     found = [f for f in result.errors if f.code == "TDS-M008"]
-    assert [f.message for f in found] == [f"{CORE} requires column {column} in bars: missing"]
+    rows = "" if column == "obs_status" else " (equity or etf rows)"
+    assert [f.message for f in found] == [f"{CORE} requires column {column} in bars{rows}: missing"]
     assert found[0].dataset == "bars_1d"
     assert result.profiles[CORE] == ProfileStatus(False, "schema", "fail")
     # the manifest level reads no footer: not_checked, never an error
     below = _core(tmp_path / "b", {column: None}, level="manifest")
     assert below.errors == ()
     assert below.profiles[CORE] == ProfileStatus(False, "manifest", "not_checked")
-    # counter-example: the same bars under minimal-daily, which names only `close`. Dense bars
-    # without `obs_status` are S001 under any profile (5.5 "no if dense"), beside core's M008.
-    others = [f.code for f in _core(tmp_path / "c", {column: None}, MINIMAL).errors]
-    assert others == (["TDS-S001"] if column == "obs_status" else [])
-    assert [f.code for f in result.errors] == [*others, "TDS-M008"]
+    # counter-example: the same bars of an index, which needs only `close` (#705 Decisions 39).
+    # Dense bars without `obs_status` are S001 under any profile (5.5 "no if dense").
+    index = [f.code for f in _core(tmp_path / "c", {column: None}, asset="index").errors]
+    assert index == (["TDS-S001", "TDS-M008"] if column == "obs_status" else [])
+    others = [f.code for f in _core(tmp_path / "d", {column: None}, MINIMAL).errors]
+    assert others == (["TDS-S001"] if column == "obs_status" else ["TDS-M008"])
+    assert [f.code for f in result.errors] == [*index[:1], "TDS-M008"]
+
+
+@pytest.mark.parametrize(("held", "lacking"), [("US:IDX", False), ("US:AAA", True)])
+def test_a_bars_dataset_needs_open_high_low_volume_only_for_its_own_equities(
+    held: str, lacking: bool, tmp_path: Path
+) -> None:
+    # #705 Decisions 37: read per dataset from its `instrument_id`; an index carries close only
+    manifest, files = build.base()
+    index = build.instruments(instrument_id=pa.array(["US:IDX"]), asset_class=pa.array(["index"]))
+    both = pa.concat_tables([build.instruments(), index])
+    build.rewrite(manifest, files, build.INSTRUMENTS, both)
+    rel, table = "levels/part-00000.parquet", pa.table({"instrument_id": [held], "close": [4.0],
+                                                         "session_date": build.DAY, "open": [4.0],
+                                                         "high": [4.0]})  # fmt: skip
+    files[rel] = build.parquet(table, "levels")
+    entry = {"path": rel, "rows": 1, "bytes": len(files[rel])}
+    manifest["datasets"].append(build.bars(manifest) | {"name": "levels", "path": "levels",
+                                                         "files": [entry]})  # fmt: skip
+    result = check(Path(build.write(tmp_path, manifest, files)), level="schema", profiles=[MINIMAL])
+    rows = " (equity or etf rows)"
+    assert [f.message for f in result.errors] == [
+        f"{MINIMAL} requires column {c} in bars{rows}: missing" for c in ("low", "volume")
+    ] * lacking  # the second dataset holds open and high, not low or volume
+    assert {f.dataset for f in result.errors} <= {"levels"}
 
 
 def test_a_column_null_in_every_row_is_lacking(tmp_path: Path) -> None:
@@ -249,9 +291,9 @@ def test_a_column_null_in_every_row_is_lacking(tmp_path: Path) -> None:
     null = pa.nulls(1, pa.float64())
     result = _core(tmp_path / "a", {"open": null})
     assert [f.message for f in result.errors] == [
-        f"{CORE} requires column open in bars: null in every row"
+        f"{CORE} requires column open in bars (equity or etf rows): null in every row"
     ]
-    assert _core(tmp_path / "b", {"open": null}, MINIMAL).errors == ()
+    assert _core(tmp_path / "b", {"open": null}, MINIMAL, asset="index").errors == ()
     wanted = [f"{MINIMAL} requires column close in bars: null in every row"]
     no_close = _core(tmp_path / "c", {"close": null}, MINIMAL)
     assert [f.message for f in no_close.errors if f.code == "TDS-M008"] == wanted
@@ -276,8 +318,9 @@ def test_a_column_without_statistics_is_a_note_not_an_error(tmp_path: Path) -> N
     build.rewrite(manifest, files, build.BARS, build.bars_table(), write_statistics=False)
     result = check(Path(build.write(tmp_path, manifest, files)), level="schema")
     assert [f.code for f in result.errors if f.code == "TDS-M008"] == []
-    assert result.notes == (
-        f"TDS-M008 not checked for column close of bars_1d ({MINIMAL}): no statistics",
+    assert result.notes == tuple(
+        f"TDS-M008 not checked for column {c} of bars_1d ({MINIMAL}): no statistics"
+        for c in ("close", "open", "high", "low", "volume")  # an equity's (#705)
     )
 
 

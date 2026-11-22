@@ -213,7 +213,8 @@ def test_command_degrade_prints_declared_profiles_and_results(
 ) -> None:
     # T0.16a's done line, on tiny: the declared profiles without core, and the three results
     out = tmp_path / "cli"
-    args = ["--out", str(out), "--degrade", "no_ohlc,kr_ex_is_record", "--validate"]
+    # no_sessions, not no_ohlc, which fails M008 since #705 (Decisions 41)
+    args = ["--out", str(out), "--degrade", "no_sessions,kr_ex_is_record", "--validate"]
     assert main(["--preset", "tiny", *args]) == 0
     printed = capsys.readouterr().out
     assert "profiles tds:minimal-daily@1.0\n" in printed
@@ -1104,6 +1105,16 @@ def check_full(package: Path) -> str:
     return done.stdout
 
 
+def check_no_ohlc(package: Path) -> str:
+    """`no_ohlc`'s package fails the full check, M008 on open, high and low and V004 on its
+    traded equity rows, until plan item 4 takes the value out (#705 Decisions 41)."""
+    done = pkg._tds("check", str(package), "--level", "full")
+    assert done.returncode == 1, done.stdout + done.stderr
+    found = sorted(re.findall(r"^error (TDS-\w+) bars_1d: ", done.stdout, re.M))
+    assert found == ["TDS-M008"] * 3 + ["TDS-V004"], done.stdout
+    return done.stdout
+
+
 @pytest.mark.parametrize("value", list(DROPS_CORE))
 def test_synth_conforms_degraded_core(
     value: str, tmp_path: Path, us_dividend_before_split: list[dict[str, Any]]
@@ -1112,7 +1123,7 @@ def test_synth_conforms_degraded_core(
     # and holds the one gap of the 4.5 table its value names
     package = make_snapshot(tmp_path / value, **SHORT, events=us_dividend_before_split,
                             degrade=[value])  # fmt: skip
-    printed = check_full(package)
+    printed = check_no_ohlc(package) if value == "no_ohlc" else check_full(package)
     manifest = json.loads((package / "tds.json").read_text(encoding="utf-8"))
     kinds = {d["kind"]: d for d in manifest["datasets"]}
     bars = read(package, "bars_1d")
@@ -1163,11 +1174,11 @@ def test_synth_conforms_degraded_core(
     assert applied(package) == resolved(package)
 
 
-def validate_short(monkeypatch: pytest.MonkeyPatch, out: Path, *more: str) -> None:
-    """The command with `--validate` on `small` cut to SHORT's year and counts."""
+def validate_short(monkeypatch: pytest.MonkeyPatch, out: Path, *more: str, code: int = 0) -> None:
+    """The command with `--validate` on `small` cut to SHORT's year and counts; `code` its exit."""
     short = synth.PRESETS["small"]._replace(start=SHORT["start"], counts={"KR": 20, "US": 20})
     monkeypatch.setitem(synth.PRESETS, "small", short)
-    assert main(["--preset", "small", "--out", str(out), "--validate", *more]) == 0
+    assert main(["--preset", "small", "--out", str(out), "--validate", *more]) == code
 
 
 def test_exact_ratios_present(
@@ -1233,8 +1244,8 @@ def test_volume_in_lots_triggers_V011(  # noqa: N802 - the ticket's test name
     validate_short(monkeypatch, tmp_path / "cli")
     assert "TDS-V011 warnings: 0" in capsys.readouterr().out.splitlines()
     # no count where the checker could not judge (no high or low), and the distributions are
-    # still counted without `delistings`
-    validate_short(monkeypatch, tmp_path / "cli", "--degrade", "no_ohlc,no_delistings")
+    # still counted without `delistings`; `no_ohlc` fails M008 until plan item 4 (#705)
+    validate_short(monkeypatch, tmp_path / "cli", "--degrade", "no_ohlc,no_delistings", code=1)
     printed = capsys.readouterr().out
     assert "TDS-V011 warnings" not in printed
     assert "note: TDS-V011 not checked" in printed
@@ -1295,10 +1306,11 @@ def test_degrade_drops_declared_profiles(tmp_path: Path) -> None:
     # counter-example: declared again, core fails the check where the checker sees the gap
     missing = {"no_sessions": "dataset calendar_sessions", "no_delistings": "dataset delistings",
                "sparse_bars": "density=dense",
-               "no_ohlc": "column open in bars: null in every row"}  # fmt: skip  # OHLCV (#352)
+               "no_ohlc": "column open in bars (equity or etf rows): null in every row",
+               }  # fmt: skip
     for value in (v for v, drops in DROPS_CORE.items() if drops):
         package = make_snapshot(tmp_path / value, **tiny, degrade=[value])
-        check_full(package)
+        check_no_ohlc(package) if value == "no_ohlc" else check_full(package)
         path = package / "tds.json"
         manifest = json.loads(path.read_text(encoding="utf-8"))
         assert manifest["profiles"] == [MINIMAL]
