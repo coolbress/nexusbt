@@ -29,6 +29,8 @@ from nexusbt.data._datasets import chosen, dataset, doubled
 from nexusbt.data._datasets import layer as _layer
 from nexusbt_tds.check import Finding
 from nexusbt_tds.manifest import Manifest
+from nexusbt_tds.profiles import PROFILES, meets, profile_id
+from nexusbt_tds.profiles import TRADED as EQUITIES  # asset classes, not `TRADED` columns
 
 #: 4.3's first table, the rows T1.1b decides: a feature → the dataset kinds it needs. F-01
 #: (OHLC) and F-13 (delistings) come with the features that read them (T3.11 for F-13).
@@ -112,6 +114,7 @@ def decide(
     taken: dict[str, list[FallbackRecord]] = {f: [] for f in NEEDS}
     market_of = _market_of(folder, kinds.get("instruments"))  # TDS K1: ids are opaque
     _no_close(folder, data, bars, market_of)  # 4.4-3, before step 4's market checks (#698)
+    _breaks_profile(folder, data, bars, kinds.get("instruments"))  # 4.4-3 (#705)
     if not extent.partitioned:  # a `market=` partition is the checker's (TDS-M010)
         _declared(folder, data, extent.by_market(), market_of)
     f02 = _calendars(folder, data, kinds, extent, lacking, taken)
@@ -387,7 +390,7 @@ def _no_close(
 ) -> None:  # fmt: skip
     """4.3 and 4.4-3 (#698): a bars file without a `close` column is E14 at open, whatever the
     run reads: no fallback stands in for it (4.5), and since TDS C1 (#705) every equity daily
-    profile requires it. Only an absent column: one null in every row is data, NaN (#698)."""
+    profile requires it. A close null in every row is `_breaks_profile`'s (#705 Decisions 50)."""
     if bars is None:
         return
     for f in bars["files"]:
@@ -407,6 +410,72 @@ def _no_close(
             why="Price.* reads close, and no fallback stands in for it (4.3, 4.5)",
             fix=f"write close in {f['path']} and every other bars file (TDS 5.5 and 7)",
             more=f"tds check {folder} --level full; spec 4.3 and 4.4 step 3",
+            layer=_layer(data, str(bars["name"])),
+        )  # fmt: skip
+
+
+def _breaks_profile(
+    folder: Path, data: Mapping[str, Any], bars: Mapping[str, Any] | None,
+    instruments: Mapping[str, Any] | None,
+) -> None:  # fmt: skip
+    """4.4-3 (#705 Decisions 48, 50): E14 at open when the bars hold no value of `close`, or
+    of a column a declared profile requires of them (TDS 7), as TDS-M008 reads it: in no file,
+    or null in every row of the dataset. A file without footer statistics has that one column
+    read; `open`, `high`, `low` and `volume` are required where the bars name an equity or etf."""
+    if bars is None:
+        return
+    params: Mapping[str, Any] = g if isinstance(g := bars.get("params"), dict) else {}
+    need: dict[str, str] = {"close": "every engine feature (4.3)"}
+    traded: dict[str, str] = {}
+    declared = (profile_id(x) for x in data.get("profiles", []) if isinstance(x, str))
+    for p in (PROFILES[x] for x in declared if x in PROFILES):
+        for named, into in ((p.columns, need), (p.traded, traded)):
+            for (kind, conditions), columns in named:
+                if kind == "bars" and all(meets(params, *c) for c in conditions):
+                    into.update({c: p.name for c in columns if c not in into})
+    files = [(folder / f["path"], pq.ParquetFile(folder / f["path"]).metadata)
+             for f in bars["files"]]  # fmt: skip
+    rows = sum(meta.num_rows for _, meta in files)
+
+    def lacks(column: str) -> bool:
+        for path, meta in files:
+            if column not in meta.schema.names or _gone(meta, column):
+                continue
+            at = meta.schema.names.index(column)
+            stats = [meta.row_group(g).column(at).statistics for g in range(meta.num_row_groups)]
+            if all(s is not None and s.has_null_count for s in stats):
+                return False  # the footer counts fewer nulls than rows: a value
+            # no statistics to say it: that one column is read (#705 Decisions 50)
+            if pq.read_table(path, columns=[column])[column].null_count < meta.num_rows:
+                return False
+        return bool(rows > 0)
+
+    def names_traded() -> bool:
+        classes = _values(folder, instruments, ID_COLUMN, "asset_class")
+        want = pa.array(sorted({i for i, a in classes if a in EQUITIES and isinstance(i, str)}),
+                        pa.string())  # fmt: skip
+        for path, meta in files if len(want) else ():
+            if ID_COLUMN in meta.schema.names:
+                ids = pq.read_table(path, columns=[ID_COLUMN])[ID_COLUMN].cast(pa.string())
+                if pc.any(pc.is_in(ids, value_set=want)).as_py():
+                    return True
+        return False
+
+    try:
+        lacking = [(c, why) for c, why in need.items() if lacks(c)]
+        if not lacking and (gaps := [(c, why) for c, why in traded.items() if lacks(c)]):
+            lacking = gaps if names_traded() else []
+    except (pa.ArrowException, KeyError):  # a column twice or of another type: the checker's
+        return  # S codes say it (TDS-S002, TDS-S011), as its own M008 leaves them
+    for column, why in lacking[:1]:
+        raise SnapshotError(
+            what=f"the bars hold no value of {column}, which {why} requires",
+            where=f"dataset {bars['name']}, column {column}: in no file, or null in every row",
+            why="no fallback repairs a package that breaks what it declares (4.4 step 3)",
+            fix=f"write {column} in the bars"
+            + ("" if column == "close" else ", or declare tds:minimal-daily@1.0, which asks "
+               "close alone (TDS 7)"),
+            more=f"tds check {folder} --level schema; spec 4.4 step 3",
             layer=_layer(data, str(bars["name"])),
         )  # fmt: skip
 
