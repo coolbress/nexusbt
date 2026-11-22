@@ -55,20 +55,15 @@ def records(root: Path) -> set[tuple[str, str | None]]:
         return {(r.market, r.column) for r in nx.open(str(root)).fallbacks if r.id == "F-18"}
 
 
-def test_no_volume_reads_nan_with_one_f18(tmp_path: Path) -> None:
-    """`no_volume`: `Price.volume`, `volume_unadjusted` and `value_traded` NaN, not pyarrow's
-    `ArrowInvalid`, with one E30 at open and a record for each market and column."""
+@pytest.mark.parametrize("term", ["volume", "volume_unadjusted"])
+def test_a_term_over_volume_a_minimal_package_lacks_is_e18(term: str, tmp_path: Path) -> None:
+    """#705 (48 (c), F-18's volume side gone): `no_volume` declares minimal-daily, which does not
+    require `volume`; it opens with F-18 for `value_traded` alone, and a term reading `volume`
+    is E18, not NaN or pyarrow's `ArrowInvalid`."""
     root = make_snapshot(tmp_path / "p", preset="tiny", degrade=["no_volume"])
-    got, said = run(root, {"v": nx.Price.volume.latest, "u": nx.Price.volume_unadjusted.latest,
-                           "t": nx.Price.value_traded.latest})  # fmt: skip
-    assert set(bars_on(root, "obs_status")) == {"traded"}  # no `no_trade` 0 (3.2) on DAY
-    for column in ("v", "u", "t"):
-        assert got[column]
-        assert all(math.isnan(x) for x in got[column]), column
-    [message] = said
-    assert all(message.count(f"market {m}, column {c}") == 1
-               for m in ("KR", "US") for c in ("volume", "value_traded"))  # fmt: skip
-    assert records(root) == {(m, c) for m in ("KR", "US") for c in ("volume", "value_traded")}
+    assert records(root) == {(m, "value_traded") for m in ("KR", "US")}
+    with pytest.raises(nx.CapabilityError, match=rf"Price\.{term} is not in snapshot .* volume"):
+        run(root, {"v": getattr(nx.Price, term).latest})
 
 
 def test_value_traded_alone_left_out(
@@ -97,8 +92,8 @@ def test_graph_without_the_column_runs_as_before(tmp_path: Path) -> None:
     assert not none
     assert after == before
     [message] = said
-    assert all(f"market KR, column {c}" in message for c in ("volume", "value_traded"))
-    assert records(gone) == {("KR", "volume"), ("KR", "value_traded")}
+    assert "market KR, column value_traded" in message
+    assert records(gone) == {("KR", "value_traded")}  # `volume` is no fallback's (#705)
 
 
 def test_tiny_has_value_traded_and_no_fallback(tmp_path: Path) -> None:
@@ -121,45 +116,32 @@ def traded(root: Path, screen: Any = None) -> nx.PipelineResult:
                                end="2020-01-14", snapshot=str(root))  # fmt: skip
 
 
-def test_terms_over_volume_nan_without_it(tmp_path: Path) -> None:
-    """#667, 4.5 F-18 and 3.4: on `no_volume` `AverageDollarVolume` is NaN in every cell, as
-    `AverageTradedValue` and `VWAP` are, not `nansum` of NaN products (0.0); a missing input,
-    so nothing in `term_diagnostics` (5.4.1)."""
+@pytest.mark.parametrize("term", [AverageDollarVolume(3), VWAP(3)], ids=["adv", "vwap"])
+def test_terms_over_volume_are_e18_without_it(term: Any, tmp_path: Path) -> None:
+    """#705: on `no_volume`, `AverageDollarVolume` and `VWAP` read `volume` it holds no value
+    of: E18 at graph build (once NaN in every cell, with F-18)."""
     root = make_snapshot(tmp_path / "p", preset="tiny", degrade=["no_volume"])
-    result = traded(root)
-    assert result.table.num_rows
-    for column in ("adv", "atv", "vwap"):
-        assert all(math.isnan(x) for x in result.table[column].to_pylist()), column
-    assert result.term_diagnostics.num_rows == 0
+    with pytest.warns(UserWarning, match=r"\[E30\] F-18"), pytest.raises(nx.CapabilityError):
+        nx.run_pipeline(nx.Pipeline({"x": term}), start=DAY, end=DAY, snapshot=str(root))
 
 
-def test_adv_nan_only_in_the_market_f18_records(
+def test_adv_over_a_market_without_volume_is_e18(
     tmp_path: Path, package_without_bars_column: Callable[..., None]
 ) -> None:
-    """#667: KR's bars without `volume`, US's with it: `AverageDollarVolume` NaN in KR alone,
-    the market F-18 records; US's values as on the whole package."""
+    """#667, #705: KR's files hold `volume` null in every row, US's hold it: a run reading
+    `AverageDollarVolume` over KR is E18, over US the whole package's values."""
     whole = make_snapshot(tmp_path / "w", preset="tiny")
     root = make_snapshot(tmp_path / "p", preset="tiny")
     # null, not left out: some files without it break TDS 3.6, E14 at open (#705)
     package_without_bars_column(root, "volume", market="KR", null=True)
     with pytest.raises(ValueError, match="market 'JP'"):  # a market no file has
         package_without_bars_column(root, "volume", market="JP")
-    assert {m for m, c in records(root) if c == "volume"} == {"KR"}
-    before, after = traded(whole).table, traded(root).table
-    kr = pc.equal(after["market"], "KR")
-    assert all(math.isnan(x) for x in after.filter(kr)["adv"].to_pylist())
-    us = after.filter(pc.invert(kr))["adv"].to_pylist()
-    assert us
-    assert us == before.filter(pc.equal(before["market"], "US"))["adv"].to_pylist()
-    assert all(math.isfinite(x) for x in us)
-
-
-def test_adv_filter_unknown_without_volume(tmp_path: Path) -> None:
-    """#667, 5.4.1: `AverageDollarVolume(3) >= 0` is unknown without `volume`, so false at the
-    screen; a 0.0 would keep every row (0 >= 0)."""
-    root = make_snapshot(tmp_path / "p", preset="tiny", degrade=["no_volume"])
-    assert traded(root).table.num_rows
-    assert traded(root, screen=AverageDollarVolume(3) >= 0).table.num_rows == 0
+    with pytest.raises(nx.CapabilityError, match="the bars of market KR hold no value of volume"):
+        traded(root)
+    us = nx.run_pipeline(nx.Pipeline({"adv": AverageDollarVolume(3)}), start="2020-01-13",
+                         end="2020-01-14", markets=["US"], snapshot=str(root)).table  # fmt: skip
+    before = traded(whole).table.filter(pc.equal(traded(whole).table["market"], "US"))
+    assert us["adv"].to_pylist() == before["adv"].to_pylist()
 
 
 START, END = dt.date(2019, 12, 2), dt.date(2020, 1, 31)  # bars files year=2019 and year=2020
@@ -185,41 +167,15 @@ def by_session(table: pa.Table, column: str) -> dict[dt.date, list[float]]:
     return found
 
 
-def test_adv_nan_where_its_window_reads_the_file_without_volume(
-    tmp_path: Path, package_without_bars_column: Callable[..., None]
-) -> None:
-    """#688 Decisions 1, 2: `volume` null in every row of the 2019 file only (left out, it is
-    E14 at open since #705). `AverageDollarVolume(3)`
-    is NaN at the sessions whose window reads a 2019 bar (2020's first two) and the whole
-    package's value at every later one, where `Price.volume.latest` is the same number."""
-    whole = make_snapshot(tmp_path / "w", preset="small", markets=("KR",), n_kr=3, start=START,
-                          end=END)  # fmt: skip
-    root = make_snapshot(tmp_path / "p", preset="small", markets=("KR",), n_kr=3, start=START,
-                         end=END)  # fmt: skip
-    package_without_bars_column(root, "volume", year=2019, null=True)  # 3.6, as above
-    with pytest.raises(ValueError, match="year 2018"):  # a year no file has
-        package_without_bars_column(root, "volume", year=2018)
-    assert records(root) == {("KR", "volume")}
-    before, after = adv(whole, "2020-01-02", "2020-01-31"), adv(root, "2020-01-02", "2020-01-31")
-    assert after["v"].to_pylist() == before["v"].to_pylist()
-    assert all(math.isfinite(x) for x in after["v"].to_pylist())
-    days = sorted(by_session(after, "adv"))
-    reaching, inside = days[:2], days[2:]
-    assert reaching == [dt.date(2020, 1, 2), dt.date(2020, 1, 3)]
-    found, known = by_session(after, "adv"), by_session(before, "adv")
-    assert all(math.isnan(x) for d in reaching for x in found[d])
-    assert inside
-    assert all(found[d] == known[d] for d in inside)
-    assert all(math.isfinite(x) for d in inside for x in found[d])
-
-
 def test_adv_per_cell_equal_over_chunks(
     tmp_path: Path, package_without_bars_column: Callable[..., None],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:  # fmt: skip
     """INV-03 for #688 (P-CHUNK's KINDS has no `AverageDollarVolume`): a run cut into chunks
     at 2020's first session and at each later week equals the run in one chunk, bit for bit,
-    the second chunk's windows reading the first chunk's bars of the file without `volume`."""
+    the second chunk's windows reading the first chunk's bars of the file whose `volume` is
+    null in every row; those windows average their known cells (#705 Decisions 57, which
+    narrows #688)."""
     root = make_snapshot(tmp_path / "p", preset="small", markets=("KR",), n_kr=3, start=START,
                          end=END)  # fmt: skip
     package_without_bars_column(root, "volume", year=2019, null=True)  # 3.6 (#705)
@@ -236,24 +192,8 @@ def test_adv_per_cell_equal_over_chunks(
     cut = adv(root, "2019-12-20", "2020-01-31")
     for column in ("adv", "v"):
         assert cut[column].to_numpy().tobytes() == one[column].to_numpy().tobytes(), column
-    assert math.isnan(by_session(one, "adv")[dt.date(2020, 1, 2)][0])
+    assert math.isfinite(by_session(one, "adv")[dt.date(2020, 1, 2)][0])
     assert math.isfinite(by_session(one, "adv")[dt.date(2020, 1, 6)][0])
-
-
-def test_adv_window_with_no_bar_is_not_f18s(tmp_path: Path) -> None:
-    """#688 Decisions (its last acceptance criterion, narrowed 2026-11-21 with the owner's
-    approval): in a market whose every file lacks `volume`, a
-    listed instrument's window that holds no bar at all (`sparse_bars` drops a halt's rows, so
-    those sessions are missing) reads no F-18 bar: 3.4's value, 0.0, as on a package with
-    `volume`; every other cell of that session is NaN."""
-    root = make_snapshot(tmp_path / "p", preset="small", markets=("KR",),
-                         degrade=["sparse_bars", "no_volume"])  # fmt: skip
-    halt, day = "KR:T00069", "2015-03-18"  # halted 2015-03-16 to at least 03-20 before degrade
-    table = adv(root, day, day)
-    ids, values = table["instrument_id"].to_pylist(), table["adv"].to_pylist()
-    assert halt in ids
-    assert values[ids.index(halt)] == 0.0
-    assert all(math.isnan(x) for i, x in zip(ids, values, strict=True) if i != halt)
 
 
 def test_no_volume_drops_the_core_declaration(tmp_path: Path) -> None:

@@ -114,13 +114,12 @@ def test_doctor_lists_fallbacks_and_unchecked(
 def test_doctor_names_the_columns_of_f18(
     tmp_path: Path, project: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """#584, #604: bars without `volume` and `value_traded` (4.5 F-18) are a line per market
-    and column, as `dataset.column` (the owner's format, #604 Decisions)."""
+    """#584, #604: bars without `value_traded` (4.5 F-18; `volume` is no fallback's since #705)
+    are a line per market, as `dataset.column` (the owner's format, #604 Decisions)."""
     package = make_snapshot(tmp_path / "pkg", preset="tiny", degrade=["no_volume"])
     out = doctor(package, capsys, r"DataProfileWarning \[E30\] F-18\n")
     lines = [line.split(None, 1)[1] for line in out.splitlines() if line.startswith("fallback ")]
-    assert lines == [f"F-18 bars_1d.{c} {m} 341"
-                     for m in ("KR", "US") for c in ("volume", "value_traded")]  # fmt: skip
+    assert lines == [f"F-18 bars_1d.value_traded {m} 341" for m in ("KR", "US")]
 
 
 UNVERIFIED = "volume     bars_1d volume unit unverified (no value_traded, TDS-V011)"

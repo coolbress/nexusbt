@@ -55,10 +55,12 @@ SAYS = {
     "F-03": "bars expanded to listing period x sessions, empty cells obs_status = missing",
     "F-15": "price grid = currency minor unit",
     "F-16": "volume unit unverified (TDS-V011), no repair",
-    "F-18": "Price.volume/value_traded = NaN, bars without them or null in every row",
+    "F-18": "Price.value_traded = NaN, bars without it or null in every row",
 }
 #: The bars columns a package may leave out (4.5) → the fallback that says so.
-_GONE = dict.fromkeys(TRADED, "F-18")  # F-01 retired (#705): open, high, low are E14 or E18
+_GONE = dict.fromkeys(TRADED, "F-18")  # F-01 retired, F-18's volume side gone (#705)
+#: The bars columns whose lack is E14 at open or E18 when read, never a fallback (4.4-3, #705).
+_UNREAD = (*OHL, "volume")
 
 
 @dataclass(frozen=True, slots=True)
@@ -175,7 +177,7 @@ def _fallbacks(
         taken["backtest"] += [FallbackRecord("F-03", bars["name"], m, int(e.get("rows", 0)))
                               for m, e in extent.by_market().items()]  # fmt: skip
     gone = _gone_columns(folder, bars, extent)  # Price.* read by `price` (3.2)
-    taken["price"] += gone  # F-18, `price` only: the participation cap (5.6.6) is #584's
+    taken["price"] += gone  # F-18 (`value_traded`), `price` only
     read = bars["name"] if bars is not None else None  # the bars the engine reads (4.3, #547)
     years = Counter((f.dataset, market_of.get(str((f.key or {}).get(ID_COLUMN)), "-"))
                     for f in found if f.code == "TDS-V011" and f.dataset == read)  # fmt: skip
@@ -424,7 +426,7 @@ def _breaks_profile(
     or the bars hold no value of `close` or of a column a declared profile requires of them
     (TDS 7), as TDS-M008 reads it: in no file, or null in every row of the dataset. `open`,
     `high`, `low` and `volume` are required where the bars name an equity or etf. Else the
-    columns of `OHL` with no value, in the dataset and by market, which a term reading them
+    columns of `_UNREAD` with no value, in the dataset and by market, which a term reading them
     meets as E18 (48 (c))."""
     if bars is None:
         return frozenset(), {}
@@ -459,7 +461,7 @@ def _breaks_profile(
             layer=_layer(data, str(bars["name"])),
         )  # fmt: skip
     try:  # after the E14, so a column the check cannot read never hides it
-        unread = frozenset(c for c in OHL if lacks(c))
+        unread = frozenset(c for c in _UNREAD if lacks(c))
         return unread, _unread_by_market(bars, files, unread)
     except (pa.ArrowException, KeyError):
         return frozenset(), {}
@@ -519,7 +521,7 @@ def _same_columns(data: Mapping[str, Any], bars: Mapping[str, Any], files: Foote
 def _unread_by_market(
     bars: Mapping[str, Any], files: Footers, unread: frozenset[str]
 ) -> dict[str, frozenset[str]]:
-    """The columns of `OHL` that every `market=` file of a market holds no value of, while the
+    """The columns of `_UNREAD` that every `market=` file of a market holds no value of, while the
     dataset holds one: E18 when a run over that market reads them (#705, 2026-11-22). Some
     files of a market (a year) without a value are data, as a halted session's null is; bars
     not partitioned by market are judged as a whole (`unread`)."""
@@ -529,7 +531,7 @@ def _unread_by_market(
         if market is None:
             return {}
         by.setdefault(market, []).append(footer)
-    gaps = {m: frozenset(c for c in OHL if c not in unread and _no_value(held, c))
+    gaps = {m: frozenset(c for c in _UNREAD if c not in unread and _no_value(held, c))
             for m, held in by.items()}  # fmt: skip
     return {m: cols for m, cols in gaps.items() if cols}
 
@@ -554,10 +556,11 @@ def check_fields(
     bars hold no value of, in the dataset or in `market`'s files, is E18 too (4.4-3, #705)."""
     bars = chosen(data).get("bars") or {}
     here = caps.unread_in.get(market, frozenset()) if market is not None else frozenset()
-    for column in (c for c in fields if c in caps.unread | here):
+    read = {f: f.removesuffix("_unadjusted") for f in fields}  # `volume_unadjusted` is volume's
+    for asked, column in ((f, c) for f, c in read.items() if c in caps.unread | here):
         of = f" of market {market}" if column in here else ""
         raise CapabilityError(
-            what=f"Price.{column} is not in snapshot {data['snapshot_id']}: the bars{of} hold "
+            what=f"Price.{asked} is not in snapshot {data['snapshot_id']}: the bars{of} hold "
                  f"no value of {column}",
             where=f"dataset {bars.get('name', 'bars')}, column {column}: in no file, or null "
                   f"in every row{of}",

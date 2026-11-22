@@ -150,3 +150,17 @@ def test_a_file_the_check_cannot_read_is_left_to_the_checker(tmp_path: Path) -> 
     with_close = pa.table([pa.array([1.0]), *columns[1:]], names=["close", "open", "open"])
     pq.write_table(with_close, tmp_path / "bars" / "a.parquet", write_statistics=["close"])
     assert _breaks_profile(tmp_path, data, bars, None) == (frozenset(), {})
+
+
+def test_one_list_column_written_two_ways_is_the_same_column(tmp_path: Path) -> None:
+    """#722's review: `x_tags` written with and without the compliant nested type has leaves
+    `element` and `item`, one top-level name; S011 compares those, so does the open."""
+    from nexusbt.data._capabilities import _same_columns
+
+    (tmp_path / "bars").mkdir()
+    table = pa.table({"close": [1.0], "x_tags": pa.array([["a"]])})
+    pq.write_table(table, tmp_path / "bars" / "a.parquet")
+    pq.write_table(table, tmp_path / "bars" / "b.parquet", use_compliant_nested_type=False)
+    paths = ("bars/a.parquet", "bars/b.parquet")
+    files = [(tmp_path / p, pq.ParquetFile(tmp_path / p).metadata) for p in paths]
+    _same_columns({}, {"name": "bars_1d", "files": [{"path": p} for p in paths]}, files)
