@@ -223,6 +223,26 @@ def _no_close(status: str) -> Change:
     )  # fmt: skip
 
 
+def _two_bars(**second: pa.Array) -> Change:
+    """A second bars file in the folder, US:AAA's bar of the 3rd with `second` added (S011)."""
+
+    def change(m: dict[str, Any], files: Files) -> None:
+        rel = BARS.replace("part-00000", "part-00001")
+        files[rel] = parquet(bars_table(session_date=pa.array([dt.date(2024, 1, 3)]), **second),
+                             "bars_1d")  # fmt: skip
+        bars(m)["files"].append({"path": rel, "rows": 1, "bytes": len(files[rel])})
+
+    return change
+
+
+def _id_twice(m: dict[str, Any], files: Files) -> None:
+    """The instruments file storing `instrument_id` twice (S011)."""
+    t = instruments()
+    names = [*t.column_names, "instrument_id"]
+    twice = pa.Table.from_arrays([*t.columns, t["instrument_id"]], names)
+    rewrite(m, files, INSTRUMENTS, twice)
+
+
 def _ranged(second_from: str) -> Change:
     """The bars as two files named by time range (TDS 3.6), the second from `second_from`."""
 
@@ -744,6 +764,10 @@ CASES: dict[str, tuple[Change, Change]] = {
     ),
     "TDS-S008": (_keep, _bars(market=pa.array(["US"]))),
     "TDS-S009": (_bars(vwap=pa.array([-1e300])), _bars(vwap=pa.array([math.inf]))),  # no V001
+    "TDS-S011": (  # two bars files of the same columns; then one with value_traded, an id twice
+        _two_bars(),
+        _both(_two_bars(value_traded=pa.array([1000.0])), _id_twice),
+    ),
     "TDS-S010": (
         _keep,  # `tds.dataset` is the dataset's name, `bars_1d` (TDS 3.7)
         _bars(meta={"tds.dataset": "bars", "tds.schema_version": "1.0"}),  # the kind, not the name
@@ -890,6 +914,7 @@ FAILS: dict[str, tuple[str | None, ...]] = {
         "TDS-H003", "TDS-M017",
     ], (None,)),
     "TDS-M003": (None,) * 4,  # snapshot_id, and a market without each of its three fields
+    "TDS-S011": ("instruments", "bars_1d"),
     **dict.fromkeys([
         "TDS-M004", "TDS-M006", "TDS-M009", "TDS-M010", "TDS-M011", "TDS-M012", "TDS-M013",
         "TDS-S001", "TDS-S002", "TDS-S004", "TDS-S005", "TDS-S008", "TDS-S009", "TDS-S010",

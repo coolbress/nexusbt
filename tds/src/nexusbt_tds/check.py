@@ -2,7 +2,7 @@
 
 The `manifest` level reads `tds.json`, file sizes and the schema files' `status` (M001~M017);
 the `schema` level adds the
-Parquet footers and statistics and the `dictionary/` tables, no data rows (S001~S010, T006, part
+Parquet footers and statistics and the `dictionary/` tables, no data rows (S001~S011, T006, part
 of D002, and of M008 the columns a profile names); the `full` level adds, so far, S006, S007
 and S009 from the rows (`cells`), the key
 checks (K001~K004, K010, K011; `keys`), the
@@ -48,7 +48,7 @@ Severity = Literal["error", "warning"]
 #: TDS 8.3, the codes the `manifest` level cannot see. M015 it judges from tds.json's kinds and
 #: the schema files' `status` (#391).
 _ROW_CODES = (
-    "S001 S002 S003 S004 S005 S006 S007 S008 S009 S010 K001 K002 K003 K004 K010 K011"
+    "S001 S002 S003 S004 S005 S006 S007 S008 S009 S010 S011 K001 K002 K003 K004 K010 K011"
     " R001 R002 R003 R004 R005 R006 R007 R008 R009 T001 T002 T003 T004 T005 T006 T007 T008"
     " T010 T011 T012 D001 D002 D003 D004 A003 A004 A005 A006 A007 A008 A009 A010 A011"
     " V001 V002 V004 V005 V010 V011 V012 V020 V030 V031 V032 V040 V041 V050 H001 H002 H003 H004"
@@ -63,7 +63,7 @@ DICTIONARIES = frozenset({"dictionary/columns", "dictionary/items", "dictionary/
 #: TDS 8.2's range checks from file statistics: T006 here; D002's part stays `unchecked`, since
 #: a non-session day between the minimum and the maximum is in the rows (#181).
 T006, D002 = "TDS-T006", "TDS-D002"
-SCHEMA_CODES = tuple(f"TDS-S{n:03}" for n in (1, 2, 3, 4, 5, 6, 7, 8, 10))
+SCHEMA_CODES = tuple(f"TDS-S{n:03}" for n in (1, 2, 3, 4, 5, 6, 7, 8, 10, 11))
 UNCHECKED_AT_SCHEMA = tuple(c for c in UNCHECKED_AT_MANIFEST if c not in (*SCHEMA_CODES, T006))
 
 #: The manifest schema's date pattern (4.2), which a `YYYY-MM-DD` that is no date also matches.
@@ -527,7 +527,7 @@ def _fits(tag: str, value: str) -> bool:
 def _check_schema(
     m: Manifest, only: Sequence[str] | None, blind: set[str], *, rows: bool = False
 ) -> list[Finding]:
-    """S001~S010 from each listed, readable Parquet file's footer (TDS 8.2); with `rows` (the
+    """S001~S011 from each listed, readable Parquet file's footer (TDS 8.2); with `rows` (the
     `full` level) S006, S007 and S009 are left to the rows (`cells`)."""
     from .schemas.verify import load_schemas
 
@@ -556,6 +556,39 @@ def _check_schema(
                     found += _undeclared_markets(root / rel, m.data)
                 out += [replace(f, dataset=ds.get("name"), file=rel) for f in found
                         if not rows or f.code not in CELL_CODES]  # fmt: skip
+        out += _same_columns(root, ds, schema)
+    return out
+
+
+def _same_columns(root: Path, ds: Mapping[str, Any], schema: Any) -> list[Finding]:
+    """S011 (TDS 8.3, #705 Decisions 40): each file of `ds` holds each column once, and every
+    file the same columns, partition columns left out, `x_` columns counted, order not read; a
+    column neither the schema file nor `columns[].type` types, the same type in each (S002 types
+    the others)."""
+    from .hash import resolved_columns
+
+    declared = {str(c.get("name")) for c in ds.get("columns") or [] if isinstance(c, dict)
+                and c.get("type")}  # fmt: skip
+    typed = {c.name for c in resolved_columns(ds, schema.columns) if c.type} | declared
+    out, first = [], None
+    for rel, meta in _footers(root, ds):
+        if meta is None:
+            continue  # S010's
+        arrow = meta.schema.to_arrow_schema()
+        parts = {p.split("=")[0] for p in Path(rel).parts if "=" in p}
+        stored = [(f.name, None if f.name in typed else str(f.type)) for f in arrow]
+        stored = [(n, t) for n, t in stored if n not in parts]
+        if twice := sorted({n for n, _ in stored if [s for s, _ in stored].count(n) > 1}):
+            message = f"column(s) stored twice in one file: {', '.join(twice)}"
+            out.append(Finding("TDS-S011", "error", message, dataset=ds.get("name"), file=rel))
+        shape = dict(stored)
+        if first is None:
+            first = (rel, shape)
+        elif shape != first[1]:
+            names = sorted(set(shape) ^ set(first[1]))
+            names += sorted(n for n in set(shape) & set(first[1]) if shape[n] != first[1][n])
+            message = f"columns unlike {first[0]}'s: {', '.join(names)}"
+            out.append(Finding("TDS-S011", "error", message, dataset=ds.get("name"), file=rel))
     return out
 
 
@@ -987,7 +1020,7 @@ def _column(root: Path, ds: Mapping[str, Any], name: str) -> Iterable[pa.Chunked
         if meta is not None and name in meta.schema.names:
             try:
                 yield pq.ParquetFile(root / rel).read(columns=[name])[name]
-            except (OSError, KeyError, pa.ArrowException):  # a name twice: S001's, unread here
+            except (OSError, KeyError, pa.ArrowException):  # a name twice: S011's, unread here
                 continue
 
 

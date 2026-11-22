@@ -20,7 +20,7 @@ from .alone import measured_alone
 from .conformance_build import build
 
 #: The S codes the `schema` level reports.
-S_CODES = [f"TDS-S{n:03}" for n in range(1, 11)]
+S_CODES = [f"TDS-S{n:03}" for n in range(1, 12)]  # S011 since #705
 
 
 def codes(path: Path, level: Level = "manifest", **kwargs: Any) -> list[str]:
@@ -1684,6 +1684,29 @@ def test_D002_from_the_statistics(change: Any, found: list[str], tmp_path: Path)
 
 
 _bars, TS, VERSION_1_9 = build._bars, build.TS, build.VERSION_1_9
+
+
+def test_a_float_column_stored_twice_is_reported_at_full_not_a_crash(tmp_path: Path) -> None:
+    # found building #705's 3b: `cells` raised KeyError on it, on main as well
+    twice = build.bars_table().append_column("close", pa.array([1.0]))
+    package = write(tmp_path, lambda m, f: build.rewrite(m, f, build.BARS, twice))
+    result = check(package, level="full")
+    assert [f.code for f in result.errors] == ["TDS-S011"]
+    assert {"TDS-S006", "TDS-S007", "TDS-S009"} <= set(result.unchecked)  # its rows unseen
+
+
+def _two_x(first: pa.Array, second: pa.Array, declared: str | None = None) -> Any:
+    """Two bars files whose `x_note` holds `first`, then `second`; `declared` its tds.json type."""
+
+    def change(m: dict[str, Any], f: Any) -> None:
+        if declared:
+            build.bars(m)["columns"] = [{"name": "x_note", "type": declared}]
+        build.rewrite(m, f, build.BARS, build.bars_table(x_note=first))
+        build._two_bars(x_note=second)(m, f)
+
+    return change
+
+
 TS_NS = TS.cast(pa.timestamp("ns", "UTC"))
 
 
@@ -1733,7 +1756,11 @@ def _declares(name: str, tag: str | None, **columns: Any) -> Any:
         (lambda m, f: (build.bars(m).update(columns=[{"name": "momentum", "type": "f64"}]),
                        _bars(momentum=pa.array([1.0]))(m, f)), []),  # a declared column is known
         (lambda m, f: build.rewrite(m, f, build.BARS, build.bars_table().append_column(
-            "close", pa.array([1.0]))), []),  # a column written twice: no crash
+            "close", pa.array([1.0]))), ["TDS-S011"]),  # a column written twice: S011 (#705)
+        # S011 (#705 Decisions 40): an untyped column's type is the same in every file
+        (_two_x(pa.array(["a"]), pa.array([1])), ["TDS-S011"]),
+        (_two_x(pa.array(["a"]), pa.array(["b"])), []),
+        (_two_x(pa.array(["a"]), pa.array([1]), "string"), ["TDS-S002"]),  # typed: S002's
         (lambda m, f: (build.bars(m).update(schema_version="1.9"),
                        _bars(VERSION_1_9, note=pa.array(["a"]))(m, f)), []),  # M011: ignored
         (lambda m, f: (build.bars(m).update(schema_version="2.0"),
