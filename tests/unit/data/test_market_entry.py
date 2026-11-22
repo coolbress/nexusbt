@@ -48,10 +48,10 @@ def test_a_market_without_a_field_stops_the_open_naming_m003(
     assert f"markets.US: field {field!r} is missing" in str(raised.value)
 
 
-def undeclared_market_package(tmp_path: Path) -> Path:
+def undeclared_market_package(tmp_path: Path, bars_csv: str = BARS) -> Path:
     """The CSVs above imported, and the bars file moved out of its `market=` partition, so
     that the engine takes the bars' market from `instruments` (#564)."""
-    for name, text in (("instruments.csv", INSTRUMENTS), ("bars.csv", BARS),
+    for name, text in (("instruments.csv", INSTRUMENTS), ("bars.csv", bars_csv),
                        ("mapping.yaml", MINIMAL)):  # fmt: skip
         (tmp_path / name).write_text(text, encoding="utf-8")
     pkg = import_csv(tmp_path / "mapping.yaml", tmp_path / "pkg")
@@ -83,3 +83,13 @@ def test_an_instrument_of_an_undeclared_market_stops_the_open_naming_m010(
     assert "[E14]" in str(raised.value)
     assert "'XNYS:AAPL'" in str(raised.value)
     assert "market 'ZZ'" in str(raised.value)
+
+
+def test_a_missing_close_comes_before_the_undeclared_market(tmp_path: Path) -> None:
+    """Spec 4.4: step 3's E14 for bars without close (#698) before step 4's for the market
+    `markets` does not declare (TDS-M010), at the default `verify`."""
+    pkg = undeclared_market_package(tmp_path, BARS.replace(",close", "").replace(",185.64", ""))
+    with pytest.raises(SnapshotError) as raised:
+        open_snapshot(DataConfig(path=pkg))
+    assert "the bars of market US have no close column" in str(raised.value)
+    assert "TDS-M010" not in str(raised.value)

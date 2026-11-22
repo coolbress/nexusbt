@@ -111,6 +111,7 @@ def decide(
     lacking = {f: [k for k in needs if k not in kinds] for f, needs in NEEDS.items()}
     taken: dict[str, list[FallbackRecord]] = {f: [] for f in NEEDS}
     market_of = _market_of(folder, kinds.get("instruments"))  # TDS K1: ids are opaque
+    _no_close(folder, data, bars)  # 4.4-3, before step 4's market checks (#698)
     if not extent.partitioned:  # a `market=` partition is the checker's (TDS-M010)
         _declared(folder, data, extent.by_market(), market_of)
     f02 = _calendars(folder, data, kinds, extent, lacking, taken)
@@ -378,6 +379,27 @@ def _warning(data: Mapping[str, Any], records: Sequence[FallbackRecord]) -> Data
         fix="[data] fallbacks = 'fail' to stop instead", more="spec 4.5; tds check --level full",
         layer=_layer(data, first.dataset), subject=first.id,
     )  # fmt: skip
+
+
+def _no_close(folder: Path, data: Mapping[str, Any], bars: Mapping[str, Any] | None) -> None:
+    """4.3 and 4.4-3 (#698): a bars file without a `close` column is E14 at open, whatever the
+    run reads: no fallback stands in for it (4.5), and since TDS C1 (#705) every equity daily
+    profile requires it. Only an absent column: one null in every row is data, NaN (#698)."""
+    if bars is None:
+        return
+    for f in bars["files"]:
+        if "close" in pq.read_schema(folder / f["path"]).names:
+            continue
+        market = partition_values(f["path"], bars.get("partitioning", [])).get("market")
+        markets = market or ", ".join(sorted(data["markets"]))  # no `market=`: any of them
+        raise SnapshotError(
+            what=f"the bars of market {markets} have no close column",
+            where=f"dataset {bars['name']}, file {f['path']}, column close",
+            why="Price.* reads close, and no fallback stands in for it (4.3, 4.5)",
+            fix="write close in every bars file (TDS 5.5 and 7, TDS-M008); `tds check "
+                "--level schema` names each file",
+            more="spec 4.3 and 4.4 step 3", layer=_layer(data, str(bars["name"])),
+        )  # fmt: skip
 
 
 def _refused(data: Mapping[str, Any], used: Sequence[FallbackRecord]) -> SnapshotError:
