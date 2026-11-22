@@ -140,7 +140,8 @@ def test_adv_nan_only_in_the_market_f18_records(
     the market F-18 records; US's values as on the whole package."""
     whole = make_snapshot(tmp_path / "w", preset="tiny")
     root = make_snapshot(tmp_path / "p", preset="tiny")
-    package_without_bars_column(root, "volume", market="KR")
+    # null, not left out: some files without it break TDS 3.6, E14 at open (#705)
+    package_without_bars_column(root, "volume", market="KR", null=True)
     with pytest.raises(ValueError, match="market 'JP'"):  # a market no file has
         package_without_bars_column(root, "volume", market="JP")
     assert {m for m, c in records(root) if c == "volume"} == {"KR"}
@@ -187,14 +188,15 @@ def by_session(table: pa.Table, column: str) -> dict[dt.date, list[float]]:
 def test_adv_nan_where_its_window_reads_the_file_without_volume(
     tmp_path: Path, package_without_bars_column: Callable[..., None]
 ) -> None:
-    """#688 Decisions 1, 2: `volume` left out of the 2019 file only. `AverageDollarVolume(3)`
+    """#688 Decisions 1, 2: `volume` null in every row of the 2019 file only (left out, it is
+    E14 at open since #705). `AverageDollarVolume(3)`
     is NaN at the sessions whose window reads a 2019 bar (2020's first two) and the whole
     package's value at every later one, where `Price.volume.latest` is the same number."""
     whole = make_snapshot(tmp_path / "w", preset="small", markets=("KR",), n_kr=3, start=START,
                           end=END)  # fmt: skip
     root = make_snapshot(tmp_path / "p", preset="small", markets=("KR",), n_kr=3, start=START,
                          end=END)  # fmt: skip
-    package_without_bars_column(root, "volume", year=2019)
+    package_without_bars_column(root, "volume", year=2019, null=True)  # 3.6, as above
     with pytest.raises(ValueError, match="year 2018"):  # a year no file has
         package_without_bars_column(root, "volume", year=2018)
     assert records(root) == {("KR", "volume")}
@@ -220,7 +222,7 @@ def test_adv_per_cell_equal_over_chunks(
     the second chunk's windows reading the first chunk's bars of the file without `volume`."""
     root = make_snapshot(tmp_path / "p", preset="small", markets=("KR",), n_kr=3, start=START,
                          end=END)  # fmt: skip
-    package_without_bars_column(root, "volume", year=2019)
+    package_without_bars_column(root, "volume", year=2019, null=True)  # 3.6 (#705)
     monkeypatch.setattr(SPLIT, lambda dates, *_, **__: [(0, len(dates) - 1)])
     one = adv(root, "2019-12-20", "2020-01-31")
 

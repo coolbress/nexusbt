@@ -7,7 +7,7 @@ import functools
 import warnings
 from collections import Counter
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -33,8 +33,8 @@ from nexusbt_tds.manifest import Manifest
 from nexusbt_tds.profiles import PROFILES, meets, profile_id
 from nexusbt_tds.profiles import TRADED as EQUITIES  # asset classes, not `TRADED` columns
 
-#: 4.3's first table, the rows T1.1b decides: a feature → the dataset kinds it needs. F-01
-#: (OHLC) and F-13 (delistings) come with the features that read them (T3.11 for F-13).
+#: 4.3's first table, the rows T1.1b decides: a feature → the dataset kinds it needs. F-13
+#: (delistings) comes with the features that read it (T3.11).
 NEEDS = {
     "price": ("instruments", "bars"),
     "adjusted": ("instruments", "bars", "corporate_actions", "calendar_sessions"),
@@ -51,7 +51,6 @@ SUPPORTED = frozenset({
     "tds:panels@1.0", "tds:pit-fundamentals@1.0",
 })  # fmt: skip
 SAYS = {
-    "F-01": "Price.open/high/low = NaN, bars without them or null in every row",
     "F-02": "sessions synthesized from exchange_calendars 4.13.2",
     "F-03": "bars expanded to listing period x sessions, empty cells obs_status = missing",
     "F-15": "price grid = currency minor unit",
@@ -59,7 +58,7 @@ SAYS = {
     "F-18": "Price.volume/value_traded = NaN, bars without them or null in every row",
 }
 #: The bars columns a package may leave out (4.5) → the fallback that says so.
-_GONE = {**dict.fromkeys(OHL, "F-01"), **dict.fromkeys(TRADED, "F-18")}
+_GONE = dict.fromkeys(TRADED, "F-18")  # F-01 retired (#705): open, high, low are E14 or E18
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,12 +85,14 @@ class DataCapabilities:
     supported: frozenset[str]
     #: Bars columns with no value that no declared profile requires: E18 when read (#705).
     unread: frozenset[str] = frozenset()
+    #: The same, of one market whose `market=` files hold no value of them (#705).
+    unread_in: Mapping[str, frozenset[str]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
 class FallbackRecord:
     """One fallback used (4.4-5): its 4.5 id, the dataset it stands in for, market, count, and
-    the column when the fallback is one column's (F-01)."""
+    the column when the fallback is one column's (F-18)."""
 
     id: str
     dataset: str
@@ -117,7 +118,7 @@ def decide(
     taken: dict[str, list[FallbackRecord]] = {f: [] for f in NEEDS}
     market_of = _market_of(folder, kinds.get("instruments"))  # TDS K1: ids are opaque
     _no_close(folder, data, bars, market_of)  # 4.4-3, before step 4's market checks (#698)
-    unread = _breaks_profile(folder, data, bars, kinds.get("instruments"))  # 4.4-3 (#705)
+    unread, unread_in = _breaks_profile(folder, data, bars, kinds.get("instruments"))  # #705
     if not extent.partitioned:  # a `market=` partition is the checker's (TDS-M010)
         _declared(folder, data, extent.by_market(), market_of)
     f02 = _calendars(folder, data, kinds, extent, lacking, taken)
@@ -133,7 +134,7 @@ def decide(
     _use_fallbacks(folder, data, bars, f02, used, policy, market_of, extent)
     supported = frozenset(p for p in data.get("profiles", []) if p in SUPPORTED)
     assumptions = tuple(SAYS[i] for i in ("F-02",) if any(r.id == i for r in used))
-    return DataCapabilities(on, supported, unread), used, assumptions
+    return DataCapabilities(on, supported, unread, unread_in), used, assumptions
 
 
 Sessions = tuple[list[FallbackRecord], dict[str, set[dt.date]]]
@@ -165,7 +166,7 @@ def _fallbacks(
     found: Sequence[Finding], extent: BarsExtent, market_of: Mapping[str, str],
     taken: dict[str, list[FallbackRecord]],
 ) -> None:  # fmt: skip
-    """4.5: F-03, F-01, F-16 and F-15, each added to the features that take it; F-03 reads the
+    """4.5: F-03, F-18, F-16 and F-15, each added to the features that take it; F-03 reads the
     columns of the bars' first file."""
     bars = kinds.get("bars")
     columns = _columns(folder, bars)
@@ -174,9 +175,7 @@ def _fallbacks(
         taken["backtest"] += [FallbackRecord("F-03", bars["name"], m, int(e.get("rows", 0)))
                               for m, e in extent.by_market().items()]  # fmt: skip
     gone = _gone_columns(folder, bars, extent)  # Price.* read by `price` (3.2)
-    taken["price"] += gone
-    # F-18 `price` only: the backtest's participation cap (5.6.6) is its own ticket's (#584)
-    taken["backtest"] += [r for r in gone if r.id == "F-01"]
+    taken["price"] += gone  # F-18, `price` only: the participation cap (5.6.6) is #584's
     read = bars["name"] if bars is not None else None  # the bars the engine reads (4.3, #547)
     years = Counter((f.dataset, market_of.get(str((f.key or {}).get(ID_COLUMN)), "-"))
                     for f in found if f.code == "TDS-V011" and f.dataset == read)  # fmt: skip
@@ -264,7 +263,7 @@ def _off_calendar(
 def _gone_columns(
     folder: Path, bars: Mapping[str, Any] | None, extent: BarsExtent
 ) -> list[FallbackRecord]:
-    """F-01 and F-18 by market and column (4.5): a bars file that can hold the market (its
+    """F-18 by market and column (4.5): a bars file that can hold the market (its
     `market=` partition, or none) lacks the column or holds it null in every row by its footer
     statistics; the count is those files' rows, at most the market's. A file without them
     leaves it undecided, its cells NaN as stored: open reads no row."""
@@ -420,14 +419,15 @@ def _no_close(
 def _breaks_profile(
     folder: Path, data: Mapping[str, Any], bars: Mapping[str, Any] | None,
     instruments: Mapping[str, Any] | None,
-) -> frozenset[str]:  # fmt: skip
-    """4.4-3 (#705 Decisions 48, 50): E14 at open when the bars hold no value of `close`, or
-    of a column a declared profile requires of them (TDS 7), as TDS-M008 reads it: in no file,
-    or null in every row of the dataset. A file without footer statistics has that one column
-    read; `open`, `high`, `low` and `volume` are required where the bars name an equity or etf.
-    Else the columns of `OHL` with no value, which a term reading them meets as E18 (48 (c))."""
+) -> tuple[frozenset[str], dict[str, frozenset[str]]]:  # fmt: skip
+    """4.4-3 (#705 Decisions 48, 50): E14 at open when a bars file lacks a column another holds,
+    or the bars hold no value of `close` or of a column a declared profile requires of them
+    (TDS 7), as TDS-M008 reads it: in no file, or null in every row of the dataset. `open`,
+    `high`, `low` and `volume` are required where the bars name an equity or etf. Else the
+    columns of `OHL` with no value, in the dataset and by market, which a term reading them
+    meets as E18 (48 (c))."""
     if bars is None:
-        return frozenset()
+        return frozenset(), {}
     params: Mapping[str, Any] = g if isinstance(g := bars.get("params"), dict) else {}
     need: dict[str, str] = {"close": "every engine feature (4.3)"}
     traded: dict[str, str] = {}
@@ -439,39 +439,14 @@ def _breaks_profile(
                     into.update({c: p.name for c in columns if c not in into})
     files = [(folder / f["path"], pq.ParquetFile(folder / f["path"]).metadata)
              for f in bars["files"]]  # fmt: skip
-    rows = sum(meta.num_rows for _, meta in files)
-
-    @functools.cache
-    def lacks(column: str) -> bool:
-        for path, meta in files:
-            if column not in meta.schema.names or _gone(meta, column):
-                continue
-            at = meta.schema.names.index(column)
-            stats = [meta.row_group(g).column(at).statistics for g in range(meta.num_row_groups)]
-            if all(s is not None and s.has_null_count for s in stats):
-                return False  # the footer counts fewer nulls than rows: a value
-            # no statistics to say it: that one column is read (#705 Decisions 50)
-            if pq.read_table(path, columns=[column])[column].null_count < meta.num_rows:
-                return False
-        return bool(rows > 0)
-
-    def names_traded() -> bool:
-        classes = _values(folder, instruments, ID_COLUMN, "asset_class")
-        want = pa.array(sorted({i for i, a in classes if a in EQUITIES and isinstance(i, str)}),
-                        pa.string())  # fmt: skip
-        for path, meta in files if len(want) else ():
-            if ID_COLUMN in meta.schema.names:
-                ids = pq.read_table(path, columns=[ID_COLUMN])[ID_COLUMN].cast(pa.string())
-                if pc.any(pc.is_in(ids, value_set=want)).as_py():
-                    return True
-        return False
-
+    _same_columns(data, bars, files)
+    lacks = functools.cache(functools.partial(_no_value, files))
     try:
         lacking = [(c, why) for c, why in need.items() if lacks(c)]
         if not lacking and (gaps := [(c, why) for c, why in traded.items() if lacks(c)]):
-            lacking = gaps if names_traded() else []
+            lacking = gaps if _names_traded(folder, instruments, files) else []
     except (pa.ArrowException, KeyError):  # a column twice or of another type: the checker's
-        return frozenset()  # S codes say it (TDS-S002, TDS-S011), as its own M008 leaves them
+        return frozenset(), {}  # S codes say it (TDS-S002, TDS-S011), as its own M008 leaves
     for column, why in lacking[:1]:
         raise SnapshotError(
             what=f"the bars hold no value of {column}, which {why} requires",
@@ -484,9 +459,79 @@ def _breaks_profile(
             layer=_layer(data, str(bars["name"])),
         )  # fmt: skip
     try:  # after the E14, so a column the check cannot read never hides it
-        return frozenset(c for c in OHL if lacks(c))
+        unread = frozenset(c for c in OHL if lacks(c))
+        return unread, _unread_by_market(bars, files, unread)
     except (pa.ArrowException, KeyError):
-        return frozenset()
+        return frozenset(), {}
+
+
+Footers = Sequence[tuple[Path, pq.FileMetaData]]
+
+
+def _no_value(files: Footers, column: str) -> bool:
+    """TDS-M008's reading over `files`: `column` in none, or null in every row of files that
+    have rows; a file without footer statistics has that one column read (#705 Decisions 50)."""
+    for path, meta in files:
+        if column not in meta.schema.names or _gone(meta, column):
+            continue
+        at = meta.schema.names.index(column)
+        stats = [meta.row_group(g).column(at).statistics for g in range(meta.num_row_groups)]
+        if all(s is not None and s.has_null_count for s in stats):
+            return False  # the footer counts fewer nulls than rows: a value
+        if pq.read_table(path, columns=[column])[column].null_count < meta.num_rows:
+            return False
+    return any(meta.num_rows for _, meta in files)
+
+
+def _names_traded(folder: Path, instruments: Mapping[str, Any] | None, files: Footers) -> bool:
+    """Whether the bars' `instrument_id` names an `equity` or `etf` of `instruments` (TDS 7)."""
+    classes = _values(folder, instruments, ID_COLUMN, "asset_class")
+    want = pa.array(sorted({i for i, a in classes if a in EQUITIES and isinstance(i, str)}),
+                    pa.string())  # fmt: skip
+    for path, meta in files if len(want) else ():
+        if ID_COLUMN in meta.schema.names:
+            ids = pq.read_table(path, columns=[ID_COLUMN])[ID_COLUMN].cast(pa.string())
+            if pc.any(pc.is_in(ids, value_set=want)).as_py():
+                return True
+    return False
+
+
+def _same_columns(data: Mapping[str, Any], bars: Mapping[str, Any], files: Footers) -> None:
+    """E14 at open for a bars file without a column another file of the dataset holds: every
+    file of one dataset has the same columns (TDS 3.6, TDS-S011), whatever the profile (#705,
+    2026-11-22). A file without `close` is `_no_close`'s, before this."""
+    names = [set(meta.schema.to_arrow_schema().names) for _, meta in files]  # S011's, not leaves
+    held = set().union(*names)
+    for f, own in zip(bars["files"], names, strict=True):
+        if lacked := sorted(held - own):
+            rel = f["path"]
+            raise SnapshotError(
+                what=f"a bars file has no column {', '.join(lacked)}, which other files hold",
+                where=f"dataset {bars['name']}, file {rel}",
+                why="every file of one dataset has the same columns (TDS 3.6, TDS-S011); no "
+                    "fallback stands in for the missing ones (4.4 step 3)",
+                fix=f"write {', '.join(lacked)} in {rel}, or leave it out of every file",
+                more="tds check <package> --level schema; spec 4.4 step 3",
+                layer=_layer(data, str(bars["name"])),
+            )  # fmt: skip
+
+
+def _unread_by_market(
+    bars: Mapping[str, Any], files: Footers, unread: frozenset[str]
+) -> dict[str, frozenset[str]]:
+    """The columns of `OHL` that every `market=` file of a market holds no value of, while the
+    dataset holds one: E18 when a run over that market reads them (#705, 2026-11-22). Some
+    files of a market (a year) without a value are data, as a halted session's null is; bars
+    not partitioned by market are judged as a whole (`unread`)."""
+    by: dict[str, list[tuple[Path, pq.FileMetaData]]] = {}
+    for f, footer in zip(bars["files"], files, strict=True):
+        market = partition_values(f["path"], bars.get("partitioning", [])).get("market")
+        if market is None:
+            return {}
+        by.setdefault(market, []).append(footer)
+    gaps = {m: frozenset(c for c in OHL if c not in unread and _no_value(held, c))
+            for m, held in by.items()}  # fmt: skip
+    return {m: cols for m, cols in gaps.items() if cols}
 
 
 def _refused(data: Mapping[str, Any], used: Sequence[FallbackRecord]) -> SnapshotError:
@@ -500,17 +545,22 @@ def _refused(data: Mapping[str, Any], used: Sequence[FallbackRecord]) -> Snapsho
     )  # fmt: skip
 
 
-def check_fields(data: Mapping[str, Any], caps: DataCapabilities, fields: Sequence[str]) -> None:
+def check_fields(
+    data: Mapping[str, Any], caps: DataCapabilities, fields: Sequence[str],
+    market: str | None = None,
+) -> None:  # fmt: skip
     """4.3: `close_tr` needs the `adjusted` feature (raw bars, corporate actions, sessions); an
     adjusted-price package gives `close` as it is and refuses `close_tr` with E18. A column the
-    bars hold no value of, which no declared profile requires, is E18 too (4.4-3, #705)."""
+    bars hold no value of, in the dataset or in `market`'s files, is E18 too (4.4-3, #705)."""
     bars = chosen(data).get("bars") or {}
-    for column in (c for c in fields if c in caps.unread):
+    here = caps.unread_in.get(market, frozenset()) if market is not None else frozenset()
+    for column in (c for c in fields if c in caps.unread | here):
+        of = f" of market {market}" if column in here else ""
         raise CapabilityError(
-            what=f"Price.{column} is not in snapshot {data['snapshot_id']}: the bars hold no "
-                 f"value of {column}",
+            what=f"Price.{column} is not in snapshot {data['snapshot_id']}: the bars{of} hold "
+                 f"no value of {column}",
             where=f"dataset {bars.get('name', 'bars')}, column {column}: in no file, or null "
-                  "in every row",
+                  f"in every row{of}",
             why="no fallback stands in for it, and no profile the package declares requires "
                 "it (4.4 step 3; TDS 7)",
             fix=f"use a package whose bars hold {column} (tds:equity-daily-core@1.0 requires "

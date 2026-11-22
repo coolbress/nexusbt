@@ -20,7 +20,7 @@ from nexusbt.contracts import ID_COLUMN as ID
 CORE_PROFILE = "tds:equity-daily-core@1.0"
 #: Spec 4.8's core values (T0.16a) → whether the gap breaks the core profile (TDS 7).
 CORE = {
-    "no_ohlc": True,  # F-01: OHLCV
+    "no_ohlc": True,  # core's OHLCV; minimal-daily's E18 when read (F-01 retired, #705)
     "no_sessions": True,  # F-02: calendar_sessions
     "sparse_bars": True,  # F-03: density = dense, obs_status
     "kr_ex_is_record": False,  # F-05
@@ -105,7 +105,7 @@ Gap = Callable[[str, Tables, pa.Array, int], Tables]
 
 
 def _no_ohlc(market: str, t: Tables, closes: pa.Array, seed: int) -> Tables:
-    """F-01: open, high and low null, the close kept."""
+    """Open, high and low null, the close kept: a minimal-daily package (#705)."""
     bars = t["bars_1d"]
     null = pa.nulls(len(bars), pa.float64())
     for c in ("open", "high", "low"):

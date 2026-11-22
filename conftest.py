@@ -15,6 +15,7 @@ import json
 from collections.abc import Callable
 from pathlib import Path
 
+import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 from hypothesis import settings
@@ -25,8 +26,9 @@ settings.register_profile("deep", parent=settings.get_profile("ci"), max_example
 
 
 def _drop_bars_column(
-    root: Path, column: str, market: str | None = None, year: int | None = None
-) -> None:
+    root: Path, column: str, market: str | None = None, year: int | None = None,
+    *, null: bool = False,
+) -> None:  # fmt: skip
     data = json.loads((root / "tds.json").read_text(encoding="utf-8"))
     files = next(d for d in data["datasets"] if d["kind"] == "bars")["files"]
     for key, value in (("market", market), ("year", year)):
@@ -35,7 +37,10 @@ def _drop_bars_column(
             if not files:
                 raise ValueError(f"no bars file of {key} {value!r} in {root / 'tds.json'}")
     for f in files:
-        pq.write_table(pq.read_table(part := root / f["path"]).drop_columns([column]), part)
+        table = pq.read_table(part := root / f["path"])
+        at = table.schema.get_field_index(column)
+        kept = table.set_column(at, column, pa.nulls(len(table), table.schema.field(at).type))
+        pq.write_table(kept if null else table.drop_columns([column]), part)
         f["bytes"] = part.stat().st_size
     (root / "tds.json").write_text(json.dumps(data), encoding="utf-8")
     write_hashes(root)
@@ -46,7 +51,8 @@ def package_without_bars_column() -> Callable[..., None]:
     """Drops one column from every bars file of a synthetic package, then writes its hashes
     again, in place. `market=` drops it only from the files whose `files[].path` in
     `tds.json` has the part `market=<market>`, and `year=` from those with `year=<year>`;
-    a market or a year no file has is a ValueError.
+    a market or a year no file has is a ValueError. `null=True` keeps the column, null in every
+    row: a part of the files without it breaks TDS 3.6 (E14 at open, #705), one null does not.
 
     The generator's `degrade` values cannot write a package whose bars have `volume` and no
     `value_traded` (4.8), so this makes one from a package that has both. It takes only the

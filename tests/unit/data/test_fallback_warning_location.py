@@ -16,7 +16,7 @@ from nexusbt.testing.synth import make_snapshot
 
 @pytest.mark.parametrize(
     ("fallback", "degrade"),
-    [("F-02", "no_sessions"), ("F-03", "sparse_bars"), ("F-01", "no_ohlc")],
+    [("F-02", "no_sessions"), ("F-03", "sparse_bars")],
 )
 def test_e30_points_at_open_snapshots_caller(tmp_path: Path, fallback: str, degrade: str) -> None:
     path = make_snapshot(tmp_path / "snap", preset="tiny", degrade=[degrade])

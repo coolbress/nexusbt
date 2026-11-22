@@ -93,7 +93,7 @@ def test_a_close_with_one_value_opens_without_statistics(tmp_path: Path) -> None
 @pytest.mark.parametrize("column", ["open", "volume"])
 def test_a_declared_profiles_column_is_e14_at_open(column: str, tmp_path: Path) -> None:
     """#705 Decisions 48 (b): `tiny` declares core, which requires an equity's open, high, low
-    and volume (TDS 7); a package that breaks it is E14 at open, never F-01 or F-18."""
+    and volume (TDS 7); a package that breaks it is E14 at open, never a fallback."""
     pkg = make_snapshot(tmp_path / "pkg", preset="tiny")
     _null(pkg, column)
     with pytest.raises(SnapshotError) as raised:
@@ -107,8 +107,7 @@ def test_a_minimal_package_without_open_opens(tmp_path: Path) -> None:
     # counter-example (#705 Decisions 48 (c)): minimal-daily asks close alone; the run reads it
     pkg = make_snapshot(tmp_path / "pkg", preset="tiny", degrade=["no_ohlc"])
     pipeline = nx.Pipeline({"c": nx.Price.close.latest})
-    with pytest.warns(UserWarning, match=r"\[E30\] F-01"):  # F-01's E30 leaves in plan item 4b
-        result = nx.run_pipeline(pipeline, start="2020-01-06", end="2020-01-08", snapshot=str(pkg))
+    result = nx.run_pipeline(pipeline, start="2020-01-06", end="2020-01-08", snapshot=str(pkg))
     values = result.table["c"].to_pylist()
     assert any(v is not None and v == v for v in values)
 
@@ -125,12 +124,8 @@ def test_core_bars_of_indices_alone_need_no_open_but_a_read_is_e18(tmp_path: Pat
         f["bytes"] = part.stat().st_size
     (pkg / "tds.json").write_text(json.dumps(data), encoding="utf-8")
     _null(pkg, "open")  # writes the hashes
-    with pytest.warns(UserWarning, match=r"\[E30\] F-01"):  # opens: no E14 (until 4b, F-01)
-        nx.open(str(pkg))
-    with (
-        pytest.warns(UserWarning, match=r"\[E30\] F-01"),
-        pytest.raises(nx.CapabilityError, match=r"Price\.open is"),
-    ):
+    nx.open(str(pkg))  # no E14, and no fallback's E30 (F-01 retired)
+    with pytest.raises(nx.CapabilityError, match=r"Price\.open is"):
         _run(pkg, "open")
 
 
@@ -144,10 +139,14 @@ def test_a_file_the_check_cannot_read_is_left_to_the_checker(tmp_path: Path) -> 
     pq.write_table(twice, tmp_path / "bars" / "a.parquet", write_statistics=False)
     bars = {"name": "bars_1d", "params": {}, "files": [{"path": "bars/a.parquet"}]}
     data = {"profiles": ["tds:minimal-daily@1.0"], "snapshot_id": "s"}
-    assert _breaks_profile(tmp_path, data, bars, None) == frozenset()
+    assert _breaks_profile(tmp_path, data, bars, None) == (frozenset(), {})
     # the review of 4a-ii: an `open` it cannot read never hides the E14 of a close with no value
     columns = [pa.array([None], pa.float64()), pa.array([1.0]), pa.array([1.0])]
     no_close = pa.table(columns, names=["close", "open", "open"])
     pq.write_table(no_close, tmp_path / "bars" / "a.parquet", write_statistics=["close"])
     with pytest.raises(SnapshotError, match="the bars hold no value of close"):
         _breaks_profile(tmp_path, data | {"layers": {}}, bars, None)
+    # and with a close, that `open` is left to the checker too (#721's unrun lines)
+    with_close = pa.table([pa.array([1.0]), *columns[1:]], names=["close", "open", "open"])
+    pq.write_table(with_close, tmp_path / "bars" / "a.parquet", write_statistics=["close"])
+    assert _breaks_profile(tmp_path, data, bars, None) == (frozenset(), {})
