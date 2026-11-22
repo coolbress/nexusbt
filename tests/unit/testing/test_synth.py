@@ -213,8 +213,7 @@ def test_command_degrade_prints_declared_profiles_and_results(
 ) -> None:
     # T0.16a's done line, on tiny: the declared profiles without core, and the three results
     out = tmp_path / "cli"
-    # no_sessions, not no_ohlc, which fails M008 since #705 (Decisions 41)
-    args = ["--out", str(out), "--degrade", "no_sessions,kr_ex_is_record", "--validate"]
+    args = ["--out", str(out), "--degrade", "no_ohlc,kr_ex_is_record", "--validate"]
     assert main(["--preset", "tiny", *args]) == 0
     printed = capsys.readouterr().out
     assert "profiles tds:minimal-daily@1.0\n" in printed
@@ -1105,16 +1104,6 @@ def check_full(package: Path) -> str:
     return done.stdout
 
 
-def check_no_ohlc(package: Path) -> str:
-    """`no_ohlc`'s package fails the full check, M008 on open, high and low and V004 on its
-    traded equity rows, until plan item 4 takes the value out (#705 Decisions 41)."""
-    done = pkg._tds("check", str(package), "--level", "full")
-    assert done.returncode == 1, done.stdout + done.stderr
-    found = sorted(re.findall(r"^error (TDS-\w+) bars_1d: ", done.stdout, re.M))
-    assert found == ["TDS-M008"] * 3 + ["TDS-V004"], done.stdout
-    return done.stdout
-
-
 @pytest.mark.parametrize("value", list(DROPS_CORE))
 def test_synth_conforms_degraded_core(
     value: str, tmp_path: Path, us_dividend_before_split: list[dict[str, Any]]
@@ -1123,7 +1112,7 @@ def test_synth_conforms_degraded_core(
     # and holds the one gap of the 4.5 table its value names
     package = make_snapshot(tmp_path / value, **SHORT, events=us_dividend_before_split,
                             degrade=[value])  # fmt: skip
-    printed = check_no_ohlc(package) if value == "no_ohlc" else check_full(package)
+    printed = check_full(package)  # `no_ohlc` too: minimal-daily asks close alone (#705)
     manifest = json.loads((package / "tds.json").read_text(encoding="utf-8"))
     kinds = {d["kind"]: d for d in manifest["datasets"]}
     bars = read(package, "bars_1d")
@@ -1174,11 +1163,11 @@ def test_synth_conforms_degraded_core(
     assert applied(package) == resolved(package)
 
 
-def validate_short(monkeypatch: pytest.MonkeyPatch, out: Path, *more: str, code: int = 0) -> None:
-    """The command with `--validate` on `small` cut to SHORT's year and counts; `code` its exit."""
+def validate_short(monkeypatch: pytest.MonkeyPatch, out: Path, *more: str) -> None:
+    """The command with `--validate` on `small` cut to SHORT's year and counts."""
     short = synth.PRESETS["small"]._replace(start=SHORT["start"], counts={"KR": 20, "US": 20})
     monkeypatch.setitem(synth.PRESETS, "small", short)
-    assert main(["--preset", "small", "--out", str(out), "--validate", *more]) == code
+    assert main(["--preset", "small", "--out", str(out), "--validate", *more]) == 0
 
 
 def test_exact_ratios_present(
@@ -1244,8 +1233,8 @@ def test_volume_in_lots_triggers_V011(  # noqa: N802 - the ticket's test name
     validate_short(monkeypatch, tmp_path / "cli")
     assert "TDS-V011 warnings: 0" in capsys.readouterr().out.splitlines()
     # no count where the checker could not judge (no high or low), and the distributions are
-    # still counted without `delistings`; `no_ohlc` fails M008 until plan item 4 (#705)
-    validate_short(monkeypatch, tmp_path / "cli", "--degrade", "no_ohlc,no_delistings", code=1)
+    # still counted without `delistings`
+    validate_short(monkeypatch, tmp_path / "cli", "--degrade", "no_ohlc,no_delistings")
     printed = capsys.readouterr().out
     assert "TDS-V011 warnings" not in printed
     assert "note: TDS-V011 not checked" in printed
@@ -1310,7 +1299,7 @@ def test_degrade_drops_declared_profiles(tmp_path: Path) -> None:
                }  # fmt: skip
     for value in (v for v, drops in DROPS_CORE.items() if drops):
         package = make_snapshot(tmp_path / value, **tiny, degrade=[value])
-        check_no_ohlc(package) if value == "no_ohlc" else check_full(package)
+        check_full(package)
         path = package / "tds.json"
         manifest = json.loads(path.read_text(encoding="utf-8"))
         assert manifest["profiles"] == [MINIMAL]

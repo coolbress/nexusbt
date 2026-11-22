@@ -175,7 +175,9 @@ def test_the_columns_chapter_7_names_per_profile() -> None:
     # TDS 7, the "required" cell of each row that names a column, by the dataset that holds it
     raw_dense = "bars(freq=1d, price_basis=raw, density=dense)"
     core = {raw_dense: "close obs_status"}
-    traded = {  # and in a dataset that holds an equity or etf instrument (#705 Decisions 37)
+    # and in a dataset that holds an equity or etf instrument (#705 Decisions 37); minimal-daily
+    # asks close alone (#705, 2026-11-22)
+    traded = {
         name.removeprefix("tds:").removesuffix("@1.0"): {
             describe((need,)): " ".join(columns) for need, columns in profile.traded
         }
@@ -184,7 +186,6 @@ def test_the_columns_chapter_7_names_per_profile() -> None:
     }
     ohlv = "open high low volume"
     assert traded == {
-        "minimal-daily": {"bars(freq=1d, price_basis)": ohlv},
         "equity-daily-core": {raw_dense: ohlv},
         "equity-daily-research": {raw_dense: ohlv},
     }
@@ -220,11 +221,13 @@ _OHLCV = ("open", "high", "low", "close", "volume")
 
 def _core(
     tmp_path: Path, columns: dict[str, Any], profile: str = CORE, level: Any = "schema",
-    asset: str = "equity",
+    asset: str = "equity", declared: bool = False,
 ) -> CheckResult:  # fmt: skip
-    """`profile` checked on a package with core's datasets and one traded, whole daily bar of
-    an `asset` instrument, its bars' `columns` replaced (`None`: left out)."""
+    """`profile` checked (and `declared`, in place of minimal-daily) on a package with core's
+    datasets and one traded, whole daily bar of an `asset` instrument, its bars' `columns`
+    replaced (`None`: left out)."""
     manifest, files = build.base()
+    manifest["profiles"] = [profile] if declared else manifest["profiles"]
     build._instruments(asset_class=pa.array([asset]))(manifest, files)
     build.bars(manifest)["params"] = dict(build.DENSE)
     whole = dict.fromkeys(_OHLCV, pa.array([10.0])) | {"obs_status": pa.array(["traded"])}
@@ -257,9 +260,25 @@ def test_core_bars_without_a_required_column_are_M008(column: str, tmp_path: Pat
     # Dense bars without `obs_status` are S001 under any profile (5.5 "no if dense").
     index = [f.code for f in _core(tmp_path / "c", {column: None}, asset="index").errors]
     assert index == (["TDS-S001", "TDS-M008"] if column == "obs_status" else [])
+    # and the same bars of the equity under minimal-daily, which asks close alone (2026-11-22)
     others = [f.code for f in _core(tmp_path / "d", {column: None}, MINIMAL).errors]
-    assert others == (["TDS-S001"] if column == "obs_status" else ["TDS-M008"])
+    assert others == index[:1]
     assert [f.code for f in result.errors] == [*index[:1], "TDS-M008"]
+
+
+@pytest.mark.parametrize(("profile", "found"), [(CORE, ["TDS-V004"]), (MINIMAL, [])])
+def test_a_traded_equity_without_volume_is_V004_where_a_declared_profile_requires_it(
+    profile: str, found: list[str], tmp_path: Path
+) -> None:
+    # V004 reads open, high, low and volume of the datasets M008 requires them of (#705)
+    two = {c: pa.array([10.0, 10.0]) for c in _OHLCV} | {
+        "instrument_id": pa.array(["US:AAA", "US:AAA"]),
+        "session_date": pa.array([dt.date(2024, 1, 2), dt.date(2024, 1, 3)]),
+        "obs_status": pa.array(["traded", "traded"]),
+        "volume": pa.array([None, 100.0]),
+    }
+    result = _core(tmp_path, two, profile, level="full", declared=True)
+    assert [f.code for f in result.errors if f.code.startswith("TDS-V")] == found
 
 
 @pytest.mark.parametrize(("held", "lacking"), [("US:IDX", False), ("US:AAA", True)])
@@ -268,6 +287,7 @@ def test_a_bars_dataset_needs_open_high_low_volume_only_for_its_own_equities(
 ) -> None:
     # #705 Decisions 37: read per dataset from its `instrument_id`; an index carries close only
     manifest, files = build.base()
+    build.bars(manifest)["params"] = dict(build.DENSE)  # core's, which minimal-daily is not
     index = build.instruments(instrument_id=pa.array(["US:IDX"]), asset_class=pa.array(["index"]))
     both = pa.concat_tables([build.instruments(), index])
     build.rewrite(manifest, files, build.INSTRUMENTS, both)
@@ -278,12 +298,13 @@ def test_a_bars_dataset_needs_open_high_low_volume_only_for_its_own_equities(
     entry = {"path": rel, "rows": 1, "bytes": len(files[rel])}
     manifest["datasets"].append(build.bars(manifest) | {"name": "levels", "path": "levels",
                                                          "files": [entry]})  # fmt: skip
-    result = check(Path(build.write(tmp_path, manifest, files)), level="schema", profiles=[MINIMAL])
+    result = check(Path(build.write(tmp_path, manifest, files)), level="schema", profiles=[CORE])
     rows = " (equity or etf rows)"
-    assert [f.message for f in result.errors] == [
-        f"{MINIMAL} requires column {c} in bars{rows}: missing" for c in ("low", "volume")
+    traded = [f for f in result.errors if rows in f.message]  # core's other needs aside
+    assert [f.message for f in traded] == [
+        f"{CORE} requires column {c} in bars{rows}: missing" for c in ("low", "volume")
     ] * lacking  # the second dataset holds open and high, not low or volume
-    assert {f.dataset for f in result.errors} <= {"levels"}
+    assert {f.dataset for f in traded} <= {"levels"}
 
 
 def test_bars_ids_that_are_no_text_are_the_schema_checks_not_a_crash(tmp_path: Path) -> None:
@@ -341,9 +362,8 @@ def test_a_column_without_statistics_is_a_note_not_an_error(tmp_path: Path) -> N
     build.rewrite(manifest, files, build.BARS, build.bars_table(), write_statistics=False)
     result = check(Path(build.write(tmp_path, manifest, files)), level="schema")
     assert [f.code for f in result.errors if f.code == "TDS-M008"] == []
-    assert result.notes == tuple(
-        f"TDS-M008 not checked for column {c} of bars_1d ({MINIMAL}): no statistics"
-        for c in ("close", "open", "high", "low", "volume")  # an equity's (#705)
+    assert result.notes == (  # close alone, an equity's too (#705, 2026-11-22)
+        f"TDS-M008 not checked for column close of bars_1d ({MINIMAL}): no statistics",
     )
 
 

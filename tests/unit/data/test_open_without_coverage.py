@@ -26,7 +26,7 @@ XNYS:AAPL,equity,US,XNYS,USD,1980-12-12
 """
 BARS = """instrument_id,session_date,open,high,low,close,volume
 XNYS:AAPL,2024-01-02,187.15,188.44,183.89,185.64,82488700
-"""  # an equity's bars hold all of OHLCV (TDS 7, #705)
+"""  # an equity's whole bars; minimal-daily asks close alone (TDS 7, #705)
 MINIMAL = """profiles: [tds:minimal-daily@1.0]
 market: {code: US, calendar_id: XNYS, currency: USD, timezone: America/New_York}
 datasets:

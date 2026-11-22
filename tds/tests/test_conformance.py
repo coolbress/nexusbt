@@ -862,8 +862,9 @@ def _traded_twice(**columns: Any) -> Any:
         (build._both(build._instruments(asset_class=pa.array(["index"])),
                      build._bars(close=pa.array([-1.0]), volume=pa.array([-1.0]))), ["TDS-V002"]),
         (build._bars(volume=pa.array([1.5])), ["TDS-V010"]),  # US:AAA is equity
-        # #705 Decisions 37 and 39: a traded equity needs volume, a traded index close only
-        (_traded_twice(volume=pa.array([None, 100.0])), ["TDS-V004"]),
+        # #705: under minimal-daily a traded equity needs close only (2026-11-22; core's in
+        # test_profiles.py), and a traded index close only (Decisions 39)
+        (_traded_twice(volume=pa.array([None, 100.0])), []),
         (build._both(build._instruments(asset_class=pa.array(["index"])),
                      _traded_twice(open=pa.array([None, None], pa.float64()))), []),
         (build._both(build._instruments(asset_class=pa.array(["etf"])),
