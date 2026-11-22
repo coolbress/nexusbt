@@ -111,7 +111,7 @@ def decide(
     lacking = {f: [k for k in needs if k not in kinds] for f, needs in NEEDS.items()}
     taken: dict[str, list[FallbackRecord]] = {f: [] for f in NEEDS}
     market_of = _market_of(folder, kinds.get("instruments"))  # TDS K1: ids are opaque
-    _no_close(folder, data, bars)  # 4.4-3, before step 4's market checks (#698)
+    _no_close(folder, data, bars, market_of)  # 4.4-3, before step 4's market checks (#698)
     if not extent.partitioned:  # a `market=` partition is the checker's (TDS-M010)
         _declared(folder, data, extent.by_market(), market_of)
     f02 = _calendars(folder, data, kinds, extent, lacking, taken)
@@ -381,7 +381,10 @@ def _warning(data: Mapping[str, Any], records: Sequence[FallbackRecord]) -> Data
     )  # fmt: skip
 
 
-def _no_close(folder: Path, data: Mapping[str, Any], bars: Mapping[str, Any] | None) -> None:
+def _no_close(
+    folder: Path, data: Mapping[str, Any], bars: Mapping[str, Any] | None,
+    market_of: Mapping[str, str],
+) -> None:  # fmt: skip
     """4.3 and 4.4-3 (#698): a bars file without a `close` column is E14 at open, whatever the
     run reads: no fallback stands in for it (4.5), and since TDS C1 (#705) every equity daily
     profile requires it. Only an absent column: one null in every row is data, NaN (#698)."""
@@ -391,14 +394,16 @@ def _no_close(folder: Path, data: Mapping[str, Any], bars: Mapping[str, Any] | N
         if "close" in pq.read_schema(folder / f["path"]).names:
             continue
         market = partition_values(f["path"], bars.get("partitioning", [])).get("market")
-        markets = market or ", ".join(sorted(data["markets"]))  # no `market=`: any of them
+        if market is None:  # no `market=`: its instruments' markets (TDS K1)
+            ids = pq.read_table(folder / f["path"], columns=[ID_COLUMN])[ID_COLUMN].to_pylist()
+            market = ", ".join(sorted({market_of.get(str(i), "-") for i in ids})) or "-"
         raise SnapshotError(
-            what=f"the bars of market {markets} have no close column",
+            what=f"the bars of market {market} have no close column",
             where=f"dataset {bars['name']}, file {f['path']}, column close",
             why="Price.* reads close, and no fallback stands in for it (4.3, 4.5)",
-            fix="write close in every bars file (TDS 5.5 and 7, TDS-M008); `tds check "
-                "--level schema` names each file",
-            more="spec 4.3 and 4.4 step 3", layer=_layer(data, str(bars["name"])),
+            fix=f"write close in {f['path']} and every other bars file (TDS 5.5 and 7)",
+            more=f"tds check {folder} --level full; spec 4.3 and 4.4 step 3",
+            layer=_layer(data, str(bars["name"])),
         )  # fmt: skip
 
 

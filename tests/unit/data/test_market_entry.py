@@ -91,5 +91,5 @@ def test_a_missing_close_comes_before_the_undeclared_market(tmp_path: Path) -> N
     pkg = undeclared_market_package(tmp_path, BARS.replace(",close", "").replace(",185.64", ""))
     with pytest.raises(SnapshotError) as raised:
         open_snapshot(DataConfig(path=pkg))
-    assert "the bars of market US have no close column" in str(raised.value)
+    assert "the bars of market ZZ have no close column" in str(raised.value)  # its instrument's
     assert "TDS-M010" not in str(raised.value)
