@@ -16,7 +16,7 @@ from nexusbt_tds import build_manifest, import_csv
 from nexusbt_tds.cli import main
 from nexusbt_tds.manifest import ManifestError
 
-from .test_import_csv import BARS, CHAPTER_7, MINIMAL, write
+from .test_import_csv import CHAPTER_7, MINIMAL, WHOLE, write
 
 BARS_FILE = "bars/freq=1d/market=US/year=2024/part-00000.parquet"
 MINUTE_FILE = "bars/freq=1m/market=US/date=2024-01-02/part-00000.parquet"
@@ -25,7 +25,7 @@ US = {"calendar_id": "XNYS", "currency": "USD", "timezone": "America/New_York"} 
 
 def folder(tmp_path: Path) -> tuple[Path, dict[str, Any]]:
     """A folder of Parquet files with no tds.json, and the manifest its writer gave it."""
-    mapping = write(tmp_path, {"instruments.csv": CHAPTER_7, "bars.csv": BARS,
+    mapping = write(tmp_path, {"instruments.csv": CHAPTER_7, "bars.csv": WHOLE,
                                "mapping.yaml": MINIMAL})  # fmt: skip
     package = import_csv(mapping, tmp_path / "pkg")
     written = json.loads((package / "tds.json").read_text(encoding="utf-8"))

@@ -36,6 +36,7 @@ import pyarrow as pa
 from .check import VALUE_CODES, Finding, Severity
 from .keys import listed
 from .manifest import Manifest
+from .profiles import TRADED
 from .refs import _rows, _stored
 
 V001, V002, V004, V005, V010, V011, V012, V020, V030, V040, V041, V050 = VALUE_CODES
@@ -67,7 +68,8 @@ COLUMNS = {
 }
 SAID = {V001: "bar(s) whose high and low do not enclose open and close",
         V002: "bar(s) with a negative price, volume or value_traded",
-        V004: "bar(s) traded with no close", V005: "FX rate(s) <= 0",
+        V004: "bar(s) traded with no close, or on equity or etf with no open, high, low or volume",
+        V005: "FX rate(s) <= 0",
         V010: "equity bar(s) whose volume is not an integer",
         V020: "instrument(s) without a column their asset_class needs",
         V030: "locked or crossed quote(s), bid_px >= ask_px",
@@ -241,7 +243,8 @@ def _broken(kind: str, r: dict[str, Any], kinds: Mapping[Any, tuple[Any, ...]]) 
         prices = () if free else PRICES
         if any(r[k] is not None and r[k] < 0 for k in (*prices, "volume", "value_traded")):
             out.append(V002)
-        if r["obs_status"] == "traded" and c is None:
+        cells = (*PRICES[:4], "volume") if asset in TRADED else ("close",)  # 5.5, #705
+        if r["obs_status"] == "traded" and any(r[k] is None for k in cells):
             out.append(V004)
         if asset == "equity" and r["volume"] is not None and not float(r["volume"]).is_integer():
             out.append(V010)

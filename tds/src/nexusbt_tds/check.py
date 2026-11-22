@@ -28,6 +28,7 @@ from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Literal
 
 import pyarrow as pa
+import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
 from .manifest import (
@@ -39,7 +40,7 @@ from .manifest import (
     read_manifest,
     schema_violations,
 )
-from .profiles import PROFILES, Need, describe, meets, profile_id
+from .profiles import PROFILES, TRADED, Need, describe, meets, profile_id
 
 Level = Literal["manifest", "schema", "full"]
 Severity = Literal["error", "warning"]
@@ -959,18 +960,62 @@ def _check_profile(
         if not any(all(_has(m.datasets, need) for need in alt) for alt in group):
             wanted = " or ".join(describe(alt) for alt in group)
             yield Finding("TDS-M008", "error", f"{name} requires dataset {wanted}")
-    for need, columns in profile.columns if level != "manifest" else ():
+    root, traded = m.root.resolve(), None  # the `TRADED` instruments, read when a row needs them
+    rows = [(*c, "") for c in profile.columns]
+    rows += [(*c, " (equity or etf rows)") for c in profile.traded]
+    for need, columns, why in rows if level != "manifest" else ():
         for ds in m.datasets:
             if (only is not None and ds.get("name") not in only) or not _has([ds], need):
                 continue
+            if why:
+                traded = _traded(m, root) if traded is None else traded
+                if not _names(root, ds, traded):
+                    continue
             for column in columns:
-                lack = _lacks(m.root.resolve(), ds, column)
+                lack = _lacks(root, ds, column)
                 if lack is None:
                     said = f"column {column} of {ds.get('name')} ({name}): no statistics"
                     notes.append(f"TDS-M008 not checked for {said}")
                 elif lack:
-                    message = f"{name} requires column {column} in {need[0]}: {lack}"
+                    message = f"{name} requires column {column} in {need[0]}{why}: {lack}"
                     yield Finding("TDS-M008", "error", message, dataset=ds.get("name"))
+
+
+def _column(root: Path, ds: Mapping[str, Any], name: str) -> Iterable[pa.ChunkedArray]:
+    """Column `name` of each listed, readable file of `ds` that holds it; no other column."""
+    for rel, meta in _footers(root, ds):
+        if meta is not None and name in meta.schema.names:
+            try:
+                yield pq.ParquetFile(root / rel).read(columns=[name])[name]
+            except (OSError, KeyError, pa.ArrowException):  # a name twice: S001's, unread here
+                continue
+
+
+def _traded(m: Manifest, root: Path) -> set[Any]:
+    """The instruments whose `asset_class` is in `TRADED` (chapter 7, #705 Decisions 37)."""
+    out: set[Any] = set()
+    for ds in (d for d in m.datasets if d.get("kind") == "instruments"):
+        for rel, meta in _footers(root, ds):
+            if meta is not None and {"instrument_id", "asset_class"} <= set(meta.schema.names):
+                try:
+                    t = pq.ParquetFile(root / rel).read(columns=["instrument_id", "asset_class"])
+                except (OSError, KeyError, pa.ArrowException):
+                    continue
+                pairs = zip(*t.to_pydict().values(), strict=True)
+                out.update(i for i, a in pairs if a in TRADED and isinstance(i, str))  # else S's
+    return out
+
+
+def _names(root: Path, ds: Mapping[str, Any], ids: set[Any]) -> bool:
+    """Whether `ds`'s `instrument_id` column names one of `ids`, reading that column only."""
+    want = pa.array(sorted(ids), pa.string())
+    for ids_of_file in _column(root, ds, "instrument_id") if ids else ():
+        try:
+            if pc.any(pc.is_in(ids_of_file.cast(pa.string()), value_set=want)).as_py():
+                return True
+        except pa.ArrowException:  # an id column of another type: S002's, not this check's
+            continue
+    return False
 
 
 def _lacks(root: Path, ds: Mapping[str, Any], column: str) -> str | None:

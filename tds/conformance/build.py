@@ -40,9 +40,20 @@ def instruments(**columns: pa.Array | None) -> pa.Table:
 
 
 def bars_table(**columns: pa.Array | None) -> pa.Table:
-    """One daily bar (TDS 5.5); a column `None` is left out."""
+    """One daily bar (TDS 5.5); a column `None` is left out. An equity's bars hold all of OHLCV
+    (chapter 7, #705): by default `open` and `low` are the whole number at or below `close`,
+    `high` the one at or above (10.0 where `close` is not a finite f64), `volume` 100, so that a
+    case that breaks `close` breaks that column alone."""
     base = {"instrument_id": pa.array(["US:AAA"]), "session_date": DAY, "close": pa.array([10.0])}
-    return pa.table({k: v for k, v in (base | columns).items() if v is not None})
+    table = base | columns
+    n, close = len(table["instrument_id"] or []), table["close"]
+    f64 = close is not None and close.type == pa.float64()
+    near = [c if isinstance(c, float) and math.isfinite(c) else 10.0
+            for c in (close.to_pylist() if f64 else [None] * n)]  # fmt: skip
+    down, up = [float(math.floor(c)) for c in near], [float(math.ceil(c)) for c in near]
+    filled = {"open": down, "high": up, "low": down, "volume": [100.0] * n}
+    table |= {k: v for k, v in filled.items() if k not in table}
+    return pa.table({k: v for k, v in table.items() if v is not None})
 
 
 def parquet(
@@ -201,14 +212,15 @@ def _bars_on(*days: int) -> Change:
 
 
 def _no_close(status: str) -> Change:
-    """A bar of `status` without a close, then a traded one with it: the dataset holds `close`,
-    which `tds:minimal-daily` requires (M008, #352)."""
+    """A bar of `status` without a price, volume 0 (5.5 for `halted`), then a traded one with
+    them: the dataset holds `close`, which `tds:minimal-daily` requires (M008, #352)."""
+    price = pa.array([None, 10.0])
     return _bars(
         instrument_id=pa.array(["US:AAA"] * 2),
         session_date=pa.array([dt.date(2024, 1, 2), dt.date(2024, 1, 3)]),
-        close=pa.array([None, 10.0]),
+        open=price, high=price, low=price, close=price, volume=pa.array([0.0, 100.0]),
         obs_status=pa.array([status, "traded"]),
-    )
+    )  # fmt: skip
 
 
 def _ranged(second_from: str) -> Change:
@@ -731,7 +743,7 @@ CASES: dict[str, tuple[Change, Change]] = {
         _instruments(category=pa.array(["ordinary"])),
     ),
     "TDS-S008": (_keep, _bars(market=pa.array(["US"]))),
-    "TDS-S009": (_bars(close=pa.array([-1e300])), _bars(close=pa.array([math.inf]))),
+    "TDS-S009": (_bars(vwap=pa.array([-1e300])), _bars(vwap=pa.array([math.inf]))),  # no V001
     "TDS-S010": (
         _keep,  # `tds.dataset` is the dataset's name, `bars_1d` (TDS 3.7)
         _bars(meta={"tds.dataset": "bars", "tds.schema_version": "1.0"}),  # the kind, not the name

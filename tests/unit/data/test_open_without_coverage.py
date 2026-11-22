@@ -24,9 +24,9 @@ from nexusbt_tds.hash import write_hashes
 INSTRUMENTS = """instrument_id,asset_class,market,calendar_id,currency,listed_on
 XNYS:AAPL,equity,US,XNYS,USD,1980-12-12
 """
-BARS = """instrument_id,session_date,close,volume
-XNYS:AAPL,2024-01-02,185.64,82488700
-"""
+BARS = """instrument_id,session_date,open,high,low,close,volume
+XNYS:AAPL,2024-01-02,187.15,188.44,183.89,185.64,82488700
+"""  # an equity's bars hold all of OHLCV (TDS 7, #705)
 MINIMAL = """profiles: [tds:minimal-daily@1.0]
 market: {code: US, calendar_id: XNYS, currency: USD, timezone: America/New_York}
 datasets:

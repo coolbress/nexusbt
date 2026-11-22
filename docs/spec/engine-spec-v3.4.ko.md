@@ -1161,8 +1161,8 @@ write: orders.to_csv("orders/{date}.csv")   apply to paper book: nx.fill(book, o
 
 | 프로필 | 엔진이 읽는 데이터셋 | 켜지는 엔진 기능 | 없으면 |
 |---|---|---|---|
-| `tds:minimal-daily@1.0` | `instruments`, `bars(1d)`(조정가 허용, `price_basis` 선언) | 분석 경로만: `Price.close`, `run_pipeline`, `screen(factor)`, `evaluate(target="fwd_return_adj")` | backtest·경제 정답 E18 [RV-I03] |
-| `tds:equity-daily-core@1.0` | `instruments`, `calendar_sessions`, `bars`(freq=1d, raw, dense, OHLCV, `obs_status`), `corporate_actions`, `delistings` | `Price.*`, OHLC 체결 규칙, 분할·배당·폐지 회계, `backtest`·`screen` | 4.5의 F-01~F-03·F-13 대체; 그래도 `bars` 종가가 없으면 E14 |
+| `tds:minimal-daily@1.0` | `instruments`, `bars(1d)`(조정가 허용, `price_basis` 선언; `equity`·`etf`는 OHLCV, `index`·`rate`는 `close`, TDS 7) | 분석 경로만: `Price.close`, `run_pipeline`, `screen(factor)`, `evaluate(target="fwd_return_adj")` | backtest·경제 정답 E18 [RV-I03] |
+| `tds:equity-daily-core@1.0` | `instruments`, `calendar_sessions`, `bars`(freq=1d, raw, dense, `obs_status`, OHLCV는 `minimal-daily`와 같이), `corporate_actions`, `delistings` | `Price.*`, OHLC 체결 규칙, 분할·배당·폐지 회계, `backtest`·`screen` | 4.5의 F-01~F-03·F-13 대체; 그래도 `bars` 종가가 없으면 E14 |
 | `tds:equity-daily-research@1.0` | 위 + `tradability_daily`, `eligibility_daily`, `instrument_symbols`, `fx_rates`(시장 둘 이상), `fundamentals_state`, `classifications`, `dictionary/columns`, `dictionary/items` (+ 선택 `share_counts`, `universe_membership`, `instrument_xref`) | 거래 가능 규칙, 투자 대상 유니버스, KR+US 슬리브, `Fund.*`, `Meta.*`, `.to(ccy)` | F-05~F-10 |
 | `tds:panels@1.0` | `feature_panels`, `label_panels` | `Panel.*`, `evaluate(target=Label.*)`, 유니버스 대체 | `Panel.*`·`Label.*` → E18; `evaluate`의 기본 `fwd_return`은 그대로 됨 |
 | `tds:pit-fundamentals@1.0` | `fundamentals_events` + `fundamentals_state`(TDS 7장이 정본) | `nx.explain`의 원출처 계보 | F-11 |
@@ -1347,7 +1347,7 @@ def make_snapshot(root: Path, *, preset: Literal["tiny","small","full","full_ci"
 | full_ci | full의 종목 1/50(같은 규칙·기간) | 1995-01-02 → 2024-12-31 | CI에서 full 생성 경로 시험 |
 | (markets에 "ZZ") | ZZ 6~120종목, 달력 `XZZZ`(XNYS 세션 복사, 이름만 다름), 통화 `XTS`(ISO 시험 통화) | preset 기간 | 시장 이름이 코드에 박혀 있지 않음 시험(규칙 팩 없음 → E18, 시험용 `ZZ.toml`을 넣으면 돎) [RV-I08] |
 
-- `degrade=()`면 `profiles = ["tds:equity-daily-core@1.0", "tds:equity-daily-research@1.0", "tds:panels@1.0", "tds:pit-fundamentals@1.0"]`를 선언한다. `producer = {"name": "nexusbt-synth", "hints": {...}}`(대체 동작 시험용 힌트 몇 줄). `degrade`의 각 값은 4.5 표의 빈 곳 하나를 흉내 내고, 그때 지키지 못하는 프로필은 선언에서 뺀다(`tds check`는 여전히 통과 — 선언한 것만 검사). 예: `no_ohlc` → `open/high/low` null, core 선언 뺌; `kr_ex_is_record` → KR 현금배당 `ex_date = record_date`; `us_div_split_adjusted_no_dates` → US 배당 금액을 그 뒤 분할 계수로 나눈 값 + 날짜 null.
+- `degrade=()`면 `profiles = ["tds:equity-daily-core@1.0", "tds:equity-daily-research@1.0", "tds:panels@1.0", "tds:pit-fundamentals@1.0"]`를 선언한다. `producer = {"name": "nexusbt-synth", "hints": {...}}`(대체 동작 시험용 힌트 몇 줄). `degrade`의 각 값은 4.5 표의 빈 곳 하나를 흉내 내고, 그때 지키지 못하는 프로필은 선언에서 뺀다(`tds check`는 여전히 통과 — 선언한 것만 검사 — 다만 `no_ohlc`는 2026-11-22부터 F-01과 함께 빠질 때까지 `minimal-daily`의 M008에 걸린다, #705). 예: `no_ohlc` → `open/high/low` null, core 선언 뺌; `kr_ex_is_record` → KR 현금배당 `ex_date = record_date`; `us_div_split_adjusted_no_dates` → US 배당 금액을 그 뒤 분할 계수로 나눈 값 + 날짜 null.
 - 이름공간: `id_namespaces = {"KR": "synthetic KR", "US": "synthetic US", "ZZ": "synthetic test market", "IDX": "synthetic indices"}`. 실제 종목 코드를 쓰지 않는다(공개 저장소, 2.7).
 - 커버리지와 워터마크: 모든 프리셋은 데이터셋마다 `coverage` 블록을 TDS 4.2 예시의 키 가운데 그 데이터셋에 해당 열이 있는 것(`instruments`, `ts_min`, `ts_max`, `market=` 파티션이 있는 데이터셋은 `by_market`)으로 쓰고, 시장마다 워터마크를 `markets.<m>`에 쓴다(TDS 3.8): `complete_through_session`은 기간의 마지막 세션, `complete_through`는 그 세션의 종료 시각이다. 이 생성기 내부의 값이며 엔진 규칙이 아니다(결정 2026-11-11, #390; M1 동결의 결함 규칙에 따름: 이 값이 없으면 벤치마크 패키지가 D001을, 그리고 봉 데이터의 T006을 판정할 수 없다). 모든 데이터셋은 시장마다 `coverage.by_market.<m>.processed_through_session`(TDS 4.3)도 그 워터마크 세션으로 쓴다. `behind={"<데이터셋>": n}`은 그 데이터셋의 값을 모든 시장에서 `n` 세션 앞으로 당겨, 한 데이터셋이 워터마크보다 늦는 사례를 만들 수 있게 한다(5.9.6 규칙 4, 8.4). `behind`는 쓰인 데이터셋 가운데 세션마다 행이 있지 않은 것만 받고(`bars_1d`, `calendar_sessions`, `tradability_daily`, `eligibility_daily`는 행까지 잘라야 하므로 받지 않는다) `n`은 0 이상, 그 시장 세션 수 미만이다. 그 밖은 `ValueError`다(결정 2026-11-12, #192). `behind`는 시장마다 그 데이터셋에서, 이용 가능 시각이 그 시장 달력에서 자른 세션의 마감보다 뒤인 행도 모두 잘라낸다. 그 시각은 TDS 4.3과 D003이 읽는 시각이다(사건은 5.11 존재 시각, 상장폐지는 `ts_exit_known`, 열 형식은 그 열; null 시각은 남긴다; `instruments`·`instrument_xref`·`market_rules`는 시각이 없어 잘리는 행이 없다). 잘린 행에서 파생되는 것도 함께 맞춘다: 잘린 사건의 움직임은 가격에 그대로 남고(생산자가 아직 설명하지 못한 움직임이다), 가격을 움직인 것에 대한 생성기의 기록이 자르기를 따른다(#705), 잘린 상장폐지는 그 종목의 `delisted_on`을 null로 남긴다. 자른 패키지는 `tds check --level full`을 통과한다(결정 2026-11-12 (3), #425). 이 값으로 모든 프리셋의 모든 데이터셋에서 M016이, 시각이 있는 `last` 없는 데이터셋마다 D003이 판정된다.
 
@@ -1839,7 +1839,7 @@ v1은 이 절의 정의를 규범으로 고정하고(INV-08 문구, `DecisionCon
 - 지정가·손절을 일봉으로 판정한 체결에는 `FillWarning`(오류 E11, 경고)을 실행 경고에 한 번 남긴다: "daily-bar fills for limit/stop orders are approximations; intraday sequencing requires minute/tick data (E4)" [조사 2.5].
 - 분·틱 자료가 생기면(E4) 장중 순서는 그 자료로 판정한다(11장). v1 일봉 규칙은 그때도 일봉 모드로 남는다.
 - **체결 기록** [SC-11]: 체결마다 `fill_resolution`(v1 = `"1d"`; 나중 `"1m"`, `"tick"`), `fill_rule`(`open`, `gap_open`(시가가 손절가를 넘어 시가 체결), `limit_open`, `intraday_adverse`(장중 H/L 판정), `close`, `zipline_close`(프리셋)), `arrival_price`(집행 세션 원 시가 O; 없으면 null)를 남긴다. 판정 해상도가 섞인 실행은 보고서에 "x/n fills judged on daily bars"를 보인다(E11의 정량화). `decision_price`·`arrival_price`로 구현 부족(체결가 vs 판단가)을 사후 계산할 수 있다(나중 TCA).
-- `O`가 null이면 시가 단계 대상 주문은 `blocked(no_open)`, `H` 또는 `L`이 null이면 장중 단계 대상 주문은 `blocked(no_range)`(체결 0, 이월). `C`가 null인데 `obs_status = traded`면 E14(`TDS-V004`)라 여기 오지 않는다.
+- `O`가 null이면 시가 단계 대상 주문은 `blocked(no_open)`, `H` 또는 `L`이 null이면 장중 단계 대상 주문은 `blocked(no_range)`(체결 0, 이월). `C`가 null인데 `obs_status = traded`면 E14(`TDS-V004`)라 여기 오지 않는다. 2026-11-22부터는 `equity`·`etf` 행에서 `obs_status = traded`인데 `O`·`H`·`L`·`V`가 null인 것도 그렇다(TDS 5.5, #705).
 - **숏 쪽 거울** [V31-LS-06]: 공매도(`sell_short`)는 표의 "매도" 줄을, 환매(`buy_to_cover`)는 "매수" 줄을 그대로 쓴다(지정가 공매도 Lp: O ≥ Lp → O, 장중 H > Lp → Lp; 환매 손절 Sp: O ≥ Sp → O(갭), 장중 H ≥ Sp → Sp). 한 숏 보유의 OCO에서 손절(위)과 이익실현(아래)이 같은 봉에 둘 다 닿으면 손절만(불리한 쪽). 같은 봉 진입 뒤 숏 손절은 `H ≥ Sp`(불리한 쪽) [R3-10]. 비용(½스프레드·충격)은 쪽과 무관하게 같은 식이다.
 
 #### 5.6.4a 가격 격자 [V31-05]
@@ -3305,8 +3305,8 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 - Acceptance: `tds/tests/test_conformance.py::test_A_codes`, `::test_V_codes`, `::test_reverse_split_not_flagged`; 2026-11-22까지는 `::test_A001_multiplies_latest_revision_once`도.
 
 **T0.16a `feat(testing): degraded synthetic packages for core fallbacks`** **[v3]** · `M1` `testing` · M · Blocked by: T0.7, T0.15b · §4.5, §4.8 *(v3: T0.16을 나눔)*
-- Context: `degrade=` 중 core 자료 값: `no_ohlc`, `no_sessions`, `sparse_bars`, `kr_ex_is_record`, `us_div_split_adjusted_no_dates`, `no_delistings`(`no_cum_factors`는 2026-11-22에 빠짐: 생성기가 `cum_factor_*`를 쓰지 않는다, #705); 각 값이 지키지 못하는 프로필을 선언에서 뺌(검사는 여전히 통과).
-- Done means: `--preset small --degrade no_ohlc,kr_ex_is_record --validate`가 선언 프로필(core 없음)과 세 결과를 출력한다.
+- Context: `degrade=` 중 core 자료 값: `no_ohlc`, `no_sessions`, `sparse_bars`, `kr_ex_is_record`, `us_div_split_adjusted_no_dates`, `no_delistings`(`no_cum_factors`는 2026-11-22에 빠짐: 생성기가 `cum_factor_*`를 쓰지 않는다, #705); 각 값이 지키지 못하는 프로필을 선언에서 뺌(검사는 여전히 통과, 다만 2026-11-22부터 `no_ohlc`는 아님, #705).
+- Done means: `--preset small --degrade no_ohlc,kr_ex_is_record --validate`가 선언 프로필(core 없음)과 세 결과를 출력한다(2026-11-22부터 `no_ohlc` 대신 `no_sessions`로, #705).
 - Acceptance: `test_synth.py::test_synth_conforms_degraded_core[<각 값>]`(테스트의 `DROPS_CORE` 값마다 하나), `::test_degrade_drops_declared_profiles`.
 
 **T1.G `test(golden): time and pipeline cases for M1 (T-07, T-09..T-12, T-15, T-20, T-23)`** **[v3]** · `M1` `golden` · M · Blocked by: T0.9, T0.7 · §8.2 *(v3: v2 T0.11·T0.17의 M1 몫, 세션별 산수)*

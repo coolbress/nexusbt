@@ -22,6 +22,10 @@ XNYS:AAPL,equity,US,XNYS,USD,1980-12-12,1,1,false
 BARS = """instrument_id,session_date,close,volume
 XNYS:AAPL,2024-01-02,185.64,82488700
 """
+#: An equity's daily bars as chapter 7 requires them, all of OHLCV (#705 Decisions 37).
+WHOLE = """instrument_id,session_date,open,high,low,close,volume
+XNYS:AAPL,2024-01-02,187.15,188.44,183.89,185.64,82488700
+"""
 COUNT = BARS.replace("volume\n", "volume,trade_count\n").replace("82488700\n", "82488700,{}\n")
 #: TDS chapter 7's two CSVs; the market and price basis that 7 gives as flags, here in the mapping.
 MINIMAL = """profiles: [tds:minimal-daily@1.0]
@@ -51,8 +55,9 @@ def rows(package: Path, dataset: str) -> list[dict[str, object]]:
 def test_mapping_template_and_format(tmp_path: Path) -> None:
     mapping = write(tmp_path, {
         "instruments.csv": INSTRUMENTS,
-        "bars.csv": "﻿code,date,종가,거래량,note\n"  # a spreadsheet's byte-order mark
-                    "AAPL,20240103,184.25,-,\nAAPL,20240102,185.64,82488700,x\n",
+        "bars.csv": "﻿code,date,open,high,low,종가,거래량,note\n"  # a spreadsheet's byte-order mark
+                    "AAPL,20240103,184,185,183,184.25,-,\n"
+                    "AAPL,20240102,185,186,184,185.64,82488700,x\n",
         "mapping.yaml": """# a comment line
 name: "demo: a colon inside quotes"
 profiles: ["tds:minimal-daily@1.0"]
@@ -189,7 +194,7 @@ def test_input_that_cannot_be_read_stops(
 
 def test_package_defaults_and_layout(tmp_path: Path) -> None:
     """TDS 9: no availability time invented; TDS 3.6 partitions; a folder never written over."""
-    mapping = write(tmp_path, {"instruments.csv": INSTRUMENTS, "bars.csv": BARS,
+    mapping = write(tmp_path, {"instruments.csv": INSTRUMENTS, "bars.csv": WHOLE,
                                "mapping.yaml": MINIMAL})  # fmt: skip
     out = import_csv(mapping, tmp_path / "pkg")
     assert rows(out, "instruments")[0]["is_synthetic"] is False
@@ -217,7 +222,7 @@ CHAPTER_7 = "\n".join(",".join(r.split(",")[:6]) for r in INSTRUMENTS.splitlines
 def test_minimal_two_csv(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """When I run `tds import csv` on the two CSVs of TDS chapter 7 and then `tds check --level
     full`, then I see it pass with the profile's three results."""
-    mapping = write(tmp_path, {"instruments.csv": CHAPTER_7, "bars.csv": BARS,
+    mapping = write(tmp_path, {"instruments.csv": CHAPTER_7, "bars.csv": WHOLE,
                                "mapping.yaml": MINIMAL})  # fmt: skip
     out = tmp_path / "pkg"
     assert main(["import", "csv", str(mapping), "--out", str(out)]) == 0
@@ -240,7 +245,8 @@ def test_a_kind_typed_by_105_is_imported(tmp_path: Path) -> None:
     """`share_counts` (5.14) had columns of no type, which "is not imported from CSV"."""
     counts = ("instrument_id,count_kind,as_of_date,shares,ts_available,source,evidence_id\n"
               "XNYS:AAPL,listed,2024-01-02,1000,2024-01-03T00:00:00Z,filing,e1\n")  # fmt: skip
-    mapping = write(tmp_path, {"instruments.csv": CHAPTER_7, "bars.csv": BARS, "counts.csv": counts,
+    mapping = write(tmp_path, {"instruments.csv": CHAPTER_7, "bars.csv": WHOLE,
+                               "counts.csv": counts,
                                "mapping.yaml": MINIMAL + "  share_counts:\n    file: counts.csv\n"
                                "    availability: {column: ts_available}\n"})  # fmt: skip
     out = tmp_path / "pkg"

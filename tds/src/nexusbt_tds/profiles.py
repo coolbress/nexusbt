@@ -32,6 +32,9 @@ class Profile:
     requires_multi_market: Needs = ()
     #: The columns each dataset of the package that meets the `Need` must hold (`_COLUMNS`).
     columns: tuple[tuple[Need, tuple[str, ...]], ...] = ()
+    #: The columns such a dataset must also hold when its `instrument_id` names an instrument
+    #: whose `asset_class` is in `TRADED` (chapter 7, #705 Decisions 37).
+    traded: tuple[tuple[Need, tuple[str, ...]], ...] = ()
 
 
 _CONDITION = re.compile(r"([a-z_]+)([=<].*)?")
@@ -124,15 +127,20 @@ _TABLE = (
     Profile("tds:alt-events@1.0", "stable", _needs("events|series_observations")),
 )
 
-_OHLCV = {_CORE[1]: "open high low close volume obs_status"}
+#: Chapter 7's equity daily profiles: `close` on every bars dataset, and on one that holds an
+#: `equity` or `etf` instrument the other four as well; `index` and `rate` carry `close` only.
+TRADED = frozenset({"equity", "etf"})
+_OHLV = "open high low volume"
+_TRADED = {"minimal-daily": {_MINIMAL[1]: _OHLV}, "equity-daily-core": {_CORE[1]: _OHLV},
+           "equity-daily-research": {_CORE[1]: _OHLV}}  # fmt: skip
 #: Chapter 7's "required" cell: the columns it names, under the dataset that holds them. Where
 #: the cell names no dataset, the row's dataset whose schema lists the column (10.3). The
 #: `tds:bitemporal` cell names the two datasets whose schema carries `ts_recorded` (5.17);
 #: `classifications` and `fundamentals_state` carry `ts_known_from` instead (#397 Decisions).
 _COLUMNS = {
     "minimal-daily": {_MINIMAL[1]: "close"},
-    "equity-daily-core": _OHLCV,
-    "equity-daily-research": _OHLCV,  # "above +"
+    "equity-daily-core": {_CORE[1]: "close obs_status"},
+    "equity-daily-research": {_CORE[1]: "close obs_status"},  # "above +"
     "panels": {"feature_panels": "ts_available", "label_panels": "ts_available"},
     "pit-fundamentals": {"fundamentals_events": "fact_id doc_id"}
     | {"fundamentals_state": "lineage_id"},
@@ -146,9 +154,12 @@ _COLUMNS = {
 
 
 def _with_columns(p: Profile) -> Profile:
-    named = _COLUMNS.get(p.name.removeprefix("tds:").removesuffix("@1.0"), {})
-    columns = ((_needs(need)[0][0][0], tuple(names.split())) for need, names in named.items())
-    return replace(p, columns=tuple(columns))
+    short = p.name.removeprefix("tds:").removesuffix("@1.0")
+
+    def needs(named: Mapping[str, str]) -> tuple[tuple[Need, tuple[str, ...]], ...]:
+        return tuple((_needs(need)[0][0][0], tuple(cols.split())) for need, cols in named.items())
+
+    return replace(p, columns=needs(_COLUMNS.get(short, {})), traded=needs(_TRADED.get(short, {})))
 
 
 PROFILES: Mapping[str, Profile] = MappingProxyType({p.name: _with_columns(p) for p in _TABLE})

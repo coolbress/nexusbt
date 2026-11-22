@@ -101,7 +101,7 @@ def test_S_codes_from_rows_at_full(code: str, tmp_path: Path) -> None:
     assert pairs(tmp_path / "fail", "full") == stated(code)
     assert code not in fail.unchecked
     passed = check(build.write(tmp_path / "pass", *build.package(code, "pass")), level="full")
-    assert code not in codes(tmp_path / "pass", "full")  # S009's has a V002 close, -1e300
+    assert code not in codes(tmp_path / "pass", "full")  # S009's has a V002 vwap, -1e300
     assert code not in passed.unchecked
 
 
@@ -145,7 +145,7 @@ def test_S006_names_the_file_and_the_value(tmp_path: Path) -> None:
     ("change", "found", "at_schema"),
     [
         (build._instruments(lot_size=pa.array([math.nan])), ["TDS-S009"], []),  # not in footers
-        (build._bars(close=pa.array([math.inf])), ["TDS-S009"], ["TDS-S009"]),  # once, not twice
+        (build._bars(vwap=pa.array([math.inf])), ["TDS-S009"], ["TDS-S009"]),  # once, not twice
         (build._instruments(lot_size=pa.array([2.0])), [], []),
     ],
 )
@@ -846,13 +846,26 @@ def test_V_codes(code: str, tmp_path: Path) -> None:
     test_K_codes(code, tmp_path)
 
 
+def _traded_twice(**columns: Any) -> Any:
+    """US:AAA traded on the 2nd and 3rd, the bars' `columns` changed."""
+    days = pa.array([dt.date(2024, 1, 2), dt.date(2024, 1, 3)])
+    return build._bars(instrument_id=pa.array(["US:AAA"] * 2), session_date=days,
+                       close=pa.array([10.0, 10.0]), obs_status=pa.array(["traded"] * 2),
+                       **columns)  # fmt: skip
+
+
 @pytest.mark.parametrize(
     ("change", "found"),
     [  # V001 and V002 judge a row only on the values it has; an index's price may be negative
-        (build._bars(open=pa.array([None], pa.float64()), low=pa.array([11.0])), []),
+        (build._both(build._instruments(asset_class=pa.array(["index"])),  # needs no open (7)
+                     build._bars(open=pa.array([None], pa.float64()), low=pa.array([11.0]))), []),
         (build._both(build._instruments(asset_class=pa.array(["index"])),
                      build._bars(close=pa.array([-1.0]), volume=pa.array([-1.0]))), ["TDS-V002"]),
         (build._bars(volume=pa.array([1.5])), ["TDS-V010"]),  # US:AAA is equity
+        # #705 Decisions 37 and 39: a traded equity needs volume, a traded index close only
+        (_traded_twice(volume=pa.array([None, 100.0])), ["TDS-V004"]),
+        (build._both(build._instruments(asset_class=pa.array(["index"])),
+                     _traded_twice(open=pa.array([None, None], pa.float64()))), []),
         (build._both(build._instruments(asset_class=pa.array(["etf"])),
                      build._bars(volume=pa.array([1.5]))), []),
     ],
