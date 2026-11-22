@@ -127,12 +127,12 @@ _TABLE = (
     Profile("tds:alt-events@1.0", "stable", _needs("events|series_observations")),
 )
 
-#: Chapter 7's equity daily profiles: `close` on every bars dataset, and on one that holds an
-#: `equity` or `etf` instrument the other four as well; `index` and `rate` carry `close` only.
+#: Chapter 7's equity daily profiles: `close` on every bars dataset, and in core and research,
+#: on one that holds an `equity` or `etf` instrument, the other four as well; `index` and `rate`
+#: carry `close` only. `minimal-daily` asks `close` alone of every row (#705, 2026-11-22).
 TRADED = frozenset({"equity", "etf"})
 _OHLV = "open high low volume"
-_TRADED = {"minimal-daily": {_MINIMAL[1]: _OHLV}, "equity-daily-core": {_CORE[1]: _OHLV},
-           "equity-daily-research": {_CORE[1]: _OHLV}}  # fmt: skip
+_TRADED = {"equity-daily-core": {_CORE[1]: _OHLV}, "equity-daily-research": {_CORE[1]: _OHLV}}
 #: Chapter 7's "required" cell: the columns it names, under the dataset that holds them. Where
 #: the cell names no dataset, the row's dataset whose schema lists the column (10.3). The
 #: `tds:bitemporal` cell names the two datasets whose schema carries `ts_recorded` (5.17);

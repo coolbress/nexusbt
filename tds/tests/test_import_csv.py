@@ -22,7 +22,8 @@ XNYS:AAPL,equity,US,XNYS,USD,1980-12-12,1,1,false
 BARS = """instrument_id,session_date,close,volume
 XNYS:AAPL,2024-01-02,185.64,82488700
 """
-#: An equity's daily bars as chapter 7 requires them, all of OHLCV (#705 Decisions 37).
+#: An equity's daily bars with all of OHLCV, as core requires them (#705 Decisions 37);
+#: minimal-daily asks close alone (#705, 2026-11-22).
 WHOLE = """instrument_id,session_date,open,high,low,close,volume
 XNYS:AAPL,2024-01-02,187.15,188.44,183.89,185.64,82488700
 """
@@ -239,6 +240,26 @@ def test_minimal_two_csv(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> 
     # an import that cannot be read: exit 1 and the reason, no traceback
     assert main(["import", "csv", str(mapping), "--out", str(out)]) == 1
     assert "tds import csv: " in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("status", ["", ",obs_status"], ids=["close", "close and obs_status"])
+def test_a_close_only_equity_passes_minimal_daily(
+    status: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """When a stock's price file holds close only and the mapping declares minimal-daily, then
+    `tds import csv` and `tds check --level full` pass: the profile asks close alone of every
+    row, an equity's too (#705, 2026-11-22), and V004 asks no more of it."""
+    bars = f"instrument_id,session_date,close{status}\nXNYS:AAPL,2024-01-02,185.64"
+    bars += ",traded\n" if status else "\n"
+    mapping = write(tmp_path, {"instruments.csv": CHAPTER_7, "bars.csv": bars,
+                               "mapping.yaml": MINIMAL})  # fmt: skip
+    out = tmp_path / "pkg"
+    assert main(["import", "csv", str(mapping), "--out", str(out)]) == 0
+    assert main(["check", str(out), "--level", "full"]) == 0
+    printed = capsys.readouterr().out
+    assert "tds:minimal-daily@1.0: declared, verified to schema, not_checked" in printed
+    assert "0 errors, 0 warnings at level full" in printed
+    assert ("obs_status" in rows(out, "bars")[0]) == bool(status)
 
 
 def test_a_kind_typed_by_105_is_imported(tmp_path: Path) -> None:

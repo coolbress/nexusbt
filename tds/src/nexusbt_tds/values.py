@@ -33,10 +33,10 @@ from typing import Any
 
 import pyarrow as pa
 
-from .check import VALUE_CODES, Finding, Severity
+from .check import VALUE_CODES, Finding, Severity, _has
 from .keys import listed
 from .manifest import Manifest
-from .profiles import TRADED
+from .profiles import PROFILES, TRADED, profile_id
 from .refs import _rows, _stored
 
 V001, V002, V004, V005, V010, V011, V012, V020, V030, V040, V041, V050 = VALUE_CODES
@@ -68,7 +68,8 @@ COLUMNS = {
 }
 SAID = {V001: "bar(s) whose high and low do not enclose open and close",
         V002: "bar(s) with a negative price, volume or value_traded",
-        V004: "bar(s) traded with no close, or on equity or etf with no open, high, low or volume",
+        V004: "bar(s) traded with no close, or on equity or etf with no open, high, low or volume "
+              "where a declared profile requires them",
         V005: "FX rate(s) <= 0",
         V010: "equity bar(s) whose volume is not an integer",
         V020: "instrument(s) without a column their asset_class needs",
@@ -208,11 +209,15 @@ def _check(m: Manifest, only: Sequence[str] | None, unverified: list[str]) -> li
              for i, *rest in _rows(root, d, listed)}  # fmt: skip
     features = {c for d in m.datasets if d.get("kind") == "feature_panels"
                 for c in _values(root, d, schemas)}  # fmt: skip
+    # the declared profiles' `traded` needs: where a dataset meets one, V004 reads all five
+    declared = [PROFILES[i] for i in map(profile_id, m.profiles) if i in PROFILES]
+    needs = [need for p in declared for need, _ in p.traded]
     out = []
     for ds in (d for d in m.datasets if only is None or d.get("name") in only):
         kind, bad = str(ds.get("kind")), dict[str, list[Any]]()  # code → [count, first key]
+        whole = any(_has([ds], need) for need in needs)
         for row in _rows(root, ds, COLUMNS[kind]) if kind in COLUMNS else ():
-            for code in _broken(kind, dict(zip(COLUMNS[kind], row, strict=True)), kinds):
+            for code in _broken(kind, dict(zip(COLUMNS[kind], row, strict=True)), kinds, whole):
                 bad.setdefault(code, [0, row[0]])[0] += 1
         if kind == "label_panels" and (both := sorted(_values(root, ds, schemas) & features)):
             bad[V050] = [len(both), both[0]]
@@ -231,8 +236,11 @@ def _values(root: Path, ds: Mapping[str, Any], schemas: Mapping[str, Any]) -> se
     return {c for c in _stored(root, ds) if c not in fixed and not c.startswith("x_")}
 
 
-def _broken(kind: str, r: dict[str, Any], kinds: Mapping[Any, tuple[Any, ...]]) -> list[str]:
-    """The codes one row of `kind` breaks."""
+def _broken(
+    kind: str, r: dict[str, Any], kinds: Mapping[Any, tuple[Any, ...]], whole: bool
+) -> list[str]:
+    """The codes one row of `kind` breaks; `whole`, its dataset meets a profile that requires
+    an equity's OHLCV (chapter 7)."""
     out = []
     if kind == "bars":
         o, h, lo, c = r["open"], r["high"], r["low"], r["close"]
@@ -243,7 +251,7 @@ def _broken(kind: str, r: dict[str, Any], kinds: Mapping[Any, tuple[Any, ...]]) 
         prices = () if free else PRICES
         if any(r[k] is not None and r[k] < 0 for k in (*prices, "volume", "value_traded")):
             out.append(V002)
-        cells = (*PRICES[:4], "volume") if asset in TRADED else ("close",)  # 5.5, #705
+        cells = (*PRICES[:4], "volume") if whole and asset in TRADED else ("close",)  # 5.5, 7
         if r["obs_status"] == "traded" and any(r[k] is None for k in cells):
             out.append(V004)
         if asset == "equity" and r["volume"] is not None and not float(r["volume"]).is_integer():
