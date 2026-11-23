@@ -106,8 +106,8 @@ def test_doctor_lists_fallbacks_and_unchecked(
     for m in ("KR", "US"):  # tiny's 62 sessions per market, synthesized (F-02)
         assert re.search(rf"^fallback +F-02 calendar_sessions {m} 62$", out, re.M), out
     assert re.search(r"^unchecked +.*\bTDS-K001\b", out, re.M)  # a row rule, at `manifest`
-    profile = r"tds:minimal-daily@1\.0 +declared yes +checked manifest +result not_checked"
-    assert re.search(rf"^profile +{profile} +supported yes$", out, re.M), out
+    # no calendar: it declares no profile, since every daily one requires it (C3, #705)
+    assert not re.search(r"^profile ", out, re.M), out
 
 
 UNVERIFIED = "volume     bars_1d volume unit unverified (no value_traded, TDS-V011)"

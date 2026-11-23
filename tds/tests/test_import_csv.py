@@ -312,6 +312,17 @@ def test_the_bars_own_times_make_their_days_sessions(tmp_path: Path) -> None:
         import_csv(other, tmp_path / "two" / "pkg")
 
 
+def test_a_calendar_block_without_source_stops(tmp_path: Path) -> None:
+    """TDS 5.4 and 9.5 (#705 Decisions 69): `source` is written; the import makes none up."""
+    block = "  calendar_sessions:\n    file: sessions.csv\n"
+    sessions = "calendar_id,session_date,ts_open,ts_close,session_kind\n" + (
+        "XNYS,2024-07-01,2024-07-01T13:30:00Z,2024-07-01T20:00:00Z,regular\n")  # fmt: skip
+    files = {"instruments.csv": CHAPTER_7, "bars.csv": BARS, "sessions.csv": sessions}
+    mapping = write(tmp_path, files | {"mapping.yaml": MINIMAL + block})
+    with pytest.raises(CsvImportError, match=r"sessions\.csv: no column for source"):
+        import_csv(mapping, tmp_path / "pkg")
+
+
 def test_a_dataset_named_calendar_sessions_of_another_kind_stops(tmp_path: Path) -> None:
     # the review of 6-0: the calendar the import writes would take the same name
     named = MINIMAL.replace("  bars:\n    file", "  calendar_sessions:\n    kind: bars\n    file")

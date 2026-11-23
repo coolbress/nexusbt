@@ -10,6 +10,6 @@
     {"name": "is_half_day", "type": "bool", "null": true},
     {"name": "session_kind", "type": "code", "null": false},
     {"name": "calendar_version", "type": "string", "null": true},
-    {"name": "source", "type": "string", "null": true}
+    {"name": "source", "type": "string", "null": false}
   ]
 }

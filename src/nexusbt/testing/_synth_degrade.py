@@ -18,6 +18,7 @@ import pyarrow.compute as pc
 from nexusbt.contracts import ID_COLUMN as ID
 
 CORE_PROFILE = "tds:equity-daily-core@1.0"
+MINIMAL_PROFILE = "tds:minimal-daily@1.0"
 #: Spec 4.8's core values (T0.16a) → whether the gap breaks the core profile (TDS 7).
 CORE = {
     "no_ohlc": True,  # core's OHLCV; minimal-daily's E18 when read (F-01 retired, #705)
@@ -58,9 +59,11 @@ def check(degrade: Sequence[str]) -> None:
 
 
 def profiles(declared: Sequence[str], degrade: Sequence[str]) -> list[str]:
-    """`declared` without the core profile when a value breaks it."""
-    broken = any(CORE[v] for v in degrade)
-    return [p for p in declared if not (broken and p == CORE_PROFILE)]
+    """`declared` without the core profile when a value breaks it, and without minimal-daily
+    when `calendar_sessions` is left out: every daily profile requires it (C3, #705)."""
+    broken = {CORE_PROFILE} if any(CORE[v] for v in degrade) else set()
+    broken |= {MINIMAL_PROFILE} if "no_sessions" in degrade else set()
+    return [p for p in declared if p not in broken]
 
 
 def absent(degrade: Sequence[str]) -> set[str]:
