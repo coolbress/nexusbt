@@ -139,7 +139,7 @@
 ### 1.5 조사에서 뽑은 설계 교훈
 
 1. **사건 시각과 공개 시각을 모두 가진 형식은 틱 쪽뿐이다**(Nautilus `ts_event/ts_init`, Databento `ts_event/ts_recv`, hftbacktest `exch_ts/local_ts`). 일봉·재무 쪽 형식(zipline, LEAN, Qlib bin)은 공개 시각이 없다. TDS는 틱의 이 생각을 모든 자료로 넓힌다(K3).
-2. **봉 시각 관례가 갈린다**: LEAN·Databento·Massive는 시작, Nautilus는 닫는 시각. 시작 시각을 공개 시각처럼 쓰면 미래 정보 실수가 난다. TDS는 `ts_start`와 `ts_end`를 둘 다 두고, 기본 공개 시각은 `ts_end`.
+2. **봉 시각 관례가 갈린다**: LEAN·Databento·Massive는 시작, Nautilus는 닫는 시각. 시작 시각을 공개 시각처럼 쓰면 미래 정보 실수가 난다. TDS는 `ts_start`와 `ts_end`를 둘 다 두고, 흔한 공개 규칙은 `ts_end`(선언하는 것이고 기본값이 아니다: 5.5).
 3. **조정 계수의 기준점이 갈린다**: LEAN(최근 = 1, 뒤로), Qlib(첫날 = 1), zipline(사건 표만, 엔진이 계산), Sharadar(조정 가격 칼럼). 바뀌지 않는 파일과 해시를 원하면 "첫날 = 1, 앞으로 누적"만 맞다(K4).
 4. **식별자**: 성숙한 자료(CRSP, Sharadar, Databento 기호 대응)는 모두 "안정 id + 기간이 있는 기호 대응"이다. 날마다 바뀌는 게시자 id(Databento 일부)·재사용되는 티커는 열쇠가 될 수 없다.
 5. **PIT 재무**: Qlib(정정 = 새 행 + 공개일)과 Sharadar(AR/MR 두 판)를 합치면 "사실 사건 표 + 판별 상태 구간"이 된다(K5). 상태 구간은 엔진 조회를 `searchsorted` 한 번으로 만든다(명세서 5.3.5).
@@ -935,7 +935,7 @@ LEAN 계수 파일·Qlib `factor`·공급사 조정 종가만 있는 사용자�
 
 ### 5.27 `market_rules` (시장 규칙: 호가 단위·가격제한폭) — 선택, stable [v1.2, V31-05]
 
-열쇠 (`rule_id`, `rule_kind`, `venue_group`, `valid_from`, `price_from`). 정렬 같음. 파티션 없음. 13장 Q15를 닫는다(v1.1에서 "다음 판"으로 미뤘던 것).
+열쇠 (`rule_id`, `rule_kind`, `venue_group`, `valid_from`, `price_from`). 정렬 같음. 파티션 없음. 13장 Q15를 닫는다(v1.1에서 "다음 판"으로 미뤘던 것). `price_from`은 `market_rules`의 모든 파일에 있다: 칸이 null일 수 있는 키 칼럼이고(null = 0, 구간의 아래 끝), 그 칼럼이 없는 파일은 TDS-S001이다. 키와 값 해시가 그것을 읽기 때문이다 [2026-11-23, #705 C5].
 
 | 칼럼 | 형 | null | 뜻 |
 |---|---|---|---|
@@ -1115,7 +1115,7 @@ tds export {zipline-bundle|nautilus-catalog|wide-parquet} ... # 9.8
 | TDS-M015 | W | `experimental` 스키마 데이터셋이 있음(1.x 호환 약속 밖) [v1.1] |
 | TDS-M016 | E | 데이터셋의 `coverage.by_market.<m>.processed_through_session`(4.3)이 그 시장에서 그 `last`보다 이르거나(처리했다는 세션 뒤의 행) 시장의 `complete_through_session`(3.8)보다 늦음 [v1.4, 2026-11-12] |
 | TDS-M017 | W | `tds_draft`(4.2)가 검사기가 구현한 초안 본문과 다른 날짜(10.5; 없으면 TDS-M003 [2026-11-23, #705]): 패키지가 초안의 다른 본문을 따르며, 그 해시는 같은 본문을 적은 패키지와만 비교한다 [v1.4, 2026-11-18] |
-| TDS-S001 | E | 필수 칼럼 없음 |
+| TDS-S001 | E | 필수 칼럼 없음; 그 가운데 칸이 null일 수 있는 `market_rules`의 `price_from`(5.27) [2026-11-23, #705] |
 | TDS-S002 | E | 칼럼 형 다름: 파일의 칼럼이 제 형과 다르거나, 매니페스트 `columns[].type`이 스키마 파일이 그 칼럼에 적은 형과 다름(`ts_us/ns` 칼럼에 `ts_us`나 `ts_ns`를 적는 것은 다른 것이 아니다) [2026-11-11]. 스키마 파일이 형을 적지 않은 칼럼(`"type": null`, `experimental` 종류)과 `x_` 칼럼은 매니페스트 `columns[].type`이 파일의 칼럼을 견줄 형이고, 그런 칼럼에 선언이 없으면 검사하지 않는다 [2026-11-12]. 파티션 칼럼이 아닌 칼럼은 값 해시의 형 태그(4.5 3단계)가 이 행이 그 칼럼을 견주는 형이다 [2026-11-12] |
 | TDS-S003 | E | null 금지 칼럼에 null |
 | TDS-S004 | E | 순간 칼럼이 UTC tz가 아니거나 단위가 그 데이터셋 규정과 다름, INT96. 단위는 스키마 파일의 것이고, 매니페스트 `columns[].type`은 `ts_us/ns` 칼럼의 단위만 정한다 [2026-11-11]. 스키마 파일이 형을 적지 않은 칼럼이나 `x_` 칼럼에는 매니페스트가 `ts_us`나 `ts_ns`로 선언한 단위다 [2026-11-12] |
@@ -1617,3 +1617,4 @@ datasets:
 - 2026-11-23: **v1.4** 안에서. 5.5, 8.3 TDS-M014, 9.5: 일봉의 `density = sparse`는 TDS-M014이고 `tds import csv`는 그것에서 멈춘다; `sparse`는 `freq<1d`에 남는다(관리자 결정 2026-11-23, #705 결정 155). 검사기는 이제 끝을 모르는 종목에서도 8.3 TDS-D001의 "`delisted_on`을 넘지 않는다"를 지킨다: 거기서는 `delisted_on` 뒤의 줄이 빠진 세션을 채웠다(검사기의 고침, 본문은 그대로). sparse 일봉을 선언한 꾸러미는 manifest 수준을 통과했고 이제 실패한다. (1)단계 안의 고침: `tds_version` `"1.0"` 그대로, `tds_draft`는 2026-11-19 그대로(단계가 끝날 때까지, 10.5).
 - 2026-11-23: **v1.4** 안에서. 5.5, 8.3 TDS-V004, 어느 프로필에서나: `no_trade`·`halted` 행에 적은 `volume`은 0이고 거기서 null은 말하지 않은 것이다; `halted` 행에는 `open`·`high`·`low`·`close`가 없다; 값도 `obs_status`도 없는 행은 받아들이지 않는다(관리자 결정 2026-11-23, #705 결정 38, 131, 135, 168). 그런 행이 있는 꾸러미는 통과했고 이제 `full` 수준에서 실패한다; `tds import csv`는 값이 모두 빈 원본 행을 여전히 `obs_status` null로 쓴다(#705 결정 156). (1)단계 안의 고침: `tds_version` `"1.0"` 그대로, `tds_draft`는 2026-11-19 그대로(단계가 끝날 때까지, 10.5).
 - 2026-11-23: **v1.4** 안에서. 4.2, 5.5, 8.3 TDS-M003·TDS-M017, 9.5, 10.5: 이 선언들은 기본값이 없다. `tds_draft`는 필수이고, `bars` 데이터셋의 `params.price_basis`·`params.bar_time`·`params.density`와 `availability`는 적으며, 없거나 `null`이면 TDS-M003이다(전에는 2026-11-18 전의 본문으로, `raw`, `session`, `ts_end`로 읽었다); 다른 종류의 공개 규칙 기본값, 5.5의 `aggregation`, 5.27의 `price_from`은 여기서 바꾸지 않는다; TDS-M017은 검사기의 것과 다른 날짜다. `tds import csv`는 일봉의 `price_basis`가 없으면 멈추고, mapping이 주지 않으면 `bar_time` `session`과 `density` `dense`를 쓴다(관리자 결정 2026-11-21, #705 C5와 결정 9; 171). 그것들이 없는 패키지는 통과했고 이제 `manifest` 수준에서 실패한다. (1)단계 안의 고침: `tds_version` `"1.0"` 그대로, `tds_draft`는 2026-11-19 그대로(단계가 끝날 때까지, 10.5).
+- 2026-11-23: **v1.4** 안에서. 5.27, 8.3 TDS-S001: `market_rules`의 키 칼럼 `price_from`은 모든 파일에 있고 칸은 null일 수 있다(null = 0); 그것이 없는 파일은 S001이고, 전에는 그 키와 값 해시를 검사하지 못했다(관리자 결정 2026-11-23, #705 C5, #725 결정 176; #43에서 옮겨 온 #229의 물음). 그 칼럼이 없는 `market_rules` 파일은 통과했고 이제 `schema` 수준에서 실패한다. (1)단계 안의 고침: `tds_version` `"1.0"` 그대로, `tds_draft`는 2026-11-19 그대로(단계가 끝날 때까지, 10.5).

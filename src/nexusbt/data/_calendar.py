@@ -124,8 +124,9 @@ def bars_availability(bars: Mapping[str, Any] | None, snapshot_id: str) -> tuple
     with `params.ready_delay` (0 when absent) under the column rule; `ts_end` with 0 under
     `ts_end`, with the duration under `ts_end+<duration>`; the session's `ts_close` with 0
     under `session_close`, the same instant on a daily bar (#460). Any other rule, among them
-    `session_open`, is E14."""
-    declared = (bars or {}).get("availability", "ts_end")
+    `session_open`, is E14. A bars dataset always declares its rule (TDS-M003 at open, #705
+    C5); a package with no bars has no delay to read."""
+    declared = bars["availability"] if bars is not None else "ts_end"
     rule = declared.get("rule") if isinstance(declared, dict) else declared
     if rule == "column" or (isinstance(declared, dict) and "column" in declared):
         named = declared.get("column") if isinstance(declared, dict) else None
