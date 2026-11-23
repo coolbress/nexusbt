@@ -110,18 +110,6 @@ def test_doctor_lists_fallbacks_and_unchecked(
     assert re.search(rf"^profile +{profile} +supported yes$", out, re.M), out
 
 
-@DEFAULT
-def test_doctor_names_the_columns_of_f18(
-    tmp_path: Path, project: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """#584, #604: bars without `value_traded` (4.5 F-18; `volume` is no fallback's since #705)
-    are a line per market, as `dataset.column` (the owner's format, #604 Decisions)."""
-    package = make_snapshot(tmp_path / "pkg", preset="tiny", degrade=["no_volume"])
-    out = doctor(package, capsys, r"DataProfileWarning \[E30\] F-18\n")
-    lines = [line.split(None, 1)[1] for line in out.splitlines() if line.startswith("fallback ")]
-    assert lines == [f"F-18 bars_1d.value_traded {m} 341" for m in ("KR", "US")]
-
-
 UNVERIFIED = "volume     bars_1d volume unit unverified (no value_traded, TDS-V011)"
 
 
@@ -141,7 +129,7 @@ def test_doctor_says_volume_unit_unverified_without_value_traded(
     neither = make_snapshot(tmp_path / "n", preset="tiny", degrade=["no_volume"])
     for package in (alone, neither):
         (project / "nexusbt.toml").unlink()
-        out = doctor(package, capsys, r"DataProfileWarning \[E30\] F-18\n")
+        out = doctor(package, capsys, r"^$")  # no fallback's E30 (F-18 retired, #705)
         assert [line for line in out.splitlines() if "volume unit unverified" in line] == [
             UNVERIFIED
         ], out

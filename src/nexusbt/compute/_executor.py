@@ -121,7 +121,6 @@ def execute(
     *,
     actions: Actions | None = None,
     counts: Counts | None = None,
-    gone: frozenset[str] = frozenset(),
 ) -> dict[str, pa.Table]:
     """Each term's values at the decision rows, as `(row, instrument_id, value)` sorted by row
     and instrument, for the instruments listed at the row; keyed by the term's graph hash.
@@ -132,9 +131,7 @@ def execute(
     corporate actions, not a switch that turns the adjustment off. `counts`, when given, gets
     5.4.1's counts of every row each term is computed at, as `(row, graph hash, diagnostic):
     n`: the rows the plan gives, decisions or not, whatever the chunks (a row two chunks
-    compute is counted once). `gone` are the bars columns the market's F-18 records name
-    (4.5): a factor `_factors.WITHOUT` ties to one of them is NaN in a column whose window
-    reads a cell the block marks for it (`MarketBlock.gone`, #688). A user function's
+    compute is counted once). A user function's
     exception comes out as raised, the frames down to it hidden (`__tracebackhide__`, 6.6, R-42)."""
     __tracebackhide__ = True
     wanted = np.unique(np.fromiter(decisions, dtype=np.int64))
@@ -157,7 +154,7 @@ def execute(
         rows = plan(terms, mine, sessions=len(ready)).rows
         low = min([first, *(int(r[0]) for r in rows.values() if r.size)])
         chunk = _Chunk(read(low, last), low, ready, functions or {}, tiebreak, actions, pending,
-                       counts, gone)  # fmt: skip
+                       counts)  # fmt: skip
         with np.errstate(all="ignore"):  # IEEE results (inf, NaN), as numpy gives them
             for term, dropped in order:
                 chunk.compute(term, rows[graph_hash(term)])
@@ -219,10 +216,8 @@ class _Chunk:
         actions: Actions | None,
         pending: dict[str, tuple[Term, list[float] | None]],
         counts: Counts | None,
-        gone: frozenset[str] = frozenset(),
     ) -> None:
         self.block, self.low, self.ready, self.functions = block, low, ready, functions
-        self.gone = gone  # the bars columns F-18 records for the market (4.5)
         self.pending = pending  # user terms whose `adjustment` is not checked yet, their scales
         self.tiebreak, self.counts = tiebreak, counts
         self.unknown = 0  # `UnknownGroup` cells of the row computed
@@ -336,9 +331,7 @@ class _Chunk:
 
     def kernel(self, term: Term, t: int) -> F64:
         """A built-in factor's kernel at row t over its domain (3.4); NaN while the window
-        starts before the axis, and in a column whose window reads a seen cell (5.1.2) of a
-        file without the column `_factors.WITHOUT` names, in a market F-18 records it for
-        (#667, #688): a missing input, counted nowhere (5.4.1)."""
+        starts before the axis."""
         if t - (size := _factors.rows(term)) + 1 < 0:
             return np.full(len(self.block.instrument_ids), np.nan)
         kernel = REGISTERED.get(term.op)  # `rolling` reads only terms, so it has no class
@@ -346,11 +339,6 @@ class _Chunk:
         windows = [self.window(i, t, size, raw) for i in term.inputs]
         found, zero, infinite = _factors.diagnosed(term, windows)
         inside = self.domain(term, t)
-        column = _factors.WITHOUT.get(term.op)
-        if column in self.gone and (covered := self.block.gone.get(str(column))) is not None:
-            a, b = t - size + 1 - self.low, t + 1 - self.low
-            seen = self.block.ts_available[a:b] <= self.ready[t]
-            inside = inside & ~(covered[a:b] & seen).any(axis=0)
         self.zero, self.infinite = zero & inside, infinite & inside  # 5.4.1, inside the kernel
         return np.where(inside, found, np.nan)
 
