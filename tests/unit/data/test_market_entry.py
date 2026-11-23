@@ -22,7 +22,13 @@ XNYS:AAPL,equity,ZZ,XNYS,USD,1980-12-12
 """
 BARS = "instrument_id,session_date,close,volume\nXNYS:AAPL,2024-01-02,185.64,82488700\n"
 MINIMAL = """profiles: [tds:minimal-daily@1.0]
-market: {code: US, calendar_id: XNYS, currency: USD, timezone: America/New_York}
+market:
+  code: US
+  calendar_id: XNYS
+  currency: USD
+  timezone: America/New_York
+  open: "09:30"
+  close: "16:00"
 datasets:
   instruments:
     file: instruments.csv

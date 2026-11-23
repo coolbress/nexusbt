@@ -9,6 +9,8 @@ CSV and over the `instruments` fills of `_FILLS`), `missing_values`, `availabili
 cannot be read stops the import with its file and line, so every row read is kept or the import
 fails; nothing is written until every dataset is read and checked. `import_report.json`, next to
 the package, says what was kept and every default and fill assumed (#257 decisions 3 to 5, 7).
+Without a `calendar_sessions` block, the bars' dates and the market's `open` and `close` give
+one (TDS 5.4, 9.5; #705 Decisions 59).
 """
 
 from __future__ import annotations
@@ -67,14 +69,22 @@ def import_csv(mapping: Path, out: Path) -> Path:
         if not isinstance(market.get(field), str) or not market[field]:
             raise CsvImportError(f"{mapping.name}: the market's `{field}` is missing or not text")
     code = market["code"]
-    datasets, tables, report = [], [], {}
+    datasets, tables, report, bars = [], [], {}, []
     for name, ds in _items(spec.get("datasets"), "datasets"):
         _keys(ds, _DATASET, f"datasets.{name}")
         if not isinstance(ds.get("file"), str):
             raise CsvImportError(f"datasets.{name}: `file` is missing")
         table, entry, report[name] = _read(mapping.parent / ds["file"], name, ds, market)
         datasets.append(entry)
+        bars += [table] if entry["kind"] == "bars" else []
         tables.append((entry, _groups(entry, table, code)))  # every check before any write
+    if bars and "calendar_sessions" not in {e["kind"] for e in datasets}:  # #705 Decisions 59
+        if "calendar_sessions" in report:  # another kind under the name the calendar takes
+            raise CsvImportError("datasets.calendar_sessions is not of kind calendar_sessions;"
+                                 " rename it, the import writes the calendar there")  # fmt: skip
+        table, entry, report["calendar_sessions"] = _calendar(bars, market, mapping)
+        datasets.append(entry)
+        tables.append((entry, _groups(entry, table, code)))
     report_path = out.parent / REPORT  # beside the package (TDS 9); never over an input
     inputs = {mapping.resolve(), *((mapping.parent / ds["file"]).resolve() for ds in
                                    spec["datasets"].values())}  # fmt: skip
@@ -89,7 +99,7 @@ def import_csv(mapping: Path, out: Path) -> Path:
         "producer": {"name": "nexusbt-tds import csv", "version": version("nexusbt-tds")},
         "profiles": profiles,
         "id_namespaces": spec.get("id_namespaces", {code: "instrument ids as the CSV files give"}),
-        "markets": {code: {k: v for k, v in market.items() if k != "code"}},
+        "markets": {code: {k: v for k, v in market.items() if k not in _NOT_MARKETS}},
         "datasets": datasets, "hashes": {"hash_spec": "tds-hash-1"},
         "writer": {"name": "pyarrow", "version": pa.__version__},
     }  # fmt: skip
@@ -104,6 +114,72 @@ def import_csv(mapping: Path, out: Path) -> Path:
     text = {"package": out.name, "mapping": mapping.name, "assumed": assumed, "datasets": report}
     report_path.write_text(json.dumps(text, indent=2, ensure_ascii=False) + "\n", "utf-8")
     return out
+
+
+#: TDS 5.4's `source` of the calendar the import builds from the bars' dates, the named last
+#: resort of #705 Decisions 3 and 59: its hours are the market's declared `open` and `close`.
+INFERRED = "inferred_from_bar_dates"
+_HOURS = re.compile(r"([01]\d|2[0-3]):[0-5]\d")
+_NOT_MARKETS = ("code", "open", "close")  # the mapping's, not `markets`' (TDS 3.8)
+
+
+def _calendar(
+    bars: list[pa.Table], market: dict[str, Any], mapping: Path
+) -> tuple[pa.Table, dict[str, Any], dict[str, Any]]:
+    """TDS 5.4 from the bars (#705 Decisions 59): a session on each date some bar has, opening
+    and closing at the bars' own `ts_start` and `ts_end` that day where they give them, else at
+    the market's declared regular hours in its time zone. Nothing else is invented:
+    `is_half_day` null, no `session_ord` (sessions without a bar are not known)."""
+    days = sorted({d for t in bars for d in t["session_date"].to_pylist() if d is not None})
+    given = {k: _observed(bars, c, mapping) for k, c in (("open", "ts_start"), ("close", "ts_end"))}
+    hours = {k: market.get(k) for k in given}
+    if any(d not in given[k] for k in given for d in days) and not all(
+        isinstance(v, str) and _HOURS.fullmatch(v) for v in hours.values()
+    ):
+        raise CsvImportError(
+            f"{mapping.name}: the market's `open` and `close` are missing or not HH:MM; write the "
+            "regular session's hours in the market's local time, `close` the latest time of day "
+            "the market's regular session has closed (TDS 5.4), or give a calendar_sessions "
+            "file")  # fmt: skip
+    at = {k: [given[k][d] if d in given[k] else _instant(
+        f"{d.isoformat()}T{hours[k]}:00", None, market["timezone"],
+        f"{mapping.name}: market.{k} on", "ts_us") for d in days] for k in given}  # fmt: skip
+    if late := [d for d, o, c in zip(days, at["open"], at["close"], strict=True) if o >= c]:
+        raise CsvImportError(f"{mapping.name}: the session of {late[0]} opens at or after it "
+                             "closes; the market's `open` is not before its `close`")  # fmt: skip
+    n, ts = len(days), _ARROW["ts_us"]
+    table = pa.table({"calendar_id": [market["calendar_id"]] * n,
+                      "session_date": pa.array(days, pa.date32()),
+                      "ts_open": pa.array(at["open"], ts), "ts_close": pa.array(at["close"], ts),
+                      "is_half_day": pa.nulls(n, pa.bool_()), "session_kind": ["regular"] * n,
+                      "source": [INFERRED] * n})  # fmt: skip
+    entry = {"name": "calendar_sessions", "kind": "calendar_sessions", "schema_version": "1.0",
+             "path": "calendar_sessions", "pit_quality": "backfilled"}  # fmt: skip
+    told = sum(d in given["open"] and d in given["close"] for d in days)
+    assumed = [f"a session on each of the {n} dates a bar has; {told} at the bars' ts_start and "
+               f"ts_end, the others at {hours['open']} to {hours['close']} {market['timezone']} "
+               "(the market's declared hours) where the bars give no time; session_kind "
+               f"regular, is_half_day null, source {INFERRED} (TDS 5.4)"]  # fmt: skip
+    said: dict[str, Any] = {"file": None, "rows_read": 0, "rows_kept": n, "rows_dropped": 0,
+                            "columns_kept": {}, "columns_dropped": [], "values": {},
+                            "assumed": assumed}  # fmt: skip
+    return table, entry, said
+
+
+def _observed(bars: list[pa.Table], column: str, mapping: Path) -> dict[Any, Any]:
+    """The bars' `column` on each date that has it; two values on one date stop the import,
+    since one session has one (TDS 5.4, TDS-T005)."""
+    seen: dict[Any, set[Any]] = {}
+    for t in (t for t in bars if column in t.column_names):
+        for d, v in zip(t["session_date"].to_pylist(), t[column].to_pylist(), strict=True):
+            if d is not None and v is not None:
+                seen.setdefault(d, set()).add(v)
+    if two := next(((d, sorted(v)) for d, v in sorted(seen.items()) if len(v) > 1), None):
+        d, (a, b, *_) = two
+        raise CsvImportError(f"{mapping.name}: the bars of {d} give two {column} values, "
+                             f"{a.isoformat()} and {b.isoformat()}; one session has one, so "
+                             "write one, or give a calendar_sessions file")  # fmt: skip
+    return {d: v.pop() for d, v in seen.items()}
 
 
 def _items(value: object, where: str) -> list[tuple[str, dict[str, Any]]]:

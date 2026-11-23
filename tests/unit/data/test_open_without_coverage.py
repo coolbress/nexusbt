@@ -28,7 +28,13 @@ BARS = """instrument_id,session_date,open,high,low,close,volume
 XNYS:AAPL,2024-01-02,187.15,188.44,183.89,185.64,82488700
 """  # an equity's whole bars; minimal-daily asks close alone (TDS 7, #705)
 MINIMAL = """profiles: [tds:minimal-daily@1.0]
-market: {code: US, calendar_id: XNYS, currency: USD, timezone: America/New_York}
+market:
+  code: US
+  calendar_id: XNYS
+  currency: USD
+  timezone: America/New_York
+  open: "09:30"
+  close: "16:00"
 datasets:
   instruments:
     file: instruments.csv

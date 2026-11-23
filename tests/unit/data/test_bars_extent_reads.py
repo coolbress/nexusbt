@@ -154,7 +154,13 @@ BARS = """instrument_id,session_date,close,volume
 XNYS:AAPL,2024-01-02,185.64,82488700
 """
 MINIMAL = """profiles: [tds:minimal-daily@1.0]
-market: {code: US, calendar_id: XNYS, currency: USD, timezone: America/New_York}
+market:
+  code: US
+  calendar_id: XNYS
+  currency: USD
+  timezone: America/New_York
+  open: "09:30"
+  close: "16:00"
 datasets:
   instruments:
     file: instruments.csv
@@ -167,7 +173,7 @@ datasets:
 def test_imported_package_reads_no_bars_file_at_open(tmp_path: Path, reads: Counter[str]) -> None:
     """When `tds import csv` writes a package (with `coverage`, #566) and it is opened with
     every feature it can give and its calendar read, then no bars file is read: the calendar
-    F-02 synthesizes is bounded by the declared extent."""
+    is the import's (#705 Decisions 59), where F-02 once synthesized one."""
     for name, text in (("instruments.csv", INSTRUMENTS), ("bars.csv", BARS),
                        ("mapping.yaml", MINIMAL)):  # fmt: skip
         (tmp_path / name).write_text(text, encoding="utf-8")
