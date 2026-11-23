@@ -1112,7 +1112,12 @@ def test_synth_conforms_degraded_core(
     # and holds the one gap of the 4.5 table its value names
     package = make_snapshot(tmp_path / value, **SHORT, events=us_dividend_before_split,
                             degrade=[value])  # fmt: skip
-    printed = check_full(package)  # `no_ohlc` too: minimal-daily asks close alone (#705)
+    if value == "sparse_bars":  # daily bars are dense whatever they declare: D001, until the
+        # value leaves with F-03 (#705 Decisions 134, as 41 accepted for `no_ohlc`)
+        printed = pkg._tds("check", str(package), "--level", "full").stdout
+        assert re.findall(r"^error (TDS-\w+)", printed, re.M) == ["TDS-D001"], printed
+    else:
+        printed = check_full(package)  # `no_ohlc` too: minimal-daily asks close alone (#705)
     manifest = json.loads((package / "tds.json").read_text(encoding="utf-8"))
     kinds = {d["kind"]: d for d in manifest["datasets"]}
     bars = read(package, "bars_1d")

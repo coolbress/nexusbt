@@ -513,7 +513,10 @@ def test_the_import_fills_a_row_on_each_session_an_instrument_lacks(
     assert len(rows(package, "bars")) == 10
     assert any(a.startswith("1 instruments stopped before 2024-01-05 and have no last_session")
                for a in bars["assumed"])  # fmt: skip
-    assert check(package, level="full").errors == ()  # not dense until plan item 8: no D001
+    # the import's end is D001's: an instrument with no end runs to the last session a row of
+    # its market has, so the stopped one is judged, and passes (TDS 5.5, #705 Decisions 134)
+    result = check(package, level="full")
+    assert (result.errors, "TDS-D001" in result.unchecked) == ((), False)
 
 
 def test_last_session_stops_the_fill_and_complete_through_extends_it(tmp_path: Path) -> None:

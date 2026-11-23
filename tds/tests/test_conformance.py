@@ -1292,9 +1292,10 @@ def test_full_level_checks_only_the_keys_references_and_hashes_so_far(tmp_path: 
     hashes = {"TDS-H001", "TDS-H002", "TDS-H003", "TDS-H004"}
     judged = {*K_CODES, *R_CODES, *hashes, "TDS-V012", "TDS-V031", *T_CODES, *D_CODES, "TDS-D002"}
     judged |= {"TDS-V032"}  # no declaration: nothing promised, so judged (#432)
-    judged -= {*_NO_CAL, *_NO_EXITS}
+    judged -= {*_NO_CAL, *_NO_EXITS, "TDS-D001"}
     assert not judged & set(result.unchecked)
     assert {*_NO_CAL, *_NO_EXITS} <= set(result.unchecked)  # no calendar_sessions, delistings
+    assert "TDS-D001" in result.unchecked  # every daily dataset, and no calendar (#705)
     # a column whose type is declared nowhere: no value hash, so H002 and H003 are not checked
     untyped = check(write(tmp_path / "untyped", _bars(x_cf_note=pa.array([[1]]))), level="full")
     assert {"TDS-H002", "TDS-H003", "TDS-H004"} <= set(untyped.unchecked)
@@ -1776,9 +1777,9 @@ def _declares(name: str, tag: str | None, **columns: Any) -> Any:
         (_bars(ts_end=TS.cast(pa.timestamp("us"))), ["TDS-S004"]),  # no UTC
         (lambda m, f: build.rewrite(m, f, build.BARS, build.bars_table(ts_end=TS),
                                     use_deprecated_int96_timestamps=True), ["TDS-S004"]),
-        (_bars(obs_status=pa.array([None], pa.string())), []),  # "no if dense": not dense
+        (_bars(obs_status=pa.array([None], pa.string())), []),  # its state not stated (#705)
         (lambda m, f: (build.bars(m)["params"].update(density="dense"),
-                       _bars(obs_status=pa.array([None], pa.string()))(m, f)), ["TDS-S003"]),
+                       _bars(obs_status=pa.array([None], pa.string()))(m, f)), []),  # dense too
         (lambda m, f: build.bars(m)["params"].update(freq="1m"), ["TDS-S001", "TDS-S001"]),
         (build._move_bars(build.BARS.replace("year=2024", "year=20x4")), ["TDS-S008"]),
         (build._move_bars(build.BARS.replace("year=2024", "year=" + "".join(
@@ -2219,16 +2220,37 @@ _TRADED = build._bars(obs_status=pa.array(["traded"]))  # the 2nd only
 _DENSE_2 = build._both(build._sessions(0), build._set("params", build.DENSE, in_bars=True), _TRADED)
 
 
+def _stopped(m: dict[str, Any], f: Any, delisted: dt.date | None = None) -> None:
+    """US:AAA's bars on the 2nd and 3rd, US:BBB's on the 2nd only, neither with a
+    `last_session`, BBB `delisted` then; XNYS sessions on the 2nd and 3rd; no density declared
+    (TDS 5.5, #705)."""
+    build._sessions(0)(m, f)
+    ids, out = ("US:AAA", "US:BBB"), (None, delisted)
+    rows = [build.instruments(instrument_id=pa.array([i]), delisted_on=pa.array([d], pa.date32()))
+            for i, d in zip(ids, out, strict=True)]  # fmt: skip
+    build.rewrite(m, f, build.INSTRUMENTS, pa.concat_tables(rows))
+    on = pa.array([JAN[2], JAN[2], JAN[3]])  # TDS 3.7's daily order
+    build._bars(instrument_id=pa.array([ids[0], ids[1], ids[0]]), session_date=on,
+                close=pa.array([1.0] * 3), obs_status=pa.array(["traded"] * 3))(m, f)  # fmt: skip
+
+
 @pytest.mark.parametrize(
     ("change", "found", "unchecked"),
     [  # #225 Decisions, 2026-11-11
         (_days(JAN[2], ids=("US:AAA", "US:BBB"), listed_on=pa.array([JAN[3]])), ["TDS-D002"],
          []),  # before listed_on, which the statistics of two ids cannot show
-        (_days(JAN[4], delisted_on=pa.array([JAN[4]])), [], []),  # on delisted_on: listed
+        (_days(JAN[4], listed_on=pa.array([JAN[4]]), delisted_on=pa.array([JAN[4]])), [],
+         []),  # on delisted_on: listed
         (build.CASES["TDS-D002"][1], ["TDS-D002"], []),  # the statistics found it: once
         (build._instruments(listed_on=pa.array(["2024-01-02"])), ["TDS-S002"],
          ["TDS-D001", "TDS-D002", "TDS-D003", "TDS-D004"]),  # a text listed_on: none judged
-        (_DENSE_2, [], ["TDS-D001"]),  # no last_session, no complete_through: not judged
+        (_DENSE_2, [], []),  # no end known: to the last session a US row has, the 2nd (#705)
+        (_stopped, ["TDS-D001"], []),  # BBB's end not known: to AAA's 3rd, and it lacks it
+        (lambda m, f: _stopped(m, f, JAN[2]), [], []),  # delisted the 2nd: no row asked after
+        (build._both(_stopped, build._covered(3, instruments=2, ts_max="2024-01-03", by_market={
+            "US": {"processed_through_session": "2024-01-02"}})), [], ["TDS-D003"]),  # to the 2nd
+        (build._both(_three(2, 4), lambda m, f: build.bars(m).update(params=build.DENSE | {
+            "density": "sparse"})), ["TDS-D001"], []),  # daily is dense whatever it declares
         (build._both(_DENSE_2, _through), ["TDS-D001"], []),  # the 3rd, to the watermark
         (_three(2, 4), ["TDS-D001"], []),  # a row after the watermark hides no gap
         (_three(2, 3, through="2024-01-04T01:00:00Z"), [], []),  # 20:00 on the 3rd in New York
