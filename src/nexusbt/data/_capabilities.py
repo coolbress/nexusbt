@@ -121,7 +121,8 @@ def decide(
     unread, unread_in = _breaks_profile(folder, data, bars, kinds.get("instruments"))  # #705
     if not extent.partitioned:  # a `market=` partition is the checker's (TDS-M010)
         _declared(folder, data, extent.by_market(), market_of)
-    f02 = _calendars(folder, data, kinds, extent, lacking, taken)
+    _no_calendar(folder, data, kinds)  # 4.4-4: every market's sessions (#705 Decisions 59)
+    f02 = _calendars(folder, data, kinds, extent, lacking, taken)  # no F-02 is left to take
     _fallbacks(folder, kinds, rules, found, extent, market_of, taken)
     twice = doubled(data)  # two or more left: off, never by a fallback (4.3, #547, #551)
     for f, reads in READS.items():
@@ -140,6 +141,38 @@ def decide(
 Sessions = tuple[list[FallbackRecord], dict[str, set[dt.date]]]
 
 
+def _no_calendar(
+    folder: Path, data: Mapping[str, Any], kinds: Mapping[str, Mapping[str, Any]]
+) -> None:
+    """4.4-4 (#705 Decisions 59): a market of the package whose `calendar_id` no row of
+    `calendar_sessions` holds is E14 at open, whatever the run reads and at every verify
+    level: every run reads the sessions, and no fallback builds them. Reads the
+    `calendar_id` column of the calendar's files, once. Two calendars are 4.3's (#547)."""
+    if "calendar_sessions" in doubled(data):
+        return
+    calendar = kinds.get("calendar_sessions")
+    held = {str(c) for c in _values(folder, calendar, "calendar_id")}
+    lacking = {m: str(e["calendar_id"]) for m, e in data["markets"].items()
+               if str(e["calendar_id"]) not in held}  # fmt: skip
+    if not lacking:
+        return
+    market, calendar_id = next(iter(sorted(lacking.items())))
+    raise SnapshotError(
+        what=("the package has no calendar_sessions" if calendar is None else
+              f"calendar_sessions holds no session of calendar {calendar_id}") +
+             f" (market {market}" + (f" and {len(lacking) - 1} more)" if len(lacking) > 1
+                                     else ")"),
+        where=f"snapshot {data['snapshot_id']}, dataset calendar_sessions, calendar_id "
+              f"{calendar_id}",
+        why="every run reads the market's sessions, and no fallback builds them (4.4, 4.5;"
+            " #705)",
+        fix=f"add calendar_sessions rows for {calendar_id}, or let `tds import csv` build them "
+            "from the bars' dates (TDS 9.5)",
+        more="spec 4.4 step 4; TDS 5.4 and 7",
+        layer=_layer(data, "calendar_sessions"),
+    )  # fmt: skip
+
+
 def _calendars(
     folder: Path, data: Mapping[str, Any], kinds: Mapping[str, Mapping[str, Any]],
     extent: BarsExtent, lacking: dict[str, list[str]], taken: dict[str, list[FallbackRecord]],
@@ -149,7 +182,10 @@ def _calendars(
     bars = kinds.get("bars")
     if bars is None:
         return None
-    f02 = _sessions(folder, data["markets"], kinds, extent)
+    # two calendars: off, never by a fallback (4.3, #547), so no session is built (#705)
+    twice = "calendar_sessions" in doubled(data)
+    # one calendar: `_no_calendar` has seen every market's sessions held, so none to build
+    f02: Sessions | None = None if twice else ([], {})
     for f in ("adjusted", "backtest"):
         if f02 is None and "calendar_sessions" not in lacking[f]:  # 4.4-4: one market's
             lacking[f].append("calendar_sessions")

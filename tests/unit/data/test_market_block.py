@@ -450,7 +450,7 @@ def test_l0_key_partition_scoped(years: Path, tmp_path: Path) -> None:
     base = edited(years, tmp_path / "chain18", None, corporate_actions=earlier)
     # a chain effective by 2018's end is in 2018's key and every later year's (5.3.9)
     assert moved(base, tmp_path / "chain18b", corporate_actions=announced) == {2018, 2019}
-    # XNYS has no calendar_sessions rows: F-02 builds its sessions (#480)
+    # the key holds each stable `markets` field (5.3.9); XNYS's rows are not in this package
     for field, value in (("currency", "USD"), ("timezone", "UTC"), ("calendar_id", "XNYS")):
 
         def stable(data: dict[str, Any], field: str = field, value: str = value) -> None:
@@ -565,32 +565,3 @@ def test_l0_key_ignores_axis_rows_outside_the_year(years: Path, tmp_path: Path) 
         return rows
 
     assert moved(years, tmp_path / "name", instruments=renamed) == set()
-
-
-def test_l0_key_synthesized_sessions(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """#480: without `calendar_sessions` (4.5 F-02) the axis-row hash (b) holds the sessions
-    F-02 builds, so a library that moves a session of 2018 misses 2018 and 2019, one of 2019
-    misses 2019, and the key never needs the library's version (5.3.9)."""
-    import exchange_calendars as xcals
-
-    root = make_snapshot(tmp_path / "snap", preset="small", markets=("KR",), n_kr=4,
-                         start=dt.date(2018, 12, 3), end=dt.date(2019, 2, 8),
-                         degrade=["no_sessions"])  # fmt: skip
-    assert not (root / "calendar_sessions").exists()
-    base, real = keys(root), xcals.get_calendar
-
-    def moved_session(day: str) -> set[int]:
-        def library(name: str, **kwargs: Any) -> Any:
-            calendar = real(name, **kwargs)
-            schedule = calendar.schedule.copy()
-            schedule.loc[day, "close"] += dt.timedelta(hours=1)
-            return type("Moved", (), {"schedule": schedule, "sessions": calendar.sessions})
-
-        with monkeypatch.context() as m:
-            m.setattr(xcals, "get_calendar", library)
-            after = keys(root)
-        return {y for y in base if base[y] != after[y]}
-
-    assert len(set(base.values())) == 2
-    assert moved_session("2018-12-14") == {2018, 2019}
-    assert moved_session("2019-01-15") == {2019}

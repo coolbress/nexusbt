@@ -43,9 +43,10 @@ datasets:
 def test_a_market_without_a_field_stops_the_open_naming_m003(
     field: str, verify: VerifyPolicy, tmp_path: Path
 ) -> None:
-    """When `markets.US.<field>` is deleted from a package without `calendar_sessions` (the
-    issue's steps), then `open_snapshot` raises E14 naming TDS-M003, at every `verify` level."""
-    path = make_snapshot(tmp_path / "s", preset="tiny", degrade=["no_sessions"])
+    """When `markets.US.<field>` is deleted (the issue's steps, on a package that now holds its
+    calendar: F-02 retired, #705), then `open_snapshot` raises E14 naming TDS-M003, at every
+    `verify` level."""
+    path = make_snapshot(tmp_path / "s", preset="tiny")
     data = json.loads((path / "tds.json").read_text(encoding="utf-8"))
     del data["markets"]["US"][field]
     (path / "tds.json").write_text(json.dumps(data), encoding="utf-8")

@@ -190,10 +190,20 @@ READS: dict[str, tuple[Callable[[Snapshot], object], str]] = {
 
 
 @pytest.mark.parametrize("name", READS)
-def test_two_of_a_kind_is_e18_naming_both(tiny: Path, tmp_path: Path, name: str) -> None:
+def test_two_of_a_kind_is_e18_naming_both(
+    tiny: Path, tmp_path: Path, name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """#547: two datasets the engine cannot tell apart open with what needs them off, and
-    reading them, or requesting a feature that needs them, is E18 naming both with the fix."""
+    reading them, or requesting a feature that needs them, is E18 naming both with the fix.
+    Two calendars build no sessions either: the library is never asked for one (#705)."""
+    import exchange_calendars as xcals
+
+    def built(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("the engine built sessions with exchange_calendars")
+
     root = rewritten(tiny, tmp_path / name, doubled(name))
+    for entry_point in ("get_calendar", "get_calendar_names"):
+        monkeypatch.setattr(xcals, entry_point, built)
     snap, warned = opened(root)
     assert not [w for w in warned if "F-02" in w]  # off, not taken by a fallback
     read, feature = READS[name]
