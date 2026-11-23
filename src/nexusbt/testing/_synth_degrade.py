@@ -18,11 +18,10 @@ import pyarrow.compute as pc
 from nexusbt.contracts import ID_COLUMN as ID
 
 CORE_PROFILE = "tds:equity-daily-core@1.0"
-MINIMAL_PROFILE = "tds:minimal-daily@1.0"
 #: Spec 4.8's core values (T0.16a) → whether the gap breaks the core profile (TDS 7).
 CORE = {
     "no_ohlc": True,  # core's OHLCV; minimal-daily's E18 when read (F-01 retired, #705)
-    "no_sessions": True,  # F-02: calendar_sessions
+    # no `no_sessions`: every daily profile and every open needs calendar_sessions (#705)
     "sparse_bars": True,  # F-03: density = dense, obs_status
     "kr_ex_is_record": False,  # F-05
     "us_div_split_adjusted_no_dates": False,  # F-09
@@ -40,8 +39,7 @@ LATE_SHARE, LATE_BY, LATE_STREAM = 0.005, 3, 354
 LATER = ("no_fundamentals_state", "no_eligibility", "no_share_counts", "no_fundamentals_events",
          "no_benchmarks", "no_panels")  # fmt: skip
 #: The datasets a value leaves out.
-ABSENT = {"no_sessions": "calendar_sessions", "no_delistings": "delistings",
-          "no_tick_info": "market_rules"}  # fmt: skip
+ABSENT = {"no_delistings": "delistings", "no_tick_info": "market_rules"}
 DATES = ("record_date", "declared_date", "pay_date", "resolution_date")
 
 
@@ -59,11 +57,9 @@ def check(degrade: Sequence[str]) -> None:
 
 
 def profiles(declared: Sequence[str], degrade: Sequence[str]) -> list[str]:
-    """`declared` without the core profile when a value breaks it, and without minimal-daily
-    when `calendar_sessions` is left out: every daily profile requires it (C3, #705)."""
-    broken = {CORE_PROFILE} if any(CORE[v] for v in degrade) else set()
-    broken |= {MINIMAL_PROFILE} if "no_sessions" in degrade else set()
-    return [p for p in declared if p not in broken]
+    """`declared` without the core profile when a value breaks it."""
+    broken = any(CORE[v] for v in degrade)
+    return [p for p in declared if not (broken and p == CORE_PROFILE)]
 
 
 def absent(degrade: Sequence[str]) -> set[str]:

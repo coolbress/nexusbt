@@ -311,8 +311,7 @@ def _sessions(first: int, on: tuple[int, ...] = (2, 3), years: tuple[int, ...] =
 
 def no_calendar(m: dict[str, Any], files: Files) -> None:
     """The base without its `calendar_sessions`, for a test of a package that has none, and so
-    declaring no profile: every daily one requires it (C3, #705), as the generator's
-    `no_sessions` does."""
+    declaring no profile: every daily one requires it (C3, #705)."""
     m["datasets"] = [d for d in m["datasets"] if d["kind"] != "calendar_sessions"]
     m["profiles"] = []
     files.pop(CALENDAR, None)

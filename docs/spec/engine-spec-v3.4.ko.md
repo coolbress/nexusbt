@@ -1326,7 +1326,7 @@ def make_snapshot(root: Path, *, preset: Literal["tiny","small","full","full_ci"
                   markets: Sequence[str] = ("KR", "US"),            # "ZZ" = 규칙 팩 없는 시험 시장(XZZZ, 통화 XTS)
                   n_kr: int | None = None, n_us: int | None = None,
                   events: Sequence[EventSpec] = (), overrides: Mapping[str, Any] | None = None,
-                  degrade: Sequence[Literal["no_ohlc","no_sessions","sparse_bars",
+                  degrade: Sequence[Literal["no_ohlc","sparse_bars",    # no_sessions는 F-02와 함께 빠짐 (#705)
                                             "kr_ex_is_record","no_fundamentals_state","no_eligibility",
                                             "no_share_counts","us_div_split_adjusted_no_dates",
                                             "no_fundamentals_events","no_benchmarks","no_delistings",
@@ -3302,7 +3302,7 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 - Acceptance: `tds/tests/test_conformance.py::test_A_codes`, `::test_V_codes`, `::test_reverse_split_not_flagged`; 2026-11-22까지는 `::test_A001_multiplies_latest_revision_once`도.
 
 **T0.16a `feat(testing): degraded synthetic packages for core fallbacks`** **[v3]** · `M1` `testing` · M · Blocked by: T0.7, T0.15b · §4.5, §4.8 *(v3: T0.16을 나눔)*
-- Context: `degrade=` 중 core 자료 값: `no_ohlc`, `no_sessions`, `sparse_bars`, `kr_ex_is_record`, `us_div_split_adjusted_no_dates`, `no_delistings`(`no_cum_factors`는 2026-11-22에 빠짐: 생성기가 `cum_factor_*`를 쓰지 않는다, #705); 각 값이 지키지 못하는 프로필을 선언에서 뺌(검사는 여전히 통과).
+- Context: `degrade=` 중 core 자료 값: `no_ohlc`, `sparse_bars`, `kr_ex_is_record`, `us_div_split_adjusted_no_dates`, `no_delistings`(`no_cum_factors`는 2026-11-22에 빠짐: 생성기가 `cum_factor_*`를 쓰지 않는다, #705; `no_sessions`는 2026-11-23에 F-02와 함께 빠짐: `calendar_sessions` 없는 패키지는 열 때 E14, #705); 각 값이 지키지 못하는 프로필을 선언에서 뺌(검사는 여전히 통과).
 - Done means: `--preset small --degrade no_ohlc,kr_ex_is_record --validate`가 선언 프로필(core 없음)과 세 결과를 출력한다.
 - Acceptance: `test_synth.py::test_synth_conforms_degraded_core[<각 값>]`(테스트의 `DROPS_CORE` 값마다 하나), `::test_degrade_drops_declared_profiles`.
 
