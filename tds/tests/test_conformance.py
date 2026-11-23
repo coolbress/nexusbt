@@ -130,10 +130,31 @@ def _listed3(**columns: list[Any]) -> Any:
     return lambda m, f: build.rewrite(m, f, build.INSTRUMENTS, table, row_group_size=3)
 
 
+def _states(*states: str, **opts: Any) -> Any:
+    """US:AAA, US:BBB … on 2024-01-02, one bar each with `obs_status` from `states`: only a
+    `traded` one priced, the others with no price and `volume` 0 (5.5), in one row group unless
+    `opts` say otherwise. `obs_status` is the closed list a bar carries (#705 B3)."""
+    ids = ["US:AAA", "US:BBB", "US:CCC"][: len(states)]
+    priced = [10.0 if s == "traded" else None for s in states]
+
+    def change(m: dict[str, Any], f: Any) -> None:
+        _listed3()(m, f)
+        table = build.bars_table(
+            instrument_id=pa.array(ids), session_date=pa.array([JAN[2]] * len(ids)),
+            **dict.fromkeys(("open", "high", "low", "close"), pa.array(priced, pa.float64())),
+            volume=pa.array([100.0 if p else 0.0 for p in priced]),
+            obs_status=pa.array(list(states)))  # fmt: skip
+        build.rewrite(m, f, build.BARS, table, **opts)
+
+    return change
+
+
 @pytest.mark.parametrize(
     ("change", "found"),
     [
-        (_listed3(asset_class=["bond", "cash", "rate"]), ["TDS-S006"]),  # closed: an error
+        (_states("halted", "stale", "traded"), ["TDS-S006"]),  # closed: an error
+        (_states("halted", "no_trade", "traded"), []),
+        (_listed3(asset_class=["bond", "cash", "rate"]), ["TDS-S007"]),  # open since #705 B3
         (_listed3(asset_class=["bond", "equity", "rate"]), []),
         (_listed3(category=["adr", "ordinary", "reit"]), ["TDS-S007"]),  # open: a warning
         (build._both(_listed3(category=["adr", "ordinary", "reit"]), build._codes), []),
@@ -919,6 +940,52 @@ def test_value_rules_edges(change: Any, found: list[str], tmp_path: Path) -> Non
     assert codes(write(tmp_path, change), "full") == found
 
 
+RESEARCH, PIT = "tds:equity-daily-research@1.0", "tds:pit-fundamentals@1.0"
+
+
+@pytest.mark.parametrize(
+    ("profile", "assets", "issuer", "found"),
+    [
+        (RESEARCH, ("equity",), [None], ["TDS-V020"]),
+        (PIT, ("equity",), [None], ["TDS-V020"]),
+        (RESEARCH, ("equity",), ["I1"], []),
+        (RESEARCH, ("etf", "index"), [None, None], []),  # a fund and an index: no statements
+        (RESEARCH, ("equity", "etf"), ["I1", None], []),
+        (RESEARCH, ("equity", "etf"), None, ["TDS-V020"]),  # no issuer_id column at all
+        (RESEARCH, ("etf", "index"), None, []),
+        ("tds:minimal-daily@1.0", ("equity",), [None], []),  # the core leaves it optional
+    ],
+)
+def test_an_equity_holds_issuer_id_where_a_profile_is_declared(
+    profile: str, assets: tuple[str, ...], issuer: list[str | None] | None, found: list[str],
+    tmp_path: Path,
+) -> None:  # fmt: skip
+    """#705 B2, #725 Decisions 185: by row (V020), the declared profile read; every finding
+    that names `issuer_id` is looked at, the profiles' other datasets aside: none at the
+    column level (M008), where a fund's or an index's null is no gap."""
+    ids = ["US:AAA", "US:BBB"][: len(assets)]
+
+    def change(m: dict[str, Any], f: Any) -> None:
+        m["profiles"] = [profile]
+        rows = {k: v * len(ids) for k, v in build.instruments().to_pydict().items()}
+        rows |= {"instrument_id": ids, "asset_class": list(assets)}
+        rows |= {} if issuer is None else {"issuer_id": pa.array(issuer, pa.string())}
+        build.rewrite(m, f, build.INSTRUMENTS, pa.table(rows))
+
+    result = check(write(tmp_path, change), level="full")
+    named = [f.code for f in result.errors if f.code == "TDS-V020" or "issuer_id" in f.message]
+    assert named == found
+
+
+def test_S007_names_a_value_with_its_rows(tmp_path: Path) -> None:
+    """#705 B3: a misspelt `asset_class` is a warning that names it and its instruments."""
+    package = write(tmp_path, _listed3(asset_class=["equty", "equty", "equity"]))
+    result = check(package, level="full")
+    (said,) = [f for f in result.warnings if f.code == "TDS-S007"]
+    assert (said.message, said.count) == (
+        "asset_class holds 'equty' in 2 row(s), not in its open list", 2)  # fmt: skip
+
+
 def test_a_column_of_the_wrong_type_is_S002_and_leaves_the_V_codes_unchecked(
     tmp_path: Path,
 ) -> None:
@@ -1434,21 +1501,14 @@ def test_a_file_listed_twice_gets_each_S_finding_once(tmp_path: Path) -> None:
     assert codes(write(tmp_path, twice), "schema") == ["TDS-M013", "TDS-S002"]
 
 
-def _classes(*values: str, **opts: Any) -> Any:
-    """The instruments file with one row per `asset_class` value."""
-    rows = pa.concat_tables([build.instruments(asset_class=pa.array([v])) for v in values])
-    return lambda m, f: build.rewrite(m, f, build.INSTRUMENTS, rows, **opts)
-
-
 @pytest.mark.parametrize(
     ("change", "found", "unchecked"),
     [  # a footer shows a column's minimum and maximum: its values when they are equal
-        (_classes("equity", "fund"), [], True),  # one row group: `etf` and `zzz` may lie between
-        (_classes("equity", "fund", row_group_size=1), [], False),  # every value is a min
-        (_classes("equity", "zzz"), ["TDS-S006"], True),
-        (_classes("equity", write_statistics=False), [], True),
-        (lambda m, f: build.rewrite(m, f, build.INSTRUMENTS, build.instruments(
-            asset_class=pa.array([None], pa.string()))), ["TDS-S003"], False),  # nulls only
+        (_states("halted", "traded"), [], True),  # one row group: `missing`, `stale` between
+        (_states("halted", "traded", row_group_size=1), [], False),  # every value is a min
+        (_states("traded", "zzz"), ["TDS-S006"], True),
+        (_states("traded", write_statistics=False), [], True),
+        (build._bars(obs_status=pa.array([None], pa.string())), [], False),  # nulls only (129)
     ],
 )  # fmt: skip
 def test_enum_values_the_footer_cannot_show_are_not_checked(

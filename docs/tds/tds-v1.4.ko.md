@@ -167,7 +167,7 @@
 - 단면 동률은 `instrument_id` 정렬로 깨지므로 **id 체계를 바꾸면 동률 결과가 바뀔 수 있다**(의도된 결정적 규칙).
 - 버린 대안: FIGI를 열쇠로(옛 상장폐지·한국 빈칸, 유료 자료 없이 과거 대응이 어려움), ISIN(종목 전환·재발행, 미국 옛 자료 빈칸), 정수 sid(스냅숏마다 바뀜, 명세서 4.2가 이미 금지).
 - 명세서의 `security_id`라는 이름은 `instrument_id`로 바꾼다(선물·옵션·코인·외환에도 맞는 말; Nautilus·Databento·FIX 용어). 엔진 사용자 API도 별칭 없이 `instrument_id` 하나만 쓴다(v1.1, 13장 Q1 닫힘). 다른 이름은 가져오기 대응(9장)에서만 바꾼다.
-- 회사 묶음: `issuer_id`(선택, 불투명). 생산자의 회사 id(한국 DART 회사코드, 미국 CIK 등)가 여기에 들어간다.
+- 회사 묶음: `issuer_id`(불투명; core에서는 선택, `tds:equity-daily-research@1.0`이나 `tds:pit-fundamentals@1.0`을 선언하면 `instruments`의 `equity` 행마다 필수, V020, 7장) [2026-11-24, #705 B2]. 생산자의 회사 id(한국 DART 회사코드, 미국 CIK 등)가 여기에 들어간다.
 
 **K2. 시각 = UTC 순간값, 단위는 데이터셋 종류가 정함.**
 - 순간 칼럼 이름은 `ts_` 로 시작하고 형은 `timestamp[us, tz="UTC"]` 또는 `timestamp[ns, tz="UTC"]`. 어느 단위인지는 데이터셋 종류마다 하나로 정해져 있다(고르는 자유 없음 → 해시·결정성 보장).
@@ -478,7 +478,7 @@
 | 칼럼 | 형 | null | 뜻 |
 |---|---|---|---|
 | instrument_id | id | 아니오 | K1 |
-| asset_class | code(닫힘) | 아니오 | `equity`, `etf`, `fund`, `index`, `future`, `option`, `crypto_spot`, `crypto_perp`, `crypto_future`, `fx_spot`, `bond`, `rate`, `other` |
+| asset_class | code(열림) | 아니오 | `equity`, `etf`, `fund`, `index`, `future`, `option`, `crypto_spot`, `crypto_perp`, `crypto_future`, `fx_spot`, `bond`, `rate`, `other`(거래되지 않고 어느 주식 유니버스에도 들지 않음) — 열린 목록(아래) [2026-11-24, #705 B3] |
 | category | code(열림) | 예 | 주식 종류: `common`, `preferred`, `adr`, `reit`, `spac`, `unit`, `warrant`, `right`, `closed_end_fund`, `other` |
 | market | code | 아니오 | 매니페스트 `markets`의 키 |
 | venue_mic | code | 예 | 주 거래 장소 MIC(세그먼트 허용) |
@@ -513,7 +513,9 @@
 | index_weighting | code(열림) | 예 | 지수 가중 방식 `cap` / `float_cap` / `equal` / `price` / `other` — `asset_class = index`일 때. 소비자는 벤치마크 비교에 표시한다 [v1.2, V31-15] |
 | is_synthetic | bool | 아니오 | 참 = 실제 거래 대상이 아님(연속 계약·지수). 엔진은 체결에 쓰지 않음 |
 
-검사: R001(다른 표의 id가 여기 없음), V020(`asset_class`별 필수 칼럼: option은 underlying·strike·right·style·expiry·multiplier·settlement 필수; future는 root·expiry·multiplier·settlement 필수; crypto는 base·quote 필수), T010(`last_session < listed_on`), R002(달력 없음).
+검사: R001(다른 표의 id가 여기 없음), V020(`asset_class`별 필수 칼럼: option은 underlying·strike·right·style·expiry·multiplier·settlement 필수; future는 root·expiry·multiplier·settlement 필수; crypto는 base·quote 필수; `tds:equity-daily-research@1.0`이나 `tds:pit-fundamentals@1.0`을 선언하면 equity는 `issuer_id` 필수 [2026-11-24, #705 B2]), T010(`last_session < listed_on`), R002(달력 없음).
+
+- `asset_class`는 열린 목록이다 [2026-11-24, #705 B3]: 위 목록에 없는 값도 받고, TDS-S007(W)이 그 값과 종목 수를 말해 오타가 보인다. 그런 종목은 `equity`에만 쓴 규칙(7장의 `open`…`volume`과 그것을 보는 V004)을 받지 않고, 자기 규칙이 없는 종류로 읽는다; 모든 봉이 받는 규칙(V004의 `obs_status` 줄 규칙 등)은 그대로 받는다. `other`는 거래되지 않고 어느 주식 유니버스에도 들지 않는 종류다.
 
 **사후 정적 표** [v1.1, RV-C08]: `instruments`는 시점 없는 "지금 아는 값" 표다. `name`, `last_session`, `delisted_on`은 사후 정보이므로 소비자는 판단 입력으로 쓰면 안 된다(상장 기간 마스크·표시·폐지 처리에만). 바뀔 수 있는 속성(`category`, `venue_mic`, `currency`, `lot_size`, `tick_size`, `tick_rule_id`)이 실제로 바뀐 종목이 있으면 생산자는 그 이력을 `classifications`의 같은 이름 scheme(`category`, `venue_mic` …, 두 시간축)으로 함께 내보내고, 소비자는 그 scheme이 있으면 그것을 읽는다. `asset_class`, `market`, `calendar_id`는 한 id 안에서 바뀌지 않는다(바뀌면 새 id, K1(d)).
 
@@ -825,7 +827,7 @@ LEAN 계수 파일·Qlib `factor`·공급사 조정 종가만 있는 사용자�
 | item | code | 아니오 | `dictionary/items`의 항목 |
 | period_start | date | 예 | 흐름 항목의 기간 시작 |
 | period_end | date | 아니오 | 기간 끝(잔액은 그날) |
-| period_kind | code | 아니오 | `Q`, `H`, `9M`, `A`, `TTM`, `POINT`(잔액) |
+| period_kind | code | 아니오 | `Q`, `H`, `9M`, `A`, `TTM`, `POINT`(잔액) — 각각의 뜻은 아래 |
 | fiscal_year | i16 | 예 | |
 | fiscal_period | code | 예 | `Q1`..`Q4`, `H1`, `FY` |
 | statement_basis | code | 아니오 | `consolidated` / `separate` / `unspecified` |
@@ -848,6 +850,7 @@ LEAN 계수 파일·Qlib `factor`·공급사 조정 종가만 있는 사용자�
 | pit_quality | code | 아니오 | `native`(원래 공개 시각) / `backfilled`(나중에 모아 시각을 추정) |
 
 - T007: `ts_available < period_end`면 오류. 단 `value_how = preliminary`인 행은 경고(W)로 낮춘다(잠정 공시는 기간 끝 전에 나올 수 있음) [v1.1, RV-I06].
+- `period_kind` [2026-11-24, #705 A5]: `POINT`는 시점, 곧 `period_end`의 잔액이고, 나머지는 `period_end`에 끝나는 기간이다. `Q`는 분기(약 3개월)이고 누적이 아니다; `H`는 반기(약 6개월)이고, 상반기(`fiscal_period = H1`)면 회계연도 시작부터의 누적이고 하반기면 누적이 아니다; `9M`은 9개월, `A`는 회계연도이고 둘 다 그 시작부터의 누적이다; `TTM`은 `period_end`까지의 12개월이고 굴러가는 값이라 누적이 아니다. 이것은 이름이 주는 길이다; 다른 길이의 기간(회계연도 변경, 52/53주 회계연도)은 `period_start`로 자기 길이를 보인다. 이것을 다시 적는 다른 열은 없다.
 - **TDS 핵심 항목**(`std_item`, 선택 매핑): `revenue`, `gross_profit`, `operating_income`, `pretax_income`, `net_income`, `net_income_parent`, `eps_basic`, `eps_diluted`, `dps`, `ocf`, `capex`, `fcf`, `da`, `interest_expense`, `total_assets`, `current_assets`, `cash`, `total_liabilities`, `current_liabilities`, `total_debt`, `equity`, `equity_parent`, `shares_outstanding`, `shares_weighted_basic`, `shares_weighted_diluted`, `inventory`, `receivables`, `payables`, `dividends_paid`, `buyback`. **이 목록은 잠정 매핑(provisional)이고 상호운용을 보장하지 않는다**: 연결/별도 범위, 지배주주 몫, 흐름 기간, 통화, 축척, 부호(예 capex)의 정의 문장은 다음 판 부록에서 정한다. 그때까지 서로 다른 생산자의 같은 `std_item`이 같은 뜻이라고 가정하지 말 것 [v1.1, RV-I06]. 만든 쪽 항목은 자유이고 `std_item`으로만 대응한다.
 
 ### 5.18 `fundamentals_state` (재무 해석 상태 구간) — 엔진이 읽는 재무
@@ -1021,9 +1024,9 @@ LEAN 계수 파일·Qlib `factor`·공급사 조정 종가만 있는 사용자�
 |---|---|---|---|
 | `tds:minimal-daily@1.0` | `instruments`, `bars(freq=1d)`, `calendar_sessions` | bars: `close`만 필수, `equity`·`etf` 종목도 [2026-11-22, #705: 요구하는 것은 프로필의 기능이 읽는 것]. `price_basis` 아무거나(선언 필수). 값이 있는 줄의 `obs_status`는 null일 수 있다(상태를 말하지 않음, 5.5) [2026-11-23, #705]. `calendar_sessions`는 모든 일봉 프로필처럼 필수; 거래소 달력이 없는 쓰는 쪽은 `tds import csv`로 bars 날짜에서 짓는다(9.5, 5.4) [2026-11-23, #705] | **분석 경로만**(NexusBT v1: `run_pipeline`, `screen(factor)`, `evaluate(target="fwd_return_adj")`). 조정가로는 배당·수량·종료가치 회계가 정의되지 않으므로 경제 백테스트·경제 정답은 지원하지 않는다(v1의 "종가 체결 backtest" 약속은 뺐다) [v1.1, RV-I03] |
 | `tds:equity-daily-core@1.0` | 위 + `calendar_sessions`, `corporate_actions`(빈 표 허용), `delistings`(빈 표 허용) | bars `price_basis = raw`, `density = dense`, 모든 줄에 `obs_status` [2026-11-23, #705], `close`, `instrument_id`가 `equity`·`etf` 종목을 가리키는 bars 데이터셋은 `open`·`high`·`low`·`volume`도, `index`·`rate`는 `close`만 [2026-11-22, #705]; corporate_actions 계수 칼럼 | 명세서 v1의 `backtest`·`screen` 전부(OHLC 체결 규칙, 분할·배당·상장폐지) |
-| `tds:equity-daily-research@1.0` | 위 + `tradability_daily`, `eligibility_daily`, `instrument_symbols`, `fx_rates`(시장이 둘 이상이면), `fundamentals_state`, `classifications`, `dictionary/columns`, `dictionary/items` (선택 `market_rules`, v1.2) | `ts_available` 규칙 명시(`tradability_daily.availability_by_column` 포함). (v1의 `cum_factor_*` 필수는 뺐다) | v1 전체(Fund.*, Universe, 다중 통화 슬리브) — **기준 생산자 목표** |
+| `tds:equity-daily-research@1.0` | 위 + `tradability_daily`, `eligibility_daily`, `instrument_symbols`, `fx_rates`(시장이 둘 이상이면), `fundamentals_state`, `classifications`, `dictionary/columns`, `dictionary/items` (선택 `market_rules`, v1.2) | `ts_available` 규칙 명시(`tradability_daily.availability_by_column` 포함). `instruments`의 `equity` 행마다 `issuer_id`(V020) [2026-11-24, #705 B2]. (v1의 `cum_factor_*` 필수는 뺐다) | v1 전체(Fund.*, Universe, 다중 통화 슬리브) — **기준 생산자 목표** |
 | `tds:panels@1.0` | `feature_panels`, `label_panels`, `dictionary/columns` | 행 단위 `ts_available` | `Panel.*`, `evaluate(target=Label.*)` |
-| `tds:pit-fundamentals@1.0` | `fundamentals_events` + `fundamentals_state` | `fact_id`, `doc_id`, `lineage_id` | `nx.explain` 계보 |
+| `tds:pit-fundamentals@1.0` | `fundamentals_events` + `fundamentals_state` | `fact_id`, `doc_id`, `lineage_id`; `instruments`의 `equity` 행마다 `issuer_id`(V020) [2026-11-24, #705 B2] | `nx.explain` 계보 |
 | `tds:bitemporal@1.0` | (다른 프로필 위에) | `ts_recorded`가 `events`·`fundamentals_events`에; classifications와 state는 `ts_known_from`을 지닌다 | 시스템 이력 재생 |
 | `tds:intraday-bars@1.0` (experimental) | `instruments`, `calendar_sessions`, `bars(freq<1d)` | `ts_start`, `ts_end`, `session_date`, `density` 선언 | E4 장중 경로 체결 |
 | `tds:l1-ticks@1.0` (experimental) | `trades`, `quotes` | `ts_event`, `sequence`, 공개 시각 규칙 | E4 |
@@ -1121,7 +1124,7 @@ tds export {zipline-bundle|nautilus-catalog|wide-parquet} ... # 9.8
 | TDS-S004 | E | 순간 칼럼이 UTC tz가 아니거나 단위가 그 데이터셋 규정과 다름, INT96. 단위는 스키마 파일의 것이고, 매니페스트 `columns[].type`은 `ts_us/ns` 칼럼의 단위만 정한다 [2026-11-11]. 스키마 파일이 형을 적지 않은 칼럼이나 `x_` 칼럼에는 매니페스트가 `ts_us`나 `ts_ns`로 선언한 단위다 [2026-11-12] |
 | TDS-S005 | W | 모르는 칼럼(`x_` 접두 없음) |
 | TDS-S006 | E | 닫힌 열거에 없는 값 |
-| TDS-S007 | W | 열린 열거에 없는 값(`dictionary/codes`에도 없음) |
+| TDS-S007 | W | 열린 열거에 없는 값(`dictionary/codes`에도 없음), 그 줄 수와 함께(`instruments`의 한 줄은 한 종목) [2026-11-24, #705 B3] |
 | TDS-S008 | E | 파티션 경로 값이 형에 안 맞거나 파일 안에 파티션 칼럼이 또 있음 |
 | TDS-S009 | E | float 칼럼에 NaN·±Inf |
 | TDS-S010 | E | Parquet 키-값 메타 `tds.dataset`/`tds.schema_version` 없음, 또는 데이터셋의 `name`/`schema_version`과 다름(3.7). Parquet이 아닌 등재 파일도 |
@@ -1174,7 +1177,7 @@ tds export {zipline-bundle|nautilus-catalog|wide-parquet} ... # 9.8
 | TDS-V010 | W | 주식 거래량이 정수가 아님 |
 | TDS-V011 | W | 거래량 단위 의심: 종목·연도 중앙값 `value_traded / (volume × multiplier × (H+L+C)/3)`가 [0.5, 2] 밖. `price_basis`가 `raw`인 bars만, `index` 종목 제외(3.4) [v1.2, V31-16; 2026-11-10, #229] |
 | TDS-V012 | W | 격자 정보가 있는데 원가격이 격자에서 1e-9 상대 넘게 벗어남 [v1.2, V31-05] |
-| TDS-V020 | E | 자산 종류별 필수 칼럼 없음 |
+| TDS-V020 | E | 자산 종류별 필수 칼럼 없음; `tds:equity-daily-research@1.0`이나 `tds:pit-fundamentals@1.0`을 선언했을 때 `equity` 행의 `issuer_id`(5.1; `full` 수준에서 읽음) [2026-11-24, #705 B2] |
 | TDS-V030 | W | 교차·잠긴 BBO |
 | TDS-V031 | W | 호가 재구성 뒤 교차 |
 | TDS-V032 | W | `params.sequence_consecutive_within`을 선언한 데이터셋의 그룹 안 순번 빈칸(5.6) |
@@ -1366,7 +1369,7 @@ datasets:
 ### 10.3a 모르는 기능의 처리 (v1.1) [RV-I01]
 
 - 같은 MAJOR의 더 높은 MINOR 패키지를 읽을 때 소비자는 **모르는 기능을 쓰는지**로 나눈다: 모르는 선택 칼럼·선택 데이터셋 → 무시(M011); 모르는 서술용 열린 열거값 → `other`; 실행·해석에 영향이 있는 것(공개 규칙 이름, 닫힌 열거의 새 값, `hash_spec`) → 거절(M014). 그래서 "모든 미래 1.x 패키지를 받는다"고 약속하지 않는다.
-- **닫힌 열거에 값 추가는 MAJOR 그대로**(옛 소비자가 뜻을 모른 채 회계할 수 없으므로). 서술용 열거(`category`, `delist_type`, `reason`)는 열린 열거로 두어 MINOR로 늘린다.
+- **닫힌 열거에 값 추가는 MAJOR 그대로**(옛 소비자가 뜻을 모른 채 회계할 수 없으므로). 서술용 열거(`category`, `delist_type`, `reason`, 그리고 2026-11-24부터 `asset_class`, #705 B3)는 열린 열거로 두어 MINOR로 늘린다.
 - `experimental` 스키마(5.6~5.9, 5.22~5.24)는 이 호환 약속 밖이다.
 
 ### 10.4 확장과 등록
@@ -1618,3 +1621,4 @@ datasets:
 - 2026-11-23: **v1.4** 안에서. 5.5, 8.3 TDS-V004, 어느 프로필에서나: `no_trade`·`halted` 행에 적은 `volume`은 0이고 거기서 null은 말하지 않은 것이다; `halted` 행에는 `open`·`high`·`low`·`close`가 없다; 값도 `obs_status`도 없는 행은 받아들이지 않는다(관리자 결정 2026-11-23, #705 결정 38, 131, 135, 168). 그런 행이 있는 꾸러미는 통과했고 이제 `full` 수준에서 실패한다; `tds import csv`는 값이 모두 빈 원본 행을 여전히 `obs_status` null로 쓴다(#705 결정 156). (1)단계 안의 고침: `tds_version` `"1.0"` 그대로, `tds_draft`는 2026-11-19 그대로(단계가 끝날 때까지, 10.5).
 - 2026-11-23: **v1.4** 안에서. 4.2, 5.5, 8.3 TDS-M003·TDS-M017, 9.5, 10.5: 이 선언들은 기본값이 없다. `tds_draft`는 필수이고, `bars` 데이터셋의 `params.price_basis`·`params.bar_time`·`params.density`와 `availability`는 적으며, 없거나 `null`이면 TDS-M003이다(전에는 2026-11-18 전의 본문으로, `raw`, `session`, `ts_end`로 읽었다); 다른 종류의 공개 규칙 기본값, 5.5의 `aggregation`, 5.27의 `price_from`은 여기서 바꾸지 않는다; TDS-M017은 검사기의 것과 다른 날짜다. `tds import csv`는 일봉의 `price_basis`가 없으면 멈추고, mapping이 주지 않으면 `bar_time` `session`과 `density` `dense`를 쓴다(관리자 결정 2026-11-21, #705 C5와 결정 9; 171). 그것들이 없는 패키지는 통과했고 이제 `manifest` 수준에서 실패한다. (1)단계 안의 고침: `tds_version` `"1.0"` 그대로, `tds_draft`는 2026-11-19 그대로(단계가 끝날 때까지, 10.5).
 - 2026-11-23: **v1.4** 안에서. 5.27, 8.3 TDS-S001: `market_rules`의 키 칼럼 `price_from`은 모든 파일에 있고 칸은 null일 수 있다(null = 0); 그것이 없는 파일은 S001이고, 전에는 그 키와 값 해시를 검사하지 못했다(관리자 결정 2026-11-23, #705 C5, #725 결정 176; #43에서 옮겨 온 #229의 물음). 그 칼럼이 없는 `market_rules` 파일은 통과했고 이제 `schema` 수준에서 실패한다. (1)단계 안의 고침: `tds_version` `"1.0"` 그대로, `tds_draft`는 2026-11-19 그대로(단계가 끝날 때까지, 10.5).
+- 2026-11-24: **v1.4** 안에서. 5.1, 5.17, 7, 8.3 TDS-S007·TDS-V020, 10.3a(#705 A5, B3, B2; #725 결정 180~188): 5.17은 `period_kind`마다의 뜻을 적는다(새 기간 열은 없음); `asset_class`는 열린 목록이고 목록에 없는 값은 TDS-S007(W)이며, S007은 이제 값마다 줄 수를 말한다; `tds:equity-daily-research@1.0`이나 `tds:pit-fundamentals@1.0`을 선언하면 `instruments`의 `equity` 행마다 `issuer_id`가 있다(V020, `full` 수준). `fundamentals_state`의 키에 드는 `statement_basis`와 5.18의 `period_start`는 값 해시를 만드는 방법을 바꾸므로 해시 묶음과 함께 온다(10.5). 목록 밖 `asset_class`를 가진 패키지는 실패(S006)했고 이제 경고와 함께 통과한다; 두 프로필 가운데 하나를 선언했는데 equity의 `issuer_id`가 없는 패키지는 통과했고 이제 `full` 수준에서 실패한다. 어느 해시도 움직이지 않았다. (1)단계 안의 고침: `tds_version` `"1.0"` 그대로, `tds_draft`는 2026-11-19 그대로(단계가 끝날 때까지, 10.5).

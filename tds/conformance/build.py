@@ -783,9 +783,9 @@ CASES: dict[str, tuple[Change, Change]] = {
         _both(_bars(x_cf_note=pa.array(["a"])), _items_freq),
         _bars(note=pa.array(["a"])),
     ),
-    "TDS-S006": (
-        _instruments(asset_class=pa.array(["etf"])),
-        _instruments(asset_class=pa.array(["stock"])),
+    "TDS-S006": (  # bars' `obs_status`: `asset_class` is open since #705 B3
+        _keep,
+        _bars(obs_status=pa.array(["trade"])),
     ),
     "TDS-S007": (
         _instruments(codes=True, category=pa.array(["ordinary"])),
@@ -958,10 +958,10 @@ FAILS: dict[str, tuple[str | None, ...]] = {
         "TDS-M004", "TDS-M006", "TDS-M009", "TDS-M010", "TDS-M011", "TDS-M012", "TDS-M013",
         "TDS-S001", "TDS-S002", "TDS-S004", "TDS-S005", "TDS-S008", "TDS-S009", "TDS-S010",
         "TDS-T006", "TDS-D002", "TDS-K002", "TDS-K003", "TDS-K004", "TDS-R001", "TDS-R003",
-        "TDS-H001", "TDS-H002", "TDS-H004",
+        "TDS-H001", "TDS-H002", "TDS-H004", "TDS-S006",
     ], ("bars_1d",)),
     **dict.fromkeys([
-        "TDS-S003", "TDS-S006", "TDS-S007", "TDS-R002", "TDS-R004", "TDS-R005", "TDS-R006",
+        "TDS-S003", "TDS-S007", "TDS-R002", "TDS-R004", "TDS-R005", "TDS-R006",
     ], ("instruments",)),
     "TDS-M014": ("bars_1d", "instruments"),  # the unknown rule, the unknown object
     "TDS-M016": ("bars_1d",),

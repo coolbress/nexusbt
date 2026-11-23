@@ -47,6 +47,9 @@ VALUED = (*PRICES, "volume", "value_traded")
 RATIO = ("instrument_id", "session_date", "high", "low", "close", "volume", "value_traded")
 #: TDS 5.27's raw price columns, per kind.
 GRID = {"bars": PRICES[:4], "tradability_daily": ("up_limit_price", "down_limit_price")}
+#: The profiles that hold fundamentals: there an `equity` row of `instruments` holds `issuer_id`
+#: (V020; chapter 7, #705 B2, #725 Decisions 185); other classes may leave it null.
+ISSUED = frozenset({"tds:equity-daily-research@1.0", "tds:pit-fundamentals@1.0"})
 #: TDS 5.1's V020: the columns each `asset_class` needs.
 NEEDS = {
     "option": ("underlying_instrument_id", "strike", "option_right", "exercise_style",
@@ -61,7 +64,7 @@ COLUMNS = {
     "instruments": (
         "instrument_id",
         "asset_class",
-        *sorted({c for v in NEEDS.values() for c in v}),
+        *sorted({c for v in NEEDS.values() for c in v} | {"issuer_id"}),
     ),
     "fx_rates": ("base", "quote", "rate"),
     "quotes": ("instrument_id", "bid_px", "ask_px"),
@@ -75,7 +78,8 @@ SAID = {V001: "bar(s) whose high and low do not enclose open and close",
               "halted with a price; or with neither a value nor obs_status",
         V005: "FX rate(s) <= 0",
         V010: "equity bar(s) whose volume is not an integer",
-        V020: "instrument(s) without a column their asset_class needs",
+        V020: "instrument(s) without a column their asset_class needs, issuer_id of an equity "
+              "included where a declared profile holds fundamentals",
         V030: "locked or crossed quote(s), bid_px >= ask_px",
         V040: "delisting(s) with ret_lo > ret_hi",
         V041: "event(s) with instrument_id, issuer_id and series_id all null",
@@ -221,7 +225,8 @@ def _check(m: Manifest, only: Sequence[str] | None, unverified: list[str]) -> li
     out = []
     for ds in (d for d in m.datasets if only is None or d.get("name") in only):
         kind, bad = str(ds.get("kind")), dict[str, list[Any]]()  # code → [count, first key]
-        whole = any(_has([ds], need) for need in needs)
+        whole = any(_has([ds], need) for need in needs) if kind != "instruments" else (
+            any(p.name in ISSUED for p in declared))  # fmt: skip
         for row in _rows(root, ds, COLUMNS[kind]) if kind in COLUMNS else ():
             for code in _broken(kind, dict(zip(COLUMNS[kind], row, strict=True)), kinds, whole):
                 bad.setdefault(code, [0, row[0]])[0] += 1
@@ -269,8 +274,9 @@ def _broken(
             out.append(V004)
         if asset == "equity" and r["volume"] is not None and not float(r["volume"]).is_integer():
             out.append(V010)
-    elif kind == "instruments":
-        if any(r[k] is None for k in NEEDS.get(r["asset_class"], ())):
+    elif kind == "instruments":  # `whole`: a declared profile holds fundamentals (#705 B2)
+        own = ("issuer_id",) if whole and r["asset_class"] == "equity" else ()
+        if any(r[k] is None for k in (*NEEDS.get(r["asset_class"], ()), *own)):
             out.append(V020)
     elif kind == "fx_rates":
         out += [V005] if r["rate"] is not None and r["rate"] <= 0 else []
