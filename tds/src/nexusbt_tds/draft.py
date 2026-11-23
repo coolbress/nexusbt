@@ -35,7 +35,8 @@ _TODO = {
     "id_namespaces": "each id namespace used, with a description (TDS 4.2)",
     "markets": "each market's calendar_id, currency and timezone (TDS 3.8)",
     "datasets[].availability": "replace each \"TODO\" with the dataset's 6.2 rule or form",
-    "datasets[].params": "the kind's parameters, such as freq and price_basis for bars (TDS 5)",
+    "datasets[].params": "the kind's parameters, such as freq, price_basis, bar_time and density "
+                         "for bars (TDS 5; none has a default, TDS-M003)",
     "datasets[].columns": "optional: each column's unit and description (TDS 4.2)",
     "hashes": "run `tds hash --write` once the fields above are in: a dataset's value hash "
               "needs its kind and params, the semantic hash covers every field above",

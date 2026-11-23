@@ -87,21 +87,27 @@ def test_todo_fields_flagged(tmp_path: Path, capsys: pytest.CaptureFixture[str])
         "datasets[].columns", "hashes"]  # fmt: skip
     code, found = findings(package, capsys)
     assert code == 1
-    assert [f for f in found if f[0] == "TDS-M003"] == [
+    assert [f for f in found if f[0] == "TDS-M003" and f[1] is None] == [
         ("TDS-M003", None, f"required manifest field {key!r} is missing")
         for key in ("profiles", "id_namespaces", "markets")
     ]
+    assert [f[2].split(" is")[0] for f in found if f[:2] == ("TDS-M003", "bars")] == [
+        "params.price_basis",
+        "params.density",
+        "params.bar_time",
+    ]  # no default (#705 C5)
     assert ("TDS-M014", "bars", "unknown availability rule 'TODO'") in found
     assert "availability" not in draft["datasets"][1]  # instruments: no instant (TDS 5.1)
 
     draft["profiles"] = ["tds:minimal-daily@1.0"]
     draft["id_namespaces"] = {"XNYS": "ids as the files give them"}
     (package / "tds.json").write_text(json.dumps(draft), encoding="utf-8")
-    assert [f[0] for f in findings(package, capsys)[1]].count("TDS-M003") == 1  # markets
+    assert [f[:2] for f in findings(package, capsys)[1]].count(("TDS-M003", None)) == 1  # markets
 
     draft["markets"] = {"US": US}
     draft["datasets"][0] |= {"availability": {"rule": "ts_end"},
-                             "params": {"freq": "1d", "price_basis": "total_adjusted"}}  # fmt: skip
+                             "params": {"freq": "1d", "price_basis": "total_adjusted",
+                                        "bar_time": "session", "density": "dense"}}  # fmt: skip
     del draft["TODO"]
     (package / "tds.json").write_text(json.dumps(draft), encoding="utf-8")
     assert main(["check", str(package)]) == 0
@@ -139,6 +145,8 @@ def filled(package: Path, draft: dict[str, Any]) -> None:
     bars = {"availability": {"rule": "ts_end"}, "params": {"price_basis": "total_adjusted"}}
     for entry in (d for d in draft["datasets"] if d.get("kind") == "bars"):
         freq = {"freq": entry["path"][-2:]} | entry.get("params", {})
+        kind = ("session", "dense") if freq["freq"] == "1d" else ("interval", "sparse")  # C5
+        freq |= dict(zip(("bar_time", "density"), kind, strict=True))
         entry |= bars | {"params": bars["params"] | freq}
     draft |= {"profiles": [], "id_namespaces": {"XNYS": "ids as the files give them"},
               "markets": {"US": US}}  # fmt: skip

@@ -105,9 +105,12 @@ def check_values(
 
 
 def _raw(ds: Mapping[str, Any]) -> bool:
-    """Whether the dataset's prices are raw: `price_basis` `raw`, the default (TDS 5.5)."""
+    """Whether the dataset's prices are raw: a bars dataset's `price_basis` `raw`, which has no
+    default (TDS 5.5; a missing one is M003's, #705 C5); another kind's prices are raw."""
     params = ds.get("params")
-    return not isinstance(params, dict) or (params.get("price_basis") or "raw") == "raw"
+    return ds.get("kind") != "bars" or (
+        isinstance(params, dict) and params.get("price_basis") == "raw"
+    )
 
 
 def _off_grid(m: Manifest, only: Sequence[str] | None) -> list[Finding]:

@@ -219,7 +219,7 @@ def test_M015_warns_of_an_experimental_dataset_and_otherwise_passes(tmp_path: Pa
         ("2026-11-18", ["TDS-M017"]),  # the text before markets entries had required fields
         ("2026-11-13", ["TDS-M017"]),  # an older text
         ("2027-01-05", ["TDS-M017"]),  # a newer text than the checker knows
-        (None, ["TDS-M017"]),  # no tds_draft: a text from before 2026-11-18
+        (None, ["TDS-M003"]),  # no tds_draft: required, no text assumed (#705 C5)
         ("v1.4", ["TDS-M001"]),  # not a date: the schema's, and no second finding
         ("null", ["TDS-M001"]),  # a JSON null is a value that is not a date, not a missing field
     ],
@@ -1908,7 +1908,7 @@ def test_M013_duplicate_path(tmp_path: Path) -> None:
         ("hashes", {"hash_spec": ["tds-hash-1"]}),  # not a string: a finding, never a crash
         (
             "params",
-            {"freq": "1d", "price_basis": "raw", "availability_by_column": {"is_halted": "x"}},
+            build.DENSE | {"availability_by_column": {"is_halted": "x"}},
         ),
         ("hashes", {"hash_spec": "tds-hash-2"}),
     ],
@@ -1961,10 +1961,27 @@ def test_M014_unknown_closed_bars_param(param: str, value: object, tmp_path: Pat
     assert param in result.errors[0].message
 
 
-def test_a_null_closed_param_is_no_value(tmp_path: Path) -> None:
-    # JSON null is not declared, not a new value: no M014 (#80 Decisions, item 1)
-    package = write(tmp_path, lambda m, f: build.bars(m)["params"].update(density=None))
-    assert codes(package) == []
+def test_bars_without_availability_are_M003(tmp_path: Path) -> None:
+    # no rule is read in place of a missing one, `ts_end` neither (TDS 5.5, 6.2; #705 C5)
+    package = write(tmp_path, lambda m, f: build.bars(m).pop("availability"))
+    result = check(package, level="manifest")
+    assert [(f.code, f.dataset) for f in result.errors] == [("TDS-M003", "bars_1d")]
+    assert result.errors[0].message.startswith("availability is missing: no default is read")
+
+
+@pytest.mark.parametrize("given", [None, "absent"])
+@pytest.mark.parametrize("param", ["price_basis", "bar_time", "density"])
+def test_a_missing_closed_param_is_M003(param: str, given: str | None, tmp_path: Path) -> None:
+    # JSON null is not declared, not a new value: no M014 (#80 Decisions, item 1); and no
+    # default is read, so absent or null it is a missing field (#705 C5)
+    def change(m: dict[str, Any], f: Any) -> None:
+        params = build.bars(m)["params"] = dict(build.bars(m)["params"])  # not the shared DENSE
+        params.pop(param) if given else params.update({param: None})
+
+    result = check(write(tmp_path, change), level="manifest")
+    profile = [("TDS-M008", None)] if param == "price_basis" else []  # minimal declares it (7)
+    assert [(f.code, f.dataset) for f in result.errors] == [("TDS-M003", "bars_1d"), *profile]
+    assert result.errors[0].message.startswith(f"params.{param} is missing: no default is read")
 
 
 def test_closed_params_belong_to_bars_only(tmp_path: Path) -> None:

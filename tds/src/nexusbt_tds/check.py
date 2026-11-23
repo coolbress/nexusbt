@@ -71,6 +71,7 @@ DATE: str = MANIFEST_SCHEMA["$defs"]["date"]["pattern"]
 #: TDS 4.2: the fields marked ○ that are required unconditionally.
 REQUIRED: tuple[str, ...] = ("tds_version", "name", "created", "snapshot_id", "producer")
 REQUIRED += ("profiles", "id_namespaces", "markets", "datasets", "hashes", "writer")
+REQUIRED += ("tds_draft",)  # no text is assumed (TDS 10.5; #705 C5)
 #: 4.2 lists more fields without saying which are required; until #79 decides, the ones the
 #: manifest-level checks need (#51, Decisions 2026-11-02). A file needs `path` and `bytes`.
 DATASET_REQUIRED = ("name", "kind", "schema_version", "path", "files")
@@ -347,9 +348,9 @@ def _check_manifest(m: Manifest, only: Sequence[str] | None) -> Iterable[Finding
         yield Finding("TDS-M014", "error", f"unknown hash_spec {spec!r}")
     draft = data.get("tds_draft")  # TDS 10.5 (#529); a value that is no date is M001's
     dated = isinstance(draft, str) and re.fullmatch(DATE, draft) is not None
-    if (missing := "tds_draft" not in data) or (dated and draft != TDS_DRAFT):
-        said = "no tds_draft (a text before 2026-11-18)" if missing else f"tds_draft {draft}"
-        yield Finding("TDS-M017", "warning", f"{said}; this checker implements {TDS_DRAFT}")
+    if dated and draft != TDS_DRAFT:  # a missing one is M003's (#705 C5)
+        msg = f"tds_draft {draft}; this checker implements {TDS_DRAFT}"
+        yield Finding("TDS-M017", "warning", msg)
     markets, editions = data.get("markets"), data.get("editions")
     for code, entry in sorted(markets.items()) if isinstance(markets, dict) else []:
         for key in MARKET_REQUIRED if isinstance(entry, dict) else ():  # else M001's
@@ -440,6 +441,9 @@ def _check_dataset(
         if not isinstance(rule, str) or not RULE.fullmatch(rule):
             yield Finding("TDS-M014", "error", f"unknown availability rule {rule!r}", dataset=name)
     availability = ds.get("availability")  # a rule, `{"rule": …}`, or a 6.2 form (#276)
+    if availability is None and ds.get("kind") == "bars":  # no default rule (#705 C5)
+        msg = "availability is missing: no default is read (TDS 5.5, 6.2); write its rule"
+        yield Finding("TDS-M003", "error", msg, dataset=name)
     known = availability is None or isinstance(availability, str) or _named(ds)
     if not known and not (isinstance(availability, dict) and "rule" in availability):
         msg = f"availability {availability!r} is neither a 6.2 rule nor a 6.2 column form"
@@ -447,8 +451,10 @@ def _check_dataset(
     params = ds["params"] if isinstance(ds.get("params"), dict) else {}
     kind = ds.get("kind") if isinstance(ds.get("kind"), str) else None  # `["bars"]`: no crash
     for key, values in CLOSED_PARAMS.get(kind, {}).items():
-        # absent and null are no value, not a new one (#80 Decisions, item 1)
-        if params.get(key) is not None and params[key] not in values:
+        if params.get(key) is None:  # absent and null: no value, and none is assumed (#705 C5)
+            msg = f"params.{key} is missing: no default is read (TDS 5.5); write one of"
+            yield Finding("TDS-M003", "error", f"{msg} {', '.join(values)}", dataset=name)
+        elif params[key] not in values:
             msg = f"params.{key} {params[key]!r} is not one of {', '.join(values)}"
             yield Finding("TDS-M014", "error", msg, dataset=name)
     if kind == "bars" and params.get("freq") == "1d" and params.get("density") == "sparse":
