@@ -34,6 +34,10 @@ from .manifest import MANIFEST, TDS_DRAFT
 from .schemas.verify import SCHEMA_DIR
 
 _TOP = {"name", "snapshot_id", "profiles", "market", "id_namespaces", "datasets"}
+#: Daily bars' `params` the import writes when the mapping gives none, and why (#705 C5): the
+#: kind's conventions, never a fact only the user knows (`price_basis` stops the import).
+_DAILY = (("bar_time", "session", "a daily bar of the market's session"),
+          ("density", "dense", "the import writes a row on each session"))  # fmt: skip
 _DATASET = {"file", "kind", "params", "columns", "values", "missing_values", "availability",
             "pit_quality"}  # fmt: skip
 REPORT = "import_report.json"
@@ -307,6 +311,12 @@ def _read(
     schema, params = _schema(kind), ds.get("params") or {}
     if not isinstance(params, dict):
         raise CsvImportError(f"datasets.{name}.params is not a block of `key: value` lines")
+    if kind == "bars" and params.get("freq") == "1d" and params.get("price_basis") is None:
+        raise CsvImportError(
+            f"datasets.{name}.params: price_basis is missing, and only you know it (TDS 5.5): "
+            "write raw (prices as traded), split_adjusted (adjusted for splits) or "
+            "total_adjusted (adjusted for splits and dividends)"
+        )
     if kind == "bars" and params.get("freq") == "1d" and params.get("density") == "sparse":
         raise CsvImportError(
             f"datasets.{name}.params: daily bars are dense, and the import "
@@ -377,6 +387,10 @@ def _read(
         raise CsvImportError(f"{path.name}: no column for {', '.join(absent)}, the sort key")
     table = table.sort_by([(k, "ascending") for k in sort]) if sort else table
     entry: dict[str, Any] = {"name": name, "kind": kind, "schema_version": "1.0", "path": name}
+    for key, value, why in _DAILY if kind == "bars" and params.get("freq") == "1d" else ():
+        if params.get(key) is None:  # the kind's convention, written and said (#705 C5)
+            params = params | {key: value}
+            assumed.append(f"params.{key} {value} ({why}, TDS 5.5)")
     entry |= {"params": params} if params else {}
     if either := [c for c in order if types[c] == "ts_us/ns"]:  # written in us; said so (4.5)
         entry["columns"] = [{"name": c, "type": "ts_us"} for c in either]

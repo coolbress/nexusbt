@@ -175,11 +175,13 @@ def test_minimal_daily_needs_a_declared_price_basis(tmp_path: Path) -> None:
     assert _m008(tmp_path / "a", minimal, adjusted) == []
     wanted = [f"{minimal} requires dataset bars(freq=1d, price_basis)"]
     assert _m008(tmp_path / "b", minimal, _bars_params(freq="1d")) == wanted
-    # null is not declared (#80 Decisions, item 1): M008 alone, no M014
+    # null is not declared (#80 Decisions, item 1): M008, and M003 for no default (#705 C5),
+    # no M014
     manifest, files = build.base()
-    build.bars(manifest)["params"] = {"freq": "1d", "price_basis": None}
+    build.bars(manifest)["params"] = build.DENSE | {"price_basis": None}
     result = check(Path(build.write(tmp_path / "c", manifest, files)), level="manifest")
-    assert [(f.code, f.message) for f in result.errors] == [("TDS-M008", wanted[0])]
+    assert sorted(f.code for f in result.errors) == ["TDS-M003", "TDS-M008"]
+    assert ("TDS-M008", wanted[0]) in [(f.code, f.message) for f in result.errors]
 
 
 def test_a_package_error_fails_every_profile(tmp_path: Path) -> None:

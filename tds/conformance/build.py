@@ -93,7 +93,7 @@ def base() -> Package:
         BARS: parquet(bars_table(), "bars_1d"),
         CALENDAR: parquet(sessions(), "calendar_sessions"),
     }
-    bars_1d = {"params": {"freq": "1d", "price_basis": "raw"}, "availability": {"rule": "ts_end"}}
+    bars_1d = {"params": dict(DENSE), "availability": {"rule": "ts_end"}}  # all declared (C5)
     datasets: list[tuple[str, str, str, str, dict[str, Any]]] = [
         ("instruments", "instruments", "instruments", INSTRUMENTS, {}),
         ("bars_1d", "bars", "bars/freq=1d", BARS, bars_1d),
@@ -451,7 +451,7 @@ def _classified(*rows: Classified) -> Change:
 _A = ("A", "2019-01-01", None, "2018-12-01", "2020-03-06", 1, "both", "native")
 _A2 = ("A", "2019-01-01", "2020-03-20", "2020-03-06", None, 1, "both", "native")
 _B = ("B", "2020-03-20", None, "2020-03-06", None, 1, "both", "native")
-DENSE = {"freq": "1d", "price_basis": "raw", "density": "dense"}
+DENSE = {"freq": "1d", "price_basis": "raw", "density": "dense", "bar_time": "session"}
 
 
 def _dense(*days: int) -> Change:

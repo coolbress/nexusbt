@@ -19,7 +19,7 @@ import pyarrow.compute as pc
 import pyarrow.parquet as pq
 import pytest
 
-from nexusbt.contracts import CapabilityError, DecimalRatioPolicy, VerifyPolicy
+from nexusbt.contracts import CapabilityError, DecimalRatioPolicy, SnapshotError, VerifyPolicy
 from nexusbt.data import CapabilityRequest, DataConfig, MarketBlock, Snapshot, open_snapshot
 from nexusbt.data._l0 import l0_key
 from nexusbt.testing.synth import make_snapshot
@@ -249,24 +249,25 @@ def utc_day_copy(first: bool) -> Callable[[Path, Manifest], None]:
     return change
 
 
-def test_daily_bars_without_bar_time_are_session_bars(tiny: Path, tmp_path: Path) -> None:
-    """#551: a daily bars dataset with no `bar_time` is read as session bars, the engine's rule
-    where TDS 5.5 names no default (spec 4.3): the block is the declared package's."""
-    want = first_session(opened(tiny)[0])
-    snap, _ = opened(rewritten(tiny, tmp_path / "absent", bar_time(None)))
-    np.testing.assert_array_equal(first_session(snap).values["close"], want.values["close"])
+def test_daily_bars_without_bar_time_are_refused_at_open(tiny: Path, tmp_path: Path) -> None:
+    """#551 read a daily bars dataset with no `bar_time` as session bars; since #705 C5 no
+    declaration has a default, so the checker's TDS-M003 stops it at open, at every verify
+    level, and no default is read (TDS 5.5)."""
+    root = rewritten(tiny, tmp_path / "absent", bar_time(None))
+    for level in VerifyPolicy:
+        with pytest.raises(SnapshotError, match=r"TDS-M003 params\.bar_time is missing"):
+            open_snapshot(DataConfig(path=root, verify=level))
 
 
-def test_daily_bars_with_null_bar_time_are_session_bars(tiny: Path, tmp_path: Path) -> None:
-    """#551's Outcome left this untested: an explicit `"bar_time": null` is not a value (TDS
-    5.5), so the engine reads it as it reads a missing one, as session bars (spec 4.3)."""
+def test_daily_bars_with_null_bar_time_are_refused_at_open(tiny: Path, tmp_path: Path) -> None:
+    """An explicit `"bar_time": null` is not a value (TDS 5.5), so it is a missing one: E14 at
+    open with TDS-M003 (#705 C5)."""
 
     def null(root: Path, data: Manifest) -> None:
         entry(data, "bars_1d")["params"]["bar_time"] = None
 
-    want = first_session(opened(tiny)[0])
-    snap, _ = opened(rewritten(tiny, tmp_path / "null", null))
-    np.testing.assert_array_equal(first_session(snap).values["close"], want.values["close"])
+    with pytest.raises(SnapshotError, match=r"TDS-M003 params\.bar_time is missing"):
+        opened(rewritten(tiny, tmp_path / "null", null))
 
 
 def test_utc_day_bars_alone_are_no_daily_bars(tiny: Path, tmp_path: Path) -> None:

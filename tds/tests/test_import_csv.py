@@ -238,7 +238,17 @@ def test_minimal_two_csv(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> 
     assert "0 errors, 0 warnings at level full" in printed
     manifest = json.loads((out / "tds.json").read_text(encoding="utf-8"))
     bars = next(d for d in manifest["datasets"] if d["kind"] == "bars")
-    assert bars["params"] == {"freq": "1d", "price_basis": "total_adjusted"}
+    assert bars["params"] == {
+        "freq": "1d",
+        "price_basis": "total_adjusted",  # the user's fact
+        "bar_time": "session",
+        "density": "dense",
+    }  # the kind's (#705 C5)
+    said = json.loads((tmp_path / "import_report.json").read_text(encoding="utf-8"))
+    assert [a for a in said["datasets"]["bars"]["assumed"] if a.startswith("params.")] == [
+        "params.bar_time session (a daily bar of the market's session, TDS 5.5)",
+        "params.density dense (the import writes a row on each session, TDS 5.5)",
+    ]
     assert manifest["markets"]["US"]["timezone"] == "America/New_York"
     assert rows(out, "bars")[0]["close"] == 185.64
     # an import that cannot be read: exit 1 and the reason, no traceback
@@ -517,6 +527,16 @@ def test_the_import_fills_a_row_on_each_session_an_instrument_lacks(
     # its market has, so the stopped one is judged, and passes (TDS 5.5, #705 Decisions 134)
     result = check(package, level="full")
     assert (result.errors, "TDS-D001" in result.unchecked) == ((), False)
+
+
+def test_daily_bars_without_a_price_basis_are_refused(tmp_path: Path) -> None:
+    """Only the user knows how the prices are adjusted (TDS 5.5, #705 C5), so a mapping that
+    does not say stops, naming the three values; no package is written."""
+    files = {"instruments.csv": GAPS_INSTRUMENTS, "bars.csv": GAPS_BARS,
+             "mapping.yaml": MINIMAL.replace(", price_basis: total_adjusted}", "}")}  # fmt: skip
+    with pytest.raises(CsvImportError, match=r"price_basis is missing.*raw .*split_adjusted"):
+        import_csv(write(tmp_path, files), tmp_path / "pkg")
+    assert not (tmp_path / "pkg").exists()
 
 
 def test_daily_bars_declared_sparse_are_refused(tmp_path: Path) -> None:

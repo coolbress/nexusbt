@@ -90,7 +90,7 @@ def _check(m: Manifest, only: Sequence[str] | None, blind: set[str]) -> list[Fin
         rule = _rule(ds.get("availability"))
         params = ds["params"] if isinstance(ds.get("params"), dict) else {}
         daily = kind == "bars" and params.get("freq") == "1d"
-        bounded = daily and params.get("bar_time") in (None, "session")
+        bounded = daily and params.get("bar_time") == "session"  # no default (M003, #705 C5)
         bad: dict[tuple[str, Severity], list[Any]] = {}  # → [count, first row]
         for r in _read(root, ds, kind, rule):
             for code, severity in _broken(kind, r, rule, bounded, session, next_open):
