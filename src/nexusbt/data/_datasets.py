@@ -11,9 +11,9 @@ from nexusbt.contracts import CapabilityError
 
 #: The parameters that tell datasets of a kind apart, each to the value the engine reads and
 #: the values it reads as that one: session daily bars (4.6). Minute bars are not read in v1,
-#: nor `utc_day` daily bars (TDS 9.4); a `bars` dataset with no `bar_time` is read as `session`,
-#: the engine's rule where TDS 5.5 names no default (4.3, #551).
-TOLD_APART = {"bars": {"freq": ("1d", ("1d",)), "bar_time": ("session", ("session", None))}}
+#: nor `utc_day` daily bars (TDS 9.4). A `bars` dataset always declares `bar_time` (TDS-M003
+#: at open, #705 C5): none is read as `session`, as #551 once did.
+TOLD_APART = {"bars": {"freq": ("1d", ("1d",)), "bar_time": ("session", ("session",))}}
 
 Dataset = Mapping[str, Any]
 

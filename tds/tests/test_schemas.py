@@ -223,10 +223,18 @@ def _without(column: str, *rows: dict[str, Any]) -> list[dict[str, Any]]:
         ([_LIMIT | {"verified": None}, _RULE], ["TDS-S003"], True),
         ([_RULE | {"verified": "no"}], ["TDS-S002"], True),
         ([_RULE, _RULE], ["TDS-K001", "TDS-T003"], True),  # the 5.27 key twice: one band twice
-        # `price_from` may be null, and a file without the column has no key to compare: the
-        # same rule twice is then not found, and K001 is listed as not checked; its bands, both
-        # from 0, still overlap (T003, #225)
-        (_without("price_from", _RULE, _RULE), ["TDS-T003"], False),
+        # `price_from` may be null, but its column is in every file (S001, #705 C5): without
+        # it there is no key to compare, so the same rule twice is not found and K001 is listed
+        # as not checked; its bands, both from 0, still overlap (T003, #225)
+        (_without("price_from", _RULE, _RULE), ["TDS-S001", "TDS-T003"], False),
+        (  # a null cell, sorted last (3.7): the band from 0 to 1, then from 1
+            [
+                _RULE | {"price_from": 1.0, "price_to": None},
+                _RULE | {"price_from": None, "price_to": 1.0},
+            ],
+            [],
+            True,
+        ),
     ],
 )
 def test_market_rules_schema_stable_optional(

@@ -509,6 +509,9 @@ _UNITS = {"ts_us": {"us"}, "ts_ns": {"ns"}, "ts_us/ns": {"us", "ns"}}  # K2; `ts
 _BITS = {"i8": 8, "i16": 16, "i32": 32, "i64": 64}
 #: Without tds.json `partitioning`: 3.6's examples, any other a code (rule chosen in #56).
 _PARTITION_TYPE = {"year": "i16", "date": "date"}
+#: Columns every file holds though a cell may be null: S001 without them. TDS 5.27's key column
+#: `price_from` (null = 0), which the key and the value hash read (#705 C5, #725 Decisions 176).
+PRESENT: Mapping[str, tuple[str, ...]] = {"market_rules": ("price_from",)}
 
 
 def _required(null: object, params: Mapping[str, Any]) -> bool:
@@ -720,7 +723,8 @@ def _check_file(
     for column in columns:
         required = _required(column.null, params) or column.name in rowed
         if column.name not in arrow.names:
-            if column.name not in parts and required:
+            present = column.name in PRESENT.get(str(ds.get("kind")), ())  # its cells may be null
+            if column.name not in parts and (required or present):
                 absent.add(column.name)
                 yield Finding("TDS-S001", "error", f"required column {column.name} is missing")
             continue
