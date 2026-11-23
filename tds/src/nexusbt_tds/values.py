@@ -42,6 +42,8 @@ from .refs import _rows, _stored
 V001, V002, V004, V005, V010, V011, V012, V020, V030, V040, V041, V050 = VALUE_CODES
 WARNINGS = frozenset({V010, V030, V041})
 PRICES = ("open", "high", "low", "close", "vwap")
+#: A bar's values for V004's row with no state: what it observed of the session (TDS 5.5).
+VALUED = (*PRICES, "volume", "value_traded")
 RATIO = ("instrument_id", "session_date", "high", "low", "close", "volume", "value_traded")
 #: TDS 5.27's raw price columns, per kind.
 GRID = {"bars": PRICES[:4], "tradability_daily": ("up_limit_price", "down_limit_price")}
@@ -69,7 +71,8 @@ COLUMNS = {
 SAID = {V001: "bar(s) whose high and low do not enclose open and close",
         V002: "bar(s) with a negative price, volume or value_traded",
         V004: "bar(s) traded with no close, or on equity or etf with no open, high, low or volume "
-              "where a declared profile requires them",
+              "where a declared profile requires them; no_trade or halted with a volume not 0; "
+              "halted with a price; or with neither a value nor obs_status",
         V005: "FX rate(s) <= 0",
         V010: "equity bar(s) whose volume is not an integer",
         V020: "instrument(s) without a column their asset_class needs",
@@ -252,7 +255,14 @@ def _broken(
         if any(r[k] is not None and r[k] < 0 for k in (*prices, "volume", "value_traded")):
             out.append(V002)
         cells = (*PRICES[:4], "volume") if whole and asset in TRADED else ("close",)  # 5.5, 7
-        if r["obs_status"] == "traded" and any(r[k] is None for k in cells):
+        state, volume = r["obs_status"], r["volume"]
+        if (
+            (state == "traded" and any(r[k] is None for k in cells))
+            or (state in ("no_trade", "halted") and volume is not None and volume != 0)
+            or (state == "halted" and any(r[k] is not None for k in PRICES[:4]))
+            or (state is None and all(r[k] is None for k in VALUED))
+        ):  # 5.5: a written volume of no trade is 0, a halt has no price (#705 Decisions
+            # 38, 168); a row with neither values nor a state says nothing (131)
             out.append(V004)
         if asset == "equity" and r["volume"] is not None and not float(r["volume"]).is_integer():
             out.append(V010)

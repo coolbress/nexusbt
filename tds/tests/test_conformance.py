@@ -877,6 +877,17 @@ def _traded_twice(**columns: Any) -> Any:
                        **columns)  # fmt: skip
 
 
+def _stated(state: str | None, **cells: float | None) -> Any:
+    """US:AAA on the 2nd with `obs_status` `state` and only `cells` valued, traded on the 3rd
+    with a close (which minimal-daily requires, M008)."""
+    days = pa.array([dt.date(2024, 1, 2), dt.date(2024, 1, 3)])
+    valued = ("open", "high", "low", "close", "vwap", "volume", "value_traded")
+    columns = {c: pa.array([cells.get(c), 10.0 if c == "close" else None], pa.float64())
+               for c in valued}  # fmt: skip
+    return build._bars(instrument_id=pa.array(["US:AAA"] * 2), session_date=days,
+                       obs_status=pa.array([state, "traded"], pa.string()), **columns)  # fmt: skip
+
+
 @pytest.mark.parametrize(
     ("change", "found"),
     [  # V001 and V002 judge a row only on the values it has; an index's price may be negative
@@ -892,6 +903,16 @@ def _traded_twice(**columns: Any) -> Any:
                      _traded_twice(open=pa.array([None, None], pa.float64()))), []),
         (build._both(build._instruments(asset_class=pa.array(["etf"])),
                      build._bars(volume=pa.array([1.5]))), []),
+        # TDS 5.5's states, in every profile (#705 Decisions 38, 131, 168)
+        (_stated("no_trade", volume=5.0), ["TDS-V004"]),  # a written volume of no trade is 0
+        (_stated("no_trade", close=9.9, volume=0.0), []),  # close: the reference price
+        (_stated("no_trade"), []),  # a null volume states nothing (168)
+        (_stated("halted", close=10.0, volume=0.0), ["TDS-V004"]),  # a halt has no price
+        (_stated("halted", volume=7.0), ["TDS-V004"]),
+        (_stated("halted"), []),
+        (_stated(None), ["TDS-V004"]),  # neither a value nor a state (131)
+        (_stated(None, value_traded=1e6), []),  # a value, its state not stated (129)
+        (_stated(None, close=10.0), []),
     ],
 )  # fmt: skip
 def test_value_rules_edges(change: Any, found: list[str], tmp_path: Path) -> None:
