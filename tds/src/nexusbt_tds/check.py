@@ -22,7 +22,7 @@ import json
 import math
 import os
 import re
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Literal
@@ -506,9 +506,7 @@ def _required(null: object, params: Mapping[str, Any]) -> bool:
     """A schema `null` cell as "may not be null"; its conditions read `params` (rule of #56)."""
     if null == "daily yes / intraday no":
         return params.get("freq") != "1d"
-    if null == "no if dense":
-        return params.get("density") == "dense"
-    return null is False
+    return null is False  # a profile's own (`every_row`) is added by `_check_file`
 
 
 def _fits(tag: str, value: str) -> bool:
@@ -533,6 +531,7 @@ def _check_schema(
 
     schemas, root, out = load_schemas(), m.root.resolve(), []
     codes = _dictionary_codes(m, root)
+    declared = [PROFILES[i] for i in map(profile_id, m.profiles) if i in PROFILES]
     read: set[str] = set()  # a path listed twice is M013's; its S findings, once
     for ds in m.datasets:
         schema = schemas.get(str(ds.get("kind")))
@@ -547,13 +546,16 @@ def _check_schema(
             continue
         out += _check_declared(ds, schema)
         files = ds.get("files")
+        rowed = {c for p in declared for need, cols in p.every_row if _has([ds], need)
+                 for c in cols}  # fmt: skip
         for entry in files if isinstance(files, list) else []:
             rel = entry.get("path") if isinstance(entry, dict) else None
             if not isinstance(rel, str) or (norm := str(PurePosixPath(rel))) in read:
                 continue
             read.add(norm)
             if not _unsafe(root, rel) and (root / rel).is_file():
-                found = [*_check_file(root, rel, ds, schema, blind, codes, entry.get("bytes"))]
+                found = [*_check_file(root, rel, ds, schema, blind, codes, entry.get("bytes"),
+                                      rowed)]  # fmt: skip
                 if ds.get("kind") == "instruments":
                     found += _undeclared_markets(root / rel, m.data)
                 out += [replace(f, dataset=ds.get("name"), file=rel) for f in found
@@ -676,8 +678,10 @@ def _check_file(
     blind: set[str],
     codes: set[tuple[str, str]],
     size: object,
+    rowed: Collection[str] = (),
 ) -> Iterable[Finding]:
-    """S001~S010 of one file; `size`: its tds.json `bytes`."""
+    """S001~S010 of one file; `size`: its tds.json `bytes`; `rowed`: the columns a declared
+    profile requires on every row of its dataset (chapter 7), not null whatever 5.5 says."""
     try:
         meta = pq.ParquetFile(root / rel).metadata
         arrow = meta.schema.to_arrow_schema()
@@ -705,12 +709,12 @@ def _check_file(
     columns = resolved_columns(ds, schema.columns)  # the value hash's set too (#144)
     known, absent = {c.name for c in columns}, set[str]()
     for column in columns:
+        required = _required(column.null, params) or column.name in rowed
         if column.name not in arrow.names:
-            if column.name not in parts and _required(column.null, params):
+            if column.name not in parts and required:
                 absent.add(column.name)
                 yield Finding("TDS-S001", "error", f"required column {column.name} is missing")
             continue
-        required = _required(column.null, params)
         yield from _check_column(meta, arrow, column, required, declared.get(column.name), blind)
         yield from _check_values(meta, arrow, column, codes, blind)
     within = params.get(WITHIN) if ds.get("kind") in SEQUENCED else None  # #348: it requires them

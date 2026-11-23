@@ -275,13 +275,30 @@ def test_core_bars_without_a_required_column_are_M008(column: str, tmp_path: Pat
     assert below.errors == ()
     assert below.profiles[CORE] == ProfileStatus(False, "manifest", "not_checked")
     # counter-example: the same bars of an index, which needs only `close` (#705 Decisions 39).
-    # Dense bars without `obs_status` are S001 under any profile (5.5 "no if dense").
+    # Core is checked, not declared, so `obs_status` on every row (S001, S003) is not asked:
+    # 5.5's null cell reads the declared profiles, as V004 does (#705 Decisions 129).
     index = [f.code for f in _core(tmp_path / "c", {column: None}, asset="index").errors]
-    assert index == (["TDS-S001", "TDS-M008"] if column == "obs_status" else [])
+    assert index == (["TDS-M008"] if column == "obs_status" else [])
     # and the same bars of the equity under minimal-daily, which asks close alone (2026-11-22)
-    others = [f.code for f in _core(tmp_path / "d", {column: None}, MINIMAL).errors]
-    assert others == index[:1]
-    assert [f.code for f in result.errors] == [*index[:1], "TDS-M008"]
+    assert _core(tmp_path / "d", {column: None}, MINIMAL).errors == ()
+    assert [f.code for f in result.errors] == ["TDS-M008"]
+
+
+@pytest.mark.parametrize(
+    ("profile", "found", "absent"), [(CORE, ["TDS-S003"], ["TDS-S001"]), (MINIMAL, [], [])]
+)
+def test_obs_status_is_on_every_row_where_a_declared_profile_requires_it(
+    profile: str, found: list[str], absent: list[str], tmp_path: Path
+) -> None:
+    """TDS 5.5 and 7 (#705 Decisions 128, 129): a valued row's null `obs_status` states no
+    state, which minimal-daily allows; core and above hold it on every row (S003), and left
+    out of the file it is S001."""
+    null = {"obs_status": pa.array([None], pa.string())}
+    codes = [f.code for f in _core(tmp_path / "a", null, profile, declared=True).errors]
+    assert [c for c in codes if c.startswith("TDS-S")] == found
+    gone = [f.code for f in _core(tmp_path / "b", {"obs_status": None}, profile, declared=True)
+            .errors]  # fmt: skip
+    assert [c for c in gone if c.startswith("TDS-S")] == absent
 
 
 @pytest.mark.parametrize(("profile", "found"), [(CORE, ["TDS-V004"]), (MINIMAL, [])])

@@ -843,6 +843,7 @@ CASES: dict[str, tuple[Change, Change]] = {
         _keep,
         _both(
             _sessions(0, (2, 3), years=(2024, 2025)),
+            _instruments(listed_on=pa.array([dt.date(2025, 1, 2)])),  # no 2024 row is due: D001
             _bars(session_date=pa.array([dt.date(2025, 1, 2)])),
         ),
     ),

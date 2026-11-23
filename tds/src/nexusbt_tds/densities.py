@@ -1,14 +1,18 @@
 """The `full` level's density checks from the rows: D001, D002, D004 (TDS 4.2, 5.5, 8.3).
 
-Rules chosen with the maintainer (#225, 2026-11-11): D001 reads dense daily bars, for each
+Rules chosen with the maintainer (#225, 2026-11-11): D001 reads daily bars, for each
 instrument with a row in the dataset: every session of its calendar from `listed_on` to
 `last_session`, or without it to the date of its market's `complete_through`, has a row; rows
-on those sessions are counted (a duplicate is K001's), and an instrument with neither end, no
-`listed_on` or no calendar is not judged. D002 here is a daily bar outside its instrument's
-`listed_on`..`delisted_on`; a non-session day is R003's, and a dataset the statistics already
-found is not reported twice. D004 compares a dataset's and each file's `rows` with the rows,
-and the `coverage` keys of 4.2's example that are present: `instruments`, `ts_min`, `ts_max`,
-`by_market` (`instruments`, `first`, `last`, `rows` per `market=` partition).
+on those sessions are counted (a duplicate is K001's), and an instrument with no `listed_on`
+or no calendar is not judged. Since #705 (Decisions 128, 134 and 17 (2)) every daily dataset
+is read whatever its `density`, and an instrument with neither end runs to the dataset's
+`processed_through_session` for its market, else to the last session any row of that market
+has in the dataset, the end `tds import csv` fills to. D002 here is a daily bar outside its
+instrument's `listed_on`..`delisted_on`; a non-session day is R003's, and a dataset the
+statistics already found is not reported twice. D004 compares a dataset's and each file's
+`rows` with the rows, and the `coverage` keys of 4.2's example that are present:
+`instruments`, `ts_min`, `ts_max`, `by_market` (`instruments`, `first`, `last`, `rows` per
+`market=` partition).
 D003 (#425, 2026-11-12) reads a dataset with no `last` in a market whose
 `processed_through_session` it gives: a row whose 6.2 availability instant (`_known`) is after
 that session's close in the market's calendar; the row's market is its `market` column or
@@ -73,9 +77,8 @@ def _check(
         name, params = str(ds.get("name")), ds.get("params")
         params = params if isinstance(params, dict) else {}
         daily = ds.get("kind") == "bars" and params.get("freq") == "1d"
-        if daily:
-            dense = params.get("density") == "dense"
-            out += _listed(root, ds, name, listings, sessions, markets, dense, blind, reported)
+        if daily:  # dense whatever `params.density` says (TDS 5.5; #705 Decisions 134)
+            out += _listed(root, ds, name, listings, sessions, markets, blind, reported)
         out += _counts(root, ds, name)
         out += _after(root, ds, name, markets, closes, market_of, blind, notes)
     return out
@@ -139,29 +142,39 @@ def _known(availability: object) -> tuple[str, ...]:
 
 def _listed(
     root: Path, ds: Mapping[str, Any], name: str, listings: Mapping[Any, tuple[Any, ...]],
-    sessions: Mapping[Any, list[Any]], markets: Mapping[str, Any], dense: bool, blind: set[str],
+    sessions: Mapping[Any, list[Any]], markets: Mapping[str, Any], blind: set[str],
     reported: Collection[object],
 ) -> list[Finding]:  # fmt: skip
-    """D002 and, on dense bars, D001 of one daily bars dataset."""
+    """D002 and D001 of one daily bars dataset; an instrument whose end is not known (`_end`)
+    is judged to the last session a row of its market has here, which every row is on or before."""
     outside, first, held = 0, None, Counter[Any]()
-    on = {c: set(v) for c, v in sessions.items()} if dense else {}
-    ends = {i: _end(r[4], markets.get(r[2])) for i, r in listings.items()} if dense else {}
+    on = {c: set(v) for c, v in sessions.items()}
+    coverage = ds.get("coverage")
+    by = coverage.get("by_market") if isinstance(coverage, dict) else None
+    covered = by if isinstance(by, dict) else {}
+    ends = {i: _capped(_end(r[4], markets.get(r[2]), covered.get(r[2])), r[5])
+            for i, r in listings.items()}  # fmt: skip
+    last: dict[Any, Any] = {}  # market → the last session a row of it has in the dataset
     for i, day in _rows(root, ds, ("instrument_id", "session_date")):
-        _, calendar, _, listed_on, _, delisted = listings.get(i, (None,) * 6)
+        _, calendar, market, listed_on, _, delisted = listings.get(i, (None,) * 6)
         if day is None or i not in listings:
             continue  # R001's, S003's
         if (listed_on is not None and day < listed_on) or (delisted and day > delisted):
             outside, first = outside + 1, first or {"instrument_id": i, "session_date": str(day)}
-        held[i] += dense and listed_on is not None and ends[i] is not None and (
-            listed_on <= day <= ends[i] and day in on.get(calendar, ()))  # fmt: skip
+        if day not in on.get(calendar, ()):
+            held[i] += 0  # R003's day: an instrument with a row, which sets no end
+            continue
+        last[market] = max(last.get(market, day), day)
+        end = ends[i]
+        held[i] += listed_on is not None and listed_on <= day and (end is None or day <= end)
     out = []
     if outside and name not in reported:
         msg = f"{outside} daily bar(s) outside their instrument's listed_on..delisted_on"
         out.append(Finding(D002, "error", msg, name, key=first, count=outside))
     missing, shown = 0, None
-    for i in sorted(held, key=str) if dense else ():  # each instrument with a row
-        _, calendar, _, listed_on, _, _ = listings[i]
-        end = ends[i]
+    for i in sorted(held, key=str):  # each instrument with a row
+        _, calendar, market, listed_on, _, delisted = listings[i]
+        end = _capped(last.get(market), delisted) if ends[i] is None else ends[i]
         if end is None or listed_on is None or calendar not in sessions:
             blind.add(D001)
             continue
@@ -173,13 +186,22 @@ def _listed(
     return out
 
 
-def _end(last: Any, market: object) -> Any:
-    """D001's last day: `last_session`, else the market's `complete_through` as a date in the
-    market's `timezone` (UTC when it names none); None without either."""
+def _capped(end: Any, delisted: Any) -> Any:
+    """D001 asks no row after `delisted_on`, where a row is D002's (TDS 5.5; #705, the session's
+    decision on 8a's review): the earlier of the two, `end` when either is None."""
+    return delisted if delisted is not None and end is not None and delisted < end else end
+
+
+def _end(last: Any, market: object, covered: object) -> Any:
+    """D001's last day (TDS 5.5): `last_session`, else the market's `complete_through` as a date
+    in the market's `timezone` (UTC when it names none), else the dataset's
+    `coverage.by_market.<m>.processed_through_session`; None, the end not known, without any."""
     entry = market if isinstance(market, dict) else {}
     through = _instant(entry.get("complete_through"))
-    if last is not None or through is None:
+    if last is not None:
         return last
+    if through is None:
+        return _day(covered.get("processed_through_session")) if isinstance(covered, dict) else None
     try:
         zone: dt.tzinfo = ZoneInfo(str(entry.get("timezone")))
     except (KeyError, ValueError):  # no or an unknown zone name

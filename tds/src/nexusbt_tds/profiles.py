@@ -35,6 +35,8 @@ class Profile:
     #: The columns such a dataset must also hold when its `instrument_id` names an instrument
     #: whose `asset_class` is in `TRADED` (chapter 7, #705 Decisions 37).
     traded: tuple[tuple[Need, tuple[str, ...]], ...] = ()
+    #: The columns such a dataset holds on every row, not null (`_EVERY_ROW`; S001 and S003).
+    every_row: tuple[tuple[Need, tuple[str, ...]], ...] = ()
 
 
 _CONDITION = re.compile(r"([a-z_]+)([=<].*)?")
@@ -151,6 +153,10 @@ _COLUMNS = {
     "l3-book": {"book_deltas:depth_kind=mbo": "order_id"},
     "alt-events": {"events": "ts_available", "series_observations": "ts_available"},
 }
+#: Chapter 7's "`obs_status` on every row" (5.5's null cell, #705 Decisions 129): core and above;
+#: `minimal-daily` leaves it null on a row with values, its state not stated.
+_EVERY_ROW = {"equity-daily-core": {_CORE[1]: "obs_status"},
+              "equity-daily-research": {_CORE[1]: "obs_status"}}  # fmt: skip
 
 
 def _with_columns(p: Profile) -> Profile:
@@ -159,7 +165,8 @@ def _with_columns(p: Profile) -> Profile:
     def needs(named: Mapping[str, str]) -> tuple[tuple[Need, tuple[str, ...]], ...]:
         return tuple((_needs(need)[0][0][0], tuple(cols.split())) for need, cols in named.items())
 
-    return replace(p, columns=needs(_COLUMNS.get(short, {})), traded=needs(_TRADED.get(short, {})))
+    return replace(p, columns=needs(_COLUMNS.get(short, {})), traded=needs(_TRADED.get(short, {})),
+                   every_row=needs(_EVERY_ROW.get(short, {})))  # fmt: skip
 
 
 PROFILES: Mapping[str, Profile] = MappingProxyType({p.name: _with_columns(p) for p in _TABLE})
