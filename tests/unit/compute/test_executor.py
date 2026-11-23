@@ -15,7 +15,6 @@ import pytest
 from nexusbt.compute._executor import execute
 from nexusbt.contracts import WindowError
 from nexusbt.data._block import MarketBlock
-from nexusbt.factors import AverageDollarVolume
 from nexusbt.pipeline import BoundColumn, Factor, Term, factor, graph_hash
 
 pytestmark = pytest.mark.unit
@@ -186,42 +185,6 @@ def test_edges_a_run_meets() -> None:
 
 def _first(w: Any) -> Any:
     return w[0, :1]
-
-
-def test_f18_cells_nan_and_uncounted_in_their_own_columns() -> None:
-    """#688: `AverageDollarVolume(3)` is NaN in a column whose window reads a seen cell of a
-    file F-18 covers (`MarketBlock.gone`), and only that column's `InfiniteResult` goes; the
-    other columns' counts of the same row stay. A covered cell not yet seen at row t is not
-    read there (5.1.2), so it makes row t NaN only once seen (P-FUT). Without the market's
-    F-18 record (`gone=` empty) the cells say nothing."""
-    whole = block()
-    close, volume = whole.values["close"].copy(), np.full((SESSIONS, 3), 1e3)
-    close[41, :2], volume[41, :2] = 1e300, 1e10  # A's and B's product overflows at row 41
-    covered = np.zeros((SESSIONS, 3), dtype=bool)
-    covered[39, 0] = covered[43, 2] = True  # A's row 39; C's row 43, seen from row 44
-    available = whole.ts_available.copy()
-    available[43, 2] = READY[44]
-
-    def read(first: int, last: int) -> MarketBlock:
-        s = slice(first, last + 1)
-        values = {"close": close[s], "volume": volume[s]}
-        return MarketBlock(whole.market, whole.dates[s], 0, IDS, values, whole.exists[s],
-                           whole.obs_status[s], available[s], {"volume": covered[s]})  # fmt: skip
-
-    term = AverageDollarVolume(3)
-    key = graph_hash(term)
-    for gone, nan, counted in (
-        ({"volume"}, {(41, "A"), (41, "B"), (42, "A"), (42, "B"), (43, "A"), (43, "B"),
-                      (44, "C")}, {41: 1, 42: 2, 43: 2}),
-        (set(), {(r, i) for r in (41, 42, 43) for i in "AB"}, {41: 2, 42: 2, 43: 2}),
-    ):  # fmt: skip
-        counts: dict[tuple[int, str, str], int] = {}
-        found = execute([term], [41, 42, 43, 44], [(0, SESSIONS - 1)], read, READY,
-                        counts=counts, gone=frozenset(gone))[key]  # fmt: skip
-        cells = zip(found["row"].to_pylist(), found["instrument_id"].to_pylist(),
-                    found["value"].to_pylist(), strict=True)  # fmt: skip
-        assert {(r, i) for r, i, v in cells if np.isnan(v)} == nan, gone
-        assert counts == {(r, key, "InfiniteResult"): n for r, n in counted.items()}, gone
 
 
 def test_a_term_listed_twice_is_one_output() -> None:

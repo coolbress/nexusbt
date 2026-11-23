@@ -1,4 +1,5 @@
-"""#584: bars without `volume` or `value_traded` (4.5 F-18), read through `nx.run_pipeline`.
+"""#584, #705: bars without `volume` or `value_traded`, read through `nx.run_pipeline`: E18 for
+a term that reads them (4.4 step 3; F-18, the fallback once here, retired).
 
 `degrade=["no_volume"]` leaves both columns out (4.8); a package with `volume` and without
 `value_traded`, the generator cannot write, is `tiny` with that column dropped by the root
@@ -9,7 +10,6 @@ from __future__ import annotations
 import datetime as dt
 import json
 import math
-import warnings
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -41,59 +41,38 @@ def bars_on(root: Path, column: str) -> list[Any]:
                                      bars[column].to_pylist(), strict=True))]  # fmt: skip
 
 
-def run(root: Path, terms: dict[str, Any]) -> tuple[dict[str, list[Any]], list[str]]:
-    """`terms` on DAY through `run_pipeline`, with the F-18 warnings it gave."""
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        result = nx.run_pipeline(nx.Pipeline(terms), start=DAY, end=DAY, snapshot=str(root))
-    said = [str(w.message) for w in caught if "F-18" in str(w.message)]
-    return {k: result.table[k].to_pylist() for k in terms}, said
-
-
-def records(root: Path) -> set[tuple[str, str | None]]:
-    with pytest.warns(UserWarning, match=r"\[E30\] F-18"):
-        return {(r.market, r.column) for r in nx.open(str(root)).fallbacks if r.id == "F-18"}
+def run(root: Path, terms: dict[str, Any]) -> dict[str, list[Any]]:
+    """`terms` on DAY through `run_pipeline` (no warning: the suite makes any an error)."""
+    result = nx.run_pipeline(nx.Pipeline(terms), start=DAY, end=DAY, snapshot=str(root))
+    return {k: result.table[k].to_pylist() for k in terms}
 
 
 @pytest.mark.parametrize("term", ["volume", "volume_unadjusted"])
 def test_a_term_over_volume_a_minimal_package_lacks_is_e18(term: str, tmp_path: Path) -> None:
-    """#705 (48 (c), F-18's volume side gone): `no_volume` declares minimal-daily, which does not
-    require `volume`; it opens with F-18 for `value_traded` alone, and a term reading `volume`
-    is E18, not NaN or pyarrow's `ArrowInvalid`."""
+    """#705 (48 (c)): `no_volume` declares minimal-daily, which does not require `volume`; it
+    opens with no fallback, and a term reading `volume` is E18, not NaN or `ArrowInvalid`."""
     root = make_snapshot(tmp_path / "p", preset="tiny", degrade=["no_volume"])
-    assert records(root) == {(m, "value_traded") for m in ("KR", "US")}
+    assert not nx.open(str(root)).fallbacks
     with pytest.raises(nx.CapabilityError, match=rf"Price\.{term} is not in snapshot .* volume"):
         run(root, {"v": getattr(nx.Price, term).latest})
 
 
-def test_value_traded_alone_left_out(
-    tmp_path: Path, package_without_bars_column: Callable[[Path, str], None]
+@pytest.mark.parametrize("term", [nx.Price.value_traded.latest, AverageTradedValue(3)],
+                         ids=["value_traded", "atv"])  # fmt: skip
+def test_a_term_over_value_traded_the_bars_lack_is_e18(
+    term: Any, tmp_path: Path, package_without_bars_column: Callable[[Path, str], None]
 ) -> None:
-    """Bars with `volume` and without `value_traded`: that column NaN, `volume` as stored, one
-    E30 naming `value_traded` only."""
+    """#705 (F-18 retired): bars with `volume` and without `value_traded` open with no fallback;
+    a term reading `value_traded` is E18 saying what to do, and one reading `volume` runs."""
     root = make_snapshot(tmp_path / "p", preset="tiny", markets=("KR",))
     package_without_bars_column(root, "value_traded")
-    got, said = run(root, {"v": nx.Price.volume.latest, "t": nx.Price.value_traded.latest})
-    assert all(math.isnan(x) for x in got["t"])
-    assert got["v"] == bars_on(root, "volume")
-    [message] = said
-    assert "market KR, column value_traded" in message
-    assert "column volume," not in message
-    assert records(root) == {("KR", "value_traded")}
-
-
-def test_graph_without_the_column_runs_as_before(tmp_path: Path) -> None:
-    """A graph that reads neither column gives what it gives on the whole package, with the
-    same one E30."""
-    whole = make_snapshot(tmp_path / "w", preset="tiny", markets=("KR",))
-    gone = make_snapshot(tmp_path / "g", preset="tiny", markets=("KR",), degrade=["no_volume"])
-    before, none = run(whole, {"c": nx.Price.close.latest})
-    after, said = run(gone, {"c": nx.Price.close.latest})
-    assert not none
-    assert after == before
-    [message] = said
-    assert "market KR, column value_traded" in message
-    assert records(gone) == {("KR", "value_traded")}  # `volume` is no fallback's (#705)
+    assert not nx.open(str(root)).fallbacks
+    with pytest.raises(nx.CapabilityError) as raised:
+        run(root, {"t": term})
+    fix = "use a package whose bars hold value_traded, or a graph that does not read it"
+    assert fix in str(raised.value)  # no profile requires it, so none is named (#705)
+    assert "AverageDollarVolume" not in str(raised.value)
+    assert run(root, {"v": nx.Price.volume.latest})["v"] == bars_on(root, "volume")
 
 
 def test_tiny_has_value_traded_and_no_fallback(tmp_path: Path) -> None:
@@ -107,13 +86,10 @@ def test_tiny_has_value_traded_and_no_fallback(tmp_path: Path) -> None:
 
 
 def traded(root: Path, screen: Any = None) -> nx.PipelineResult:
-    """The three terms over traded value on two sessions with a three-row window, F-18's E30
-    at open left aside (the tests above read it)."""
+    """The three terms over traded value on two sessions with a three-row window."""
     terms = {"adv": AverageDollarVolume(3), "atv": AverageTradedValue(3), "vwap": VWAP(3)}
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", message=r".*\[E30\] F-18")
-        return nx.run_pipeline(nx.Pipeline(terms, screen=screen), start="2020-01-13",
-                               end="2020-01-14", snapshot=str(root))  # fmt: skip
+    return nx.run_pipeline(nx.Pipeline(terms, screen=screen), start="2020-01-13",
+                           end="2020-01-14", snapshot=str(root))  # fmt: skip
 
 
 @pytest.mark.parametrize("term", [AverageDollarVolume(3), VWAP(3)], ids=["adv", "vwap"])
@@ -121,7 +97,7 @@ def test_terms_over_volume_are_e18_without_it(term: Any, tmp_path: Path) -> None
     """#705: on `no_volume`, `AverageDollarVolume` and `VWAP` read `volume` it holds no value
     of: E18 at graph build (once NaN in every cell, with F-18)."""
     root = make_snapshot(tmp_path / "p", preset="tiny", degrade=["no_volume"])
-    with pytest.warns(UserWarning, match=r"\[E30\] F-18"), pytest.raises(nx.CapabilityError):
+    with pytest.raises(nx.CapabilityError):
         nx.run_pipeline(nx.Pipeline({"x": term}), start=DAY, end=DAY, snapshot=str(root))
 
 
@@ -150,11 +126,9 @@ SPLIT = "nexusbt.compute._chunks.spans"
 
 def adv(root: Path, start: str, end: str) -> pa.Table:
     """`AverageDollarVolume(3)` and `Price.volume.latest` in one pipeline (one block per
-    chunk, read by both), the open's E30 left aside."""
+    chunk, read by both)."""
     terms = {"adv": AverageDollarVolume(3), "v": nx.Price.volume.latest}
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")  # F-18's E30, and F-03's on `sparse_bars`
-        result = nx.run_pipeline(nx.Pipeline(terms), start=start, end=end, snapshot=str(root))
+    result = nx.run_pipeline(nx.Pipeline(terms), start=start, end=end, snapshot=str(root))
     assert result.term_diagnostics.num_rows == 0
     return result.table
 

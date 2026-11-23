@@ -29,7 +29,7 @@ CORE = {
     "late_bars": False,  # #354: no gap of the 4.5 table; a late `ts_available` is valid data
     "no_tick_info": False,  # F-15: market_rules and tick_rule_id are required in no profile
     "volume_in_lots": False,  # F-16: V011 is a warning
-    "no_volume": True,  # F-18: OHLCV (#584)
+    "no_volume": True,  # core's OHLCV (#584); E18 when read since F-18 retired (#705)
 }
 LOT = 100  # `volume_in_lots`: the shares of one KR lot (4.8 (11a))
 #: `late_bars` (#354): the share of the KR bars that are late, by 1 to LATE_BY sessions, drawn
@@ -148,7 +148,7 @@ GAPS: dict[str, tuple[str | None, Gap]] = {
     "late_bars": (None, lambda m, t, c, s: {"bars_1d": _late(m, t["bars_1d"], c, s)}),
     "volume_in_lots": ("KR", _in_lots),
     "no_tick_info": (None, _no_tick_rule),
-    "no_volume": (None, lambda m, t, c, s: {  # F-18: both columns left out
+    "no_volume": (None, lambda m, t, c, s: {  # both columns left out
         "bars_1d": t["bars_1d"].drop_columns(["volume", "value_traded"])}),
 }  # fmt: skip
 

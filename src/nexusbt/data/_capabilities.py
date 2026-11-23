@@ -23,7 +23,7 @@ from nexusbt.contracts import (
     FallbacksPolicy,
     SnapshotError,
 )
-from nexusbt.data._block import OHL, TRADED, partition_values
+from nexusbt.data._block import OHL, partition_values
 from nexusbt.data._block import gone as _gone
 from nexusbt.data._coverage import BarsExtent, schedule
 from nexusbt.data._datasets import chosen, dataset, doubled
@@ -31,7 +31,7 @@ from nexusbt.data._datasets import layer as _layer
 from nexusbt_tds.check import Finding
 from nexusbt_tds.manifest import Manifest
 from nexusbt_tds.profiles import PROFILES, meets, profile_id
-from nexusbt_tds.profiles import TRADED as EQUITIES  # asset classes, not `TRADED` columns
+from nexusbt_tds.profiles import TRADED as EQUITIES  # the asset classes
 
 #: 4.3's first table, the rows T1.1b decides: a feature → the dataset kinds it needs. F-13
 #: (delistings) comes with the features that read it (T3.11).
@@ -55,12 +55,10 @@ SAYS = {
     "F-03": "bars expanded to listing period x sessions, empty cells obs_status = missing",
     "F-15": "price grid = currency minor unit",
     "F-16": "volume unit unverified (TDS-V011), no repair",
-    "F-18": "Price.value_traded = NaN, bars without it or null in every row",
 }
-#: The bars columns a package may leave out (4.5) → the fallback that says so.
-_GONE = dict.fromkeys(TRADED, "F-18")  # F-01 retired, F-18's volume side gone (#705)
-#: The bars columns whose lack is E14 at open or E18 when read, never a fallback (4.4-3, #705).
-_UNREAD = (*OHL, "volume")
+#: The bars columns whose lack is E14 at open or E18 when read, never a fallback (4.4-3; F-01
+#: and F-18 retired, #705).
+_UNREAD = (*OHL, "volume", "value_traded")
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,7 +92,7 @@ class DataCapabilities:
 @dataclass(frozen=True, slots=True)
 class FallbackRecord:
     """One fallback used (4.4-5): its 4.5 id, the dataset it stands in for, market, count, and
-    the column when the fallback is one column's (F-18)."""
+    a column, null since no fallback is one column's (F-18 retired, #705; the field stays)."""
 
     id: str
     dataset: str
@@ -168,7 +166,7 @@ def _fallbacks(
     found: Sequence[Finding], extent: BarsExtent, market_of: Mapping[str, str],
     taken: dict[str, list[FallbackRecord]],
 ) -> None:  # fmt: skip
-    """4.5: F-03, F-18, F-16 and F-15, each added to the features that take it; F-03 reads the
+    """4.5: F-03, F-16 and F-15, each added to the features that take it; F-03 reads the
     columns of the bars' first file."""
     bars = kinds.get("bars")
     columns = _columns(folder, bars)
@@ -176,8 +174,6 @@ def _fallbacks(
                              or "obs_status" not in columns):  # fmt: skip
         taken["backtest"] += [FallbackRecord("F-03", bars["name"], m, int(e.get("rows", 0)))
                               for m, e in extent.by_market().items()]  # fmt: skip
-    gone = _gone_columns(folder, bars, extent)  # Price.* read by `price` (3.2)
-    taken["price"] += gone  # F-18 (`value_traded`), `price` only
     read = bars["name"] if bars is not None else None  # the bars the engine reads (4.3, #547)
     years = Counter((f.dataset, market_of.get(str((f.key or {}).get(ID_COLUMN)), "-"))
                     for f in found if f.code == "TDS-V011" and f.dataset == read)  # fmt: skip
@@ -260,31 +256,6 @@ def _off_calendar(
             snapshot_id=str(data["snapshot_id"]),
             producer=str(producer.get("name", "-")) if isinstance(producer, dict) else "-",
         )  # fmt: skip
-
-
-def _gone_columns(
-    folder: Path, bars: Mapping[str, Any] | None, extent: BarsExtent
-) -> list[FallbackRecord]:
-    """F-18 by market and column (4.5): a bars file that can hold the market (its
-    `market=` partition, or none) lacks the column or holds it null in every row by its footer
-    statistics; the count is those files' rows, at most the market's. A file without them
-    leaves it undecided, its cells NaN as stored: open reads no row."""
-    if bars is None:
-        return []
-    files: dict[str | None, list[pq.FileMetaData]] = {}
-    for f in bars["files"]:
-        market = partition_values(f["path"], bars.get("partitioning", [])).get("market")
-        files.setdefault(market, []).append(pq.ParquetFile(folder / f["path"]).metadata)
-    out: list[FallbackRecord] = []
-    if not any(_gone(x, c) for held in files.values() for x in held for c in _GONE):
-        return out  # no record: the bars' extent is not read (#568)
-    for m, entry in extent.by_market().items():
-        held = [*files.get(m, []), *files.get(None, [])]
-        for c, id_ in _GONE.items():
-            if gone := [x.num_rows for x in held if _gone(x, c)]:
-                count = min(sum(gone), int(entry.get("rows", sum(gone))))
-                out.append(FallbackRecord(id_, str(bars["name"]), m, count, c))
-    return out
 
 
 def _columns(folder: Path, dataset: Mapping[str, Any] | None) -> set[str]:
@@ -566,8 +537,9 @@ def check_fields(
                   f"in every row{of}",
             why="no fallback stands in for it, and no profile the package declares requires "
                 "it (4.4 step 3; TDS 7)",
-            fix=f"use a package whose bars hold {column} (tds:equity-daily-core@1.0 requires "
-                "it of equities and etfs), or a graph that does not read it",
+            fix=f"use a package whose bars hold {column}"
+            + ("" if column == "value_traded" else " (tds:equity-daily-core@1.0 requires it of "
+               "equities and etfs)") + ", or a graph that does not read it",
             more="spec 4.4 step 3; TDS 7", layer=_layer(data, str(bars.get("name", "bars"))),
         )  # fmt: skip
     if "close_tr" not in fields or "adjusted" in caps.features:

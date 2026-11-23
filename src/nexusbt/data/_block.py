@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -32,11 +32,9 @@ _SOURCE = {"close_tr": "close", "close_unadjusted": "close", "volume_unadjusted"
 #: Price cells NaN in a halted or missing session (3.2); `no_trade` keeps its reference close.
 _PRICES = frozenset({"open", "high", "low", "close", "close_tr", "close_unadjusted"})
 _VOLUMES = ("volume", "volume_unadjusted")  # 0 in a `no_trade` session (3.2)
-#: `open`, `high`, `low` and `volume` without a value are E14 or E18 at open (4.4-3; F-01
-#: retired, F-18's volume side gone, #705); `value_traded` may be left out, read as NaN (F-18).
+#: `open`, `high`, `low`, `volume` and `value_traded` without a value are E14 or E18 at open,
+#: never a fallback (4.4-3; F-01 and F-18 retired, #705).
 OHL = ("open", "high", "low")
-TRADED = ("value_traded",)
-_NULLABLE = TRADED
 _INTEGER = frozenset({"i8", "i16", "i32", "i64"})
 #: Columns a bars file may lack: the block reads them when present (TDS 5.5, F-03).
 _OPTIONAL = ("obs_status", "ts_end", "ts_available")
@@ -48,10 +46,7 @@ class MarketBlock:
     chunk (5.3.1). Every array is `(rows, columns)`: `values[field]` float64, `exists` the
     listing mask, `obs_status` codes into `OBS_STATUS`, `ts_available` each cell's availability
     instant (NaT without a bar), which a reader compares with `ready(t)` (5.1.2); a late bar
-    stays in its session's row. The first `overlap` rows are the previous chunk's tail.
-    `gone[c]`, for a bars column `c` of `TRADED` that a file read lacks or holds null
-    in every row (`gone`, 4.5 F-18), is true at the cells read from such a file; a column
-    no file read lacks has no entry (#688)."""
+    stays in its session's row. The first `overlap` rows are the previous chunk's tail."""
 
     market: str
     dates: NDArray[np.datetime64]
@@ -61,7 +56,6 @@ class MarketBlock:
     exists: NDArray[np.bool_]
     obs_status: NDArray[np.int8]
     ts_available: NDArray[np.datetime64]
-    gone: Mapping[str, NDArray[np.bool_]] = field(default_factory=dict)
 
 
 def partition_values(path: str, partitioning: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
@@ -98,17 +92,12 @@ def build_block(
     status = np.full(shape, -1, dtype=np.int8)
     available = np.full(shape, np.datetime64("NaT", "us"))
     source, _ = bars_availability(bars, str(manifest.data["snapshot_id"]))
-    sources = [_SOURCE.get(f, f) for f in fields]  # NaN where a file lacks them (F-18)
-    wanted = [ID, "session_date", "close", *(s for s in sources if s not in _NULLABLE)]
-    optional = [*_OPTIONAL, *([source] if source != "ts_close" else []),  # ts_close: calendar's
-                *(s for s in sources if s in _NULLABLE)]  # fmt: skip
-    covered: dict[str, NDArray[np.bool_]] = {}  # only a column some file read lacks (F-18)
+    sources = [_SOURCE.get(f, f) for f in fields]
+    wanted = [ID, "session_date", "close", *sources]
+    optional = [*_OPTIONAL, *([source] if source != "ts_close" else [])]  # ts_close: calendar's
     for path in _files(bars, calendar.market, dates) if n else ():
         meta = pq.read_metadata(manifest.root / path)
         rows, cols, table = _cells(manifest.root / path, meta, ids, dates, wanted, optional)
-        for s in dict.fromkeys(s for s in sources if s in _NULLABLE):
-            if gone(meta, s):
-                covered.setdefault(s, np.zeros(shape, dtype=bool))[rows, cols] = True
         if source not in (*table.column_names, "ts_end", "ts_close"):
             raise _absent(manifest, bars, path, source)
         for f, s in zip(fields, sources, strict=True):
@@ -130,7 +119,7 @@ def build_block(
         values[f][status == 1] = 0.0  # no_trade (3.2)
     status[~exists] = -1
     return MarketBlock(calendar.market, dates, first - start, ids, values, exists, status,
-                       available, covered)  # fmt: skip
+                       available)  # fmt: skip
 
 
 def _files(entry: Mapping[str, Any], market: str, dates: NDArray[np.datetime64]) -> list[str]:
@@ -208,7 +197,7 @@ def _absent(manifest: Manifest, bars: Mapping[str, Any], path: str, column: str)
 
 def gone(meta: pq.FileMetaData, column: str) -> bool:
     """The file lacks `column`, or its footer says null in every row; False when it cannot say.
-    F-18 (4.5) takes a file this says yes to, for the record and for the block's cells."""
+    The open's checks of 4.4-3 read it (#705)."""
     if column not in meta.schema.names:
         return True
     at = meta.schema.names.index(column)
