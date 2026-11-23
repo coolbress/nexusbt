@@ -1,4 +1,4 @@
-"""#568: the bars' extent (spec 4.5 F-02, F-03, F-15) is read from the bars files only
+"""#568: the bars' extent (spec 4.5 F-03, F-15) is read from the bars files only
 when a fallback uses it, and once per open. A test counts the engine's Parquet row reads of
 the bars files: `read_table`, and a `ParquetFile`'s `read`, `read_row_group(s)` and
 `iter_batches`. The footer (`read_schema`, `read_metadata`, a `ParquetFile`'s `metadata`) is
@@ -96,8 +96,7 @@ def test_no_fallback_reads_no_bars_file(tmp_path: Path, reads: Counter[str]) -> 
 
 #: degrade, markets, the feature asked for: each fallback whose record reads the bars' extent
 #: (the cases of `test_open_without_coverage.py`).
-CASES = {"F-02": (["no_sessions"], ("KR", "US"), "backtest"),  # no F-01; F-18 leaves in 5b
-         "F-03": (["sparse_bars"], ("KR", "US"), "backtest"),
+CASES = {"F-03": (["sparse_bars"], ("KR", "US"), "backtest"),  # F-01, F-02, F-18 retired
          "F-15": (["no_tick_info"], ("KR", "ZZ"), "grid")}  # fmt: skip
 
 
@@ -105,21 +104,13 @@ CASES = {"F-02": (["no_sessions"], ("KR", "US"), "backtest"),  # no F-01; F-18 l
 def test_a_fallback_reads_each_bars_file_once(
     tmp_path: Path, reads: Counter[str], case: str
 ) -> None:
-    """When `coverage` is left out and F-02, F-03 or F-15 is taken, then opening the package
-    and reading every market's calendar reads each bars file once (F-02 read it three times:
-    for its extent, for its off-calendar check and again for each calendar)."""
+    """When `coverage` is left out and F-03 or F-15 is taken, then opening the package and
+    reading every market's calendar reads each bars file once."""
     degrade, markets, feature = CASES[case]
     path = make_snapshot(tmp_path / "s", preset="tiny", markets=markets, degrade=degrade)
     without_coverage(path)
     asked = CapabilityRequest(frozenset({feature}))
     assert opened(path, reads, markets, asked) == dict.fromkeys(bars_files(path), 1)
-
-
-def test_f02_with_coverage_reads_each_bars_file_once(tmp_path: Path, reads: Counter[str]) -> None:
-    """When `coverage` is declared and F-02 is taken, then only its off-calendar check reads
-    the bars, once per file."""
-    path = make_snapshot(tmp_path / "s", preset="tiny", degrade=["no_sessions"])
-    assert opened(path, reads, ("KR", "US")) == dict.fromkeys(bars_files(path), 1)
 
 
 @pytest.mark.parametrize("case", CASES)

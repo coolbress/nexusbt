@@ -101,13 +101,13 @@ def test_doctor_lists_fallbacks_and_unchecked(
     tmp_path: Path, project: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """INV-12: what a run would fill and what the check level did not judge, both shown."""
-    package = make_snapshot(tmp_path / "pkg", preset="tiny", degrade=["no_sessions"])
-    out = doctor(package, capsys, r"DataProfileWarning \[E30\] F-02\n")  # the E30 `open` gives
-    for m in ("KR", "US"):  # tiny's 62 sessions per market, synthesized (F-02)
-        assert re.search(rf"^fallback +F-02 calendar_sessions {m} 62$", out, re.M), out
+    package = make_snapshot(tmp_path / "pkg", preset="tiny", degrade=["sparse_bars"])
+    out = doctor(package, capsys, r"DataProfileWarning \[E30\] F-03\n")  # the E30 `open` gives
+    for m in ("KR", "US"):  # tiny's 341 rows per market, densified (F-03; F-02 retired, #705)
+        assert re.search(rf"^fallback +F-03 bars_1d {m} 341$", out, re.M), out
     assert re.search(r"^unchecked +.*\bTDS-K001\b", out, re.M)  # a row rule, at `manifest`
-    # no calendar: it declares no profile, since every daily one requires it (C3, #705)
-    assert not re.search(r"^profile ", out, re.M), out
+    profile = r"tds:minimal-daily@1\.0 +declared yes +checked manifest +result not_checked"
+    assert re.search(rf"^profile +{profile} +supported yes$", out, re.M), out
 
 
 UNVERIFIED = "volume     bars_1d volume unit unverified (no value_traded, TDS-V011)"

@@ -17,6 +17,7 @@ import nexusbt as nx
 from nexusbt import api
 from nexusbt.api import _doctor as api_doctor
 from nexusbt.cli.main import main
+from nexusbt.data import DataConfig, open_snapshot
 from nexusbt.testing.synth import make_snapshot
 
 #: A process with no `-W` runs Python's default filter; this repository's tests turn every
@@ -90,17 +91,23 @@ def test_stubs_prints_the_warning_the_same_way(
 def test_distinct_warnings_each_once(
     tmp_path: Path, project: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Two fallbacks from the same line of `doctor` are two warnings, neither dropped."""
-    both = make_snapshot(tmp_path / "both", preset="tiny", degrade=["sparse_bars", "no_sessions"])
+    """Two fallbacks from the same line of `doctor` are two warnings, neither dropped (F-03 and
+    F-15 of an untested market, since F-02 retired, #705)."""
+    both = make_snapshot(tmp_path / "both", preset="tiny", markets=("KR", "ZZ"),
+                         degrade=["sparse_bars", "no_tick_info"])  # fmt: skip
     (project / "nexusbt.toml").unlink()
     assert main(["init", "--data-root", str(both)]) == 0
+    with (project / "nexusbt.toml").open("a", encoding="utf-8") as toml:
+        toml.write("\n[markets]\nallow_untested = true\n")  # ZZ has no rules pack
     capsys.readouterr()
     assert main(["doctor"]) == 0
     err = capsys.readouterr().err
-    e30s = announced(both)
+    with pytest.warns(UserWarning, match=r"^DataProfileWarning \[E30\] ") as given:
+        open_snapshot(DataConfig(path=both, allow_untested=True))  # as the toml says
+    e30s = [str(w.message) for w in given]
     assert [t.split("\n", 1)[0] for t in e30s] == [
-        "DataProfileWarning [E30] F-02",
         "DataProfileWarning [E30] F-03",
+        "DataProfileWarning [E30] F-15",
     ]  # in the records' order (4.5), as the `fallback` lines are
     assert err == "".join(t + "\n" for t in e30s)
 

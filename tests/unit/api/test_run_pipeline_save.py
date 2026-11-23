@@ -182,24 +182,6 @@ def test_the_manifest_records_the_fallbacks_the_run_used(
     assert not [p for p in (pkg.parent, project, Path.home()) if str(p) in said]
 
 
-def test_a_fallback_with_its_own_sentence_is_said_once(
-    tmp_path_factory: pytest.TempPathFactory, project: Path
-) -> None:
-    """4.5 F-02 names its `assumptions` sentence; the run's manifest says it once, not again
-    as an E30 line (#687 review)."""
-    pkg = make_snapshot(tmp_path_factory.mktemp("no_sessions") / "pkg", preset="tiny",
-                        degrade=["no_sessions"])  # fmt: skip
-    pipe = nx.Pipeline({"c": nx.Price.close.latest})
-    with pytest.warns(UserWarning, match=r"\[E30\] F-02"):
-        result = nx.run_pipeline(pipe, start="2020-01-06", end="2020-01-06", snapshot=str(pkg),
-                                 save=True)  # fmt: skip
-    manifest = json.loads((project / "runs" / str(result.run_id) / "manifest.json").read_text())
-    assert {f["id"] for f in manifest["data"]["fallbacks"]} == {"F-02"}
-    assert [a for a in manifest["assumptions"] if "sessions synthesized" in a] == [
-        "sessions synthesized from exchange_calendars 4.13.2"
-    ]
-
-
 def test_a_run_without_fallbacks_records_an_empty_list(tiny: Path, project: Path) -> None:
     """#687 Decisions: no fallback is `data.fallbacks = []`, never an absent key, so a manifest
     without the key reads as "not recorded"."""

@@ -1,6 +1,5 @@
-"""#564: a package without `coverage` (TDS 4.3, optional) opens; what F-02 and the fallback
-records read from it comes from the bars themselves (spec 4.5 F-02: "from the first to the last
-day of `bars`"; 4.6: the market from the `market=` partition)."""
+"""#564: a package without `coverage` (TDS 4.3, optional) opens; what the fallback records
+read from it comes from the bars themselves (4.6: the market from the `market=` partition)."""
 
 from __future__ import annotations
 
@@ -59,7 +58,7 @@ def test_chapter_7_csv_package_opens_and_reads_its_close(tmp_path: Path, declare
         (pkg / "tds.json").write_text(json.dumps(data), encoding="utf-8")
     assert check(pkg, level="full").error_count == 0
     with warnings.catch_warnings():
-        warnings.simplefilter("ignore")  # F-02's E30 for the synthesized XNYS sessions
+        warnings.simplefilter("ignore")  # the import's calendar: no F-02 since #705
         snap = open_snapshot(DataConfig(path=pkg))
         day = np.array(["2024-01-02"], dtype="datetime64[D]")
         block = snap.market_block("US", ["close"], day)
@@ -81,8 +80,7 @@ def processed_only(data: dict[str, Any]) -> None:
 
 
 #: degrade, markets, the feature asked for: each fallback whose record reads the bars' extent.
-CASES = {"F-02": (["no_sessions"], ("KR", "US"), "backtest"),
-         "F-03": (["sparse_bars"], ("KR", "US"), "backtest"),
+CASES = {"F-03": (["sparse_bars"], ("KR", "US"), "backtest"),  # F-02 retired (#705)
          "F-15": (["no_tick_info"], ("KR", "ZZ"), "grid")}  # fmt: skip
 
 
@@ -112,11 +110,12 @@ def test_bars_extent_read_from_the_bars_without_coverage(
 
 def test_bars_files_of_two_string_encodings_are_read_together(tmp_path: Path) -> None:
     """When one bars file writes `instrument_id` dictionary-encoded and another plain (the same
-    TDS 3.2 type) and `coverage` is left out, then F-02 counts the same sessions as with it."""
-    path = make_snapshot(tmp_path / "s", preset="tiny", degrade=["no_sessions"])
+    TDS 3.2 type) and `coverage` is left out, then F-03 counts the same rows as with it (F-02,
+    which counted sessions, retired, #705)."""
+    path = make_snapshot(tmp_path / "s", preset="tiny", degrade=["sparse_bars"])
     backtest = CapabilityRequest(frozenset({"backtest"}))
     with warnings.catch_warnings():
-        warnings.simplefilter("ignore")  # F-02's E30
+        warnings.simplefilter("ignore")  # F-03's E30
         declared = open_snapshot(DataConfig(path=path), required=backtest).fallbacks
         data = json.loads((path / "tds.json").read_text(encoding="utf-8"))
         no_coverage(data)
