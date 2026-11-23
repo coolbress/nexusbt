@@ -57,11 +57,9 @@ def test_chapter_7_csv_package_opens_and_reads_its_close(tmp_path: Path, declare
         no_coverage(data)
         (pkg / "tds.json").write_text(json.dumps(data), encoding="utf-8")
     assert check(pkg, level="full").error_count == 0
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")  # the import's calendar: no F-02 since #705
-        snap = open_snapshot(DataConfig(path=pkg))
-        day = np.array(["2024-01-02"], dtype="datetime64[D]")
-        block = snap.market_block("US", ["close"], day)
+    snap = open_snapshot(DataConfig(path=pkg))  # no warning: the import's calendar, no F-02
+    day = np.array(["2024-01-02"], dtype="datetime64[D]")
+    block = snap.market_block("US", ["close"], day)
     assert block.instrument_ids == ("XNYS:AAPL",)
     assert block.values["close"].tolist() == [[185.64]]
 

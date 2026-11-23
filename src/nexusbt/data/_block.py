@@ -24,8 +24,12 @@ if TYPE_CHECKING:
     from nexusbt.data._calendar import Calendar
     from nexusbt_tds.manifest import Manifest
 
-#: `obs_status` codes of a block's cells, by position (TDS 5.5); -1, the last, has no bar.
-OBS_STATUS = np.array(["traded", "no_trade", "halted", "missing", "absent"])
+#: `obs_status` codes of a block's cells, by position: TDS 5.5's four; `unstated`, a bar whose
+#: `obs_status` is null (no state given, its values read as stored; #725 Decisions 129); and
+#: -1, the last, no bar.
+OBS_STATUS = np.array(["traded", "no_trade", "halted", "missing", "unstated", "absent"])
+_STATES = pa.array(OBS_STATUS[:4])  # the values TDS 5.5 gives `obs_status`
+_UNSTATED = 4
 #: The `Price` columns 3.2 derives from a bars column: the block holds that column as stored,
 #: and the executor adjusts a window by the column's basis (5.3.3), `close_tr`'s with C_total.
 _SOURCE = {"close_tr": "close", "close_unadjusted": "close", "volume_unadjusted": "volume"}
@@ -104,9 +108,10 @@ def build_block(
             if s in table.column_names:
                 cells = table[s].to_numpy(zero_copy_only=False)
                 values[f][rows, cols] = cells.astype(np.float64)
-        if "obs_status" in table.column_names:
-            codes = pc.index_in(table["obs_status"], pa.array(OBS_STATUS[:-1])).fill_null(-1)
-            status[rows, cols] = codes.to_numpy().astype(np.int8)
+        if "obs_status" in table.column_names:  # a null one states nothing: values as stored
+            given = table["obs_status"]  # a value outside 5.5's four (S006) is hidden, as before
+            codes = pc.if_else(pc.is_null(given), _UNSTATED, pc.index_in(given, _STATES))
+            status[rows, cols] = codes.fill_null(-1).to_numpy().astype(np.int8)
         else:  # F-03: traded with a price, else no_trade
             status[rows, cols] = np.where(pc.is_valid(table["close"]).to_numpy(), 0, 1)
         available[rows, cols] = _available(source, table, calendar, start + rows)
@@ -177,7 +182,7 @@ def _axis(
     # nullable, so a package may leave the column out of every file (TDS 4.5): none delisted
     delisted = (t["delisted_on"].to_numpy(zero_copy_only=False).astype("datetime64[D]")
                 if "delisted_on" in t.column_names
-                else np.full(len(t), np.datetime64("NaT"), "datetime64[D]"))  # fmt: skip
+                else np.full(len(t), np.datetime64("NaT", "D")))  # fmt: skip  # a unit: NumPy 2
     meets = (listed <= given[-1]) & ~(delisted < given[0])
     ids = tuple(str(i) for i in np.array(t[ID].to_pylist(), dtype=object)[meets])
     return ids, listed[meets], delisted[meets]
