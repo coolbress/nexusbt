@@ -3,7 +3,7 @@
   "key": ["instrument_id"], "sort": ["instrument_id"], "partitions": [],
   "columns": [
     {"name": "instrument_id", "type": "id", "null": false},
-    {"name": "asset_class", "type": "code", "enum": "closed", "null": false, "values": ["equity", "etf", "fund", "index", "future", "option", "crypto_spot", "crypto_perp", "crypto_future", "fx_spot", "bond", "rate", "other"]},
+    {"name": "asset_class", "type": "code", "enum": "open", "null": false, "values": ["equity", "etf", "fund", "index", "future", "option", "crypto_spot", "crypto_perp", "crypto_future", "fx_spot", "bond", "rate", "other"]},
     {"name": "category", "type": "code", "enum": "open", "null": true, "values": ["common", "preferred", "adr", "reit", "spac", "unit", "warrant", "right", "closed_end_fund", "other"]},
     {"name": "market", "type": "code", "null": false},
     {"name": "venue_mic", "type": "code", "null": true},

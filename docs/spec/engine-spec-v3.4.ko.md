@@ -1090,6 +1090,7 @@ write: orders.to_csv("orders/{date}.csv")   apply to paper book: nx.fill(book, o
 | `[fx] series` | str 또는 {"<BASE><QUOTE>": "<rate_kind>@<source>"} | `"auto"` | auto = 그 통화쌍의 `(rate_kind, source)` 계열이 하나면 그것, 여럿이면 `rate_kind` 우선순위 fixing → close → mid, 그래도 여럿이면 `ConfigError`로 목록을 보이고 고르게 함 | TDS-D17 |
 | `[benchmarks] <MARKET>` | str | `"auto"` | `"auto"` = 그 시장의 `asset_class = index`, `index_kind = TR` 종목이 하나면 그것(여럿이면 시장 규칙 팩의 `benchmark_hint`와 같은 `name`, 그래도 여럿이면 E16로 목록), 또는 종목 id, 또는 `"none"`. 없으면 "n/a: not in snapshot" | 9.0 Q30, R-59, TDS-D15, OI-02, RV-I08 |
 | `[fund] max_age_days` | int | 550 | 0 = 끔 | 참조 생산자 패널 규칙 |
+| `[fund] statement_basis` | str 또는 list[str] | —(기본값 없음) | `consolidated`, `separate`, `unspecified`, 또는 그 순서 | `Fund.*`가 읽는 기준(5.3.5) [#705 B1] |
 | `[evaluate] freq`, `quantiles`, `min_pairs`, `label_entry` | | monthly, 5, 20, `"next_open"` | quantiles 2..20, min_pairs ≥ 3, label_entry next_open / close | 11.4.5 |
 | `[evaluate] target` | str | `"fwd_return"` | fwd_return(경제: 배당락일 종가 재투자) / fwd_return_adj(조정가 비율, zipline·alphalens 비교용) | RV-C04 |
 | `[meta] sector`, `industry` | str 또는 {MARKET: str} | `"auto"` | `"<scheme>@<level>"`(level 생략 = 그 scheme의 최상위) | OI-07, RV-C08 |
@@ -1120,7 +1121,7 @@ write: orders.to_csv("orders/{date}.csv")   apply to paper book: nx.fill(book, o
 
 - **입력 형식의 정본은 TDS v1.4이다** (`engine-data-standard-v1.4.md`; v1.1 대비 바뀐 점은 TDS 16장 [V31], v1.2 대비는 17장 [R3], v1.3 대비는 18장 [R4F]; 저장소에서는 `tds/spec/tds-v1.md`, 9.1). 칼럼 이름·형·null·열쇠·정렬·파티션·공개 시각 규칙·해시·검사 코드는 TDS가 정하고, 이 명세는 그것을 다시 적지 않는다. 이 명세와 TDS의 입력 형식 설명이 다르면 TDS가 맞다(v1 명세 4장과의 차이 TDS-D1~D24는 이 v2 전체에 이미 반영했다; 대응은 부록 B.3).
 - 이 장이 정하는 것은 **엔진 쪽**만이다: 엔진이 요구하는 능력(4.3), 열 때 하는 검사(4.4), 칼럼이 모자랄 때의 대체 동작(4.5), 데이터셋별 읽기 규칙(4.6), 엔진 자원 파일과 시장 규칙 팩(4.7), 합성 생성기(4.8).
-- 판 규칙: 엔진은 `tds_version` MAJOR = 1인 패키지만 연다(아니면 E14 + `TDS-M002`). 같은 MAJOR의 더 높은 MINOR는 열되 **모르는 기능을 쓰는지**로 나눈다 [TDS 10.3, RV-I01]: 모르는 칼럼·**선택** 데이터셋은 무시하고 `TDS-M011` 경고; 모르는 **서술용** 열린 열거값(`category`, `delist_type`, `reason` 등)은 `other`로 읽음; **실행에 영향이 있는 닫힌 열거**(`kind`, `asset_class`, `obs_status`, `exit_value_status`, `status`)의 모르는 값과 모르는 **필수 해석 규칙**(새 `availability` 규칙 이름 등)은 `TDS-M014` → E14("this engine does not support …"). 모든 미래 1.x 패키지를 무조건 받는다고 약속하지 않는다.
+- 판 규칙: 엔진은 `tds_version` MAJOR = 1인 패키지만 연다(아니면 E14 + `TDS-M002`). 같은 MAJOR의 더 높은 MINOR는 열되 **모르는 기능을 쓰는지**로 나눈다 [TDS 10.3, RV-I01]: 모르는 칼럼·**선택** 데이터셋은 무시하고 `TDS-M011` 경고; 모르는 **서술용** 열린 열거값(`category`, `delist_type`, `reason` 등)은 `other`로 읽음(`asset_class`는 따로, 4.6); **실행에 영향이 있는 닫힌 열거**(`kind`, `obs_status`, `exit_value_status`, `status`)의 모르는 값과 모르는 **필수 해석 규칙**(새 `availability` 규칙 이름 등)은 `TDS-M014` → E14("this engine does not support …"). 모든 미래 1.x 패키지를 무조건 받는다고 약속하지 않는다.
 - `status: experimental` 스키마(틱·호가·선물·옵션·코인)는 v1 엔진이 읽지 않는다(11장).
 - 엔진은 DuckDB 파일을 열지 않는다 [R-20, 설계 1 원칙 4]. 엔진이 읽는 것은 `tds.json`에 선언된 파일뿐이다 [INV-17].
 
@@ -1205,7 +1206,7 @@ write: orders.to_csv("orders/{date}.csv")   apply to paper book: nx.fill(book, o
 - **식별자**: 열쇠는 `instrument_id`. 엔진은 메모리에서 정수 색인을 만든다(`instrument_id` 정렬 순서로 0..N−1, 세션 순번은 `calendar_sessions` 정렬 순서). 파일에 정수 열쇠를 기대하지 않는다 [A-05]. `session_ord`가 있으면 엔진 순번과 같은지 `full`에서만 본다.
 - **파티션**: 파티션 칼럼(`market=`, `year=`, `edition=`, `freq=`, `name=`)은 경로에서 읽는다(파일 안에 없음) [TDS-D5, TDS-D20]. 읽을 파일은 매니페스트의 `files[].stats`(주요 칼럼 최소·최대)와 경로 값만으로 고르고 Parquet 바닥글을 열지 않는다(P1). `date` 칼럼의 통계는 날짜로 읽는다(결정 2026-11-16, #480: TDS 4.2는 `stats`의 형식을 정하지 않는다): `YYYY-MM-DD`와 ISO 8601 날짜시각 텍스트는 그 날짜가 되고(UTC 오프셋이 붙은 날짜시각은 시장의 날짜가 다음 날이나 전날일 수 있으므로 그 쪽으로 하루 넓힌다), 날짜가 아닌 값은 그 파일을 읽게 둔다; 통계는 파일을 읽지 않고 넘기는 데에만 쓰이므로, 어떤 형식의 통계도 블록의 행을 가진 파일을 건너뛰게 하지 않는다.
 - **공개 시각**: 데이터셋의 `availability`가 `{"column": "ts_available"}`이면 칼럼을, 규칙(TDS 6.2: `ts_end`, `session_open`, `session_close`, `next_session_open(<col>)`, `ts_end+<기간>`)이면 엔진이 같은 규칙으로 칼럼을 만들어 쓴다. 그 뒤 모든 조회는 5.1.2의 하나의 규칙(`ts_available <= decision_ts`, 시장 축 행은 `ready_m(s) = ts_close(s) + Δ_m` 기준)을 쓴다 [INV-01].
-- **열거**: 서술용 열린 열거의 모르는 값은 `other`(엔진은 `delist_type`·`reason`을 일반 경로로 처리). 실행에 영향이 있는 닫힌 열거(`kind`, `asset_class`, `obs_status`, `exit_value_status`, `status`)의 모르는 값은 E14(4.1) [RV-Q11].
+- **열거**: 서술용 열린 열거의 모르는 값은 `other`(엔진은 `delist_type`·`reason`을 일반 경로로 처리). 실행에 영향이 있는 닫힌 열거(`kind`, `obs_status`, `exit_value_status`, `status`)의 모르는 값은 E14(4.1) [RV-Q11]. `asset_class`는 열려 있다(TDS 5.1, #705 B3): 엔진이 규칙을 갖지 않은 종류(TDS가 이름 들지 않은 종류 포함)의 종목은 어느 주식 유니버스에도 들지 않고 시장 블록으로 읽히지 않는다; 그런 종목을 뺀 실행은 종류와 수를 말한다(그 보고는 #745에서 만든다).
 - **판(edition)**: `fundamentals_state`·`feature_panels`는 `edition=` 파티션, `classifications`는 `edition` 칼럼(`strict`/`compare`/`both`). strict 실행은 strict(+both)만 읽고 compare로 채우지 않는다 [Codex 위험 18].
 - **시장 워터마크**: `markets.<m>.complete_through_session`·`complete_through` 뒤의 세션은 `live`·`fill`의 체결에 쓰지 않는다(5.9.6).
 
@@ -1507,6 +1508,7 @@ class DecisionContext:
 - 행 s의 값 = 판(edition)의 `fundamentals_state`에서 `item = x`이고 `ts_known_from <= cutoff(s) < ts_known_to`인 구간의 `value·10^scale`. 없으면 NaN.
 - `max_age_days > 0`이면 `session_date(s) − period_end > max_age_days`인 값은 NaN(참조 생산자 패널의 550일 규칙과 같음).
 - 구현: `fundamentals_state`는 `(edition, instrument_id, item)`마다 앎 구간이 겹치지 않으므로(TDS K5·T003) 한 축 조회다: `ts_known_from` 정렬 배열에 `cutoff` 배열을 `searchsorted(side="right") − 1`로 맞춘 뒤 `ts_known_to` 조건을 확인한다. 일별로 펼쳐 저장하지 않는다 [설계 4.4.5]. (두 시간축 표는 이 방법을 쓰지 않는다 — 5.3.6.)
+- **재무제표 기준** [#705 B1; #725 결정 183~188]: 패키지가 가진 기준은 종목과 항목에 따라 다를 수 있다. 한 종목은 `consolidated`, 다른 종목은 `separate`일 수 있다. `Fund.x.latest`는 `[fund] statement_basis`가 이름 든 기준을 읽는다(3.11): 기준 하나, 또는 사용자가 적은 기준의 순서(예: `["consolidated", "separate"]`)이고, 기본값은 없다. 실행이 기준을 둘 이상 갖는지는 그래프가 읽는 항목들에 대해 패키지 전체에서 센다. 둘 이상인데 이름 든 기준이 없으면 그래프는 지을 때 E18이고, 항목마다 패키지가 가진 기준을 말한다; 하나면 그것을 읽는다. 기준이 이름 든 어느 것도 아닌 종목·항목은 NaN이고, 결과의 꼬리표는 기준마다 읽은 종목 수와 빠진 종목 수를 말한다. 순서를 종목 단위로 적용할지 항목 단위로 적용할지는 여기서 정하지 않는다. 엔진은 기준 사이에서 스스로 고르지 않는다.
 - strict 판에서 값이 없는 칸을 compare 판으로 채우지 않는다 [위험 18].
 - `.lag(periods=)`, `.ttm()` 같은 기간 연산은 엔진에 없다. 필요하면 만든 쪽이 해석 항목으로 내보낸다 [9.0 Q24, A-06].
 

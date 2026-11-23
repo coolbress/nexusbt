@@ -167,7 +167,7 @@ This is the canonical English text; a Korean translation is in tds-v1.4.ko.md.
 - Cross-sectional ties are broken by `instrument_id` order, so **changing the id scheme can change tie results** (an intended deterministic rule).
 - Rejected alternatives: FIGI as the key (gaps for old delistings and Korea, historical mapping hard without paid data), ISIN (conversions and reissues, gaps in old US data), integer sid (changes per snapshot; already forbidden by specification 4.2).
 - The specification name `security_id` is renamed to `instrument_id` (fits futures, options, crypto and FX too; the term used by Nautilus, Databento and FIX). The engine user API also uses only `instrument_id` without aliases (v1.1, chapter 13 Q1 closed). Other names are changed only in import mappings (chapter 9).
-- Company grouping: `issuer_id` (optional, opaque). A producer's company id (Korean DART corp code, US CIK etc.) belongs here.
+- Company grouping: `issuer_id` (opaque; optional in the core, required on every `equity` row of `instruments` where `tds:equity-daily-research@1.0` or `tds:pit-fundamentals@1.0` is declared, V020, chapter 7) [2026-11-24, #705 B2]. A producer's company id (Korean DART corp code, US CIK etc.) belongs here.
 
 **K2. Time = UTC instant; the unit is fixed by the dataset kind.**
 - Instant column names start with `ts_` and their type is `timestamp[us, tz="UTC"]` or `timestamp[ns, tz="UTC"]`. Which unit is fixed once per dataset kind (no freedom to choose → guarantees hashes and determinism).
@@ -478,7 +478,7 @@ Key `instrument_id`. Sort `instrument_id`. No partition (`asset_class=` if neede
 | Column | Type | Null | Meaning |
 |---|---|---|---|
 | instrument_id | id | no | K1 |
-| asset_class | code (closed) | no | `equity`, `etf`, `fund`, `index`, `future`, `option`, `crypto_spot`, `crypto_perp`, `crypto_future`, `fx_spot`, `bond`, `rate`, `other` |
+| asset_class | code (open) | no | `equity`, `etf`, `fund`, `index`, `future`, `option`, `crypto_spot`, `crypto_perp`, `crypto_future`, `fx_spot`, `bond`, `rate`, `other` (not traded, in no equity universe) — an open list (below) [2026-11-24, #705 B3] |
 | category | code (open) | yes | Share type: `common`, `preferred`, `adr`, `reit`, `spac`, `unit`, `warrant`, `right`, `closed_end_fund`, `other` |
 | market | code | no | Key of the manifest `markets` |
 | venue_mic | code | yes | MIC of the primary venue (segment allowed) |
@@ -513,7 +513,9 @@ Key `instrument_id`. Sort `instrument_id`. No partition (`asset_class=` if neede
 | index_weighting | code (open) | yes | Index weighting method `cap` / `float_cap` / `equal` / `price` / `other` — when `asset_class = index`. Consumers show it in benchmark comparisons [v1.2, V31-15] |
 | is_synthetic | bool | no | true = not an actually tradable object (continuous contracts, indices). The engine does not use it for fills |
 
-Checks: R001 (an id in another table is missing here), V020 (required columns per `asset_class`: option requires underlying, strike, right, style, expiry, multiplier, settlement; future requires root, expiry, multiplier, settlement; crypto requires base and quote), T010 (`last_session < listed_on`), R002 (calendar missing).
+Checks: R001 (an id in another table is missing here), V020 (required columns per `asset_class`: option requires underlying, strike, right, style, expiry, multiplier, settlement; future requires root, expiry, multiplier, settlement; crypto requires base and quote; equity requires `issuer_id` where `tds:equity-daily-research@1.0` or `tds:pit-fundamentals@1.0` is declared [2026-11-24, #705 B2]), T010 (`last_session < listed_on`), R002 (calendar missing).
+
+- `asset_class` is an open list [2026-11-24, #705 B3]: a value the list above does not hold is accepted, and TDS-S007 (W) names it with the number of instruments, so a misspelling is seen. Such an instrument takes none of the rules written for `equity` alone (chapter 7's `open`…`volume` and V004's check of them), and is read as a class with no rules of its own; the rules every bar takes (V004's `obs_status` rows among them) still apply. `other` is a class that is not traded and in no equity universe.
 
 **After-the-fact static table** [v1.1, RV-C08]: `instruments` is a timeless "what is known now" table. `name`, `last_session` and `delisted_on` are after-the-fact information, so consumers MUST NOT use them as decision inputs (only for listing-period masks, display and delisting handling). If an instrument's changeable attributes (`category`, `venue_mic`, `currency`, `lot_size`, `tick_size`, `tick_rule_id`) actually changed, the producer also exports that history in `classifications` under a scheme of the same name (`category`, `venue_mic` …, two time axes), and consumers read that scheme when present. `asset_class`, `market` and `calendar_id` do not change within one id (a change means a new id, K1(d)).
 
@@ -825,7 +827,7 @@ Partition `market=`. Key `fact_id`. Sort (`instrument_id`, `item`, `period_end`,
 | item | code | no | Item from `dictionary/items` |
 | period_start | date | yes | Period start of flow items |
 | period_end | date | no | Period end (for balances, that date) |
-| period_kind | code | no | `Q`, `H`, `9M`, `A`, `TTM`, `POINT` (balance) |
+| period_kind | code | no | `Q`, `H`, `9M`, `A`, `TTM`, `POINT` (balance) — what each means, below |
 | fiscal_year | i16 | yes | |
 | fiscal_period | code | yes | `Q1`..`Q4`, `H1`, `FY` |
 | statement_basis | code | no | `consolidated` / `separate` / `unspecified` |
@@ -848,6 +850,7 @@ Partition `market=`. Key `fact_id`. Sort (`instrument_id`, `item`, `period_end`,
 | pit_quality | code | no | `native` (original availability time) / `backfilled` (collected later, time estimated) |
 
 - T007: error if `ts_available < period_end`. But for rows with `value_how = preliminary` it is lowered to a warning (W) (preliminary disclosures can come before the period end) [v1.1, RV-I06].
+- `period_kind` [2026-11-24, #705 A5]: `POINT` is an instant, a balance on `period_end`; the others are durations ending on `period_end`. `Q` is a quarter, about three months, not cumulative; `H` a half, about six months, cumulative from the fiscal year's start when it is the first half (`fiscal_period = H1`) and not when it is the second; `9M` nine months and `A` the fiscal year, both cumulative from its start; `TTM` the twelve months to `period_end`, rolling, not cumulative. These are the lengths the names give; a period of another length (a fiscal-year change, a 52/53-week year) shows its own through `period_start`. No other column restates them.
 - **TDS core items** (`std_item`, optional mapping): `revenue`, `gross_profit`, `operating_income`, `pretax_income`, `net_income`, `net_income_parent`, `eps_basic`, `eps_diluted`, `dps`, `ocf`, `capex`, `fcf`, `da`, `interest_expense`, `total_assets`, `current_assets`, `cash`, `total_liabilities`, `current_liabilities`, `total_debt`, `equity`, `equity_parent`, `shares_outstanding`, `shares_weighted_basic`, `shares_weighted_diluted`, `inventory`, `receivables`, `payables`, `dividends_paid`, `buyback`. **This list is a provisional mapping and does not guarantee interoperability**: the defining sentences for consolidated/separate scope, parent share, flow period, currency, scale and sign (e.g. capex) are set in an appendix of the next version. Until then, do not assume that the same `std_item` from different producers means the same thing [v1.1, RV-I06]. Producer items are free and are mapped only through `std_item`.
 
 ### 5.18 `fundamentals_state` (resolved fundamental state intervals) — the fundamentals the engine reads
@@ -1021,9 +1024,9 @@ A package lists the profiles it follows, with versions, in `profiles` (`tds:<nam
 |---|---|---|---|
 | `tds:minimal-daily@1.0` | `instruments`, `bars(freq=1d)`, `calendar_sessions` | bars: only `close` required, of an `equity` or `etf` instrument too [2026-11-22, #705: what is required is what the profile's features read]. Any `price_basis` (declaration required). `obs_status` may be null on a row with values (its state not stated, 5.5) [2026-11-23, #705]. `calendar_sessions` as every daily profile; a writer with no exchange calendar builds it from bar dates with `tds import csv` (9.5, 5.4) [2026-11-23, #705] | **Analysis path only** (NexusBT v1: `run_pipeline`, `screen(factor)`, `evaluate(target="fwd_return_adj")`). With adjusted prices, dividend, quantity and terminal-value accounting are undefined, so economic backtests and economic labels are not supported (the v1 promise of a "close-fill backtest" was removed) [v1.1, RV-I03] |
 | `tds:equity-daily-core@1.0` | above + `calendar_sessions`, `corporate_actions` (empty table allowed), `delistings` (empty table allowed) | bars `price_basis = raw`, `density = dense`, `obs_status` on every row [2026-11-23, #705], `close`, and of a bars dataset whose `instrument_id` names an `equity` or `etf` instrument also `open`, `high`, `low` and `volume`, while `index` and `rate` carry `close` only [2026-11-22, #705]; corporate_actions factor columns | All of `backtest` and `screen` in specification v1 (OHLC fill rules, splits, dividends, delistings) |
-| `tds:equity-daily-research@1.0` | above + `tradability_daily`, `eligibility_daily`, `instrument_symbols`, `fx_rates` (if more than one market), `fundamentals_state`, `classifications`, `dictionary/columns`, `dictionary/items` (optional `market_rules`, v1.2) | Explicit `ts_available` rules (including `tradability_daily.availability_by_column`). (The v1 requirement of `cum_factor_*` was removed) | All of v1 (Fund.*, Universe, multi-currency sleeves) — **reference producer target** |
+| `tds:equity-daily-research@1.0` | above + `tradability_daily`, `eligibility_daily`, `instrument_symbols`, `fx_rates` (if more than one market), `fundamentals_state`, `classifications`, `dictionary/columns`, `dictionary/items` (optional `market_rules`, v1.2) | Explicit `ts_available` rules (including `tradability_daily.availability_by_column`). `issuer_id` on every `equity` row of `instruments` (V020) [2026-11-24, #705 B2]. (The v1 requirement of `cum_factor_*` was removed) | All of v1 (Fund.*, Universe, multi-currency sleeves) — **reference producer target** |
 | `tds:panels@1.0` | `feature_panels`, `label_panels`, `dictionary/columns` | Row-level `ts_available` | `Panel.*`, `evaluate(target=Label.*)` |
-| `tds:pit-fundamentals@1.0` | `fundamentals_events` + `fundamentals_state` | `fact_id`, `doc_id`, `lineage_id` | `nx.explain` lineage |
+| `tds:pit-fundamentals@1.0` | `fundamentals_events` + `fundamentals_state` | `fact_id`, `doc_id`, `lineage_id`; `issuer_id` on every `equity` row of `instruments` (V020) [2026-11-24, #705 B2] | `nx.explain` lineage |
 | `tds:bitemporal@1.0` | (on top of other profiles) | `ts_recorded` in `events` and `fundamentals_events`; classifications and state carry `ts_known_from` | System history replay |
 | `tds:intraday-bars@1.0` (experimental) | `instruments`, `calendar_sessions`, `bars(freq<1d)` | `ts_start`, `ts_end`, `session_date`, `density` declaration | E4 intraday path fills |
 | `tds:l1-ticks@1.0` (experimental) | `trades`, `quotes` | `ts_event`, `sequence`, availability rule | E4 |
@@ -1121,7 +1124,7 @@ Severity: E = error (profile fails), W = warning.
 | TDS-S004 | E | An instant column without UTC tz or with a unit different from the dataset rule, INT96. The unit is the schema file's; a manifest `columns[].type` names it only for a `ts_us/ns` column [2026-11-11], and for a column the schema file leaves untyped or an `x_` column, which it declares `ts_us` or `ts_ns` [2026-11-12] |
 | TDS-S005 | W | Unknown column (without `x_` prefix) |
 | TDS-S006 | E | Value not in a closed enum |
-| TDS-S007 | W | Value not in an open enum (and not in `dictionary/codes`) |
+| TDS-S007 | W | Value not in an open enum (and not in `dictionary/codes`), named with its number of rows (an `instruments` row is an instrument) [2026-11-24, #705 B3] |
 | TDS-S008 | E | A partition path value does not fit its type, or the partition column is also inside the file |
 | TDS-S009 | E | NaN or ±Inf in a float column |
 | TDS-S010 | E | Parquet key-value metadata `tds.dataset`/`tds.schema_version` missing or different from the dataset's `name`/`schema_version` (3.7), also a listed file that is not Parquet |
@@ -1174,7 +1177,7 @@ Severity: E = error (profile fails), W = warning.
 | TDS-V010 | W | Equity volume is not an integer |
 | TDS-V011 | W | Suspected volume unit: per-instrument-year median of `value_traded / (volume × multiplier × (H+L+C)/3)` outside [0.5, 2], over bars whose `price_basis` is `raw`, `index` instruments left out (3.4) [v1.2, V31-16; 2026-11-10, #229] |
 | TDS-V012 | W | Grid information exists but a raw price deviates from the grid by more than 1e-9 relative [v1.2, V31-05] |
-| TDS-V020 | E | Required column per asset kind missing |
+| TDS-V020 | E | Required column per asset kind missing; an `equity` row's `issuer_id` where `tds:equity-daily-research@1.0` or `tds:pit-fundamentals@1.0` is declared (5.1; read at the `full` level) [2026-11-24, #705 B2] |
 | TDS-V030 | W | Crossed or locked BBO |
 | TDS-V031 | W | Crossed book after reconstruction |
 | TDS-V032 | W | Sequence gap in a group whose dataset declares `params.sequence_consecutive_within` (5.6) |
@@ -1366,7 +1369,7 @@ Standard `1.x` bundles all dataset schemas `1.x`. If a dataset schema MAJOR rise
 ### 10.3a Handling unknown features (v1.1) [RV-I01]
 
 - When reading a package of a higher MINOR of the same MAJOR, a consumer distinguishes by **whether it uses unknown features**: unknown optional columns and optional datasets → ignore (M011); unknown descriptive open enum values → `other`; things that affect execution or interpretation (availability rule names, new values of closed enums, `hash_spec`) → reject (M014). So there is no promise to "accept every future 1.x package".
-- **Adding a value to a closed enum stays MAJOR** (an old consumer cannot do accounting without knowing the meaning). Descriptive enums (`category`, `delist_type`, `reason`) are kept open so they grow by MINOR.
+- **Adding a value to a closed enum stays MAJOR** (an old consumer cannot do accounting without knowing the meaning). Descriptive enums (`category`, `delist_type`, `reason`, and `asset_class` since 2026-11-24, #705 B3) are kept open so they grow by MINOR.
 - `experimental` schemas (5.6–5.9, 5.22–5.24) are outside this compatibility promise.
 
 ### 10.4 Extensions and registration
@@ -1618,3 +1621,4 @@ Reference numbers are `R4F-NN` of specification v3.4 (appendix I). **`tds_versio
 - 2026-11-23: **v1.4**, in place. 5.5 and 8.3 TDS-V004, in every profile: a `volume` written on a `no_trade` or `halted` row is 0, a null there stating nothing; a `halted` row has no `open`, `high`, `low` or `close`; a row with neither a value nor `obs_status` is not accepted (maintainer decision 2026-11-23, #705 Decisions 38, 131, 135, 168). A package with such a row passed and now fails at the `full` level; `tds import csv` still writes a source row whose values are all empty with a null `obs_status` (#705 Decisions 156). An edit within stage (1): `tds_version` stays `"1.0"`; `tds_draft` stays 2026-11-19 until the stage ends (10.5).
 - 2026-11-23: **v1.4**, in place. 4.2, 5.5, 8.3 TDS-M003 and TDS-M017, 9.5, 10.5: these declarations have no default. `tds_draft` is required, and a `bars` dataset's `params.price_basis`, `params.bar_time` and `params.density` and its `availability` are written, a missing or `null` one TDS-M003 (it was read as a text before 2026-11-18, and as `raw`, `session` and `ts_end`); other kinds' availability defaults, 5.5's `aggregation` and 5.27's `price_from` are not changed here; TDS-M017 is a date other than the checker's. `tds import csv` stops without a daily `price_basis` and writes `bar_time` `session` and `density` `dense` when the mapping gives none (maintainer decision 2026-11-21, #705 C5 and Decisions 9; 171). A package without them passed and now fails at the `manifest` level. An edit within stage (1): `tds_version` stays `"1.0"`; `tds_draft` stays 2026-11-19 until the stage ends (10.5).
 - 2026-11-23: **v1.4**, in place. 5.27 and 8.3 TDS-S001: `market_rules`' key column `price_from` is in every file, its cells nullable (null = 0); a file without it is S001, where its keys and value hashes went unchecked (maintainer decision 2026-11-23, #705 C5, #725 Decisions 176; #229's question, moved from #43). A `market_rules` file without the column passed and now fails at the `schema` level. An edit within stage (1): `tds_version` stays `"1.0"`; `tds_draft` stays 2026-11-19 until the stage ends (10.5).
+- 2026-11-24: **v1.4**, in place. 5.1, 5.17, 7, 8.3 TDS-S007 and TDS-V020, 10.3a (#705 A5, B3, B2; #725 Decisions 180 to 188): 5.17 writes what each `period_kind` means (no new period column); `asset_class` is an open list, a value it does not hold TDS-S007 (W), and S007 now names each value's number of rows; where `tds:equity-daily-research@1.0` or `tds:pit-fundamentals@1.0` is declared, every `equity` row of `instruments` holds `issuer_id` (V020, `full` level). `statement_basis` in `fundamentals_state`'s key and 5.18's `period_start` change how a value hash is made and come with the hash batch (10.5). A package with an `asset_class` outside the list failed (S006) and now passes with a warning; one declaring either profile without an equity's `issuer_id` passed and now fails at the `full` level. No hash moved. An edit within stage (1): `tds_version` stays `"1.0"`; `tds_draft` stays 2026-11-19 until the stage ends (10.5).
