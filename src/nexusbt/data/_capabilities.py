@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import datetime as dt
 import functools
 import warnings
 from collections import Counter
@@ -25,7 +24,7 @@ from nexusbt.contracts import (
 )
 from nexusbt.data._block import OHL, partition_values
 from nexusbt.data._block import gone as _gone
-from nexusbt.data._coverage import BarsExtent, schedule
+from nexusbt.data._coverage import BarsExtent
 from nexusbt.data._datasets import chosen, dataset, doubled
 from nexusbt.data._datasets import layer as _layer
 from nexusbt_tds.check import Finding
@@ -50,8 +49,7 @@ SUPPORTED = frozenset({
     "tds:minimal-daily@1.0", "tds:equity-daily-core@1.0", "tds:equity-daily-research@1.0",
     "tds:panels@1.0", "tds:pit-fundamentals@1.0",
 })  # fmt: skip
-SAYS = {
-    "F-02": "sessions synthesized from exchange_calendars 4.13.2",
+SAYS = {  # F-02 retired with F-01 and F-18 (#705)
     "F-03": "bars expanded to listing period x sessions, empty cells obs_status = missing",
     "F-15": "price grid = currency minor unit",
     "F-16": "volume unit unverified (TDS-V011), no repair",
@@ -105,8 +103,8 @@ def decide(
     folder: Path, manifest: Manifest, rules: Mapping[str, str | None],
     found: Sequence[Finding], required: CapabilityRequest | None, policy: FallbacksPolicy,
     extent: BarsExtent,
-) -> tuple[DataCapabilities, list[FallbackRecord], tuple[str, ...]]:  # fmt: skip
-    """4.4-3: the features on, the fallbacks they take, and the assumptions those add.
+) -> tuple[DataCapabilities, list[FallbackRecord]]:  # fmt: skip
+    """4.4-3: the features on and the fallbacks they take.
 
     A requested feature the package cannot give is E18; with no request every feature the
     package can give is on. A fallback is E30 under `warn` and E14 under `fail`. `extent`
@@ -121,8 +119,10 @@ def decide(
     unread, unread_in = _breaks_profile(folder, data, bars, kinds.get("instruments"))  # #705
     if not extent.partitioned:  # a `market=` partition is the checker's (TDS-M010)
         _declared(folder, data, extent.by_market(), market_of)
-    _no_calendar(folder, data, kinds)  # 4.4-4: every market's sessions (#705 Decisions 59)
-    f02 = _calendars(folder, data, kinds, extent, lacking, taken)  # no F-02 is left to take
+    _no_calendar(folder, data, kinds)  # 4.4-4: every market's sessions, F-02 retired (#705)
+    for f in ("adjusted", "backtest"):  # 4.3: what reads the sessions reads raw bars
+        if bars is not None and bars["params"].get("price_basis") != "raw":
+            lacking[f].append("raw bars (price_basis = raw)")
     _fallbacks(folder, kinds, rules, found, extent, market_of, taken)
     twice = doubled(data)  # two or more left: off, never by a fallback (4.3, #547, #551)
     for f, reads in READS.items():
@@ -132,13 +132,9 @@ def decide(
         _refuse_features(data, required, lacking)
     wanted = NEEDS.keys() if required is None else required.features
     used = list(dict.fromkeys(r for f in sorted(wanted) if f in on for r in taken[f]))
-    _use_fallbacks(folder, data, bars, f02, used, policy, market_of, extent)
+    _use_fallbacks(data, used, policy)
     supported = frozenset(p for p in data.get("profiles", []) if p in SUPPORTED)
-    assumptions = tuple(SAYS[i] for i in ("F-02",) if any(r.id == i for r in used))
-    return DataCapabilities(on, supported, unread, unread_in), used, assumptions
-
-
-Sessions = tuple[list[FallbackRecord], dict[str, set[dt.date]]]
+    return DataCapabilities(on, supported, unread, unread_in), used
 
 
 def _no_calendar(
@@ -173,30 +169,6 @@ def _no_calendar(
     )  # fmt: skip
 
 
-def _calendars(
-    folder: Path, data: Mapping[str, Any], kinds: Mapping[str, Mapping[str, Any]],
-    extent: BarsExtent, lacking: dict[str, list[str]], taken: dict[str, list[FallbackRecord]],
-) -> Sessions | None:  # fmt: skip
-    """4.4-4: the sessions `adjusted` and `backtest` read, held or F-02 (`_sessions`), and the
-    raw bars they need (4.3); None without bars, or when no calendar gives the sessions."""
-    bars = kinds.get("bars")
-    if bars is None:
-        return None
-    # two calendars: off, never by a fallback (4.3, #547), so no session is built (#705)
-    twice = "calendar_sessions" in doubled(data)
-    # one calendar: `_no_calendar` has seen every market's sessions held, so none to build
-    f02: Sessions | None = None if twice else ([], {})
-    for f in ("adjusted", "backtest"):
-        if f02 is None and "calendar_sessions" not in lacking[f]:  # 4.4-4: one market's
-            lacking[f].append("calendar_sessions")
-        elif f02 is not None:
-            lacking[f] = [k for k in lacking[f] if k != "calendar_sessions"]
-            taken[f] += f02[0]
-        if bars["params"].get("price_basis") != "raw":
-            lacking[f].append("raw bars (price_basis = raw)")
-    return f02
-
-
 def _fallbacks(
     folder: Path, kinds: Mapping[str, Mapping[str, Any]], rules: Mapping[str, str | None],
     found: Sequence[Finding], extent: BarsExtent, market_of: Mapping[str, str],
@@ -228,70 +200,13 @@ def _refuse_features(
 
 
 def _use_fallbacks(
-    folder: Path, data: Mapping[str, Any], bars: Mapping[str, Any] | None,
-    f02: Sessions | None, used: Sequence[FallbackRecord], policy: FallbacksPolicy,
-    market_of: Mapping[str, str], extent: BarsExtent,
-) -> None:  # fmt: skip
-    """4.4-3: the fallbacks used, after F-02's check of the bars against its sessions (4.5):
-    E14 under `fail`, one E30 for each id under `warn`."""
-    if bars is not None and f02 is not None and any(r.id == "F-02" for r in used):
-        _off_calendar(folder, data, bars, f02[1], market_of, extent)
+    data: Mapping[str, Any], used: Sequence[FallbackRecord], policy: FallbacksPolicy
+) -> None:
+    """4.4-3: the fallbacks used, E14 under `fail`, one E30 for each id under `warn`."""
     if used and policy is FallbacksPolicy.FAIL:
         raise _refused(data, used)
     for id_ in dict.fromkeys(r.id for r in used):  # stacklevel: decide's caller's caller
         warnings.warn(str(_warning(data, [r for r in used if r.id == id_])), stacklevel=4)
-
-
-def _sessions(
-    folder: Path, markets: Mapping[str, Mapping[str, Any]],
-    kinds: Mapping[str, Mapping[str, Any]], extent: BarsExtent,
-) -> Sessions | None:  # fmt: skip
-    """F-02 for each market of the bars whose `calendar_id` `calendar_sessions` lacks (4.4-4):
-    its sessions from the first to the last day of its bars, as records and as dates; None
-    when exchange_calendars does not know such a calendar (then E18 for what needs them).
-    The bars are read only when a declared market's calendar is not held."""
-    held = {str(c) for c in _values(folder, kinds.get("calendar_sessions"), "calendar_id")}
-    if all(e["calendar_id"] in held for e in markets.values()):
-        return [], {}
-    gap = {m: e for m, e in extent.by_market().items() if markets[m]["calendar_id"] not in held}
-    if not gap:
-        return [], {}
-    import exchange_calendars as xcals  # only a package without sessions pays its import
-
-    if any(markets[m]["calendar_id"] not in xcals.get_calendar_names() for m in gap):
-        return None
-    out, dates = [], {}
-    for m, e in gap.items():
-        # bounded by the bars, not by the library's default of 20 years before today
-        days = schedule(markets[m]["calendar_id"], e).index
-        out.append(FallbackRecord("F-02", "calendar_sessions", m, len(days)))
-        dates[m] = {d.date() for d in days}
-    return out, dates
-
-
-def _off_calendar(
-    folder: Path, data: Mapping[str, Any], bars: Mapping[str, Any],
-    dates: Mapping[str, set[dt.date]], market_of: Mapping[str, str], extent: BarsExtent,
-) -> None:  # fmt: skip
-    """4.5 F-02: a bar of a synthesized market on a day that is not one of its sessions is E14
-    `TDS-R003`, the check the checker leaves blind without `calendar_sessions`; over the rows
-    `extent` read, one table per bars file with the ids as strings (TDS 3.2)."""
-    off: list[dict[str, Any]] = []
-    for t in extent.tables():  # filtered in Arrow: only the off rows reach Python
-        for m, days in dates.items():
-            ids = pa.array([i for i, x in market_of.items() if x == m], pa.string())
-            held = pa.array(sorted(days), pa.date32()).cast(t["session_date"].type)
-            outside = pc.invert(pc.is_in(t["session_date"], held))
-            off += t.filter(pc.and_(pc.is_in(t[ID_COLUMN], ids), outside)).to_pylist()
-    if off:
-        producer = data.get("producer")
-        raise SnapshotError.from_check(
-            path=str(folder), counts={"TDS-R003": len(off)}, dataset=bars["name"], file="-",
-            key=str({ID_COLUMN: off[0][ID_COLUMN], "session_date": str(off[0]["session_date"])}),
-            hint=f"{len(off)} row(s) on a day not a session of the synthesized calendar (F-02)",
-            snapshot_id=str(data["snapshot_id"]),
-            producer=str(producer.get("name", "-")) if isinstance(producer, dict) else "-",
-        )  # fmt: skip
 
 
 def _columns(folder: Path, dataset: Mapping[str, Any] | None) -> set[str]:

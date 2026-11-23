@@ -110,10 +110,12 @@ def _axis(
     """5.3.9's axis-row hash: (a) the market's `instruments` rows whose `[listed_on,
     delisted_on]` meets the year's sessions, over the fields the block reads; (b) the
     calendar's `calendar_sessions` rows of the year and the whole year before, over every
-    column but `calendar_version`; each in TDS 4.5's canonical bytes (the open has refused a
-    market without such rows, so F-02 builds none here, #705)."""
+    column but `calendar_version`; each in TDS 4.5's canonical bytes (F-02 retired, #705)."""
     schemas = load_schemas()
     sessions = _rows(manifest, kinds.get("calendar_sessions"))
+    # A manifest without `calendar_sessions` raises KeyError here, not the engine's error: no
+    # caller reaches it, since `l0_key` is read only for a snapshot `open_snapshot` gave, and
+    # the open refuses a market without sessions with E14 (4.4-4, #705)
     sessions = sessions.filter(pc.equal(sessions["calendar_id"], calendar))
     years = pc.year(sessions["session_date"])
     own = sessions.filter(pc.equal(years, year))["session_date"]
