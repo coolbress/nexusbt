@@ -14,9 +14,8 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
-from nexusbt.contracts import CapabilityError, ConfigError, SessionNotice, SnapshotError
-from nexusbt.data._coverage import BarsExtent, schedule
-from nexusbt.data._datasets import chosen, dataset
+from nexusbt.contracts import ConfigError, SessionNotice, SnapshotError
+from nexusbt.data._datasets import dataset
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
@@ -99,23 +98,16 @@ def _day(name: str, value: object) -> np.datetime64:
     return np.datetime64(day, "D")
 
 
-def read_calendar(manifest: Manifest, market: str, extent: BarsExtent | None = None) -> Calendar:
-    """The calendar of `market` from `calendar_sessions`, in session order; without rows for
-    its `calendar_id`, the sessions of exchange_calendars over the bars' period (4.5 F-02),
-    from `extent` when the open has one (#568: the bars read once per open)."""
+def read_calendar(manifest: Manifest, market: str) -> Calendar:
+    """The calendar of `market` from `calendar_sessions`, in session order: the open has
+    refused a market without rows for its `calendar_id` (4.4-4; F-02 retired, #705)."""
     calendar_id = str(manifest.data["markets"][market]["calendar_id"])
     held = (dataset(manifest.data, "calendar_sessions") or {}).get("files", [])
-    tables = [pq.read_table(manifest.root / f["path"]) for f in held]
-    rows = pa.concat_tables(tables) if tables else None
-    if rows is not None:
-        rows = rows.filter(pc.equal(rows["calendar_id"], calendar_id)).sort_by("session_date")
+    rows = pa.concat_tables([pq.read_table(manifest.root / f["path"]) for f in held])
+    rows = rows.filter(pc.equal(rows["calendar_id"], calendar_id)).sort_by("session_date")
     bars = dataset(manifest.data, "bars")
     _, delay = bars_availability(bars, str(manifest.data["snapshot_id"]))
     delta = np.timedelta64(delay, "us")
-    if rows is None or not len(rows):
-        if extent is None:
-            extent = BarsExtent(manifest.root, bars, chosen(manifest.data).get("instruments"))
-        return _synthesized(market, calendar_id, extent.by_market().get(market), delta)
 
     def column(name: str, unit: str) -> Any:
         return rows[name].to_numpy().astype(f"datetime64[{unit}]")
@@ -124,36 +116,6 @@ def read_calendar(manifest: Manifest, market: str, extent: BarsExtent | None = N
     ords = rows["session_ord"].to_numpy() if numbered else np.arange(len(rows))
     return Calendar(market, calendar_id, column("session_date", "D"), column("ts_open", "us"),
                     column("ts_close", "us"), ords.astype(np.int64), delta)  # fmt: skip
-
-
-def _synthesized(
-    market: str, calendar_id: str, period: Mapping[str, Any] | None, delta: np.timedelta64
-) -> Calendar:
-    """F-02's session table: the library's sessions from the first to the last day of the
-    market's bars (`period`), numbered from 0 (3.7); E18 without bars of the market or for a
-    calendar the library does not know. `open_snapshot` has said E30 when a feature asked for
-    the sessions."""
-    import exchange_calendars as xcals  # only a package without sessions pays its import
-
-    if period is None or calendar_id not in xcals.get_calendar_names():
-        raise CapabilityError(
-            what=f"no sessions for market {market}: calendar {calendar_id} is not in"
-                 " calendar_sessions and cannot be synthesized",
-            where=f"market {market}, calendar_id {calendar_id}",
-            why="sessions come from calendar_sessions, or from exchange_calendars over the"
-                " period of the market's bars (4.5 F-02)",
-            fix="add calendar_sessions rows for the calendar to the package",
-            more="spec 4.5 F-02 and 5.1.1",
-            layer="data — snapshot - / calendar_sessions / column calendar_id / producer -",
-        )  # fmt: skip
-    days = schedule(calendar_id, period)
-
-    def utc(name: str) -> Any:
-        return days[name].dt.tz_localize(None).to_numpy().astype("datetime64[us]")
-
-    dates = days.index.to_numpy().astype("datetime64[D]")
-    return Calendar(market, calendar_id, dates, utc("open"), utc("close"),
-                    np.arange(len(dates), dtype=np.int64), delta)  # fmt: skip
 
 
 def bars_availability(bars: Mapping[str, Any] | None, snapshot_id: str) -> tuple[str, int]:
