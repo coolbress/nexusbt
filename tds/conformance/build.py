@@ -28,7 +28,19 @@ Change = Callable[[dict[str, Any], Files], object]
 
 INSTRUMENTS = "instruments/part-00000.parquet"
 BARS = "bars/freq=1d/market=US/year=2024/part-00000.parquet"
+CALENDAR = "calendar_sessions/part-00000.parquet"
+ROWS = {CALENDAR: 2}  # the base's files hold one row each, the calendar two sessions
 DAY = pa.array([dt.date(2024, 1, 2)])
+
+
+def sessions() -> pa.Table:
+    """The base's XNYS sessions of 2024-01-02 and -03 (TDS 5.4), as the exchange publishes
+    them: the days the cases' bars fall on."""
+    days = [dt.datetime(2024, 1, d, tzinfo=dt.UTC) for d in (2, 3)]
+    return pa.table({"calendar_id": ["XNYS"] * 2, "session_date": [d.date() for d in days],
+                     "ts_open": pa.array([d.replace(hour=14, minute=30) for d in days], TS_UTC),
+                     "ts_close": pa.array([d.replace(hour=21) for d in days], TS_UTC),
+                     "session_kind": ["regular"] * 2, "source": ["exchange"] * 2})  # fmt: skip
 
 
 def instruments(**columns: pa.Array | None) -> pa.Table:
@@ -74,15 +86,18 @@ def rewrite(m: dict[str, Any], files: Files, rel: str, table: pa.Table, **opts: 
 
 
 def base() -> Package:
-    """A package that passes the manifest and schema levels: `tds:minimal-daily@1.0`."""
+    """A package that passes the manifest and schema levels: `tds:minimal-daily@1.0`, with the
+    XNYS sessions of 2024-01-02 and -03 every daily profile requires (TDS 7, #705)."""
     files = {
         INSTRUMENTS: parquet(instruments(), "instruments"),
         BARS: parquet(bars_table(), "bars_1d"),
+        CALENDAR: parquet(sessions(), "calendar_sessions"),
     }
     bars_1d = {"params": {"freq": "1d", "price_basis": "raw"}, "availability": {"rule": "ts_end"}}
     datasets: list[tuple[str, str, str, str, dict[str, Any]]] = [
         ("instruments", "instruments", "instruments", INSTRUMENTS, {}),
         ("bars_1d", "bars", "bars/freq=1d", BARS, bars_1d),
+        ("calendar_sessions", "calendar_sessions", "calendar_sessions", CALENDAR, {}),
     ]
     manifest = {
         "tds_version": "1.0",
@@ -98,7 +113,7 @@ def base() -> Package:
         },
         "datasets": [
             {"name": name, "kind": kind, "schema_version": "1.0", "path": path, **extra}
-            | {"files": [{"path": file, "rows": 1, "bytes": len(files[file])}]}
+            | {"files": [{"path": file, "rows": ROWS.get(file, 1), "bytes": len(files[file])}]}
             for name, kind, path, file, extra in datasets
         ],
         "hashes": {"hash_spec": "tds-hash-1"},
@@ -158,6 +173,9 @@ def _add(kind: str, columns: dict[str, Any], *paths: str) -> Change:
 
     def change(m: dict[str, Any], files: Files) -> None:
         table, entries = pa.table(columns), []
+        if kind == "calendar_sessions":  # in place of the base's (#705): one calendar
+            m["datasets"] = [d for d in m["datasets"] if d["kind"] != kind]
+            files.pop(CALENDAR, None)
         for rel in paths or (f"{kind}/part-00000.parquet",):
             files[rel] = parquet(table, kind)
             entries.append({"path": rel, "rows": table.num_rows, "bytes": len(files[rel])})
@@ -278,16 +296,23 @@ def _symbols(second_from: dt.date) -> Change:
     return change
 
 
-def _sessions(first: int, on: tuple[int, ...] = (2, 3)) -> Change:
-    """XNYS sessions on days `on` of January 2024 numbered from `first` (TDS 5.4)."""
-    days, n = [dt.datetime(2024, 1, d, tzinfo=dt.UTC) for d in on], len(on)
+def _sessions(first: int, on: tuple[int, ...] = (2, 3), years: tuple[int, ...] = (2024,)) -> Change:
+    """XNYS sessions on days `on` of January of `years` numbered from `first` (TDS 5.4)."""
+    days = [dt.datetime(y, 1, d, tzinfo=dt.UTC) for y in years for d in on]
+    n = len(days)
     return _add("calendar_sessions", {
         "calendar_id": ["XNYS"] * n, "session_date": pa.array([d.date() for d in days]),
         "ts_open": pa.array([d.replace(hour=14, minute=30) for d in days], TS_UTC),
         "ts_close": pa.array([d.replace(hour=21) for d in days], TS_UTC),
         "session_ord": pa.array(range(first, first + n), pa.int32()),
-        "session_kind": ["regular"] * n,
+        "session_kind": ["regular"] * n, "source": ["exchange"] * n,
     })  # fmt: skip
+
+
+def no_calendar(m: dict[str, Any], files: Files) -> None:
+    """The base without its `calendar_sessions`: for a test of a package that has none (#705)."""
+    m["datasets"] = [d for d in m["datasets"] if d["kind"] != "calendar_sessions"]
+    files.pop(CALENDAR, None)
 
 
 def _both(*changes: Change) -> Change:
@@ -492,17 +517,19 @@ def _hashes(code: str, wrong: bool) -> Change:
     return change
 
 
-TS = pa.array([0], pa.timestamp("us", "UTC"))
+#: The base session's close, 2024-01-02 21:00Z, so that a bar's `ts_end` is its session's (T005).
+TS = pa.array([dt.datetime(2024, 1, 2, 21, tzinfo=dt.UTC)], pa.timestamp("us", "UTC"))
 VERSION_1_9 = {"tds.dataset": "bars_1d", "tds.schema_version": "1.9"}  # M011: the file says so too
 THROUGH = dt.datetime(2024, 1, 2, 21, tzinfo=dt.UTC)  # `markets.US.complete_through` (TDS 3.8)
 
 
-def _watermark(ts_end: dt.datetime) -> Change:
-    """US `complete_through` THROUGH, and the bar available at its `ts_end` (rule `ts_end`)."""
+def _watermark(through: dt.datetime) -> Change:
+    """US `complete_through` `through`, and the bar available at its `ts_end` (rule `ts_end`),
+    THROUGH, its session's close (T005)."""
 
     def change(m: dict[str, Any], files: Files) -> None:
-        m["markets"]["US"]["complete_through"] = THROUGH.isoformat().replace("+00:00", "Z")
-        _bars(ts_end=pa.array([ts_end], pa.timestamp("us", "UTC")))(m, files)
+        m["markets"]["US"]["complete_through"] = through.isoformat().replace("+00:00", "Z")
+        _bars(ts_end=pa.array([THROUGH], pa.timestamp("us", "UTC")))(m, files)
 
     return change
 
@@ -773,7 +800,7 @@ CASES: dict[str, tuple[Change, Change]] = {
         _bars(meta={"tds.dataset": "bars", "tds.schema_version": "1.0"}),  # the kind, not the name
     ),
     "TDS-T002": (_column_forms(complete=True), _column_forms(complete=False)),
-    "TDS-T006": (_watermark(THROUGH), _watermark(THROUGH + dt.timedelta(microseconds=1))),
+    "TDS-T006": (_watermark(THROUGH), _watermark(THROUGH - dt.timedelta(microseconds=1))),
     "TDS-T001": (  # a second before the event
         _event(series_id=["US:CPI"]),
         _event(NEW_YEAR - dt.timedelta(seconds=1), series_id=["US:CPI"]),
@@ -798,7 +825,10 @@ CASES: dict[str, tuple[Change, Change]] = {
         _exits(delisted=True, ts_exit_known=_at(2), ts_value_available=_at(2)),
         _exits(delisted=True, ts_exit_known=_at(2), ts_value_available=_at(2, 14, 0)),
     ),
-    "TDS-D002": (_keep, _bars(session_date=pa.array([dt.date(2024, 1, 1)]))),  # before listed_on
+    "TDS-D002": (  # before listed_on, on a session (R003)
+        _keep,
+        _both(_sessions(0, (1, 2, 3)), _bars(session_date=pa.array([dt.date(2024, 1, 1)]))),
+    ),
     "TDS-D001": (_dense(2, 3), _dense(2)),  # the 3rd missing
     "TDS-D003": (_exited(_at(2, 21, 0)), _exited(_at(3))),  # known after the 2nd's close (#425)
     "TDS-D004": (_covered(), _covered(instruments=2)),
@@ -807,7 +837,13 @@ CASES: dict[str, tuple[Change, Change]] = {
         _panels("strict", "strict"),  # one key twice in one folder
     ),
     "TDS-K002": (_bars_on(2, 3), _bars_on(3, 2)),
-    "TDS-K003": (_keep, _bars(session_date=pa.array([dt.date(2025, 1, 2)]))),  # in year=2024
+    "TDS-K003": (  # a 2025 session's bar in the year=2024 file
+        _keep,
+        _both(
+            _sessions(0, (2, 3), years=(2024, 2025)),
+            _bars(session_date=pa.array([dt.date(2025, 1, 2)])),
+        ),
+    ),
     "TDS-K004": (_ranged("2024-01-03T00-00-00Z"), _ranged("2024-01-02T12-00-00Z")),
     "TDS-K010": (_symbols(dt.date(2024, 6, 3)), _symbols(dt.date(2024, 6, 1))),
     "TDS-K011": (_sessions(0), _sessions(1)),

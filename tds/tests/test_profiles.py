@@ -69,7 +69,9 @@ def test_a_typo_in_the_profile_table_fails_loudly() -> None:
 
 
 def test_profile_three_results(tmp_path: Path) -> None:
-    package = Path(build.write(tmp_path, *build.base()))  # declares tds:minimal-daily@1.0
+    manifest, files = build.base()  # declares tds:minimal-daily@1.0
+    build.no_calendar(manifest, files)  # so that core lacks calendar_sessions (#705)
+    package = Path(build.write(tmp_path, manifest, files))
     asked = ["tds:minimal-daily", "tds:equity-daily-core@1.0", "tds:no-such@1.0"]
     result = check(package, level="manifest", profiles=asked)
     assert result.profiles == {
@@ -110,7 +112,12 @@ def _bars_params(**params: str) -> Callable[[dict[str, Any]], object]:
 
 def _add(kind: str) -> Callable[[dict[str, Any]], object]:
     entry = {"name": kind, "kind": kind, "schema_version": "1.0", "path": kind, "files": []}
-    return lambda m: m["datasets"].append(dict(entry))
+
+    def add(m: dict[str, Any]) -> None:
+        if not any(d["kind"] == kind for d in m["datasets"]):  # the base's calendar (#705)
+            m["datasets"].append(dict(entry))
+
+    return add
 
 
 @pytest.mark.parametrize(
