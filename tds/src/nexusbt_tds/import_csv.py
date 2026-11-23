@@ -276,6 +276,11 @@ def _read(
         if column not in values and None not in filled:
             values[column] = filled
             assumed.append(f"{column} {sorted({str(v) for v in filled})} for every row ({why})")
+    if kind == "calendar_sessions" and "source" not in values:  # TDS 5.4: written, never made up
+        raise CsvImportError(
+            f"{path.name}: no column for source; give it, or `values: {{source:"
+            " exchange}` for a calendar the exchange published (TDS 5.4)"
+        )
     order = [c["name"] for c in schema["columns"] if c["name"] in values]
     table = pa.table({c: pa.array(values[c], _ARROW[types[c]]) for c in order})
     sort = _variant(schema["sort"], params) or []

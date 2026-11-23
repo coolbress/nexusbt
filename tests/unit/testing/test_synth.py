@@ -1158,7 +1158,8 @@ def test_synth_conforms_degraded_core(
         assert "delistings" not in kinds
         assert any(r["delisted_on"] for r in rows(package, "instruments"))
     assert (CORE in manifest["profiles"]) is not DROPS_CORE[value]
-    assert MINIMAL in manifest["profiles"]
+    # without a calendar no daily profile is kept, minimal-daily too (C3, #705)
+    assert (MINIMAL in manifest["profiles"]) is (value != "no_sessions")
     # what moved the prices is what the resolver reads, also with the days sparse bars leave out
     assert applied(package) == resolved(package)
 
@@ -1302,8 +1303,9 @@ def test_degrade_drops_declared_profiles(tmp_path: Path) -> None:
         check_full(package)
         path = package / "tds.json"
         manifest = json.loads(path.read_text(encoding="utf-8"))
-        assert manifest["profiles"] == [MINIMAL]
-        path.write_text(json.dumps(manifest | {"profiles": [MINIMAL, CORE]}), encoding="utf-8")
+        kept = [] if value == "no_sessions" else [MINIMAL]  # C3: no calendar, none (#705)
+        assert manifest["profiles"] == kept
+        path.write_text(json.dumps(manifest | {"profiles": [*kept, CORE]}), encoding="utf-8")
         assert pkg._tds("hash", str(package), "--write").returncode == 0
         done = pkg._tds("check", str(package), "--level", "full")
         assert done.returncode != 0

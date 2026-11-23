@@ -333,7 +333,7 @@ def test_price_only_graph_needs_core_only(tiny: Path, tmp_path: Path) -> None:
     """4.3: `Price` alone needs instruments and bars; a richer feature is E18 on such a package."""
     assert CapabilityRequest().datasets == {"instruments", "bars"}
     bare = shutil.copytree(tiny, tmp_path / "bare")
-    kept = {"instruments", "bars"}
+    kept = {"instruments", "bars", "calendar_sessions"}  # minimal-daily's three (C3, #705)
     for d in json.loads((bare / "tds.json").read_text(encoding="utf-8"))["datasets"]:
         if d["kind"] not in kept:
             shutil.rmtree(bare / d["path"])
@@ -344,6 +344,14 @@ def test_price_only_graph_needs_core_only(tiny: Path, tmp_path: Path) -> None:
     assert (s.capabilities.features, s.fallbacks) == (frozenset({"price", "grid"}), [])
     with pytest.raises(CapabilityError, match="backtest needs corporate_actions,"):  # F-02 too
         open_snapshot(DataConfig(path=bare), required=CapabilityRequest(frozenset({"backtest"})))
+    # C3 (#705): minimal-daily declared without its calendar breaks it, E14 at open, not F-02
+    shutil.rmtree(bare / "calendar_sessions")
+    edit_manifest(bare, lambda d: d.update(
+        datasets=[x for x in d["datasets"] if x["kind"] != "calendar_sessions"]))  # fmt: skip
+    write_hashes(bare)
+    with pytest.raises(SnapshotError, match="TDS-M008") as raised:
+        open_snapshot(DataConfig(path=bare), required=CapabilityRequest())
+    assert raised.value.code == "E14"
     with pytest.raises(ValueError, match="no feature"):
         CapabilityRequest(frozenset({"Price"}))
 

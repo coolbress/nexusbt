@@ -34,7 +34,8 @@ def test_a_name_without_version_means_1_0() -> None:
 def test_core_stacks_on_minimal_with_raw_dense_daily_bars() -> None:
     minimal, core = PROFILES["tds:minimal-daily@1.0"], PROFILES["tds:equity-daily-core@1.0"]
     daily = ("bars", (("freq", "=1d"), ("price_basis", "")))  # "" : declared, any value
-    assert minimal.requires == (((("instruments", ()),),), ((daily,),))
+    calendar = ((("calendar_sessions", ()),),)  # C3: every daily profile (#705)
+    assert minimal.requires == (((("instruments", ()),),), ((daily,),), calendar)
     raw_dense = ("bars", (("freq", "=1d"), ("price_basis", "=raw"), ("density", "=dense")))
     assert core.requires[:2] == (((("instruments", ()),),), ((raw_dense,),))
     assert [group[0][0][0] for group in core.requires[2:]] == [
@@ -69,20 +70,30 @@ def test_a_typo_in_the_profile_table_fails_loudly() -> None:
 
 
 def test_profile_three_results(tmp_path: Path) -> None:
-    manifest, files = build.base()  # declares tds:minimal-daily@1.0
-    build.no_calendar(manifest, files)  # so that core lacks calendar_sessions (#705)
-    package = Path(build.write(tmp_path, manifest, files))
+    package = Path(build.write(tmp_path, *build.base()))  # declares tds:minimal-daily@1.0
     asked = ["tds:minimal-daily", "tds:equity-daily-core@1.0", "tds:no-such@1.0"]
     result = check(package, level="manifest", profiles=asked)
     assert result.profiles == {
         "tds:minimal-daily@1.0": ProfileStatus(True, "manifest", "not_checked"),
-        # not declared: checked anyway, and it lacks calendar_sessions and two more (M008)
+        # not declared: checked anyway, and it lacks dense bars and two datasets more (M008)
         "tds:equity-daily-core@1.0": ProfileStatus(False, "manifest", "fail"),
         "tds:no-such@1.0": ProfileStatus(False, "none", "fail"),  # M007
     }
     assert sorted({f.code for f in result.errors}) == ["TDS-M007", "TDS-M008"]
     by_default = check(package, level="manifest")  # without profiles: the declared ones
     assert list(by_default.profiles) == ["tds:minimal-daily@1.0"]
+
+
+def test_minimal_daily_without_calendar_sessions_is_M008(tmp_path: Path) -> None:
+    """C3 (#705): every daily profile requires the calendar, minimal-daily too."""
+    manifest, files = build.base()
+    build.no_calendar(manifest, files)
+    package = Path(build.write(tmp_path, manifest, files))
+    result = check(package, level="manifest", profiles=["tds:minimal-daily@1.0"])
+    assert [(f.code, f.message) for f in result.errors] == [
+        ("TDS-M008", "tds:minimal-daily@1.0 requires dataset calendar_sessions")
+    ]
+    assert check(package, level="manifest").errors == ()  # declaring none, it opens
 
 
 def test_manifest_level_never_reports_unchecked_as_pass(tmp_path: Path) -> None:

@@ -1161,7 +1161,7 @@ write: orders.to_csv("orders/{date}.csv")   apply to paper book: nx.fill(book, o
 
 | 프로필 | 엔진이 읽는 데이터셋 | 켜지는 엔진 기능 | 없으면 |
 |---|---|---|---|
-| `tds:minimal-daily@1.0` | `instruments`, `bars(1d)`(조정가 허용, `price_basis` 선언; `close`만, `equity`·`etf`도, TDS 7) | 분석 경로만: `Price.close`, `run_pipeline`, `screen(factor)`, `evaluate(target="fwd_return_adj")` | backtest·경제 정답 E18 [RV-I03] |
+| `tds:minimal-daily@1.0` | `instruments`, `calendar_sessions`(모든 일봉 프로필, 2026-11-23, #705), `bars(1d)`(조정가 허용, `price_basis` 선언; `close`만, `equity`·`etf`도, TDS 7) | 분석 경로만: `Price.close`, `run_pipeline`, `screen(factor)`, `evaluate(target="fwd_return_adj")` | backtest·경제 정답 E18 [RV-I03] |
 | `tds:equity-daily-core@1.0` | `instruments`, `calendar_sessions`, `bars`(freq=1d, raw, dense, `obs_status`; `equity`·`etf`는 OHLCV, `index`·`rate`는 `close`, TDS 7), `corporate_actions`, `delistings` | `Price.*`, OHLC 체결 규칙, 분할·배당·폐지 회계, `backtest`·`screen` | 4.5의 F-02·F-03·F-13 대체; `bars`에 종가나 이 프로필이 요구하는 칼럼의 값이 하나도 없으면 E14(4.4 3단계) |
 | `tds:equity-daily-research@1.0` | 위 + `tradability_daily`, `eligibility_daily`, `instrument_symbols`, `fx_rates`(시장 둘 이상), `fundamentals_state`, `classifications`, `dictionary/columns`, `dictionary/items` (+ 선택 `share_counts`, `universe_membership`, `instrument_xref`) | 거래 가능 규칙, 투자 대상 유니버스, KR+US 슬리브, `Fund.*`, `Meta.*`, `.to(ccy)` | F-05~F-10 |
 | `tds:panels@1.0` | `feature_panels`, `label_panels` | `Panel.*`, `evaluate(target=Label.*)`, 유니버스 대체 | `Panel.*`·`Label.*` → E18; `evaluate`의 기본 `fwd_return`은 그대로 됨 |
@@ -1184,7 +1184,7 @@ write: orders.to_csv("orders/{date}.csv")   apply to paper book: nx.fill(book, o
 
 | id | 모자란 것 (TDS 빈 곳) | 엔진 동작 | 시험 |
 |---|---|---|---|
-| F-02 | `calendar_sessions` 없음 | `exchange_calendars` 4.13.2로 각 시장의 `calendar_id` 세션(`ts_open`·`ts_close`, 반일장)을 만든다(그 라이브러리가 모르는 달력이면 E18). 세션 집합 = 그 달력 세션 중 `bars` 첫 날~마지막 날. `bars`에 그 달력 밖 날짜가 있으면 E14(`TDS-R003`). E30과 매니페스트 `assumptions`: "sessions synthesized from exchange_calendars 4.13.2" | `degrade=["no_sessions"]` |
+| F-02 | `calendar_sessions` 없음: 모든 일봉 프로필이 요구하므로 프로필을 선언하지 않은 패키지(TDS 7; 선언한 프로필에 없으면 열 때 E14, 4.4 3단계), 또는 그 안에 시장의 `calendar_id`가 없음(4.4 4단계)(2026-11-23, #705) | `exchange_calendars` 4.13.2로 각 시장의 `calendar_id` 세션(`ts_open`·`ts_close`, 반일장)을 만든다(그 라이브러리가 모르는 달력이면 E18). 세션 집합 = 그 달력 세션 중 `bars` 첫 날~마지막 날. `bars`에 그 달력 밖 날짜가 있으면 E14(`TDS-R003`). E30과 매니페스트 `assumptions`: "sessions synthesized from exchange_calendars 4.13.2" | `degrade=["no_sessions"]` |
 | F-03 | `bars`가 `density = sparse`이거나 `obs_status` 없음 | 메모리에서 상장 기간 × 세션으로 펼치고 빈 칸은 `obs_status = missing`. `obs_status`가 없으면 가격이 있으면 `traded`, 거래량 0이면 `no_trade`. E30 + 매니페스트 기록. 선언한 `equity-daily-core` 이상이 요구하는 `obs_status`의 값을 bars가 하나도 갖지 않으면 이 대체가 아니라 열 때 E14(4.4 3단계; 2026-11-22, #705) | `degrade=["sparse_bars"]` |
 | F-05 | 한국 현금배당의 `ex_date`가 실제로는 기준일 | 엔진은 `ex_date`를 그대로 쓴다(고치지 않음). KR 현금배당 중 `ex_date = record_date`이고 `x_*_ex_date_method` 칼럼이 없는 행 수를 세어 E30("dividend ex_date may equal record date for {n} KR events; entitlement may be one session late" + `producer.hints`의 `fallback:F-05` 문장이 있으면 그것)과 매니페스트에 남긴다; 매니페스트는 건수와 키 `fallback:F-05`만 두고 문장은 두지 않는다(5.9.3) | `degrade=["kr_ex_is_record"]` |
 | F-06 | `fundamentals_state` 없음 | `Fund.*`를 쓰는 그래프는 만들 때 E18("snapshot lacks fundamentals_state; use a snapshot with fundamentals_state, or Panel.* monthly fundamentals if present"). 다른 기능은 그대로 | `degrade=["no_fundamentals_state"]` |

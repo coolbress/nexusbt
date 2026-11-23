@@ -94,6 +94,22 @@ def test_S_codes(code: str, tmp_path: Path) -> None:
     assert codes(build.write(tmp_path / "pass", *build.package(code, "pass")), "schema") == []
 
 
+@pytest.mark.parametrize(
+    ("source", "found"),
+    [(None, "TDS-S001"), (pa.array([None, None], pa.string()), "TDS-S003")],
+)
+def test_a_calendar_writes_its_source(source: Any, found: str, tmp_path: Path) -> None:
+    """TDS 5.4 (#705 Decisions 69): `source` is written; any value, its meaning not enforced."""
+    table = build.sessions().drop_columns(["source"])
+    if source is not None:
+        table = table.append_column("source", source)
+    package = write(tmp_path, lambda m, f: build.rewrite(m, f, build.CALENDAR, table))
+    assert [f.code for f in check(package, level="schema").errors] == [found]
+    other = build.sessions().set_column(5, "source", pa.array(["a producer's words"] * 2))
+    package = write(tmp_path / "other", lambda m, f: build.rewrite(m, f, build.CALENDAR, other))
+    assert check(package, level="schema").errors == ()
+
+
 @pytest.mark.parametrize("code", ["TDS-S006", "TDS-S007", "TDS-S009"])
 def test_S_codes_from_rows_at_full(code: str, tmp_path: Path) -> None:
     """The same packages at `full`, which judges these three from the rows (TDS 8.1, #391)."""
@@ -1173,8 +1189,9 @@ def test_reverse_split_not_flagged(tmp_path: Path) -> None:
     [  # a revision_of cycle (A007) leaves no other A code unchecked
         (build.CASES["TDS-A007"][1], ["TDS-A007"], []),
         # no calendar: the sessions A005 and A009 look up are unknown
-        (_without("calendar_sessions", build.CASES["TDS-A009"][0]), [],
-         ["TDS-A005", "TDS-A009"]),
+        (build._both(_without("calendar_sessions", build.CASES["TDS-A009"][0]),
+                     lambda m, f: m.update(profiles=[])),  # none: each requires one (#705)
+         [], ["TDS-A005", "TDS-A009"]),
     ],
 )  # fmt: skip
 def test_adjustment_rules_edges(
@@ -1267,8 +1284,9 @@ def test_full_level_says_where_sorted_runs_went(
 def test_full_level_checks_only_the_keys_references_and_hashes_so_far(tmp_path: Path) -> None:
     result = check(write(tmp_path / "pkg", build.no_calendar), level="full")  # as before #705
     assert (result.errors, result.warnings) == ((), ())
-    # spec 8.2, no false pass: the other full-level rules are not built, so no profile is `full`
-    assert result.profiles == {
+    # spec 8.2, no false pass: the other full-level rules are not built, so no profile is `full`;
+    # the base declares one, the package without a calendar none (#705)
+    assert check(write(tmp_path / "base"), level="full").profiles == {
         "tds:minimal-daily@1.0": ProfileStatus(True, "schema", "not_checked")
     }
     hashes = {"TDS-H001", "TDS-H002", "TDS-H003", "TDS-H004"}
@@ -1644,7 +1662,7 @@ def _days(*days: dt.date, ids: tuple[str, ...] = ("US:AAA",), **listing: Any) ->
     sessions = pa.table({
         "calendar_id": ["XNYS", "XNYS"], "session_date": [dt.date(2024, 1, 2), dt.date(2024, 1, 4)],
         "ts_open": _ts(END).take([0, 0]), "ts_close": _ts(END).take([0, 0]),
-        "session_kind": ["regular", "regular"],
+        "session_kind": ["regular", "regular"], "source": ["exchange"] * 2,  # written (#705)
     })  # fmt: skip
     rel = "calendar_sessions/part-00000.parquet"
 

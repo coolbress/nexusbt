@@ -83,7 +83,7 @@ def describe(alt: tuple[Need, ...]) -> str:
     )
 
 
-_MINIMAL = ("instruments", "bars:freq=1d,price_basis")
+_MINIMAL = ("instruments", "bars:freq=1d,price_basis", "calendar_sessions")  # C3 (#705)
 _CORE = (
     "instruments",
     "bars:freq=1d,price_basis=raw,density=dense",
