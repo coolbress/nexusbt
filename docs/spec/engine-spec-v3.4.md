@@ -1325,7 +1325,7 @@ def make_snapshot(root: Path, *, preset: Literal["tiny","small","full","full_ci"
                   markets: Sequence[str] = ("KR", "US"),            # "ZZ" = a test market without a rules pack (XZZZ, currency XTS)
                   n_kr: int | None = None, n_us: int | None = None,
                   events: Sequence[EventSpec] = (), overrides: Mapping[str, Any] | None = None,
-                  degrade: Sequence[Literal["no_ohlc","no_sessions","sparse_bars",
+                  degrade: Sequence[Literal["no_ohlc","sparse_bars",    # no_sessions left with F-02 (#705)
                                             "kr_ex_is_record","no_fundamentals_state","no_eligibility",
                                             "no_share_counts","us_div_split_adjusted_no_dates",
                                             "no_fundamentals_events","no_benchmarks","no_delistings",
@@ -3301,7 +3301,7 @@ Following the three-reviewer consensus (RV-I05), v3 **cut M0 down to contracts o
 - Acceptance: `tds/tests/test_conformance.py::test_A_codes`, `::test_V_codes`, `::test_reverse_split_not_flagged`; until 2026-11-22 also `::test_A001_multiplies_latest_revision_once`.
 
 **T0.16a `feat(testing): degraded synthetic packages for core fallbacks`** **[v3]** · `M1` `testing` · M · Blocked by: T0.7, T0.15b · §4.5, §4.8 *(v3: T0.16 split)*
-- Context: the core data values of `degrade=`: `no_ohlc`, `no_sessions`, `sparse_bars`, `kr_ex_is_record`, `us_div_split_adjusted_no_dates`, `no_delistings` (`no_cum_factors` left on 2026-11-22: the generator writes no `cum_factor_*`, #705); each value removes from the declaration the profiles it cannot keep (checks still pass).
+- Context: the core data values of `degrade=`: `no_ohlc`, `sparse_bars`, `kr_ex_is_record`, `us_div_split_adjusted_no_dates`, `no_delistings` (`no_cum_factors` left on 2026-11-22: the generator writes no `cum_factor_*`, #705; `no_sessions` left on 2026-11-23 with F-02: a package without `calendar_sessions` is E14 at open, #705); each value removes from the declaration the profiles it cannot keep (checks still pass).
 - Done means: `--preset small --degrade no_ohlc,kr_ex_is_record --validate` prints the declared profiles (no core) and the three results.
 - Acceptance: `test_synth.py::test_synth_conforms_degraded_core[<each value>]` (one per value of the test's `DROPS_CORE`), `::test_degrade_drops_declared_profiles`.
 
