@@ -22,7 +22,7 @@ CORE_PROFILE = "tds:equity-daily-core@1.0"
 CORE = {
     "no_ohlc": True,  # core's OHLCV; minimal-daily's E18 when read (F-01 retired, #705)
     # no `no_sessions`: every daily profile and every open needs calendar_sessions (#705)
-    "sparse_bars": True,  # F-03: density = dense, obs_status
+    # no `sparse_bars`: daily bars are always dense, and F-03 is retired (#705)
     "kr_ex_is_record": False,  # F-05
     "us_div_split_adjusted_no_dates": False,  # F-09
     "no_delistings": True,  # F-13: delistings
@@ -67,11 +67,9 @@ def absent(degrade: Sequence[str]) -> set[str]:
 
 
 def fields(name: str, given: Mapping[str, Any], degrade: Sequence[str]) -> dict[str, Any]:
-    """A dataset's tds.json fields; sparse bars say so in `params.density` (TDS 5.5), late bars
-    in the column rule, with no `params.ready_delay`, so 5.1.2's delta is 0."""
+    """A dataset's tds.json fields; late bars say so in the column rule, with no
+    `params.ready_delay`, so 5.1.2's delta is 0."""
     out = dict(given)
-    if name == "bars_1d" and "sparse_bars" in degrade:
-        out["params"] = {**out["params"], "density": "sparse"}
     if name == "bars_1d" and "late_bars" in degrade:
         out["availability"] = {"column": "ts_available"}
         out["columns"] = [*out["columns"], {"name": "ts_available", "type": "ts_us"}]
@@ -137,9 +135,6 @@ def _no_tick_rule(market: str, t: Tables, closes: pa.Array, seed: int) -> Tables
 #: market it applies to (None: every market). The others only leave a dataset out (ABSENT).
 GAPS: dict[str, tuple[str | None, Gap]] = {
     "no_ohlc": (None, _no_ohlc),
-    "sparse_bars": (None, lambda m, t, c, s: {  # F-03: the sessions it traded, no obs_status
-        "bars_1d": t["bars_1d"].filter(pc.equal(t["bars_1d"]["obs_status"], "traded"))
-        .drop_columns(["obs_status"])}),
     "kr_ex_is_record": ("KR", lambda m, t, c, s: {  # F-05
         "corporate_actions": _rows(t["corporate_actions"],
                                    lambda r: r | {"record_date": r["ex_date"]})}),

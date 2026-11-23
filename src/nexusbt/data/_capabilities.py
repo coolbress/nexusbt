@@ -49,8 +49,7 @@ SUPPORTED = frozenset({
     "tds:minimal-daily@1.0", "tds:equity-daily-core@1.0", "tds:equity-daily-research@1.0",
     "tds:panels@1.0", "tds:pit-fundamentals@1.0",
 })  # fmt: skip
-SAYS = {  # F-02 retired with F-01 and F-18 (#705)
-    "F-03": "bars expanded to listing period x sessions, empty cells obs_status = missing",
+SAYS = {  # F-02 and F-03 retired with F-01 and F-18 (#705)
     "F-15": "price grid = currency minor unit",
     "F-16": "volume unit unverified (TDS-V011), no repair",
 }
@@ -123,6 +122,8 @@ def decide(
     for f in ("adjusted", "backtest"):  # 4.3: what reads the sessions reads raw bars
         if bars is not None and bars["params"].get("price_basis") != "raw":
             lacking[f].append("raw bars (price_basis = raw)")
+    if bars is not None and "obs_status" not in _columns(folder, bars):  # 4.3; F-03 retired
+        lacking["backtest"].append("bars obs_status")  # a file holds what each does (C2)
     _fallbacks(folder, kinds, rules, found, extent, market_of, taken)
     twice = doubled(data)  # two or more left: off, never by a fallback (4.3, #547, #551)
     for f, reads in READS.items():
@@ -174,14 +175,9 @@ def _fallbacks(
     found: Sequence[Finding], extent: BarsExtent, market_of: Mapping[str, str],
     taken: dict[str, list[FallbackRecord]],
 ) -> None:  # fmt: skip
-    """4.5: F-03, F-16 and F-15, each added to the features that take it; F-03 reads the
-    columns of the bars' first file."""
+    """4.5: F-16 and F-15, each added to the features that take it (F-03 retired with daily
+    bars always dense: a row without a stated state is read as stored, 3.2; #705)."""
     bars = kinds.get("bars")
-    columns = _columns(folder, bars)
-    if bars is not None and (bars["params"].get("density") == "sparse"
-                             or "obs_status" not in columns):  # fmt: skip
-        taken["backtest"] += [FallbackRecord("F-03", bars["name"], m, int(e.get("rows", 0)))
-                              for m, e in extent.by_market().items()]  # fmt: skip
     read = bars["name"] if bars is not None else None  # the bars the engine reads (4.3, #547)
     years = Counter((f.dataset, market_of.get(str((f.key or {}).get(ID_COLUMN)), "-"))
                     for f in found if f.code == "TDS-V011" and f.dataset == read)  # fmt: skip

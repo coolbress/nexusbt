@@ -1,4 +1,4 @@
-"""The daily bars' extent per market: what the F-03 and F-15 records count (spec 4.5). TDS
+"""The daily bars' extent per market: what the F-15 record counts (spec 4.5). TDS
 4.3's `coverage` block is optional and may hold `processed_through_session` alone, so a market
 whose entry lacks a key, or a package with no `by_market`, is read from the bars themselves
 (#564), and a file's market is its `market=` partition (4.6), else its instrument's."""
@@ -21,7 +21,7 @@ KEYS = frozenset({"first", "last", "rows", "instruments"})
 
 class BarsExtent:
     """The daily bars' extent of one open, read from the files on the first ask and kept
-    (#568): only F-03, F-15 and an undeclared market of an unpartitioned file use it."""
+    (#568): only F-15 and an undeclared market of an unpartitioned file use it."""
 
     def __init__(
         self, root: Path, bars: Mapping[str, Any] | None, instruments: Mapping[str, Any] | None

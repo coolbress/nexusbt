@@ -78,8 +78,7 @@ def processed_only(data: dict[str, Any]) -> None:
 
 
 #: degrade, markets, the feature asked for: each fallback whose record reads the bars' extent.
-CASES = {"F-03": (["sparse_bars"], ("KR", "US"), "backtest"),  # F-02 retired (#705)
-         "F-15": (["no_tick_info"], ("KR", "ZZ"), "grid")}  # fmt: skip
+CASES = {"F-15": (["no_tick_info"], ("KR", "ZZ"), "grid")}  # F-02, F-03 retired (#705)
 
 
 @pytest.mark.parametrize("edit", [no_coverage, processed_only])
@@ -108,13 +107,15 @@ def test_bars_extent_read_from_the_bars_without_coverage(
 
 def test_bars_files_of_two_string_encodings_are_read_together(tmp_path: Path) -> None:
     """When one bars file writes `instrument_id` dictionary-encoded and another plain (the same
-    TDS 3.2 type) and `coverage` is left out, then F-03 counts the same rows as with it (F-02,
-    which counted sessions, retired, #705)."""
-    path = make_snapshot(tmp_path / "s", preset="tiny", degrade=["sparse_bars"])
-    backtest = CapabilityRequest(frozenset({"backtest"}))
+    TDS 3.2 type) and `coverage` is left out, then F-15 counts the same instruments as with it
+    (F-02 and F-03, which counted sessions and rows, retired, #705)."""
+    path = make_snapshot(tmp_path / "s", preset="tiny", markets=("KR", "ZZ"),
+                         degrade=["no_tick_info"])  # fmt: skip
+    cfg, grid = DataConfig(path=path, allow_untested=True), CapabilityRequest(frozenset({"grid"}))
     with warnings.catch_warnings():
-        warnings.simplefilter("ignore")  # F-03's E30
-        declared = open_snapshot(DataConfig(path=path), required=backtest).fallbacks
+        warnings.simplefilter("ignore")  # F-15's E30
+        declared = open_snapshot(cfg, required=grid).fallbacks
+        assert [r.id for r in declared] == ["F-15"]
         data = json.loads((path / "tds.json").read_text(encoding="utf-8"))
         no_coverage(data)
         bars = next(d for d in data["datasets"] if d["kind"] == "bars")
@@ -126,4 +127,4 @@ def test_bars_files_of_two_string_encodings_are_read_together(tmp_path: Path) ->
         first["bytes"] = (path / first["path"]).stat().st_size
         (path / "tds.json").write_text(json.dumps(data), encoding="utf-8")
         write_hashes(path)
-        assert open_snapshot(DataConfig(path=path), required=backtest).fallbacks == declared
+        assert open_snapshot(cfg, required=grid).fallbacks == declared

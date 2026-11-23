@@ -451,6 +451,9 @@ def _check_dataset(
         if params.get(key) is not None and params[key] not in values:
             msg = f"params.{key} {params[key]!r} is not one of {', '.join(values)}"
             yield Finding("TDS-M014", "error", msg, dataset=name)
+    if kind == "bars" and params.get("freq") == "1d" and params.get("density") == "sparse":
+        msg = "params.density 'sparse' on daily bars, which are dense (TDS 5.5)"
+        yield Finding("TDS-M014", "error", msg, dataset=name)
     if isinstance(ds.get("path"), str) and (why := _unsafe(root, ds["path"])):
         yield Finding("TDS-M012", "error", f"dataset path {why}", dataset=name, file=ds["path"])
     files = ds.get("files")

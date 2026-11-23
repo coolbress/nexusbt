@@ -1077,8 +1077,9 @@ def test_injected_exits_and_halts_are_refused_with_the_reason(tmp_path: Path) ->
 SHORT: dict[str, Any] = {"start": dt.date(2019, 1, 2), "n_kr": 20, "n_us": 20}
 CORE, MINIMAL = "tds:equity-daily-core@1.0", "tds:minimal-daily@1.0"
 #: Spec 4.8's core `degrade` values; TDS 7: core needs delistings and dense bars with OHLCV and
-#: obs_status, so these three cannot keep it, and the others can (`no_sessions` left, #705).
-DROPS_CORE = {"no_ohlc": True, "sparse_bars": True,
+#: obs_status, so these two cannot keep it, and the others can (`no_sessions` and
+#: `sparse_bars` left, #705).
+DROPS_CORE = {"no_ohlc": True,
               "kr_ex_is_record": False, "us_div_split_adjusted_no_dates": False,
               "no_delistings": True, "no_tick_info": False,  # F-15: market_rules is optional
               "late_bars": False}  # #354: no gap of the 4.5 table, valid data  # fmt: skip
@@ -1112,12 +1113,7 @@ def test_synth_conforms_degraded_core(
     # and holds the one gap of the 4.5 table its value names
     package = make_snapshot(tmp_path / value, **SHORT, events=us_dividend_before_split,
                             degrade=[value])  # fmt: skip
-    if value == "sparse_bars":  # daily bars are dense whatever they declare: D001, until the
-        # value leaves with F-03 (#705 Decisions 134, as 41 accepted for `no_ohlc`)
-        printed = pkg._tds("check", str(package), "--level", "full").stdout
-        assert re.findall(r"^error (TDS-\w+)", printed, re.M) == ["TDS-D001"], printed
-    else:
-        printed = check_full(package)  # `no_ohlc` too: minimal-daily asks close alone (#705)
+    printed = check_full(package)  # `no_ohlc` too: minimal-daily asks close alone (#705)
     manifest = json.loads((package / "tds.json").read_text(encoding="utf-8"))
     kinds = {d["kind"]: d for d in manifest["datasets"]}
     bars = read(package, "bars_1d")
@@ -1126,10 +1122,6 @@ def test_synth_conforms_degraded_core(
     if value == "no_ohlc":  # F-01
         assert all(bars[c].null_count == len(bars) for c in ("open", "high", "low"))
         assert bars["close"].null_count < len(bars)
-    elif value == "sparse_bars":  # F-03: rows only where it traded, no obs_status
-        assert kinds["bars"]["params"]["density"] == "sparse"
-        assert "obs_status" not in bars.column_names
-        assert bars["close"].null_count == 0
     elif value == "kr_ex_is_record":  # F-05: every KR cash dividend, none elsewhere
         kr = [r for r in dividends if r[ID].startswith("KR:")]
         assert kr
@@ -1297,7 +1289,6 @@ def test_degrade_drops_declared_profiles(tmp_path: Path) -> None:
     assert json.loads((both / "tds.json").read_text(encoding="utf-8"))["profiles"] == [MINIMAL]
     # counter-example: declared again, core fails the check where the checker sees the gap
     missing = {"no_delistings": "dataset delistings",
-               "sparse_bars": "density=dense",
                "no_ohlc": "column open in bars (equity or etf rows): null in every row",
                }  # fmt: skip
     for value in (v for v, drops in DROPS_CORE.items() if drops):
@@ -1316,9 +1307,10 @@ def test_degrade_drops_declared_profiles(tmp_path: Path) -> None:
         (["no_eligibility"], NotImplementedError, r"come with T0.16b \(spec"),
         (["no_ohlcv"], ValueError, "spec 4.8 has"),
         ("no_ohlc", ValueError, "a sequence of values"),
-        # left with F-02 (#705): refused, naming the values there are
+        # left with F-02 and F-03 (#705): refused, naming the values there are
         (["no_sessions"], ValueError, r"degrade \['no_sessions'\]: spec 4.8 has \['no_ohlc', "
-                                      r"'sparse_bars'"),
+                                      r"'kr_ex_is_record'"),
+        (["sparse_bars"], ValueError, r"degrade \['sparse_bars'\]: spec 4.8 has"),
     ):  # fmt: skip
         with pytest.raises(error, match=words):
             make_snapshot(tmp_path / "x", **tiny, degrade=wrong)

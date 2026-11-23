@@ -214,23 +214,39 @@ def test_bare_column_rule_reads_ts_available(tmp_path: Path) -> None:
     np.testing.assert_array_equal(b.ts_available[b.exists], stored["ts_available"].to_numpy())
 
 
-def test_without_obs_status_f03(tmp_path: Path) -> None:
-    """F-03: without `obs_status`, a bar with a price is traded and a listed session without a
-    bar is missing, never `absent`, which means outside the listing period (5.3.1)."""
-    sparse = ["sparse_bars"]  # dense rows, no obs_status column
-    source = make_snapshot(tmp_path / "src", preset="tiny", markets=("KR",), degrade=sparse)
-    hole = ("2020-01-07", B)
+def test_bars_without_obs_status_state_nothing(tiny: Path, tmp_path: Path) -> None:
+    """Spec 3.2 (#705, F-03 retired): bars with no `obs_status` column state no state, so
+    their values are read as stored, with no E30: a row without a close or a volume is not
+    made `no_trade` with a volume of 0. A listed session without a row is missing, never
+    `absent`, which means outside the listing period (5.3.1)."""
+    quiet, hole = ("2020-01-08", B), ("2020-01-07", B)
 
-    def drop(rows: Rows) -> Rows:
-        return [r for r in rows if (str(r["session_date"]), r["instrument_id"]) != hole]
+    def rows(given: Rows) -> Rows:
+        out = [r for r in given if (str(r["session_date"]), r["instrument_id"]) != hole]
+        valued = ("open", "high", "low", "close", "volume", "value_traded")
+        return [r | dict.fromkeys(valued) if (str(r["session_date"]), r["instrument_id"]) == quiet
+                else r for r in out]  # fmt: skip
 
-    with pytest.warns(UserWarning, match="F-03"):  # E30: the fallback is said at open (4.5)
-        snap = opened(edited(source, tmp_path / "gap", bars_1d=drop))
-    b = whole(snap, "KR", ["close"])
-    row = int(np.searchsorted(b.dates, np.datetime64("2020-01-07", "D")))
+    at = edited(tiny, tmp_path / "pkg", bars_1d=rows)
+    data = json.loads((at / "tds.json").read_text(encoding="utf-8"))
+    data["profiles"] = ["tds:minimal-daily@1.0"]  # core requires obs_status (TDS 7)
+    (bars,) = (d for d in data["datasets"] if d["name"] == "bars_1d")
+    for f in bars["files"]:
+        pq.write_table(pq.read_table(part := at / f["path"]).drop_columns(["obs_status"]), part)
+        f["bytes"] = part.stat().st_size
+    (at / "tds.json").write_text(json.dumps(data), encoding="utf-8")
+    write_hashes(at)
+    snap = opened(at)  # filterwarnings: no E30
+    assert snap.fallbacks == []
+    assert "backtest" not in snap.capabilities.features  # 4.3 reads obs_status: off, no F-03
+    b = whole(snap, "KR", ["close", "volume"])
+    assert np.isnan([cell(b, "close", *quiet), cell(b, "volume", *quiet)]).all()  # F-03: 0
+    assert (cell(b, "close", "2020-01-08", A), cell(b, "volume", "2020-01-08", A)) == (
+        10000.0, 1000.0)  # fmt: skip
+    row = int(np.searchsorted(b.dates, np.datetime64(hole[0], "D")))
     assert OBS_STATUS[b.obs_status[row, b.instrument_ids.index(B)]] == "missing"
-    assert OBS_STATUS[b.obs_status[row, b.instrument_ids.index(A)]] == "traded"
-    assert (OBS_STATUS[b.obs_status[b.exists]] != "absent").all()
+    assert np.isnan(cell(b, "close", *hole))
+    assert set(OBS_STATUS[b.obs_status[b.exists]]) == {"unstated", "missing"}
 
 
 def test_session_close_rule_is_the_close(tiny: Path, tmp_path: Path) -> None:

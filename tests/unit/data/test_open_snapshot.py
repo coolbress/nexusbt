@@ -407,16 +407,6 @@ def test_a_market_without_sessions_is_e14_whatever_the_run_reads(
     assert raised.value.code == "E14"
 
 
-def test_fallback_F03_densify(tmp_path: Path) -> None:  # noqa: N802 - the ticket's test name
-    """F-03: sparse bars without obs_status are recorded for a backtest, not for `Price` alone."""
-    sparse = make_snapshot(tmp_path / "s", preset="tiny", degrade=["sparse_bars"])
-    s, said = opened_warned(sparse)
-    assert [(r.id, r.market) for r in s.fallbacks] == [("F-03", "KR"), ("F-03", "US")]
-    assert {(r.dataset, r.count) for r in s.fallbacks} == {("bars_1d", 341)}  # tiny: all traded
-    assert "listing period x sessions" in said[0]
-    assert open_snapshot(DataConfig(path=sparse), required=CapabilityRequest()).fallbacks == []
-
-
 def test_fallback_F04_factors_from_resolver(tiny: Path) -> None:  # noqa: N802 - the ticket's test name
     """F-04 is a definition: the resolver's factors from the events, no warning, and since
     #705 no package of the generator has the columns and the run manifest no label for them."""
@@ -428,14 +418,16 @@ def test_fallback_F04_factors_from_resolver(tiny: Path) -> None:  # noqa: N802 -
 
 
 def test_fallbacks_fail_mode_raises_E14(tmp_path: Path) -> None:  # noqa: N802 - the ticket's test name
-    """4.4-3: `[data] fallbacks = "fail"` makes a needed fallback E14, without a warning (F-03,
-    since F-02 retired, #705)."""
-    gap = make_snapshot(tmp_path / "g", preset="tiny", degrade=["sparse_bars"])
-    with pytest.raises(SnapshotError, match="fallback F-03 needed") as raised:
-        open_snapshot(DataConfig(path=gap, fallbacks=FallbacksPolicy.FAIL), required=BACKTEST)
+    """4.4-3: `[data] fallbacks = "fail"` makes a needed fallback E14, without a warning (F-15,
+    since F-02 and F-03 retired, #705)."""
+    gap = make_snapshot(tmp_path / "g", preset="tiny", markets=("KR", "ZZ"),
+                        degrade=["no_tick_info"])  # fmt: skip
+    fail = DataConfig(path=gap, fallbacks=FallbacksPolicy.FAIL, allow_untested=True)
+    with pytest.raises(SnapshotError, match="fallback F-15 needed") as raised:
+        open_snapshot(fail, required=CapabilityRequest(frozenset({"grid"})))
     assert "[E14]" in str(raised.value)
-    price = CapabilityRequest()  # `Price` alone densifies nothing: nothing to refuse
-    assert open_snapshot(DataConfig(path=gap, fallbacks=FallbacksPolicy.FAIL), required=price)
+    price = CapabilityRequest()  # `Price` alone reads no grid: nothing to refuse
+    assert open_snapshot(fail, required=price)
 
 
 def test_volume_unit_warning_lifted_E30(tmp_path: Path) -> None:  # noqa: N802 - the ticket's test name
