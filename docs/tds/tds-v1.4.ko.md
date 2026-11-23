@@ -33,6 +33,7 @@
 > 판 이력(이어서): **v1.4, 2026-11-22 변경**: 주식 일봉 프로필은 `equity`·`etf` 종목을 담은 bars 데이터셋에 `open`·`high`·`low`·`close`·`volume`을, `index`·`rate`에는 `close`만 요구한다(7장, M008). V004는 `equity`·`etf`의 traded 행에서 다섯을 본다. 5.5는 `halted`가 무엇인지, 거래가 없으면 `volume`이 0임, `no_trade` 행의 open·high·low는 null이고 앞의 종가로 채우지 않음을 말한다(#705). (1)단계 안의 고침: `tds_draft`는 2026-11-19 그대로이고 `tds_version`은 `"1.0"` 그대로.
 > 판 이력(이어서): **v1.4, 2026-11-22 변경**: 한 데이터셋의 파일은 모두 같은 칼럼을 각각 한 번 갖고, 형이 정해지지 않은 칼럼은 파일마다 같은 형이다. dictionary 인코딩, `large_` 형, UTC의 여러 표기는 따지지 않는다(3.6). `dictionary/` 표를 포함해 모든 종류에서 `schema` 수준의 TDS-S011(E)로 검사한다(#705). (1)단계 안의 고침: `tds_draft`는 2026-11-19 그대로이고 `tds_version`은 `"1.0"` 그대로.
 > 판 이력(이어서): **v1.4, 2026-11-22 변경**: `tds:minimal-daily@1.0`은 다시 `close`만 요구한다, `equity`·`etf`에도. `open`·`high`·`low`·`volume`은 `tds:equity-daily-core@1.0` 이상이 계속 요구하고, V004는 선언한 프로필이 요구하는 곳에서 그것을 읽는다(7장, 5.5, 8.3; #705). (1)단계 안의 고침: `tds_draft`는 2026-11-19 그대로이고 `tds_version`은 `"1.0"` 그대로.
+> 판 이력(이어서): **v1.4, 2026-11-23 추가**: `tds import csv`가 bars의 날짜로, bars가 준 시각이 있으면 그 시각, 없으면 시장이 선언한 정규장 시각으로 `calendar_sessions`를 짓고 `source = inferred_from_bar_dates`를 적으며, 5.4가 그런 줄의 시각이 무엇이고 무엇이 아닌지 말한다(9.5, 5.4; #705). (1)단계 안의 고침: `tds_draft`는 2026-11-19 그대로이고 `tds_version`은 `"1.0"` 그대로.
 > 관계: 이 문서는 엔진 명세서 v3.4(`engine-spec-v3.4-2026-10-28.md`) **4장이 참조하는 입력 정본**이다. 둘이 다르면 입력 형식은 이 문서가 맞다(차이 목록은 12장). 사용자 결정(설계 문서 9.0)은 이 문서보다 우선한다.
 > 공개: 이 표준과 검사기(`nexusbt-tds`, import `nexusbt_tds`, 명령 `tds`)는 공개(Apache-2.0)다. 작업판 11장(생산자별 대응)은 표준의 규범이 아니라서 이 공개판에 넣지 않았다.
 > 예시: 엔진이 읽는 모든 데이터셋(사건·거시 계열 포함)의 예시 행은 `tds-examples.md`(같은 폴더)에 있다.
@@ -559,6 +560,7 @@
 
 - `calendar_version`은 정보용이다: 생산자가 쓰고, 공개할 때마다 모든 행에서 다시 쓸 수 있으며, 다른 필드가 바뀌지 않은 행에서도 그렇다. 소비자는 이 열을 열쇠로 쓰지 않고(엔진은 캐시 열쇠에서 뺀다, 명세서 5.3.9), 이 열을 지켜보는 검사는 없다 [사용자 결정 2026-11-04].
 - 세션 표는 일정 자료와 가격을 대조해 만든다. 어떤 종목 가격이 없다고 세션을 지우지 않는다(명세서 4.6).
+- **bars 날짜에서 추론한 달력** [2026-11-23, #705]: `source`가 `inferred_from_bar_dates`인 줄(거래소 달력이 없는 쓰는 도구의 이름 붙인 마지막 수단, 9.5)에서 `ts_open`과 `ts_close`는 bars가 그날의 `ts_start`와 `ts_end`를 주면 그 값이고, 나머지 날에는 사용자가 선언한 정규장 시각이며 날마다 관찰한 것이 아니다. 그런 날에는 반일장이 반영되지 않으므로 `ts_close`가 실제 마감보다 늦을 수 있다: 가용 시각이 실제보다 늦을 뿐 이르지 않다. `session_kind`는 그 선언에 따른 `regular`이고 특별 세션은 구별되지 않는다(`is_half_day`는 null). 달력은 bars의 마지막 날짜까지만 닿으므로 마지막 막대 뒤의 세션을 갖지 않는다(#461).
 - 24/7: `session_date` = UTC 날짜, `ts_open` = 00:00Z, `ts_close` = 다음 날 00:00Z.
 - 선물 야간 거래: 거래일 D의 세션은 D−1 저녁에 시작할 수 있다(`ts_open < session_date 00:00 현지`). 정상이다.
 
@@ -1276,7 +1278,7 @@ tds export {zipline-bundle|nautilus-catalog|wide-parquet} ... # 9.8
 ```yaml
 # mapping.yaml
 profiles: [tds:minimal-daily@1.0]
-market: {code: KR, calendar_id: XKRX, currency: KRW, timezone: Asia/Seoul}
+market: {code: KR, calendar_id: XKRX, currency: KRW, timezone: Asia/Seoul, open: "09:00", close: "15:30"}
 datasets:
   instruments:
     file: instruments.csv
@@ -1297,6 +1299,7 @@ datasets:
 - `tds import csv MAPPING --out PKG`는 패키지를 쓰고 그 옆에 `import_report.json`을 쓴다. 데이터셋 블록의 `values: {칼럼: 상수}`는 칼럼 하나의 모든 행에 상수 하나를 주며, CSV의 칼럼과 아래 채움값보다 앞선다 [2026-11-05, #257].
 - CSV도 `values`도 주지 않은 `instruments` 필수 칼럼은 채운다: `lot_size`는 1(5.1의 기본값), `multiplier`는 equity(5.1)와 etf, fund에 1.0, `is_synthetic`은 equity, etf, fund면 false, index면 true로 채운다. etf와 fund의 `multiplier`와 `is_synthetic`은 5.1이 정하지 않아 가져오기 도구의 규칙이다. 채운 것은 모두 `import_report.json`의 `assumed`에 적히고, 행에 다른 `asset_class`가 있는 칼럼은 `TDS-S001`로 남는다 [2026-11-05, #257].
 - 숫자 결측은 빈칸. `NaN`, `-`, `0` 결측 표시는 대응 파일의 `missing_values`로만.
+- `calendar_sessions` 블록이 없으면 가져오기가 bars의 날짜로 `calendar_sessions`를 짓는다(5.4): 어떤 막대든 있는 날마다 세션 하나, bars가 그날 `ts_start`와 `ts_end`를 주면 그 시각에(둘 중 하나만 주면 다른 하나는 선언으로), 아니면 시장의 `open`과 `close`(그 시장의 현지 시각 `HH:MM`; `close`에는 그 시장의 정규장이 닫은 가장 늦은 시각을 적어, 과거에 더 일찍 닫던 때가 늦은 쪽으로 읽히고 이른 쪽으로는 읽히지 않게)에 열고 닫으며, `session_kind = regular`, `is_half_day`는 null, `session_ord`는 없음, `source = inferred_from_bar_dates`. 한 날짜에 서로 다른 `ts_start`나 `ts_end`가 둘이면 그 날짜와 두 값을 말하며 멈춘다. bars가 시각을 주지 않는 날이 있는데 시각도 `calendar_sessions` 블록도 없는 대응 파일, 그리고 다른 종류인데 이름이 `calendar_sessions`인 데이터셋도 무엇을 적으라는 말과 함께 멈춘다. `open`과 `close`는 대응 파일의 것이고 `markets`의 것이 아니다(3.8). 현지의 하루 안에 있는 정규장만 추론한다: `24:00`인 마감, 자정을 넘는 세션, 서머타임 전환이 건너뛴 시각은 멈춘다. 이것은 마지막 수단이다: 거래소 달력을 읽지 않고, 다른 사실도 지어내지 않는다 [2026-11-23, #705].
 
 ### 9.6 Qlib → TDS
 
@@ -1602,3 +1605,4 @@ datasets:
 - 2026-11-22: **v1.4** 안에서. 5.5, 7, 8.3 TDS-M008·TDS-V004: `tds:minimal-daily@1.0`과 그 위 두 주식 프로필은 `instrument_id`가 `equity`·`etf` 종목을 가리키는 bars 데이터셋에 `open`·`high`·`low`·`close`·`volume`을, `index`·`rate` 종목만 담은 데이터셋에는 `close`만 요구한다(M008, `schema` 수준에서 그 칼럼 하나로 읽음). `equity`·`etf` 종목의 `traded` 행에서 다섯은 null이 아니다(V004, 지금까지는 `close`만). `volume`은 `no_trade`·`halted` 행에서 0, `missing` 행에서 null이고, `halted`는 세션 내내의 정지다(관리자 결정 2026-11-22, #705 결정 37~39). `no_trade` 행의 `open`·`high`·`low`는 null이고 앞의 종가로 채우지 않으며, 그 `close`에는 엔진 명세서 3.2가 읽는 대로 거래소의 기준가가 있을 수 있다(#705 결정 C1). 프로필이 요구하는 것을 늘리는 것은 MAJOR이고(10.2), 표준이 초안인 동안에는 제자리에서 고친다. #705 (1)단계 안의 고침: `tds_version` `"1.0"` 그대로이고, `tds_draft`는 2026-11-19 그대로(단계가 끝날 때까지, 10.5).
 - 2026-11-22: **v1.4** 안에서. 3.6, 8.3 TDS-S011(E, 새 검사, `schema` 수준): 한 데이터셋의 파일은 모두 같은 칼럼을 갖는다(파티션 칼럼은 빼고, `x_` 칼럼은 넣으며, 순서는 보지 않는다). 한 파일은 각 칼럼을 한 번만 가진다. 스키마 파일도 `columns[].type`도 형을 정하지 않은 칼럼은 파일마다 형이 같다. dictionary 인코딩, `large_` 문자열·바이너리 형, UTC의 여러 표기는 차이가 아니다. `dictionary/` 표와 스키마 파일이 없는 종류를 포함해 모든 종류를 비교하고, 지원하지 않는 MAJOR의 데이터셋(M009)은 비교하지 않는다(관리자 결정 2026-11-22, #705 결정 40, 45). 파일이 서로 다르거나 칼럼을 두 번 가진 패키지는 전에는 통과했고 이제 오류다. 새 오류 검사는 MAJOR이고(10.2), 표준이 초안인 동안에는 제자리에서 고친다. #705 (1)단계 안의 고침: `tds_version` `"1.0"` 그대로이고, `tds_draft`는 2026-11-19 그대로(단계가 끝날 때까지, 10.5).
 - 2026-11-22: **v1.4**, 제자리. 5.5, 7, 8.3 TDS-M008·TDS-V004: `tds:minimal-daily@1.0`은 다시 모든 bars 데이터셋에 `close`만 요구한다, `equity`·`etf` 종목을 담은 것에도(위 항목 전과 같이). `tds:equity-daily-core@1.0`과 `tds:equity-daily-research@1.0`은 그런 데이터셋에 `open`·`high`·`low`·`volume`을 계속 요구한다. V004는 그 넷을, 선언한 프로필이 요구하는 bars 데이터셋의 `equity`·`etf` `traded` 행에서만 본다(관리자 결정 2026-11-22, #705: 요구하는 것은 프로필의 기능이 읽는 것). 그 프로필을 충족하던 패키지는 계속 충족한다. #705 (1)단계 안의 고침: `tds_version` `"1.0"` 그대로이고, `tds_draft`는 2026-11-19 그대로(단계가 끝날 때까지, 10.5).
+- 2026-11-23: **v1.4**, 제자리. 5.4, 9.5: `calendar_sessions` 블록이 없으면 `tds import csv`가 bars의 날짜로 표를 짓는다. 어떤 막대든 있는 날마다 세션 하나, bars가 준 `ts_start`와 `ts_end`가 있으면 그 시각, 없으면 시장이 선언한 `open`과 `close`(`close`는 그 시장의 정규장이 닫은 가장 늦은 시각), `session_kind = regular`, `is_half_day`는 null, `source = inferred_from_bar_dates`이고, 시각이 필요한데 없는 대응 파일은 멈춘다. 5.4는 그런 줄의 시각이 bars의 것이거나 선언한 것이고 날마다 관찰한 것이 아니며, 반일장이 반영되지 않으며(`ts_close`가 늦을 뿐 이르지 않음), 달력이 bars의 마지막 날짜에서 끝난다고 말한다(#461)(관리자 결정 2026-11-23, #705 결정 59). #705 결정 3의 마지막 수단: 거래소 달력을 읽지 않고 새 의존성도 없다. #705 (1)단계 안의 고침: `tds_version` `"1.0"` 그대로이고, `tds_draft`는 2026-11-19 그대로(단계가 끝날 때까지, 10.5).

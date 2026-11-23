@@ -28,16 +28,14 @@ WHOLE = """instrument_id,session_date,open,high,low,close,volume
 XNYS:AAPL,2024-01-02,187.15,188.44,183.89,185.64,82488700
 """
 COUNT = BARS.replace("volume\n", "volume,trade_count\n").replace("82488700\n", "82488700,{}\n")
-#: TDS chapter 7's two CSVs; the market and price basis that 7 gives as flags, here in the mapping.
-MINIMAL = """profiles: [tds:minimal-daily@1.0]
-market: {code: US, calendar_id: XNYS, currency: USD, timezone: America/New_York}
-datasets:
-  instruments:
-    file: instruments.csv
-  bars:
-    file: bars.csv
-    params: {freq: 1d, price_basis: total_adjusted}
-"""
+#: TDS chapter 7's two CSVs; the market and price basis that 7 gives as flags, here in the mapping,
+#: with the regular hours the import builds `calendar_sessions` from (#705 Decisions 59).
+HOURS = ', open: "09:30", close: "16:00"'
+MINIMAL = ("profiles: [tds:minimal-daily@1.0]\n"
+           "market: {code: US, calendar_id: XNYS, currency: USD, timezone: America/New_York"
+           + HOURS + "}\n"
+           "datasets:\n  instruments:\n    file: instruments.csv\n  bars:\n    file: bars.csv\n"
+           "    params: {freq: 1d, price_basis: total_adjusted}\n")  # fmt: skip
 
 
 def write(folder: Path, files: dict[str, str]) -> Path:
@@ -62,7 +60,13 @@ def test_mapping_template_and_format(tmp_path: Path) -> None:
         "mapping.yaml": """# a comment line
 name: "demo: a colon inside quotes"
 profiles: ["tds:minimal-daily@1.0"]
-market: {code: US, calendar_id: XNYS, currency: USD, timezone: America/New_York}
+market:
+  code: US
+  calendar_id: XNYS
+  currency: USD
+  timezone: America/New_York
+  open: "09:30"
+  close: "16:00"
 datasets:
   instruments:
     file: instruments.csv
@@ -260,6 +264,79 @@ def test_a_close_only_equity_passes_minimal_daily(
     assert "tds:minimal-daily@1.0: declared, verified to schema, not_checked" in printed
     assert "0 errors, 0 warnings at level full" in printed
     assert ("obs_status" in rows(out, "bars")[0]) == bool(status)
+    assert [r["source"] for r in rows(out, "calendar_sessions")] == ["inferred_from_bar_dates"]
+
+
+def test_the_calendar_is_built_from_the_bars_dates_and_the_declared_hours(tmp_path: Path) -> None:
+    """#705 Decisions 59: a session on each date a bar has, at the market's declared hours in its
+    time zone (winter and summer, UTC offsets -5 and -4), nothing else invented; the hours are
+    the mapping's, not `markets`'."""
+    bars = BARS + "XNYS:AAPL,2024-07-01,210.0,1\n"
+    out = import_csv(write(tmp_path, {"instruments.csv": CHAPTER_7, "bars.csv": bars,
+                                      "mapping.yaml": MINIMAL}), tmp_path / "pkg")  # fmt: skip
+    days = rows(out, "calendar_sessions")
+    found = [(str(r["session_date"]), str(r["ts_open"]), str(r["ts_close"])) for r in days]
+    assert found == [
+        ("2024-01-02", "2024-01-02 14:30:00+00:00", "2024-01-02 21:00:00+00:00"),
+        ("2024-07-01", "2024-07-01 13:30:00+00:00", "2024-07-01 20:00:00+00:00"),
+    ]
+    kinds = {(r["session_kind"], r["is_half_day"], r["source"]) for r in days}
+    assert kinds == {("regular", None, "inferred_from_bar_dates")}
+    assert "session_ord" not in days[0]
+    manifest = json.loads((out / "tds.json").read_text(encoding="utf-8"))
+    assert {"open", "close"}.isdisjoint(manifest["markets"]["US"])
+    assert check(out, level="full").error_count == 0
+
+
+def test_the_bars_own_times_make_their_days_sessions(tmp_path: Path) -> None:
+    """#705 Decisions 59 (the review of 6-0): a day the bars give `ts_start` and `ts_end` takes
+    them, a half day too, so that TDS-T005 holds; a day they give none takes the declared hours;
+    `ts_end` alone takes it and the declared open."""
+    bars = ("instrument_id,session_date,close,volume,ts_start,ts_end\n"
+            "XNYS:AAPL,2024-07-03,221.0,1,2024-07-03T13:30:00Z,2024-07-03T17:00:00Z\n"
+            "XNYS:AAPL,2024-07-05,222.0,1,,2024-07-05T19:00:00Z\n"
+            "XNYS:AAPL,2024-07-08,223.0,1,,\n")  # fmt: skip
+    out = import_csv(write(tmp_path, {"instruments.csv": CHAPTER_7, "bars.csv": bars,
+                                      "mapping.yaml": MINIMAL}), tmp_path / "pkg")  # fmt: skip
+    found = [(str(r["ts_open"])[11:16], str(r["ts_close"])[11:16])
+             for r in rows(out, "calendar_sessions")]  # fmt: skip
+    assert found == [("13:30", "17:00"), ("13:30", "19:00"), ("13:30", "20:00")]
+    assert check(out, level="full").error_count == 0
+    two = bars.replace("XNYS:AAPL,2024-07-08,223.0,1,,", "XNYS:MSFT,2024-07-03,400.0,1,,"
+                       "2024-07-03T20:00:00Z")  # fmt: skip
+    instruments = CHAPTER_7 + "XNYS:MSFT,equity,US,XNYS,USD,1986-03-13\n"
+    other = write(tmp_path / "two", {"instruments.csv": instruments, "bars.csv": two,
+                                     "mapping.yaml": MINIMAL})  # fmt: skip
+    with pytest.raises(CsvImportError, match="the bars of 2024-07-03 give two ts_end values, "
+                       "2024-07-03T17:00:00"):  # fmt: skip
+        import_csv(other, tmp_path / "two" / "pkg")
+
+
+def test_a_dataset_named_calendar_sessions_of_another_kind_stops(tmp_path: Path) -> None:
+    # the review of 6-0: the calendar the import writes would take the same name
+    named = MINIMAL.replace("  bars:\n    file", "  calendar_sessions:\n    kind: bars\n    file")
+    mapping = write(tmp_path, {"instruments.csv": CHAPTER_7, "bars.csv": BARS,
+                               "mapping.yaml": named})  # fmt: skip
+    with pytest.raises(CsvImportError, match="is not of kind calendar_sessions"):
+        import_csv(mapping, tmp_path / "pkg")
+
+
+WRITE = "write the regular session's hours in the market's local time, `close` the latest"
+
+
+@pytest.mark.parametrize(("hours", "said"), [
+    ("", WRITE), (', open: "9:30", close: "16:00"', WRITE),
+    (', open: "16:00", close: "09:30"', "the market's `open` is not before its `close`"),
+], ids=["none", "H:MM", "late"])  # fmt: skip
+def test_a_mapping_without_hours_stops_saying_what_to_write(
+    hours: str, said: str, tmp_path: Path
+) -> None:
+    # #705 Decisions 59: no hours, or hours not read, stop the import before anything is written
+    mapping = write(tmp_path, {"instruments.csv": CHAPTER_7, "bars.csv": BARS,
+                               "mapping.yaml": MINIMAL.replace(HOURS, hours)})  # fmt: skip
+    with pytest.raises(CsvImportError, match=re.escape(said)):
+        import_csv(mapping, tmp_path / "pkg")
+    assert not (tmp_path / "pkg").exists()
 
 
 def test_a_kind_typed_by_105_is_imported(tmp_path: Path) -> None:

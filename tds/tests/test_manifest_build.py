@@ -47,7 +47,8 @@ def test_draft_lists_files_and_stats(tmp_path: Path, capsys: pytest.CaptureFixtu
     assert main(["manifest", "build", str(package)]) == 0
     assert f"wrote {package / 'tds.json'}" in capsys.readouterr().out
     draft = json.loads((package / "tds.json").read_text(encoding="utf-8"))
-    bars, instruments = draft["datasets"]  # in name order
+    bars, calendar, instruments = draft["datasets"]  # in name order; the import's calendar
+    assert (calendar["name"], calendar["kind"]) == ("calendar_sessions", "calendar_sessions")
     assert (bars["name"], bars["kind"], bars["schema_version"], bars["path"]) == (
         "bars", "bars", "1.0", "bars")  # fmt: skip
     assert (instruments["name"], instruments["kind"]) == ("instruments", "instruments")
@@ -182,6 +183,7 @@ def test_folder_with_two_datasets_of_one_kind(
     two_freqs(package, {"1d": "daily", "1m": None})
     assert [(d["name"], d["path"]) for d in build_manifest(package).data["datasets"]] == [
         ("bars_1m", "bars/freq=1m"),
+        ("calendar_sessions", "calendar_sessions"),  # the import's (#705 Decisions 59)
         ("daily", "bars/freq=1d"),
         ("instruments", "instruments"),
     ]
@@ -197,7 +199,7 @@ def test_folder_with_two_datasets_of_one_kind(
         (package / rel).parent.mkdir(parents=True)
         pq.write_table(pa.table({"x": [1]}), package / rel)
     draft = dict(build_manifest(package).data)
-    notes = draft["datasets"][3]
+    notes = draft["datasets"][4]  # after the two bars, calendar_sessions, instruments
     assert (notes["name"], notes["path"], notes["rows"], "params" in notes) == (
         "notes", "notes", 3, False)  # fmt: skip
     assert draft["TODO"][0] == (
@@ -241,7 +243,7 @@ def test_folder_the_schema_files_do_not_name(
     (package / "notes" / "sub").mkdir(parents=True)
     pq.write_table(pa.table({"x": [1, 2]}), package / "notes" / "sub" / "a.parquet")
     draft = build_manifest(package).data
-    notes = draft["datasets"][2]
+    notes = draft["datasets"][3]  # after bars, calendar_sessions, instruments
     assert (notes["name"], notes["path"], notes["rows"]) == ("notes_sub", "notes/sub", 2)
     assert (notes.get("kind"), notes["availability"]) == (None, "TODO")
     assert sorted(notes["files"][0]) == ["bytes", "path", "rows", "sha256"]  # no value hash
@@ -259,7 +261,7 @@ def test_folder_the_schema_files_do_not_name(
     # rows that are not the kind's (an integer id), metadata that is not text: a draft all the same
     odd_rows = pa.table({"instrument_id": [1, 2]}).replace_schema_metadata({b"blob": b"\xff\xfe"})
     pq.write_table(odd_rows, package / "instruments" / "part-00000.parquet")
-    assert "value_sha256" not in build_manifest(package).data["datasets"][1]
+    assert "value_sha256" not in build_manifest(package).data["datasets"][2]  # instruments
     (package / "tds.json").unlink()
     # two folders under one name (`notes/sub`, `notes_sub`), a tds.json that links to nowhere
     (package / "notes_sub").mkdir()
