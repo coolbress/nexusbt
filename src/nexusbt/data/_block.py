@@ -40,7 +40,7 @@ _VOLUMES = ("volume", "volume_unadjusted")  # 0 in a `no_trade` session (3.2)
 #: never a fallback (4.4-3; F-01 and F-18 retired, #705).
 OHL = ("open", "high", "low")
 _INTEGER = frozenset({"i8", "i16", "i32", "i64"})
-#: Columns a bars file may lack: the block reads them when present (TDS 5.5, F-03).
+#: Columns a bars file may lack: the block reads them when present (TDS 5.5).
 _OPTIONAL = ("obs_status", "ts_end", "ts_available")
 
 
@@ -112,10 +112,10 @@ def build_block(
             given = table["obs_status"]  # a value outside 5.5's four (S006) is hidden, as before
             codes = pc.if_else(pc.is_null(given), _UNSTATED, pc.index_in(given, _STATES))
             status[rows, cols] = codes.fill_null(-1).to_numpy().astype(np.int8)
-        else:  # F-03: traded with a price, else no_trade
-            status[rows, cols] = np.where(pc.is_valid(table["close"]).to_numpy(), 0, 1)
+        else:  # no column: no row states one, as a null (3.2; F-03 retired, #705)
+            status[rows, cols] = _UNSTATED
         available[rows, cols] = _available(source, table, calendar, start + rows)
-    status[exists & (status == -1)] = 3  # a listed session without a bar is missing (F-03)
+    status[exists & (status == -1)] = 3  # a listed session without a row: missing (TDS 5.5)
     hidden = (status == 2) | (status == 3)  # halted, missing
     for f in fields:
         values[f][hidden & (f in _PRICES)] = np.nan

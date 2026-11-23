@@ -165,7 +165,7 @@ def _listed(
             held[i] += 0  # R003's day: an instrument with a row, which sets no end
             continue
         last[market] = max(last.get(market, day), day)
-        end = ends[i]
+        end = ends[i] if ends[i] is not None else delisted  # a row after the exit fills no gap
         held[i] += listed_on is not None and listed_on <= day and (end is None or day <= end)
     out = []
     if outside and name not in reported:

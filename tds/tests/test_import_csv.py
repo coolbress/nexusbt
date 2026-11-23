@@ -519,6 +519,16 @@ def test_the_import_fills_a_row_on_each_session_an_instrument_lacks(
     assert (result.errors, "TDS-D001" in result.unchecked) == ((), False)
 
 
+def test_daily_bars_declared_sparse_are_refused(tmp_path: Path) -> None:
+    """Daily bars are dense and the import writes a row on each session (TDS 5.5), so a
+    mapping that declares them sparse stops, saying what to write; no package is written."""
+    sparse = MINIMAL.replace("total_adjusted}", "total_adjusted, density: sparse}")
+    files = {"instruments.csv": GAPS_INSTRUMENTS, "bars.csv": GAPS_BARS, "mapping.yaml": sparse}
+    with pytest.raises(CsvImportError, match=r"daily bars are dense.*write density: dense"):
+        import_csv(write(tmp_path, files), tmp_path / "pkg")
+    assert not (tmp_path / "pkg").exists()
+
+
 def test_last_session_stops_the_fill_and_complete_through_extends_it(tmp_path: Path) -> None:
     """A user's last_session ends an instrument's rows there; a user's complete_through runs
     them to its date over the given calendar, where without it they stop at the last bar."""

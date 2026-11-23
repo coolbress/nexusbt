@@ -307,6 +307,11 @@ def _read(
     schema, params = _schema(kind), ds.get("params") or {}
     if not isinstance(params, dict):
         raise CsvImportError(f"datasets.{name}.params is not a block of `key: value` lines")
+    if kind == "bars" and params.get("freq") == "1d" and params.get("density") == "sparse":
+        raise CsvImportError(
+            f"datasets.{name}.params: daily bars are dense, and the import "
+            "writes a row on each session (TDS 5.5); write density: dense"
+        )
     types = {c["name"]: c["type"] for c in schema["columns"]}
     rules = ds.get("columns") or {}
     _keys(rules, set(types), f"datasets.{name}.columns")

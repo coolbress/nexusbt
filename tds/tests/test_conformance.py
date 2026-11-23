@@ -1912,7 +1912,14 @@ BARS_PARAMS = {
     [(param, value) for param, values in BARS_PARAMS.items() for value in values],
 )
 def test_listed_bars_params_pass(param: str, value: str, tmp_path: Path) -> None:
-    assert codes(write(tmp_path, lambda m, f: build.bars(m)["params"].update({param: value}))) == []
+    intraday = value == "sparse"  # on daily bars M014 (5.5); minute bars meet no daily profile
+    given = {param: value} | ({"freq": "1m"} if intraday else {})
+
+    def change(m: dict[str, Any], f: Any) -> None:
+        build.bars(m)["params"].update(given)
+        m["profiles"] = [] if intraday else m["profiles"]
+
+    assert codes(write(tmp_path, change)) == []
 
 
 @pytest.mark.parametrize(
@@ -1920,6 +1927,7 @@ def test_listed_bars_params_pass(param: str, value: str, tmp_path: Path) -> None
     [
         ("price_basis", "dividend_adjusted"),
         ("density", "Dense"),
+        ("density", "sparse"),  # on daily bars, which are dense (TDS 5.5, #705)
         ("bar_time", 1),
     ],
 )
@@ -2234,6 +2242,19 @@ def _stopped(m: dict[str, Any], f: Any, delisted: dt.date | None = None) -> None
                 close=pa.array([1.0] * 3), obs_status=pa.array(["traded"] * 3))(m, f)  # fmt: skip
 
 
+def _past_exit(m: dict[str, Any], f: Any) -> None:
+    """XNYS sessions on the 2nd to the 4th; US:AAA's bars on each, none with an end; US:BBB
+    delisted the 3rd with no `last_session`, its bars on the 2nd and, after its exit, the 4th."""
+    build._sessions(0, (2, 3, 4))(m, f)
+    ids, out = ("US:AAA", "US:BBB"), (None, JAN[3])
+    rows = [build.instruments(instrument_id=pa.array([i]), delisted_on=pa.array([d], pa.date32()))
+            for i, d in zip(ids, out, strict=True)]  # fmt: skip
+    build.rewrite(m, f, build.INSTRUMENTS, pa.concat_tables(rows))
+    on = pa.array([JAN[2], JAN[2], JAN[3], JAN[4], JAN[4]])  # TDS 3.7's daily order
+    build._bars(instrument_id=pa.array([ids[0], ids[1], ids[0], ids[0], ids[1]]), session_date=on,
+                close=pa.array([1.0] * 5), obs_status=pa.array(["traded"] * 5))(m, f)  # fmt: skip
+
+
 @pytest.mark.parametrize(
     ("change", "found", "unchecked"),
     [  # #225 Decisions, 2026-11-11
@@ -2247,10 +2268,11 @@ def _stopped(m: dict[str, Any], f: Any, delisted: dt.date | None = None) -> None
         (_DENSE_2, [], []),  # no end known: to the last session a US row has, the 2nd (#705)
         (_stopped, ["TDS-D001"], []),  # BBB's end not known: to AAA's 3rd, and it lacks it
         (lambda m, f: _stopped(m, f, JAN[2]), [], []),  # delisted the 2nd: no row asked after
+        (_past_exit, ["TDS-D002", "TDS-D001"], []),  # BBB's 4th, after its exit, fills no gap
         (build._both(_stopped, build._covered(3, instruments=2, ts_max="2024-01-03", by_market={
             "US": {"processed_through_session": "2024-01-02"}})), [], ["TDS-D003"]),  # to the 2nd
         (build._both(_three(2, 4), lambda m, f: build.bars(m).update(params=build.DENSE | {
-            "density": "sparse"})), ["TDS-D001"], []),  # daily is dense whatever it declares
+            "density": "sparse"})), ["TDS-M014", "TDS-D001"], []),  # daily is dense: M014 too
         (build._both(_DENSE_2, _through), ["TDS-D001"], []),  # the 3rd, to the watermark
         (_three(2, 4), ["TDS-D001"], []),  # a row after the watermark hides no gap
         (_three(2, 3, through="2024-01-04T01:00:00Z"), [], []),  # 20:00 on the 3rd in New York
