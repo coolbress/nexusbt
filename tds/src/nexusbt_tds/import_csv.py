@@ -69,7 +69,7 @@ def import_csv(mapping: Path, out: Path) -> Path:
         if not isinstance(market.get(field), str) or not market[field]:
             raise CsvImportError(f"{mapping.name}: the market's `{field}` is missing or not text")
     code = market["code"]
-    datasets, tables, report, bars = [], [], {}, []
+    datasets, read, report, bars = [], [], {}, []
     for name, ds in _items(spec.get("datasets"), "datasets"):
         _keys(ds, _DATASET, f"datasets.{name}")
         if not isinstance(ds.get("file"), str):
@@ -77,14 +77,24 @@ def import_csv(mapping: Path, out: Path) -> Path:
         table, entry, report[name] = _read(mapping.parent / ds["file"], name, ds, market)
         datasets.append(entry)
         bars += [table] if entry["kind"] == "bars" else []
-        tables.append((entry, _groups(entry, table, code)))  # every check before any write
+        read.append((entry, table))
     if bars and "calendar_sessions" not in {e["kind"] for e in datasets}:  # #705 Decisions 59
         if "calendar_sessions" in report:  # another kind under the name the calendar takes
             raise CsvImportError("datasets.calendar_sessions is not of kind calendar_sessions;"
                                  " rename it, the import writes the calendar there")  # fmt: skip
         table, entry, report["calendar_sessions"] = _calendar(bars, market, mapping)
         datasets.append(entry)
-        tables.append((entry, _groups(entry, table, code)))
+        read.append((entry, table))
+    kinds = {e["kind"]: t for e, t in read}
+    daily = [i for i, (e, _) in enumerate(read)
+             if e["kind"] == "bars" and e.get("params", {}).get("freq") == "1d"]  # fmt: skip
+    seen = [d for i in daily for d in read[i][1].column("session_date").to_pylist() if d] if all(
+        "session_date" in read[i][1].column_names for i in daily) else []  # fmt: skip
+    for i in daily:  # a daily row per session (#705 Decisions 112), to the market's last bar
+        entry, table = read[i]
+        table, report[entry["name"]] = _filled(table, kinds, market, report[entry["name"]], seen)
+        read[i] = (entry, table)
+    tables = [(e, _groups(e, t, code)) for e, t in read]  # every check before any write
     report_path = out.parent / REPORT  # beside the package (TDS 9); never over an input
     inputs = {mapping.resolve(), *((mapping.parent / ds["file"]).resolve() for ds in
                                    spec["datasets"].values())}  # fmt: skip
@@ -164,6 +174,80 @@ def _calendar(
                             "columns_kept": {}, "columns_dropped": [], "values": {},
                             "assumed": assumed}  # fmt: skip
     return table, entry, said
+
+
+def _filled(
+    bars: pa.Table, kinds: dict[str, pa.Table], market: dict[str, Any], said: dict[str, Any],
+    seen: list[dt.date],
+) -> tuple[pa.Table, dict[str, Any]]:  # fmt: skip
+    """Daily bars with a row on each session an instrument lacks (TDS 5.5, D001; #705 Decisions
+    112, 113): from the later of its `listed_on` (its first bar without one) and the calendar's
+    first session, to its `last_session`, else the market's `complete_through` date, else the
+    last date any bar of the market has (observed, no claim written). A filled row says
+    `obs_status = missing`, every other column null (#714); nothing else is made up."""
+    cal = kinds.get("calendar_sessions")
+    keys = ("instrument_id", "session_date")
+    keyed = set(keys) <= set(bars.column_names)
+    empty = not keyed or any(bars[c].null_count for c in keys)
+    if cal is None or not bars.num_rows or not seen or empty:
+        return bars, said  # a key left empty is the checker's S003 or the year= partition's
+    cal = cal.filter(pa.compute.equal(cal["calendar_id"], market["calendar_id"]))
+    sessions = sorted(set(cal["session_date"].to_pylist()))
+    known: dict[str, dict[str, Any]] = {}
+    if (inst := kinds.get("instruments")) is not None and "instrument_id" in inst.column_names:
+        cols = [c for c in ("instrument_id", "listed_on", "last_session") if c in inst.column_names]
+        known = {r["instrument_id"]: r for r in inst.select(cols).to_pylist()}
+    have: dict[str, set[dt.date]] = {}
+    for i, d in zip(bars["instrument_id"].to_pylist(), bars["session_date"].to_pylist(),
+                    strict=True):  # fmt: skip
+        have.setdefault(i, set()).add(d)
+    end, ending = _watermark(market, max(seen))
+    ids, days, ran = [], [], 0
+    for i, held in sorted(have.items()):
+        listed, last = (known.get(i, {}).get(k) for k in ("listed_on", "last_session"))
+        start = max(listed or min(held), sessions[0]) if sessions else min(held)
+        stop = last or end
+        ran += last is None and max(held) < end
+        new = [s for s in sessions if start <= s <= stop and s not in held]
+        ids += [i] * len(new)
+        days += new
+    if not ids:
+        return bars, said | {"rows_filled": 0}
+    if "obs_status" not in bars.column_names:  # the source's rows say nothing of it
+        bars = bars.append_column("obs_status", pa.nulls(bars.num_rows, pa.string()))
+    given = {"instrument_id": pa.array(ids, bars.schema.field("instrument_id").type),
+             "session_date": pa.array(days, bars.schema.field("session_date").type),
+             "obs_status": pa.array(["missing"] * len(ids), pa.string())}  # fmt: skip
+    rows = pa.table({f.name: given.get(f.name, pa.nulls(len(ids), f.type)) for f in bars.schema})
+    order = [c["name"] for c in _schema("bars")["columns"] if c["name"] in bars.column_names]
+    sort = _variant(_schema("bars")["sort"], {"freq": "1d"}) or []  # TDS 3.7's daily order
+    table = pa.concat_tables([bars, rows]).select(order).sort_by([(k, "ascending") for k in sort])
+    told = (f"{len(ids)} rows filled with obs_status missing and every value null, on the "
+            "sessions an instrument has no bar, from the later of its listed_on (its first "
+            "bar without one) and the calendar's first session, to its last_session or "
+            f"{end} ({ending}) (TDS 5.5, D001)")  # fmt: skip
+    stopped = (f"{ran} instruments stopped before {end} and have no last_session, so missing "
+               "rows run to it; give last_session to stop there")  # fmt: skip
+    assumed = [*said["assumed"], told, *([stopped] if ran else [])]
+    return table, said | {"rows_filled": len(ids), "assumed": assumed}  # rows_kept: of the read
+
+
+def _watermark(market: dict[str, Any], seen: dt.date) -> tuple[dt.date, str]:
+    """The last date the filled rows run to: the date of the market's `complete_through` in its
+    time zone (TDS 4.2), else the last date a bar of the market has, which the import writes
+    nowhere: completeness is the user's to claim, not the import's."""
+    through = market.get("complete_through")
+    if through is None:
+        return seen, "the last date a bar of the market has; no complete_through written"
+    try:
+        at = dt.datetime.fromisoformat(str(through).replace("Z", "+00:00"))
+        if at.tzinfo is None:  # a naive instant would be read in the host's time zone
+            raise ValueError(through)
+        day = at.astimezone(ZoneInfo(market["timezone"])).date()
+    except (ValueError, TypeError):
+        raise CsvImportError(f"market.complete_through {through!r} is not an RFC 3339 instant"
+                             " with an offset (TDS 4.2)") from None  # fmt: skip
+    return day, "the date of the market's complete_through"
 
 
 def _observed(bars: list[pa.Table], column: str, mapping: Path) -> dict[Any, Any]:

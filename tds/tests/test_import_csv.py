@@ -461,3 +461,89 @@ def test_report_never_lands_on_an_input(tmp_path: Path) -> None:
         (tmp_path / "d" / "m.json").write_text(json.dumps(as_json), encoding="utf-8")
         with pytest.raises(CsvImportError, match="currency is text, a number or a bool"):
             import_csv(tmp_path / "d" / "m.json", tmp_path / "d" / "f" / "pkg")
+
+
+#: Three instruments over 2024-01-02..05 (#705 Decisions 112, 113): AAPL listed long before,
+#: a gap on the 4th; MSFT listed on the 3rd, one bar on the 4th; CENS listed on its first bar
+#: (`listed_on_censored`, its listing day not known), a gap on the 4th.
+GAPS_INSTRUMENTS = """instrument_id,asset_class,market,calendar_id,currency,listed_on,\
+listed_on_censored,lot_size,multiplier,is_synthetic
+XNYS:AAPL,equity,US,XNYS,USD,1980-12-12,false,1,1,false
+XNYS:MSFT,equity,US,XNYS,USD,2024-01-03,false,1,1,false
+XNYS:CENS,equity,US,XNYS,USD,2024-01-03,true,1,1,false
+"""
+GAPS_BARS = """instrument_id,session_date,close,volume
+XNYS:AAPL,2024-01-02,10,1
+XNYS:AAPL,2024-01-03,11,1
+XNYS:AAPL,2024-01-05,12,1
+XNYS:MSFT,2024-01-04,20,1
+XNYS:CENS,2024-01-03,30,1
+XNYS:CENS,2024-01-05,31,1
+"""
+
+
+def filled(package: Path) -> list[tuple[object, str]]:
+    return sorted((r["instrument_id"], str(r["session_date"])) for r in rows(package, "bars")
+                  if r.get("obs_status") == "missing")  # fmt: skip
+
+
+def test_the_import_fills_a_row_on_each_session_an_instrument_lacks(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """When an instrument has no bar on a session of the calendar, from the later of its
+    listed_on and the first session to the last date the market's bars have, then a row with
+    obs_status missing and no value is written, and the report counts them."""
+    mapping = write(tmp_path, {"instruments.csv": GAPS_INSTRUMENTS, "bars.csv": GAPS_BARS,
+                               "mapping.yaml": MINIMAL})  # fmt: skip
+    package = tmp_path / "pkg"
+    assert main(["import", "csv", str(mapping), "--out", str(package)]) == 0
+    assert "; 4 missing session rows filled (see the report)" in capsys.readouterr().out
+    four = [("XNYS:AAPL", "2024-01-04"), ("XNYS:CENS", "2024-01-04"),
+            ("XNYS:MSFT", "2024-01-03"), ("XNYS:MSFT", "2024-01-05")]  # fmt: skip
+    assert filled(package) == four
+    # CENS: listed_on is its first bar (censored), so nothing before the 3rd
+    assert ("XNYS:CENS", "2024-01-02") not in filled(package)
+    missing = [r for r in rows(package, "bars") if r["obs_status"] == "missing"]
+    assert {r["close"] for r in missing} == {None}
+    assert {r["volume"] for r in missing} == {None}
+    assert {r["obs_status"] for r in rows(package, "bars")} == {None, "missing"}  # not made up
+    said = json.loads((tmp_path / "import_report.json").read_text(encoding="utf-8"))
+    bars = said["datasets"]["bars"]
+    assert (bars["rows_read"], bars["rows_kept"], bars["rows_filled"]) == (6, 6, 4)
+    assert len(rows(package, "bars")) == 10
+    assert any(a.startswith("1 instruments stopped before 2024-01-05 and have no last_session")
+               for a in bars["assumed"])  # fmt: skip
+    assert check(package, level="full").errors == ()  # not dense until plan item 8: no D001
+
+
+def test_last_session_stops_the_fill_and_complete_through_extends_it(tmp_path: Path) -> None:
+    """A user's last_session ends an instrument's rows there; a user's complete_through runs
+    them to its date over the given calendar, where without it they stop at the last bar."""
+    instruments = GAPS_INSTRUMENTS.replace("is_synthetic\n", "is_synthetic,last_session\n")
+    instruments = instruments.replace("1,1,false\n", "1,1,false,\n").replace(
+        "XNYS:MSFT,equity,US,XNYS,USD,2024-01-03,false,1,1,false,",
+        "XNYS:MSFT,equity,US,XNYS,USD,2024-01-03,false,1,1,false,2024-01-04")  # fmt: skip
+    sessions = "calendar_id,session_date,ts_open,ts_close,session_kind\n" + "".join(
+        f"XNYS,2024-01-0{d},2024-01-0{d}T14:30:00Z,2024-01-0{d}T21:00:00Z,regular\n"
+        for d in (2, 3, 4, 5, 8))  # fmt: skip
+    block = "  calendar_sessions:\n    file: sessions.csv\n    values: {source: exchange}\n"
+    dense = MINIMAL.replace("total_adjusted}", "total_adjusted, density: dense}")
+    through = dense.replace(HOURS, ', complete_through: "2024-01-08T21:00:00Z"') + block
+    # dense bars hold obs_status on every row: the source's rows say it, the import never does
+    traded = GAPS_BARS.replace("volume\n", "volume,obs_status\n").replace(",1\n", ",1,traded\n")
+    files = {"instruments.csv": instruments, "bars.csv": traded, "sessions.csv": sessions}
+    package = import_csv(write(tmp_path, files | {"mapping.yaml": through}), tmp_path / "pkg")
+    assert filled(package) == [("XNYS:AAPL", "2024-01-04"), ("XNYS:AAPL", "2024-01-08"),
+                               ("XNYS:CENS", "2024-01-04"), ("XNYS:CENS", "2024-01-08"),
+                               ("XNYS:MSFT", "2024-01-03")]  # fmt: skip
+    result = check(package, level="full")  # dense, with an end: D001 judges and passes
+    assert [f.code for f in result.errors] == []
+    assert "TDS-D001" not in result.unchecked
+    naive = through.replace("21:00:00Z", "21:00:00")  # read in no host's time zone
+    with pytest.raises(CsvImportError, match="is not an RFC 3339 instant with an offset"):
+        import_csv(write(tmp_path / "n", files | {"mapping.yaml": naive}), tmp_path / "n" / "p")
+    nameless = GAPS_BARS + ",2024-01-04,5,1\n"  # an id left empty: the checker's S003, no crash
+    files |= {"bars.csv": nameless, "mapping.yaml": MINIMAL}
+    package = import_csv(write(tmp_path / "e", files), tmp_path / "e" / "pkg")
+    assert filled(package) == []
+    assert "TDS-S003" in [f.code for f in check(package, level="schema").errors]
