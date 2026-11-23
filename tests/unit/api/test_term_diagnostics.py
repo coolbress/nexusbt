@@ -29,9 +29,7 @@ import nexusbt as nx
 from nexusbt.compute import _chunks
 from nexusbt.factors import (
     RSI,
-    VWAP,
     AnnualizedVolatility,
-    AverageDollarVolume,
     MaxDrawdown,
     Returns,
     RollingStd,
@@ -197,19 +195,6 @@ def test_a_zero_divisor_whose_value_the_spec_states_is_counted(scenario: Path) -
     assert result.term_diagnostics.to_pylist() == [
         {"market": "KR", "session_date": dt.date(2020, 1, 13), "term": t,
          "diagnostic": "DivisionByZero", "n": 5} for t in terms]  # fmt: skip
-
-
-def test_a_package_without_volume_counts_nothing(tmp_path: Path) -> None:
-    """#632 with #652: without `volume` (`degrade=["no_volume"]`) the cells are missing input,
-    skipped, not an overflow or a zero divisor: `VWAP` has no pair, so NaN, and neither it nor
-    `AverageDollarVolume` counts anything. (`AverageDollarVolume`'s value there is 3.4's
-    "NaN counted as 0", asked of the owner on #632, not fixed by this test.)"""
-    root = make_snapshot(tmp_path / "p", preset="tiny", markets=("KR",), degrade=["no_volume"])
-    with pytest.warns(UserWarning, match=r"\[E30\] F-18"):
-        result = run(root, {"vwap": VWAP(3), "adv": AverageDollarVolume(3)}, "2020-01-13",
-                     "2020-01-14")  # fmt: skip
-    assert all(math.isnan(v) for v in result.table["vwap"].to_pylist())
-    assert result.term_diagnostics.num_rows == 0
 
 
 def test_counts_do_not_depend_on_chunking(scenario: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -32,10 +32,10 @@ _SOURCE = {"close_tr": "close", "close_unadjusted": "close", "volume_unadjusted"
 #: Price cells NaN in a halted or missing session (3.2); `no_trade` keeps its reference close.
 _PRICES = frozenset({"open", "high", "low", "close", "close_tr", "close_unadjusted"})
 _VOLUMES = ("volume", "volume_unadjusted")  # 0 in a `no_trade` session (3.2)
-#: `open`, `high`, `low` without a value are E14 or E18 at open (4.4-3; F-01 retired, #705);
-#: the traded columns a package may leave out, read as NaN (4.5 F-18).
+#: `open`, `high`, `low` and `volume` without a value are E14 or E18 at open (4.4-3; F-01
+#: retired, F-18's volume side gone, #705); `value_traded` may be left out, read as NaN (F-18).
 OHL = ("open", "high", "low")
-TRADED = ("volume", "value_traded")
+TRADED = ("value_traded",)
 _NULLABLE = TRADED
 _INTEGER = frozenset({"i8", "i16", "i32", "i64"})
 #: Columns a bars file may lack: the block reads them when present (TDS 5.5, F-03).

@@ -153,30 +153,30 @@ def test_the_manifest_records_the_fallbacks_the_run_used(
     tmp_path_factory: pytest.TempPathFactory, project: Path
 ) -> None:
     """4.4 step 5 (#687): the snapshot's fallbacks are kept in the manifest's `data.fallbacks`,
-    each as `FallbackRecord` holds it (`column` too), with `data.profiles`,
-    `data.capabilities`, `data.unchecked`, and the fallback's sentence in `assumptions` (1.2);
-    none of it names the package's or the project's folder (5.9.3)."""
-    pkg = make_snapshot(  # F-18 in F-01's place, retired (#705)
-        tmp_path_factory.mktemp("no_volume") / "pkg", preset="tiny", degrade=["no_volume"]
+    each as `FallbackRecord` holds it (`column` too, null for a fallback of no one column), with
+    `data.profiles`, `data.capabilities`, `data.unchecked`, and the fallback's sentence in
+    `assumptions` (1.2); none of it names the package's or the project's folder (5.9.3)."""
+    pkg = make_snapshot(  # F-03 in the place of F-01 and F-18, which leave (#705)
+        tmp_path_factory.mktemp("sparse_bars") / "pkg", preset="tiny", degrade=["sparse_bars"]
     )
     pipe = nx.Pipeline({"c": nx.Price.close.latest})
-    with pytest.warns(UserWarning, match=r"\[E30\] F-18"):
+    with pytest.warns(UserWarning, match=r"\[E30\] F-03"):
         result = nx.run_pipeline(pipe, start="2020-01-06", end="2020-01-08", snapshot=str(pkg),
                                  save=True)  # fmt: skip
     manifest = json.loads((project / "runs" / str(result.run_id) / "manifest.json").read_text())
     data = manifest["data"]
     assert data["fallbacks"] == [
-        {"id": "F-18", "dataset": "bars_1d", "market": m, "count": 341, "column": c}
-        for m in ("KR", "US") for c in ("volume", "value_traded")
-    ]  # fmt: skip
+        {"id": "F-03", "dataset": "bars_1d", "market": m, "count": 341, "column": None}
+        for m in ("KR", "US")
+    ]
     assert set(data) == {"profiles", "capabilities", "unchecked", "fallbacks"}
     assert data["profiles"]["tds:minimal-daily@1.0"] == {  # the checker reports no `pass`
         "declared": True, "verified_level": "manifest", "result": "not_checked"}  # fmt: skip
     assert "price" in data["capabilities"]["features"]
     assert isinstance(data["unchecked"], list)
-    assert [a for a in manifest["assumptions"] if "F-18" in a] == [
-        "fallback F-18 used: Price.volume/value_traded = NaN, bars without them or null in every "
-        "row for KR, US"
+    assert [a for a in manifest["assumptions"] if "F-03" in a] == [
+        "fallback F-03 used: bars expanded to listing period x sessions, empty cells obs_status "
+        "= missing for KR, US"
     ]
     said = json.dumps([data, manifest["assumptions"]])
     assert not [p for p in (pkg.parent, project, Path.home()) if str(p) in said]
