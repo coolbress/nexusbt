@@ -31,7 +31,8 @@ def columns(*cols: dict[str, Any], dataset: dict[str, Any] | None = None) -> Any
     def change(m: dict[str, Any]) -> None:
         if dataset is not None:
             m["datasets"].append(dataset)
-        m["datasets"][-1]["columns"] = list(cols)
+        # the bars, not the base's last dataset, its calendar since #705
+        (m["datasets"][-1] if dataset is not None else build.bars(m))["columns"] = list(cols)
 
     return change
 
@@ -42,7 +43,7 @@ def columns(*cols: dict[str, Any], dataset: dict[str, Any] | None = None) -> Any
         (columns({"name": "close", "type": "bogus"}), "$.datasets[1].columns[0].type"),  # typed
         (columns({"name": "x_note", "type": "list<i64>"}), "$.datasets[1].columns[0].type"),
         (columns({"name": "source", "type": "bogus"}, dataset=FUNDING),  # untyped in its file
-         "$.datasets[2].columns[0].type"),
+         "$.datasets[3].columns[0].type"),  # after the base's three (#705)
         (columns({"name": "ts_end", "type": "ts_us/ns"}), "$.datasets[1].columns[0].type"),  # 4.5
         (lambda m: build.bars(m).update(partitioning=[{"name": "year", "type": "int"}]),
          "$.datasets[1].partitioning[0].type"),

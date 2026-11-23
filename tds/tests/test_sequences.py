@@ -148,7 +148,8 @@ def test_the_manifest_schema_gives_the_key_its_shape(
 ) -> None:
     errors = check(write(tmp_path, _declared(within)), level="manifest").errors
     assert [(e.code, said in e.message) for e in errors] == [("TDS-M001", True)]
-    assert errors[0].message.startswith("$.datasets[2].params.sequence_consecutive_within")
+    # `trades` after the base's three datasets, its calendar the third since #705
+    assert errors[0].message.startswith("$.datasets[3].params.sequence_consecutive_within")
 
 
 def test_the_other_params_keys_stay_open(tmp_path: Path) -> None:

@@ -460,7 +460,8 @@ def test_k001_sorted_runs_go_beside_the_package_or_to_tmp_dir_and_are_removed(
     result = check(package, level="full", tmp_dir=scratch if named else None)
     assert [f.code for f in result.errors if f.code in K_CODES] == []
     where = scratch if named else tmp_path
-    assert f"key check: 1 temporary file(s) of sorted rows in {where}, removed" in result.notes
+    # the bars' two rows and the base calendar's two sessions (#705): a file each
+    assert f"key check: 2 temporary file(s) of sorted rows in {where}, removed" in result.notes
     assert sorted(p.name for p in tmp_path.iterdir()) == ["pkg", "scratch"]
     assert list(scratch.iterdir()) == []
 
@@ -598,7 +599,9 @@ def _empty_panel(m: dict[str, Any], f: Any) -> None:  # the `mom` panel with its
     build.rewrite(m, f, rel, pq.read_table(pa.BufferReader(f[rel])).slice(0, 0))
 
 
-_NO_CAL = ["TDS-R002", "TDS-R003"]  # the base package has no calendar_sessions
+#: Unchecked without calendar_sessions; the base has one since #705, `build.no_calendar` none.
+_NO_CAL = ["TDS-R002", "TDS-R003"]
+_BASE_CAL: list[str] = []  # what of _NO_CAL the base leaves unchecked: nothing
 _NO_EXITS = ["TDS-R008"]  # nor delistings
 
 
@@ -606,28 +609,29 @@ _NO_EXITS = ["TDS-R008"]  # nor delistings
 @pytest.mark.parametrize(
     ("change", "errors", "unchecked"),
     [
+        (build.no_calendar, [], [*_NO_CAL, *_NO_EXITS]),  # no calendar_sessions: R002, R003
         (_no_instruments, [], ["TDS-R001", "TDS-R003", *_NO_EXITS]),
         (_not_parquet, [], R_CODES),
         (  # an instruments table with no rows: every id is missing, not unchecked
             lambda m, f: build.rewrite(m, f, build.INSTRUMENTS, build.instruments().slice(0, 0)),
             ["TDS-R001"],
-            [*_NO_CAL, *_NO_EXITS],
+            [*_BASE_CAL, *_NO_EXITS],
         ),
         (  # any of the four currency columns
             build._instruments(settlement_currency=pa.array(["usd"])),
             ["TDS-R004"],
-            [*_NO_CAL, *_NO_EXITS],
+            [*_BASE_CAL, *_NO_EXITS],
         ),
-        (_no_exits, ["TDS-R008"], _NO_CAL),  # R008: delisted_on set, no delistings row
-        (_twice, [], _NO_CAL),  # delisted twice; delisted_on is the latest exit_date
-        (build._exits(delisted=False), ["TDS-R008"], _NO_CAL),  # a delisting, delisted_on null
-        (_without("fundamentals_events", build._facts("F9")), [], [*_NO_CAL, *_NO_EXITS]),
-        (_MOM, ["TDS-R009"], [*_NO_CAL, *_NO_EXITS]),  # no dictionary/columns: `mom` missing
-        (_empty_panel, ["TDS-R009"], [*_NO_CAL, *_NO_EXITS]),  # columns from the footer
+        (_no_exits, ["TDS-R008"], _BASE_CAL),  # R008: delisted_on set, no delistings row
+        (_twice, [], _BASE_CAL),  # delisted twice; delisted_on is the latest exit_date
+        (build._exits(delisted=False), ["TDS-R008"], _BASE_CAL),  # a delisting, delisted_on null
+        (_without("fundamentals_events", build._facts("F9")), [], [*_BASE_CAL, *_NO_EXITS]),
+        (_MOM, ["TDS-R009"], [*_BASE_CAL, *_NO_EXITS]),  # no dictionary/columns: `mom` missing
+        (_empty_panel, ["TDS-R009"], [*_BASE_CAL, *_NO_EXITS]),  # columns from the footer
         (  # a delisting but no instruments table: R008 has nothing to compare
             _without("instruments", build._exits(delisted=False)),
             [],
-            ["TDS-R001", *_NO_CAL, "TDS-R008"],
+            ["TDS-R001", "TDS-R003", "TDS-R008"],  # R003 maps ids by instruments
         ),
         (  # `mom` described for the dataset `feature_panels` (4.4); `x_note` needs no entry
             build._both(
@@ -637,7 +641,7 @@ _NO_EXITS = ["TDS-R008"]  # nor delistings
                 ),
             ),
             [],
-            [*_NO_CAL, *_NO_EXITS],
+            [*_BASE_CAL, *_NO_EXITS],
         ),
     ],
 )
@@ -667,11 +671,14 @@ def test_refs_with_datasets_reads_the_named_and_the_lookup_columns(
     m = read_manifest(write(tmp_path / "broken", _not_parquet))  # bars unreadable, not named
     assert refs.check_refs(m, ["instruments"], blind) == []
     assert "TDS-R001" not in blind  # a broken file of a dataset not read hides nothing
-    assert [bars for bars, _ in read] == [False, False]  # instruments: as lookup, as named
+    # instruments as lookup and as named, the base's calendar as R002's lookup (#705)
+    assert [bars for bars, _ in read] == [False, False, False]
     read.clear()
     assert refs.check_refs(read_manifest(write(tmp_path / "ok")), ["bars_1d"], set()) == []
-    ((_, instruments),) = [r for r in read if not r[0]]  # once, as the lookup
+    # once each, as the lookups: instruments, and the base's calendar since #705 (R003)
+    instruments, calendar = (cols for bars, cols in read if not bars)
     assert set(instruments) <= set(refs.LOOKUPS["instruments"])
+    assert set(calendar) <= set(refs.LOOKUPS["calendar_sessions"])
     assert [bars for bars, _ in read].count(True) == 1
 
 
@@ -685,10 +692,10 @@ def _named_twice(m: dict[str, Any], f: Any) -> None:  # a bars file storing `ins
 @pytest.mark.parametrize(
     ("change", "unchecked"),
     [  # the full level ends with a result, not a traceback (#309's review)
-        (build._bars(currency=pa.array([["USD"]])), [*_NO_CAL, *_NO_EXITS]),  # a list: no code
+        (build._bars(currency=pa.array([["USD"]])), [*_BASE_CAL, *_NO_EXITS]),  # a list: no code
         (
             build._bars(calendar_id=pa.array([["X"]]), item=pa.array([{"a": 1}])),
-            [*_NO_CAL, *_NO_EXITS],
+            [*_BASE_CAL, *_NO_EXITS],
         ),
         (_named_twice, R_CODES),  # which `instrument_id`? unseen, as an unreadable file
     ],
@@ -942,7 +949,7 @@ def _funding(row: dict[str, Any] = _FUNDING, **declared: str) -> Any:
     [  # #403: a declaration on an untyped or `x_` column is the type the file is checked against
         (_funding(), []),  # untyped and undeclared: not checked, as before
         (_funding(ts_available="ts_ns", source="string", x_note="string"), []),
-        (_funding(ts_available="ts_us/ns"), [("TDS-M001", "$.datasets[2].columns[0].type:")]),
+        (_funding(ts_available="ts_us/ns"), [("TDS-M001", "$.datasets[3].columns[0].type:")]),
         (_funding(ts_available="ts_us", source="i64"),  # the Decision's conformance case
          [("TDS-S004", "ts_available"), ("TDS-S002", "source")]),
         (_funding(ts_available="f64"), [("TDS-S002", "ts_available")]),
@@ -950,7 +957,7 @@ def _funding(row: dict[str, Any] = _FUNDING, **declared: str) -> Any:
                   ts_available="ts_ns"), [("TDS-S004", "ts_available")]),  # no time zone
         (_funding(x_note="i64"), [("TDS-S002", "x_note")]),
         (_funding(rate="f64"), []),  # typed by the schema, declared the same
-        (_funding(source=""), [("TDS-M001", "$.datasets[2].columns[0].type:")]),  # #417
+        (_funding(source=""), [("TDS-M001", "$.datasets[3].columns[0].type:")]),  # #417
     ],
 )  # fmt: skip
 def test_a_declared_type_on_an_untyped_column_is_checked(
@@ -1258,7 +1265,7 @@ def test_full_level_says_where_sorted_runs_went(
 
 
 def test_full_level_checks_only_the_keys_references_and_hashes_so_far(tmp_path: Path) -> None:
-    result = check(write(tmp_path / "pkg"), level="full")
+    result = check(write(tmp_path / "pkg", build.no_calendar), level="full")  # as before #705
     assert (result.errors, result.warnings) == ((), ())
     # spec 8.2, no false pass: the other full-level rules are not built, so no profile is `full`
     assert result.profiles == {
@@ -1647,6 +1654,7 @@ def _days(*days: dt.date, ids: tuple[str, ...] = ("US:AAA",), **listing: Any) ->
         build.rewrite(m, f, build.BARS, pa.concat_tables(rows))
         rows = [build.instruments(instrument_id=pa.array([i]), **listing) for i in ids]
         build.rewrite(m, f, build.INSTRUMENTS, pa.concat_tables(rows))
+        build.no_calendar(m, f)  # in place of the base's (#705)
         f[rel] = build.parquet(sessions, "calendar_sessions")
         m["datasets"].append({"name": "calendar_sessions", "kind": "calendar_sessions",
                               "schema_version": "1.0", "path": "calendar_sessions",
@@ -1674,9 +1682,10 @@ JAN.insert(0, dt.date(2023, 12, 31))  # JAN[d] is January d
             m, f, build.INSTRUMENTS, pa.concat_tables([build.instruments(listed_on=pa.array(
                 [JAN[3]])), build.instruments(instrument_id=pa.array(["US:BBB"]))]))), []),
         # ^ the instruments' one row group holds two ids: its listed_on is not one instrument's
-        (build._bars(session_date=pa.array([JAN[1]])), ["TDS-D002"]),  # no calendar: listing
-        (lambda m, f: build.rewrite(m, f, build.BARS, build.bars_table(
-            session_date=pa.array([JAN[1]])), write_statistics=False), []),
+        (build._both(build.no_calendar, build._bars(session_date=pa.array([JAN[1]]))),
+         ["TDS-D002"]),  # no calendar: listing
+        (lambda m, f: (build.no_calendar(m, f), build.rewrite(m, f, build.BARS, build.bars_table(
+            session_date=pa.array([JAN[1]])), write_statistics=False)), []),
     ],
 )  # fmt: skip
 def test_D002_from_the_statistics(change: Any, found: list[str], tmp_path: Path) -> None:
@@ -2094,7 +2103,11 @@ def test_interval_rules_edges(
 
 
 _HALF = dt.timedelta(minutes=30)
-_ENDS = build._bars(ts_end=pa.array([_at(2, 21)]), ts_available=pa.array([_at(2, 22)]))
+#: Without the base's calendar (#705): T005 has no session to bound a `ts_end` with.
+_ENDS = build._both(
+    build.no_calendar,
+    build._bars(ts_end=pa.array([_at(2, 21)]), ts_available=pa.array([_at(2, 22)])),
+)
 _CALENDAR_RULE = build._both(build._sessions(0), build._bars(ts_available=pa.array([_at(2, 21)])))
 
 
@@ -2108,7 +2121,7 @@ _CALENDAR_RULE = build._both(build._sessions(0), build._bars(ts_available=pa.arr
          [], []),  # the 2nd's close, from the calendar
         (build._both(_CALENDAR_RULE, build._set("availability", "session_open", in_bars=True)),
          ["TDS-T002"], []),
-        (build._both(build._bars(ts_available=pa.array([_at(2, 21)])),
+        (build._both(build.no_calendar, build._bars(ts_available=pa.array([_at(2, 21)])),
                      build._set("availability", "session_close", in_bars=True)),
          [], ["TDS-T002"]),  # no calendar session: not judged
         (build._both(_CALENDAR_RULE, build._set("availability", "ts_end+P1M", in_bars=True)),
@@ -2123,7 +2136,8 @@ _CALENDAR_RULE = build._both(build._sessions(0), build._bars(ts_available=pa.arr
          ["TDS-T002"], []),  # no ts_recv: ts_end and a minute, not half an hour
         (build._instruments(last_session=pa.array(["2024-01-01"])), ["TDS-S002"],
          [f"TDS-T{n:03}" for n in (1, 2, 5, 7, 8, 10, 11)]),  # a text date: none judged
-        (build._bars(ts_end=pa.array([_at(2, 20)])), [], ["TDS-T005"]),  # no calendar_sessions
+        (build._both(build.no_calendar, build._bars(ts_end=pa.array([_at(2, 20)]))), [],
+         ["TDS-T005"]),  # no calendar_sessions
         (build._both(build._sessions(0, (3,)), build._bars(ts_end=pa.array([_at(2, 20)]))),
          ["TDS-D002", "TDS-R003"], ["TDS-T005"]),  # a calendar, no session that day: not judged
         (build._facts("F1", period_end=[dt.date(2024, 1, 2)], value_how=["preliminary"]),
