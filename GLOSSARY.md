@@ -16,7 +16,7 @@ This file holds the terms of the spec's glossary (spec §1.2 and §9.2) and noth
 
 - **TDS** (NexusBT Data Standard): the only input format the engine reads — a folder with `tds.json` and Parquet files. Versioned separately under `tds/`; checked by `tds check`.
 - **Producer**: whoever builds a TDS package (a CSV import, a data warehouse build, …). The engine reads packages only and knows no particular producer; producer hints go only in `tds.json producer.hints`.
-- **Instrument id** (`instrument_id`): an opaque, never-reused string key chosen by the producer. No aliases.
+- **Instrument id** (`instrument_id`): the stored key, an opaque string never reused. The tools write it as `<MIC>:<ticker>_<YYYYMMDD>` from the earliest symbol and its listing date; the user names instruments by symbol (spec 5.3.6). No aliases.
 - **Snapshot / package**: a published, immutable TDS folder with a `snapshot_id` and three hashes — physical (file bytes), value (canonical serialisation, TDS 4.5) and semantic (value + resolved metadata). The engine decides "same data" by the semantic hash.
 - **Profile**: a TDS bundle a package claims to follow (`tds:equity-daily-core@1.0`). A claim only; what the engine needs is the *capability* of the datasets the graph uses. Results come in three: declared / verified up to a level (manifest, schema, full) / supported by this engine.
 - **Capability**: whether the snapshot has the data a graph needs. Missing capability fails with `CapabilityError` (E18) or triggers a defined fallback.
@@ -37,6 +37,7 @@ This file holds the terms of the spec's glossary (spec §1.2 and §9.2) and noth
 - **Exact ratio** (`ratio_num/ratio_den`): every share-changing corporate action carries an exact integer ratio. The engine never infers fractions from floats; a decimal literal is used only if the user opts in (`[corporate_actions] decimal_ratio = "literal"`, warned).
 - **Value tables** (`values`, `market_values`, `symbol_values`): the user's values outside trading, rows of four words (symbol, date, item, value) in three shapes: per symbol and date, market-wide by date, per symbol without a date. Used as given and read as `nx.Item.<name>`; `nx.Item.<name>.age()` counts the sessions since the item's last row (spec 5.3.5). They replace `fundamentals_state`, panels, classifications, universe and eligibility tables, macro series and events.
 - **Two time axes**: symbol periods (`instrument_symbols`) are used only when both the effective period (`effective_from/to`) and the known period (`ts_known_from/to`) hold.
+- **Symbol**: what the user names an instrument by. Its periods live in `instrument_symbols` only; a result's `symbol` is the one in use on the row's date, and a symbol with no date means its latest owner (spec 5.3.6).
 - **Forward cumulative factors** (`C`, spec 5.3.3): products of event factors starting at 1.0 on the first listed session, computed by the engine from the events. New data never changes old values.
 - **Watermark**: the last complete session of a market in a snapshot. `live` never fills after it.
 
@@ -67,7 +68,7 @@ This file holds the terms of the spec's glossary (spec §1.2 and §9.2) and noth
 - **Participation cap**: daily fill ≤ maximum participation × average volume of the past 20 sessions (and ≤ a share of that session's volume). The rest carries over.
 - **`decision_value` / `nav_economic`**: the account value used for sizing (only what is known at the decision; unknown dividend and delisting amounts excluded) / the economic value used for reports (realised amounts included).
 - **Money**: integer minor units (KRW 1 won, USD 1 cent), rounded once per entry. The NAV and P&L bridge closes every day.
-- **Entitlement / receivable**: a right created by holding at the ex-date / an entitlement whose amount is known. Cash arrives on the pay date.
+- **Entitlement / receivable**: a right created by holding at the ex-date / an entitlement whose amount is known. Cash arrives on the pay date, or on the date the user's declaration gives when there is none (spec 5.6.11).
 - **Terminal value**: what a delisted holding receives — observed-inclusive, observed-exclusive or policy basis — applied once, together with any distribution just before delisting.
 - **Provisional costs**: fixed basis-point costs used until cost tables are verified.
 - **Fill record**: per fill, the decision resolution (`fill_resolution`), the rule (`fill_rule`), decision price and arrival price.

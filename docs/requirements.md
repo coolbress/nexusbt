@@ -71,7 +71,7 @@ The pull request that implements a ticket moves its rows to `implemented` and ad
 | R-57 | segments, no locks | 6.1 | M2 | v1 | planned | T2.9 |
 | R-58 | micro-caps | 3.6 | M2 | v1 | planned | T2.4 |
 | R-59 | benchmark | 4.6, 5.7 | M4 | v1 | planned | T4.6 |
-| R-60 | pay-date estimate | 5.6.11 | M3 | v1 | planned | T3.10 |
+| R-60 | pay-date declaration: the ex-date or N calendar days after; none: the tool stops (#752) | 5.6.11 | M3 | v1 | planned | T3.10 |
 | R-61 | provisional costs | 5.6.8 | M3 | v1 | planned | T3.8 |
 | R-62 | sleeves, clocks | 5.1.3, 5.6.9 | M4 | v1 | planned | T4.1, T4.2 |
 | R-63 | fundamentals_state | 4.6, 5.3.5 | M2 | v1; superseded 2026-11-24 (#752) | replaced | #752 |
