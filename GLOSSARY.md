@@ -50,12 +50,12 @@ This file holds the terms of the spec's glossary (spec §1.2 and §9.2) and noth
 - **Schedule**: when decisions happen (`nx.monthly()`, …). A decision after an event is an ordinary schedule with a Filter on `nx.Item.<name>.age()`.
 - **Eligibility / tradability**: eligibility = can it be chosen at the decision (universe); tradability = can it fill in the execution session (state machine).
 - **Canonical target** (`target_weight`): the decision's `(instrument_id, target_weight)` table, from market information only — a pure function, identical in `screen` and `backtest`. Built by construction (`portfolio=`) → sizing (`sizing=`) → market-only risk rules (`risk=`).
-- **Final target** (`final_weight`): the canonical target times the multipliers of account-reading risk rules (drawdown brake, portfolio stop, no-reentry). Orders use this value.
+- **Final target** (`final_weight`): the canonical target, or with a `decide` block the decided target `decided_weight`, times the multipliers of account-reading risk rules (drawdown brake, portfolio stop, no-reentry). Orders use this value.
 - **Sizing slot**: a pure function that sets weights for the chosen names (equal, inverse volatility, ERC, volatility target, …). Never reads the account.
 - **Risk slot**: an ordered list of rules that only scale weights toward zero. Rules that read the account run only in the final-target layer.
 - **Shadow index**: the canonical target held without costs. The drawdown brake uses it to decide re-entry.
 - **Target state / anchor**: the previous decision's canonical target set and the decision where that recursion starts. The hold band (`hold=`) relies on it instead of account holdings.
-- **Order intent**: a fixed share quantity computed from the final target and the account state.
+- **Order intent**: a fixed share quantity computed from the final target and the account state, or returned by a `decide` block and checked as the weight it would leave.
 - **Order status**: NEW → ACCEPTED → (TRIGGERED) → PARTIALLY_FILLED → FILLED, or CANCELLED / EXPIRED / REJECTED. A trigger persists; quantities always satisfy `requested = filled + cancelled + remaining`. "Blocked" is a session event, not a status.
 - **Order types**: market, limit, stop, stop-limit; time in force day or GTC.
 - **Exit order**: a protective order created right after the entry fill, resized on every holding change, never expiring; cancelled only when the holding is zero. Exits include stop, trailing stop and time stop.

@@ -272,7 +272,7 @@ The pull request that implements a ticket moves its rows to `implemented` and ad
 
 | Id | Item | Priority | Where reflected | Status | Ticket |
 |---|---|---|---|---|---|
-| R4-01 | nine-slot block contract table, four promises | P0 | 3.7 | planned | T3.27, T3.29, T3.31 |
+| R4-01 | ten-slot block contract table (nine until 2026-11-24, #752), four promises | P0 | 3.7 | planned | T3.27, T3.29, T3.31 |
 | R4-02 | money-management slot, built-in sizers, `top(weight=)` trimmed | P0 | 1.1, 2.3, 3.1, 3.7, 5.5.1, 5.5.1a | planned | T3.27 |
 | R4-03 | ERC fixed-order coordinate descent, defined fallback | P1 | 5.5.1a, 6.6 E43 | planned | T3.28 |
 | R4-04 | risk-list slot, two layers canonical/final, INV-23 | P0 | 1.3, 5.5.1, 5.5.2, 5.5.2a, 5.5.3, 5.6.7, 8.3 | planned | T3.29, T3.30 |
