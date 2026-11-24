@@ -390,8 +390,8 @@ def test_small_hashes_match_on_macos_and_linux(tmp_path: Path) -> None:
     package = make_snapshot(tmp_path / "d", preset="small")  # default markets KR, US; seed 0
     hashes = json.loads((package / "tds.json").read_text())["hashes"]
     assert (hashes["value_sha256"], hashes["semantic_sha256"]) == (
-        "e315ff96bdf394a69208ae07296c55163315dec6434ad37681aa496168ab816d",
-        "19f01d5fa8cf10ef78f4d2262fc89cf5bd17acd2f3798d8cfa425031934d4ae3",  # #705 B4: tds-hash-2
+        "d2eda714f8f20f724b9be8cae0ec12454a43ed1c74dd8385b9b1b6bd7d35b162",  # #705 B4: partitioned
+        "e8ab3228c65abcd8f343ab2dfa0d725a1872941d69bd51fdbb010901c43ecb8e",
     )
 
 

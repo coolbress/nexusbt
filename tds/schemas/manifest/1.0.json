@@ -40,6 +40,18 @@
             "type": "array",
             "items": {"type": "object", "required": ["path", "bytes"]}
           },
+          "partitions": {
+            "$comment": "TDS 4.2, 4.5 step 6: each partition's values and value hash (#705 B4).",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["values", "value_sha256"],
+              "properties": {
+                "values": {"type": "array"},
+                "value_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+              }
+            }
+          },
           "params": {
             "$comment": "Only this key's shape (TDS 5.6~5.8, #348); the other params keys stay open.",
             "properties": {

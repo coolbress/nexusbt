@@ -45,7 +45,8 @@ def columns(*cols: dict[str, Any], dataset: dict[str, Any] | None = None) -> Any
         (columns({"name": "source", "type": "bogus"}, dataset=FUNDING),  # untyped in its file
          "$.datasets[3].columns[0].type"),  # after the base's three (#705)
         (columns({"name": "ts_end", "type": "ts_us/ns"}), "$.datasets[1].columns[0].type"),  # 4.5
-        (lambda m: build.bars(m).update(partitioning=[{"name": "year", "type": "int"}]),
+        (lambda m: build.bars(m).update(partitioning=[{"name": "year", "type": "int"}],
+                                        partitions=[]),  # listed, as 4.2 asks (M003)
          "$.datasets[1].partitioning[0].type"),
     ],
 )  # fmt: skip

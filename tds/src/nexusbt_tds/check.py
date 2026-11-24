@@ -18,6 +18,7 @@ the profile is `not_checked`.
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import json
 import math
 import os
@@ -301,7 +302,10 @@ def _check_hashes(
             hashes = package_hashes(m.root, tmp_dir=tmp, spilled=spilled)
         else:
             folder = spill_folder(m.root, tmp)
-            each = {d.get("name"): dataset_hashes(m.root, d, folder, spilled) for d in datasets}
+            hashes["partitions"] = {d.get("name"): [] for d in datasets if d.get("partitioning")}
+            each = {d.get("name"): dataset_hashes(m.root, d, folder, spilled,
+                                                  hashes["partitions"].get(d.get("name")))
+                    for d in datasets}  # fmt: skip
             hashes["datasets"] = {name: whole for name, (whole, _) in each.items()}
             hashes["files"] = {path: {"value_sha256": value} for _, files in each.values()
                                for path, value in files.items()}  # fmt: skip
@@ -317,8 +321,11 @@ def _check_hashes(
     for ds in datasets:
         declared, actual = ds.get("value_sha256"), hashes["datasets"].get(ds.get("name"))
         if declared is not None and declared != actual:
-            out.append(Finding("TDS-H002", "error", f"value hash {actual}, declared {declared}",
-                               dataset=ds.get("name")))  # fmt: skip
+            which = _partitions_apart(
+                ds.get("partitions"), hashes["partitions"].get(ds.get("name"))
+            )
+            out.append(Finding("TDS-H002", "error", f"value hash {actual}, declared {declared}"
+                               f"{which}", dataset=ds.get("name")))  # fmt: skip
         for f in (f for f in ds.get("files") or [] if isinstance(f, dict)):
             actual = hashes["files"].get(f.get("path"), {}).get("value_sha256")
             if None not in (actual, f.get("value_sha256")) and actual != f["value_sha256"]:
@@ -330,6 +337,60 @@ def _check_hashes(
         if declared is not None and declared != hashes[key]:
             out.append(Finding("TDS-H003", "error", f"{key} {hashes[key]}, declared {declared}"))
     return out
+
+
+def _by_values(parts: object) -> dict[str, object]:
+    """`partitions[]` as `values` (JSON) → `value_sha256`; entries of another shape are M001's."""
+    entries = [p for p in parts if isinstance(p, dict)] if isinstance(parts, list) else []
+    return {json.dumps(p.get("values")): p.get("value_sha256") for p in entries}
+
+
+def _partitions_apart(declared: object, actual: list[dict[str, Any]] | None) -> str:
+    """H002's words for a partitioned dataset (TDS 4.5 step 6): which partitions differ from,
+    or are missing from, the declared `partitions[]`."""
+    if actual is None:
+        return ""
+    said, found = _by_values(declared), _by_values(actual)
+    apart = sorted(k for k in said.keys() | found.keys() if said.get(k) != found.get(k))
+    return f"; partitions apart: {', '.join(apart)}" if apart else ""
+
+
+def _check_partitions(ds: Mapping[str, Any], name: str | None) -> Iterable[Finding]:
+    """A partitioned dataset's `partitions[]` (TDS 4.2), without reading its rows: present
+    (M003), and joined by 4.5 step 6 into its `value_sha256` when that is declared (H005)."""
+    from .hash import joined, name_of, partition_values
+
+    partitioning = ds.get("partitioning")
+    if not partitioning or not isinstance(partitioning, list):
+        return
+    if "partitions" not in ds:
+        msg = "partitions is missing: a partitioned dataset lists each partition's value hash"
+        yield Finding("TDS-M003", "error", f"{msg} (TDS 4.2)", dataset=name)
+        return
+    listed, declared = _by_values(ds["partitions"]), ds.get("value_sha256")
+    if declared is None:  # nothing to join to; H002 compares the rows at `full`
+        return
+    try:
+        digests = {name_of(json.loads(v)): bytes.fromhex(str(h)) for v, h in listed.items()}
+        paths = {json.dumps(partition_values(f["path"], partitioning)) for f in ds["files"]
+                 if isinstance(f, dict) and f.get("rows") != 0}  # fmt: skip
+        same = hashlib.sha256(joined(partitioning, digests)).hexdigest() == declared
+    except (ValueError, TypeError, KeyError, LookupError, AttributeError) as exc:  # M001's shape
+        yield Finding("TDS-H005", "error", f"partitions not read: {exc!r}", dataset=name)
+        return
+    if same:
+        return
+    unlisted, unseen = sorted(paths - listed.keys()), sorted(listed.keys() - paths)
+    where = "".join(
+        f"; {w}: {', '.join(v)}"
+        for w, v in (
+            ("in a file's path, not listed", unlisted),
+            ("listed, in no file's path", unseen),
+        )
+        if v
+    )
+    msg = f"partitions joined do not give value_sha256 {declared} (TDS 4.5 step 6){where}"
+    yield Finding("TDS-H005", "error", msg, dataset=name)
 
 
 def _check_manifest(m: Manifest, only: Sequence[str] | None) -> Iterable[Finding]:
@@ -385,6 +446,7 @@ def _check_manifest(m: Manifest, only: Sequence[str] | None) -> Iterable[Finding
             watermark = markets.get(market) if isinstance(markets, dict) else None
             yield from _processed(said, watermark, market, name)
         yield from _check_dataset(root, ds, name, listed, declared)
+        yield from _check_partitions(ds, name)
     if only is None:
         for rel in _walk(root):
             if rel not in listed and rel != MANIFEST:

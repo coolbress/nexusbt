@@ -510,6 +510,8 @@ def _groups(entry: dict[str, Any], table: pa.Table, market: str) -> dict[str, pa
         raise CsvImportError(f"{entry['name']}: partition {parts} is not imported from CSV yet")
     entry["path"] = "/".join([entry["name"], *fixed])
     entry |= _coverage(table, market if "market" in open_ else None)
+    types = {"market": "code", "year": "i16"}  # declared, so 4.5 step 6 hashes them (#725 203)
+    entry |= {"partitioning": [{"name": p, "type": types[p]} for p in open_]} if open_ else {}
     groups: dict[str, pa.Table] = {"": table}
     if "market" in open_:
         groups = {f"/market={market}": table}

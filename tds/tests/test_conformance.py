@@ -1338,6 +1338,51 @@ def test_H_codes(code: str, tmp_path: Path) -> None:
     assert codes(build.write(tmp_path / "pass", *build.package(code, "pass")), "full") == []
 
 
+def test_H005_joins_the_listed_partitions_without_reading_rows(tmp_path: Path) -> None:
+    fail = build.write(tmp_path / "fail", *build.package("TDS-H005", "fail"))
+    assert pairs(fail) == stated("TDS-H005")  # the manifest level: no row read
+    assert codes(build.write(tmp_path / "pass", *build.package("TDS-H005", "pass")), "full") == []
+
+
+def _partitioned(change: Any) -> Any:
+    """The H005 pass package, then `change` on its bars entry."""
+    manifest, files = build.package("TDS-H005", "pass")
+    change(build.bars(manifest))
+    return manifest, files
+
+
+@pytest.mark.parametrize(
+    ("change", "found", "said"),
+    [
+        (lambda b: b.pop("partitions"), ["TDS-M003"], "partitions is missing"),
+        (lambda b: b.update(partitions=[]), ["TDS-H005"],
+         'in a file\'s path, not listed: ["US", 2024]'),
+        (lambda b: b["partitions"].append({"values": ["KR", 2024], "value_sha256": build.WRONG}),
+         ["TDS-H005"], 'listed, in no file\'s path: ["KR", 2024]'),
+        (lambda b: b.pop("value_sha256"), [], ""),  # nothing to join to: H002's, at `full`
+        # a malformed `partitioning` and no file with rows: findings, never a crash
+        (lambda b: b.update(partitioning=["market"], files=[]), ["TDS-M001", "TDS-H005"],
+         ""),
+    ],
+)  # fmt: skip
+def test_a_partitioned_dataset_lists_its_partitions(
+    change: Any, found: list[str], said: str, tmp_path: Path
+) -> None:
+    result = check(build.write(tmp_path, *_partitioned(change)), level="manifest")
+    assert [f.code for f in result.errors] == found
+    assert all(said in f.message for f in result.errors)
+
+
+def test_H002_names_the_partition_apart(tmp_path: Path) -> None:
+    def wrong(b: dict[str, Any]) -> None:
+        b["value_sha256"] = build.WRONG
+        b["partitions"][0]["value_sha256"] = build.WRONG
+
+    result = check(build.write(tmp_path, *_partitioned(wrong)), level="full")
+    assert "partitions apart: [\"US\", 2024]" in next(
+        f.message for f in result.errors if f.code == "TDS-H002")  # fmt: skip
+
+
 @pytest.mark.parametrize("named", [None, ["bars_1d"]])
 def test_H004(named: list[str] | None, tmp_path: Path) -> None:
     """TDS 4.2: a file's optional `value_sha256` is advisory, so a wrong one is a warning."""
