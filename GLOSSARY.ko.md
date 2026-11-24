@@ -6,7 +6,7 @@
 
 ## 사용자가 아는 명사 다섯
 
-- **데이터 칼럼** (`Price.close`, `Fund.equity`, `Meta.sector`, `Panel.bm`, `Label.*`, `Trad.*`): 스냅숏 칼럼 사전에서 만든 import 가능한 속성. `Label.*`은 정답이라 `evaluate(target=...)`와 `ml.factor(label=...)`에만 쓴다.
+- **데이터 칼럼** (`Price.close`, `Meta.category`, `Trad.*`): 스냅숏 칼럼 사전에서 만든 import 가능한 속성. 값 표의 항목은 `nx.Item.<name>`으로 읽는다.
 - **항** (Term: `Factor`, `Filter`, `Classifier`): 칼럼에서 만들고 서로 조합하는 계산 그래프 노드. zipline Pipeline과 같은 이름·뜻.
 - **전략** (`Strategy`): 아홉 칸(일정·유니버스·신호·구성·자금 관리·위험 관리·집행·탈출·비용)을 가진 값 객체.
 - **실행** (Run): `evaluate`·`backtest`·`screen`·`sweep`·`live` 한 번. `runs/<run_id>/`에 봉인된다.
@@ -35,13 +35,10 @@
 - **그날 기준 조정**: 창의 과거 가격을 계산일까지 알려진 분할·배당만으로 맞춘 값. 미래 분할을 모른다.
 - **기업행동 해석기** (resolver): 기준 시각을 받아 정정·취소·늦은 조건 공개를 풀어 사슬마다 한 판과 네 효과(가격 계수·수량 계수·권리·결제)를 내는 함수 하나. 조정·회계·정답·검사가 모두 쓴다.
 - **정확 비율** (`ratio_num/ratio_den`): 주식 수를 바꾸는 모든 기업행동은 정확한 정수비를 가진다. 엔진은 실수에서 분수를 추론하지 않는다. 십진 리터럴은 사용자가 고를 때만(`[corporate_actions] decimal_ratio = "literal"`, 경고).
-- **`fundamentals_state`**: 생산자가 기간 선택·TTM·출처 우선순위·엄격 자격을 해석해 낸 재무 상태 구간 `[ts_known_from, ts_known_to)`. 엔진은 조회만 한다. 원 사실은 `fundamentals_events`.
-- **두 시간축**: 분류·지수 편입은 효력 기간(`effective_from/to`)과 앎 기간(`ts_known_from/to`)을 모두 만족할 때만 쓴다.
+- **값 표** (`values`, `market_values`, `symbol_values`): 거래 밖의 사용자 값. 네 낱말(종목, 날짜, 항목, 값)로 된 줄이고 세 모양이다: 종목·날짜별, 날짜별 시장 전체, 날짜 없는 종목별. 주어진 그대로 쓰고 `nx.Item.<name>`으로 읽으며, `nx.Item.<name>.age()`는 그 항목의 마지막 줄 뒤 세션 수를 센다(명세 5.3.5). `fundamentals_state`, 패널, 분류, 유니버스·자격 표, 거시 계열, 사건을 대신한다.
+- **두 시간축**: 기호 기간(`instrument_symbols`)은 효력 기간(`effective_from/to`)과 앎 기간(`ts_known_from/to`)을 모두 만족할 때만 쓴다.
 - **앞으로 누적 계수** (`C`, 명세서 5.3.3): 상장 첫 세션 1.0부터 사건 계수를 곱한 값. 엔진이 사건에서 계산한다. 새 자료가 와도 옛 값은 바뀌지 않는다.
 - **워터마크**: 스냅숏에서 시장별로 완결된 마지막 세션. `live`는 그 뒤로 체결하지 않는다.
-- **거시 계열** (`Macro.series`): `series_observations`의 판(vintage) 있는 거시·대체 계열을 시장 수준 항으로. 기본 `vintage="as_of"` = 판단 시각까지 알려진 마지막 판.
-- **사건 항** (`Events.<kind>`, `Events.of(type)`): 사건 데이터셋(실적, 공시, 배당 등) 위의 항. 사건은 `ts_available` 뒤에만 있다. `value`와 `consensus`가 둘 다 있으면 `surprise = value − consensus`.
-- **외부 데이터셋** (`nx.dataset.from_parquet`, `nx.dataset.from_frame`): 세 모양(`panel`, `events`, `series`) 가운데 하나인 사용자 표. `known_on` 칼럼이 필수이고, TDS 값 해시 규칙으로 해시해 실행 폴더에 한 벌 남긴다.
 
 ## 판단과 계좌
 
@@ -49,7 +46,7 @@
 - **기준 시계** (`clock`): 여러 시장 전략의 판단 시각. `"<MARKET>_close"`(예 `KR_close`: 한국 마감, 미국은 앞 세션 값) 또는 `market_local`.
 - **기준 통화** (`base_ccy`): 합친 보고의 통화. 평가만 바꾸고 정보 시점은 바꾸지 않는다.
 - **판단** (`DecisionContext`): 슬리브 하나가 목표를 정한 한 번. id, `decision_ts`, 세션, 스냅숏을 기록한다.
-- **일정** (schedule): 판단이 일어나는 때(`nx.monthly()` 등). `nx.on_event(trigger, delay=)`는 사건 뒤에 판단을 잡고, 다른 일정과 `|`로 합친다.
+- **일정** (schedule): 판단이 일어나는 때(`nx.monthly()` 등). 사건 뒤 판단은 보통 일정에 `nx.Item.<name>.age()` Filter를 쓴다.
 - **자격 / 거래 가능**: 자격 = 판단 때 고를 수 있나(유니버스). 거래 가능 = 집행 세션에 체결되나(상태 기계).
 - **정규 목표** (`target_weight`): 판단의 `(instrument_id, target_weight)` 표. 시장 정보만 쓰는 순수 함수의 결과이고 `screen`과 `backtest`에서 같다. 구성(`portfolio=`) → 자금 관리(`sizing=`) → 시장 정보만 읽는 위험 규칙(`risk=`) 순서로 만든다.
 - **최종 목표** (`final_weight`): 정규 목표에 계좌를 읽는 위험 규칙(낙폭 브레이크, 포트폴리오 손절, 재진입 금지)의 배수를 곱한 값. 주문은 이 값을 쓴다.

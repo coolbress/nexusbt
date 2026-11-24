@@ -6,7 +6,7 @@ This file holds the terms of the spec's glossary (spec §1.2 and §9.2) and noth
 
 ## Five nouns every user knows
 
-- **Data column** (`Price.close`, `Fund.equity`, `Meta.sector`, `Panel.bm`, `Label.*`, `Trad.*`): an importable attribute built from the snapshot's column dictionary. `Label.*` is a label (ground truth) and may be used only in `evaluate(target=...)` and `ml.factor(label=...)`.
+- **Data column** (`Price.close`, `Meta.category`, `Trad.*`): an importable attribute built from the snapshot's column dictionary. An item of the value tables is read as `nx.Item.<name>`.
 - **Term** (`Factor`, `Filter`, `Classifier`): a node of the computation graph, built from columns and combined with other terms. Same names and meanings as the zipline Pipeline.
 - **Strategy** (`Strategy`): a value object with nine slots — schedule, universe, signal, construction, sizing, risk, execution, exits, costs.
 - **Run**: one call of `evaluate`, `backtest`, `screen`, `sweep` or `live`. Sealed into `runs/<run_id>/`.
@@ -35,13 +35,10 @@ This file holds the terms of the spec's glossary (spec §1.2 and §9.2) and noth
 - **As-of adjustment**: past prices in a window adjusted only by splits and dividends known up to the computation day. Future splits are unknown.
 - **Corporate-action resolver**: the one function that, given a reference time, resolves amendments, cancellations and late terms into one version per chain and four effects (price factor, share factor, entitlement, settlement). Adjustment, accounting, labels and checks all use it.
 - **Exact ratio** (`ratio_num/ratio_den`): every share-changing corporate action carries an exact integer ratio. The engine never infers fractions from floats; a decimal literal is used only if the user opts in (`[corporate_actions] decimal_ratio = "literal"`, warned).
-- **`fundamentals_state`**: resolved financial-state intervals `[ts_known_from, ts_known_to)` published by the producer (period choice, TTM, source priority, strict eligibility). The engine only looks them up. Raw facts are `fundamentals_events`.
-- **Two time axes**: classifications and index membership are used only when both the effective period (`effective_from/to`) and the known period (`ts_known_from/to`) hold.
+- **Value tables** (`values`, `market_values`, `symbol_values`): the user's values outside trading, rows of four words (symbol, date, item, value) in three shapes: per symbol and date, market-wide by date, per symbol without a date. Used as given and read as `nx.Item.<name>`; `nx.Item.<name>.age()` counts the sessions since the item's last row (spec 5.3.5). They replace `fundamentals_state`, panels, classifications, universe and eligibility tables, macro series and events.
+- **Two time axes**: symbol periods (`instrument_symbols`) are used only when both the effective period (`effective_from/to`) and the known period (`ts_known_from/to`) hold.
 - **Forward cumulative factors** (`C`, spec 5.3.3): products of event factors starting at 1.0 on the first listed session, computed by the engine from the events. New data never changes old values.
 - **Watermark**: the last complete session of a market in a snapshot. `live` never fills after it.
-- **Macro series** (`Macro.series`): a versioned (vintage) macro or alternative series from `series_observations`, used as a market-level term. Default `vintage="as_of"` = the latest version known at the decision.
-- **Event term** (`Events.<kind>`, `Events.of(type)`): a term over event datasets (earnings, filings, dividends, …). An event exists only after its `ts_available`. `surprise = value − consensus` when both exist.
-- **External dataset** (`nx.dataset.from_parquet`, `nx.dataset.from_frame`): a user table in one of three shapes (`panel`, `events`, `series`). A `known_on` column is required; the table is hashed by the TDS value-hash rule and copied into the run folder.
 
 ## Decisions and accounts
 
@@ -49,7 +46,7 @@ This file holds the terms of the spec's glossary (spec §1.2 and §9.2) and noth
 - **Reference clock** (`clock`): the decision time for multi-market strategies: `"<MARKET>_close"` (for example `KR_close`: Korean close, US values from the previous session) or `market_local`.
 - **Base currency** (`base_ccy`): the currency of combined reports. Changes valuation only, never information time.
 - **Decision** (`DecisionContext`): one time a sleeve sets its targets. Records id, `decision_ts`, session and snapshot.
-- **Schedule**: when decisions happen (`nx.monthly()`, …). `nx.on_event(trigger, delay=)` schedules decisions after events; event schedules combine with others by `|`.
+- **Schedule**: when decisions happen (`nx.monthly()`, …). A decision after an event is an ordinary schedule with a Filter on `nx.Item.<name>.age()`.
 - **Eligibility / tradability**: eligibility = can it be chosen at the decision (universe); tradability = can it fill in the execution session (state machine).
 - **Canonical target** (`target_weight`): the decision's `(instrument_id, target_weight)` table, from market information only — a pure function, identical in `screen` and `backtest`. Built by construction (`portfolio=`) → sizing (`sizing=`) → market-only risk rules (`risk=`).
 - **Final target** (`final_weight`): the canonical target times the multipliers of account-reading risk rules (drawdown brake, portfolio stop, no-reentry). Orders use this value.
