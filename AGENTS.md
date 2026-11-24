@@ -6,7 +6,7 @@
 uv sync --locked          # fails when the lockfile disagrees with pyproject
 uv run ruff check . && uv run ruff format --check .
 uv run mypy .
-scripts/heavy.sh uv run pytest  # waits for a free slot on this machine; 75: did not run
+scripts/heavy.sh uv run pytest  # waits its turn in this machine's queue, sandboxed sessions too; 75: did not run
 uv build                  # `ci / build` is a required check
 ```
 
