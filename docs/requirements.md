@@ -20,13 +20,13 @@ The pull request that implements a ticket moves its rows to `implemented` and ad
 | R-04 | column attributes, stubs, typos | 3.2 | M1 | v1 | planned | T1.6 (#238) |
 | R-05 | user functions in two styles | 3.3 | M1 | changed (window style only; panel later, A-37) | planned | T1.12 (#246) |
 | R-06 | zipline compatibility layer | 3.4 | M1 | v1 | planned | T1.16 (#251) |
-| R-07 | declarative Strategy | 3.7 | M3 | changed (no `on_rebalance`, `risk=` slot, A-10, A-46) | planned | T3.2 |
+| R-07 | declarative Strategy | 3.7 | M3 | changed (no `on_rebalance`, `risk=` slot, A-10, A-46; the `decide` slot, 2026-11-24, #752) | planned | T3.2 |
 | R-08 | `nx.param` | 3.7 | M3 | v1 | planned | T3.2 |
 | R-09 | function and CLI list | 3.8, 3.10 | M5 | v1 | planned | T5.4 |
 | R-10 | result object display | 3.9 | M2 | v1 | planned | T2.10a, T3.13a |
 | R-11 | counts beside ratios | 3.9 | M2 | v1 | planned | T2.10a |
 | R-12 | structure hash, reuse | 5.3.9 (L0·L1) | M6 | changed (semantic key, A-42) | planned | T1.5 (#237), T6.4, T6.12 |
-| R-13 | screen = backtest | 5.5, INV-08 (anchor) | M3 | changed (A-38) | planned | T3.1, T3.16, T7.1 |
+| R-13 | screen = backtest | 5.5, INV-08 (anchor) | M3 | changed (A-38; with `decide`, up to the Pipeline values, 2026-11-24, #752) | planned | T3.1, T3.16, T7.1 |
 | R-14 | plan pruning | 5.3.2 | M1 | v1 | planned | T1.7a/b (#239, #240) |
 | R-15 | truncation test | 6.5 | M6 | changed (diagnostic, date priority SC-05, A-25, A-50) | planned | T6.9 |
 | R-16 | labels only in target | 6.5 | M2 | v1 | planned | T2.6 |

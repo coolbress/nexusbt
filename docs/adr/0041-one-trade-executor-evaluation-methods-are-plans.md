@@ -2,6 +2,7 @@
 
 - Status: Accepted (2026-11-04, by the owner after reading)
 - Date: 2026-11-04
+- Amended by: [ADR 0051](0051-a-per-decision-decide-block-may-read-the-account.md) (2026-11-25)
 - Spec: §2.4, §3.8, §5.5, §5.6, §5.9, §6.2, §6.3, §6.3a
 
 ## Context

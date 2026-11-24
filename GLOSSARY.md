@@ -8,7 +8,7 @@ This file holds the terms of the spec's glossary (spec §1.2 and §9.2) and noth
 
 - **Data column** (`Price.close`, `Meta.category`, `Trad.*`): an importable attribute built from the snapshot's column dictionary. An item of the value tables is read as `nx.Item.<name>`.
 - **Term** (`Factor`, `Filter`, `Classifier`): a node of the computation graph, built from columns and combined with other terms. Same names and meanings as the zipline Pipeline.
-- **Strategy** (`Strategy`): a value object with nine slots — schedule, universe, signal, construction, sizing, risk, execution, exits, costs.
+- **Strategy** (`Strategy`): a value object with ten slots — schedule, universe, signal, construction, sizing, risk, decide, execution, exits, costs.
 - **Run**: one call of `evaluate`, `backtest`, `screen`, `sweep` or `live`. Sealed into `runs/<run_id>/`.
 - **Config** (`nexusbt.toml`): project defaults in two parts. Part 1 is what changes results most (data path, edition, capital, base currency, sleeves, account type, shorting, costs, taxes, segments); part 2 is advanced. `nexusbt config check` and `nexusbt config show` explain it.
 
@@ -96,6 +96,6 @@ This file holds the terms of the spec's glossary (spec §1.2 and §9.2) and noth
 - **ML factor** (`ml.factor`): a Pipeline node that the engine trains forward-only (label availability + embargo ≤ refit time) and that predicts at every decision. Model objects are not saved; prediction and fit tables are.
 - **Pretrained model** (`ml.pretrained`): a predict-only model with a declared `training_cutoff`. Decisions before cutoff + embargo are blocked (E48) unless `allow_overlap=True`, which is marked (E49).
 - **Oracle**: what a result is checked against — hand-written per-session arithmetic (golden cases), slow reference implementations, producer-resolved outputs, and a pinned zipline-reloaded 3.2.1 (through an imitation preset only).
-- **Block / slot**: a value plugged into one of the strategy's nine slots. Each slot has fixed inputs, outputs and what it may read.
+- **Block / slot**: a value plugged into one of the strategy's ten slots. Each slot has fixed inputs, outputs and what it may read.
 - **Error layer**: the second line of every error: `data`, `your code`, `config` or `engine bug`.
 - **Preview**: `backtest --preview` runs a short period and shows what the full run would do.

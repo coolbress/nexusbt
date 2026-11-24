@@ -8,7 +8,7 @@
 
 - **데이터 칼럼** (`Price.close`, `Meta.category`, `Trad.*`): 스냅숏 칼럼 사전에서 만든 import 가능한 속성. 값 표의 항목은 `nx.Item.<name>`으로 읽는다.
 - **항** (Term: `Factor`, `Filter`, `Classifier`): 칼럼에서 만들고 서로 조합하는 계산 그래프 노드. zipline Pipeline과 같은 이름·뜻.
-- **전략** (`Strategy`): 아홉 칸(일정·유니버스·신호·구성·자금 관리·위험 관리·집행·탈출·비용)을 가진 값 객체.
+- **전략** (`Strategy`): 열 칸(일정·유니버스·신호·구성·자금 관리·위험 관리·결정 블록·집행·탈출·비용)을 가진 값 객체.
 - **실행** (Run): `evaluate`·`backtest`·`screen`·`sweep`·`live` 한 번. `runs/<run_id>/`에 봉인된다.
 - **설정** (`nexusbt.toml`): 두 부분으로 된 프로젝트 기본값. 1부는 결과를 가장 크게 바꾸는 값(데이터 경로, 판, 자본, 기준 통화, 슬리브, 계좌 종류, 공매도, 비용, 세금, 구간), 2부는 고급. `nexusbt config check`·`nexusbt config show`가 풀어 보여 준다.
 
@@ -96,6 +96,6 @@
 - **ML 팩터** (`ml.factor`): 엔진이 앞쪽만(정답 공개 + 엠바고 ≤ 재학습 시각) 학습하고 판단마다 예측하는 Pipeline 노드. 모형 객체는 저장하지 않고 예측·학습 표를 남긴다.
 - **사전학습 모형** (`ml.pretrained`): `training_cutoff`를 밝힌 예측 전용 모형. 마감 + 엠바고 전 판단은 막고(E48), `allow_overlap=True`면 표시하고 돈다(E49).
 - **대조 기준** (oracle): 손으로 쓴 세션별 산수(golden), 느린 참조 구현, 생산자 해석 출력, 고정 zipline-reloaded 3.2.1(흉내 설정으로만).
-- **블록 / 칸** (block / slot): 전략의 아홉 칸에 끼우는 값. 칸마다 입력·출력·읽을 수 있는 것이 정해져 있다.
+- **블록 / 칸** (block / slot): 전략의 열 칸에 끼우는 값. 칸마다 입력·출력·읽을 수 있는 것이 정해져 있다.
 - **오류 층** (layer): 모든 오류의 둘째 줄: `data`, `your code`, `config`, `engine bug`.
 - **미리보기** (preview): `backtest --preview`는 짧은 기간을 돌려 전체 실행이 무엇을 할지 보인다.
