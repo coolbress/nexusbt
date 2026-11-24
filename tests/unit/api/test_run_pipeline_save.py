@@ -149,6 +149,51 @@ def test_a_failure_while_saving_aborts_the_run(
         assert db.execute("SELECT kind, status FROM runs").fetchall() == [("pipeline", "aborted")]
 
 
+def test_the_manifest_records_the_fallbacks_the_run_used(
+    tmp_path_factory: pytest.TempPathFactory, project: Path
+) -> None:
+    """4.4 step 5 (#687): the snapshot's fallbacks are kept in the manifest's `data.fallbacks`,
+    each as `FallbackRecord` holds it (`column` too, null for a fallback of no one column), with
+    `data.profiles`, `data.capabilities`, `data.unchecked`, and the fallback's sentence in
+    `assumptions` (1.2); none of it names the package's or the project's folder (5.9.3)."""
+    pkg = make_snapshot(  # F-15 in the place of F-01, F-18 and F-03, which leave (#705)
+        tmp_path_factory.mktemp("no_tick_info") / "pkg", preset="tiny", markets=("KR", "ZZ"),
+        degrade=["no_tick_info"],
+    )  # fmt: skip
+    path = pkg.as_posix()
+    toml = f'[data]\npath = "{path}"\npins = "index"\n\n[markets]\nallow_untested = true\n'
+    (project / "nexusbt.toml").write_text(toml, encoding="utf-8")  # ZZ has no rules pack
+    pipe = nx.Pipeline({"c": nx.Price.close.latest})
+    with pytest.warns(UserWarning, match=r"\[E30\] F-15"):  # the toml's package, as it says
+        result = nx.run_pipeline(pipe, start="2020-01-06", end="2020-01-08", save=True)
+    manifest = json.loads((project / "runs" / str(result.run_id) / "manifest.json").read_text())
+    data = manifest["data"]
+    assert data["fallbacks"] == [
+        {"id": "F-15", "dataset": "market_rules", "market": "ZZ", "count": 6, "column": None}
+    ]
+    assert set(data) == {"profiles", "capabilities", "unchecked", "fallbacks"}
+    assert data["profiles"]["tds:minimal-daily@1.0"] == {  # the checker reports no `pass`
+        "declared": True, "verified_level": "manifest", "result": "not_checked"}  # fmt: skip
+    assert "price" in data["capabilities"]["features"]
+    assert isinstance(data["unchecked"], list)
+    assert [a for a in manifest["assumptions"] if "F-15" in a] == [
+        "fallback F-15 used: price grid = currency minor unit for ZZ"
+    ]
+    said = json.dumps([data, manifest["assumptions"]])
+    assert not [p for p in (pkg.parent, project, Path.home()) if str(p) in said]
+
+
+def test_a_run_without_fallbacks_records_an_empty_list(tiny: Path, project: Path) -> None:
+    """#687 Decisions: no fallback is `data.fallbacks = []`, never an absent key, so a manifest
+    without the key reads as "not recorded"."""
+    pipe = nx.Pipeline({"c": nx.Price.close.latest})
+    result = nx.run_pipeline(pipe, start="2020-01-06", end="2020-01-06", snapshot=str(tiny),
+                             save=True)  # fmt: skip
+    manifest = json.loads((project / "runs" / str(result.run_id) / "manifest.json").read_text())
+    assert manifest["data"]["fallbacks"] == []
+    assert not [a for a in manifest["assumptions"] if a.startswith("fallback ")]
+
+
 def test_without_save_no_run(tiny: Path, project: Path) -> None:
     """`save=False`, the default, seals nothing and gives no run id."""
     pipe = nx.Pipeline({"close": nx.Price.close.latest})

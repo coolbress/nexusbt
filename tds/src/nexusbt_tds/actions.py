@@ -1,8 +1,8 @@
 """The corporate-action resolver (TDS 5.11 resolution procedure, spec 5.3.3a): one pure function.
 
 `resolve(events, cutoff)` ties `corporate_actions` rows into `revision_of` chains and gives, per
-chain, the version known at `cutoff` and its four effects. The engine (`Snapshot.actions`) and
-the checker (A001, `cutoff=None` = +inf) both call it. `chain_digest` is the chain hash the L0
+chain, the version known at `cutoff` and its four effects. The engine (`Snapshot.actions`) calls
+it; `cutoff=None` is +inf, the whole package's knowledge. `chain_digest` is the chain hash the L0
 cache key holds (spec 5.3.9)."""
 
 from __future__ import annotations

@@ -16,14 +16,15 @@ from nexusbt.testing.synth import make_snapshot
 
 @pytest.mark.parametrize(
     ("fallback", "degrade"),
-    [("F-02", "no_sessions"), ("F-03", "sparse_bars"), ("F-01", "no_ohlc")],
+    [("F-15", "no_tick_info")],  # F-02 and F-03 retired (#705)
 )
 def test_e30_points_at_open_snapshots_caller(tmp_path: Path, fallback: str, degrade: str) -> None:
-    path = make_snapshot(tmp_path / "snap", preset="tiny", degrade=[degrade])
+    path = make_snapshot(tmp_path / "snap", preset="tiny", markets=("KR", "ZZ"), degrade=[degrade])
+    cfg = DataConfig(path=path, allow_untested=True)  # ZZ has no rules pack
     with warnings.catch_warnings(record=True) as got:
         warnings.simplefilter("always")
         line = _line() + 1
-        open_snapshot(DataConfig(path=path), required=CapabilityRequest(frozenset({"backtest"})))
+        open_snapshot(cfg, required=CapabilityRequest(frozenset({"grid"})))
     said = [w for w in got if f"[E30] {fallback}" in str(w.message)]
     assert said, f"no E30 warning for {fallback}"
     assert [(Path(w.filename).name, w.lineno) for w in said] == [(Path(__file__).name, line)]

@@ -2,7 +2,7 @@
 
 The `manifest` level reads `tds.json`, file sizes and the schema files' `status` (M001~M017);
 the `schema` level adds the
-Parquet footers and statistics and the `dictionary/` tables, no data rows (S001~S010, T006, part
+Parquet footers and statistics and the `dictionary/` tables, no data rows (S001~S011, T006, part
 of D002, and of M008 the columns a profile names); the `full` level adds, so far, S006, S007
 and S009 from the rows (`cells`), the key
 checks (K001~K004, K010, K011; `keys`), the
@@ -22,12 +22,13 @@ import json
 import math
 import os
 import re
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Literal
 
 import pyarrow as pa
+import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
 from .manifest import (
@@ -39,7 +40,7 @@ from .manifest import (
     read_manifest,
     schema_violations,
 )
-from .profiles import PROFILES, Need, describe, meets, profile_id
+from .profiles import PROFILES, TRADED, Need, describe, meets, profile_id
 
 Level = Literal["manifest", "schema", "full"]
 Severity = Literal["error", "warning"]
@@ -47,9 +48,9 @@ Severity = Literal["error", "warning"]
 #: TDS 8.3, the codes the `manifest` level cannot see. M015 it judges from tds.json's kinds and
 #: the schema files' `status` (#391).
 _ROW_CODES = (
-    "S001 S002 S003 S004 S005 S006 S007 S008 S009 S010 K001 K002 K003 K004 K010 K011"
+    "S001 S002 S003 S004 S005 S006 S007 S008 S009 S010 S011 K001 K002 K003 K004 K010 K011"
     " R001 R002 R003 R004 R005 R006 R007 R008 R009 T001 T002 T003 T004 T005 T006 T007 T008"
-    " T010 T011 T012 D001 D002 D003 D004 A001 A002 A003 A004 A005 A006 A007 A008 A009 A010 A011"
+    " T010 T011 T012 D001 D002 D003 D004 A003 A004 A005 A006 A007 A008 A009 A010 A011"
     " V001 V002 V004 V005 V010 V011 V012 V020 V030 V031 V032 V040 V041 V050 H001 H002 H003 H004"
 )
 UNCHECKED_AT_MANIFEST = tuple(f"TDS-{c}" for c in _ROW_CODES.split())
@@ -62,7 +63,7 @@ DICTIONARIES = frozenset({"dictionary/columns", "dictionary/items", "dictionary/
 #: TDS 8.2's range checks from file statistics: T006 here; D002's part stays `unchecked`, since
 #: a non-session day between the minimum and the maximum is in the rows (#181).
 T006, D002 = "TDS-T006", "TDS-D002"
-SCHEMA_CODES = tuple(f"TDS-S{n:03}" for n in (1, 2, 3, 4, 5, 6, 7, 8, 10))
+SCHEMA_CODES = tuple(f"TDS-S{n:03}" for n in (1, 2, 3, 4, 5, 6, 7, 8, 10, 11))
 UNCHECKED_AT_SCHEMA = tuple(c for c in UNCHECKED_AT_MANIFEST if c not in (*SCHEMA_CODES, T006))
 
 #: The manifest schema's date pattern (4.2), which a `YYYY-MM-DD` that is no date also matches.
@@ -70,6 +71,7 @@ DATE: str = MANIFEST_SCHEMA["$defs"]["date"]["pattern"]
 #: TDS 4.2: the fields marked ○ that are required unconditionally.
 REQUIRED: tuple[str, ...] = ("tds_version", "name", "created", "snapshot_id", "producer")
 REQUIRED += ("profiles", "id_namespaces", "markets", "datasets", "hashes", "writer")
+REQUIRED += ("tds_draft",)  # no text is assumed (TDS 10.5; #705 C5)
 #: 4.2 lists more fields without saying which are required; until #79 decides, the ones the
 #: manifest-level checks need (#51, Decisions 2026-11-02). A file needs `path` and `bytes`.
 DATASET_REQUIRED = ("name", "kind", "schema_version", "path", "files")
@@ -198,7 +200,7 @@ def check(
             finally:
                 notes.extend([spilled_note(spilled, "key check")] if spilled else [])
             found += check_refs(manifest, datasets, blind)
-            found += check_actions(manifest, datasets, blind, notes)
+            found += check_actions(manifest, datasets, blind)
             found += check_values(manifest, datasets, blind, notes)
             found += check_books(manifest, datasets, blind, notes)
             found += check_sequences(manifest, datasets, blind)
@@ -248,7 +250,8 @@ def check(
 HASH_CODES = ("TDS-H001", "TDS-H002", "TDS-H003", "TDS-H004")
 KEY_CODES = ("TDS-K001", "TDS-K002", "TDS-K003", "TDS-K004", "TDS-K010", "TDS-K011")  # `keys`
 REF_CODES = tuple(f"TDS-R{n:03}" for n in range(1, 10))  # `refs` checks them
-ACTION_CODES = tuple(f"TDS-A{n:03}" for n in range(1, 12))  # `adjustments` checks them
+#: `adjustments` checks them; A001 and A002 are retired with `cum_factor_*` (TDS 8.3, #705).
+ACTION_CODES = tuple(f"TDS-A{n:03}" for n in range(3, 12))
 #: `values` checks them; `books` V031 (#430); `sequences` V032 (#348, #432).
 VALUE_CODES = tuple(f"TDS-V{n:03}" for n in (1, 2, 4, 5, 10, 11, 12, 20, 30, 40, 41, 50))
 BOOK_CODES = ("TDS-V031",)
@@ -345,9 +348,9 @@ def _check_manifest(m: Manifest, only: Sequence[str] | None) -> Iterable[Finding
         yield Finding("TDS-M014", "error", f"unknown hash_spec {spec!r}")
     draft = data.get("tds_draft")  # TDS 10.5 (#529); a value that is no date is M001's
     dated = isinstance(draft, str) and re.fullmatch(DATE, draft) is not None
-    if (missing := "tds_draft" not in data) or (dated and draft != TDS_DRAFT):
-        said = "no tds_draft (a text before 2026-11-18)" if missing else f"tds_draft {draft}"
-        yield Finding("TDS-M017", "warning", f"{said}; this checker implements {TDS_DRAFT}")
+    if dated and draft != TDS_DRAFT:  # a missing one is M003's (#705 C5)
+        msg = f"tds_draft {draft}; this checker implements {TDS_DRAFT}"
+        yield Finding("TDS-M017", "warning", msg)
     markets, editions = data.get("markets"), data.get("editions")
     for code, entry in sorted(markets.items()) if isinstance(markets, dict) else []:
         for key in MARKET_REQUIRED if isinstance(entry, dict) else ():  # else M001's
@@ -438,6 +441,9 @@ def _check_dataset(
         if not isinstance(rule, str) or not RULE.fullmatch(rule):
             yield Finding("TDS-M014", "error", f"unknown availability rule {rule!r}", dataset=name)
     availability = ds.get("availability")  # a rule, `{"rule": …}`, or a 6.2 form (#276)
+    if availability is None and ds.get("kind") == "bars":  # no default rule (#705 C5)
+        msg = "availability is missing: no default is read (TDS 5.5, 6.2); write its rule"
+        yield Finding("TDS-M003", "error", msg, dataset=name)
     known = availability is None or isinstance(availability, str) or _named(ds)
     if not known and not (isinstance(availability, dict) and "rule" in availability):
         msg = f"availability {availability!r} is neither a 6.2 rule nor a 6.2 column form"
@@ -445,10 +451,15 @@ def _check_dataset(
     params = ds["params"] if isinstance(ds.get("params"), dict) else {}
     kind = ds.get("kind") if isinstance(ds.get("kind"), str) else None  # `["bars"]`: no crash
     for key, values in CLOSED_PARAMS.get(kind, {}).items():
-        # absent and null are no value, not a new one (#80 Decisions, item 1)
-        if params.get(key) is not None and params[key] not in values:
+        if params.get(key) is None:  # absent and null: no value, and none is assumed (#705 C5)
+            msg = f"params.{key} is missing: no default is read (TDS 5.5); write one of"
+            yield Finding("TDS-M003", "error", f"{msg} {', '.join(values)}", dataset=name)
+        elif params[key] not in values:
             msg = f"params.{key} {params[key]!r} is not one of {', '.join(values)}"
             yield Finding("TDS-M014", "error", msg, dataset=name)
+    if kind == "bars" and params.get("freq") == "1d" and params.get("density") == "sparse":
+        msg = "params.density 'sparse' on daily bars, which are dense (TDS 5.5)"
+        yield Finding("TDS-M014", "error", msg, dataset=name)
     if isinstance(ds.get("path"), str) and (why := _unsafe(root, ds["path"])):
         yield Finding("TDS-M012", "error", f"dataset path {why}", dataset=name, file=ds["path"])
     files = ds.get("files")
@@ -498,15 +509,20 @@ _UNITS = {"ts_us": {"us"}, "ts_ns": {"ns"}, "ts_us/ns": {"us", "ns"}}  # K2; `ts
 _BITS = {"i8": 8, "i16": 16, "i32": 32, "i64": 64}
 #: Without tds.json `partitioning`: 3.6's examples, any other a code (rule chosen in #56).
 _PARTITION_TYPE = {"year": "i16", "date": "date"}
+#: Columns every file holds though a cell may be null: S001 without them. TDS 5.27's key column
+#: `price_from` (null = 0), which the key and the value hash read (#705 C5, #725 Decisions 176);
+#: TDS 5.13's range and policy, null only on an `unobserved` row (V040; #705 Decisions 8).
+PRESENT: Mapping[str, tuple[str, ...]] = {
+    "market_rules": ("price_from",),
+    "delistings": ("ret_lo", "ret_hi", "policy_id"),
+}
 
 
 def _required(null: object, params: Mapping[str, Any]) -> bool:
     """A schema `null` cell as "may not be null"; its conditions read `params` (rule of #56)."""
     if null == "daily yes / intraday no":
         return params.get("freq") != "1d"
-    if null == "no if dense":
-        return params.get("density") == "dense"
-    return null is False
+    return null is False  # a profile's own (`every_row`) is added by `_check_file`
 
 
 def _fits(tag: str, value: str) -> bool:
@@ -525,36 +541,93 @@ def _fits(tag: str, value: str) -> bool:
 def _check_schema(
     m: Manifest, only: Sequence[str] | None, blind: set[str], *, rows: bool = False
 ) -> list[Finding]:
-    """S001~S010 from each listed, readable Parquet file's footer (TDS 8.2); with `rows` (the
+    """S001~S011 from each listed, readable Parquet file's footer (TDS 8.2); with `rows` (the
     `full` level) S006, S007 and S009 are left to the rows (`cells`)."""
     from .schemas.verify import load_schemas
 
     schemas, root, out = load_schemas(), m.root.resolve(), []
     codes = _dictionary_codes(m, root)
+    declared = [PROFILES[i] for i in map(profile_id, m.profiles) if i in PROFILES]
     read: set[str] = set()  # a path listed twice is M013's; its S findings, once
     for ds in m.datasets:
         schema = schemas.get(str(ds.get("kind")))
         version = _VERSION.fullmatch(str(ds.get("schema_version")))
         if only is not None and ds.get("name") not in only:
             continue
-        if schema is None and ds.get("kind") not in DICTIONARIES:
-            blind.update(SCHEMA_CODES)  # a kind with no schema file (`x_custom`): not checked
+        if not version or int(version[1]) == SUPPORTED_MAJOR:  # M009's: not read as 1.0
+            out += _same_columns(root, ds, schema)  # S011 needs no schema file: every kind
+        if schema is None and ds.get("kind") not in DICTIONARIES:  # `x_custom`: not checked
+            blind.update(c for c in SCHEMA_CODES if c != "TDS-S011")
         if schema is None or not version or int(version[1]) != SUPPORTED_MAJOR:  # M009
             continue
         out += _check_declared(ds, schema)
         files = ds.get("files")
+        rowed = {c for p in declared for need, cols in p.every_row if _has([ds], need)
+                 for c in cols}  # fmt: skip
         for entry in files if isinstance(files, list) else []:
             rel = entry.get("path") if isinstance(entry, dict) else None
             if not isinstance(rel, str) or (norm := str(PurePosixPath(rel))) in read:
                 continue
             read.add(norm)
             if not _unsafe(root, rel) and (root / rel).is_file():
-                found = [*_check_file(root, rel, ds, schema, blind, codes, entry.get("bytes"))]
+                found = [*_check_file(root, rel, ds, schema, blind, codes, entry.get("bytes"),
+                                      rowed)]  # fmt: skip
                 if ds.get("kind") == "instruments":
                     found += _undeclared_markets(root / rel, m.data)
                 out += [replace(f, dataset=ds.get("name"), file=rel) for f in found
                         if not rows or f.code not in CELL_CODES]  # fmt: skip
     return out
+
+
+def _same_columns(root: Path, ds: Mapping[str, Any], schema: Any) -> list[Finding]:
+    """S011 (TDS 8.3, #705 Decisions 40): each file of `ds` holds each column once, and every
+    file the same columns, partition columns left out, `x_` columns counted, order not read; a
+    column neither the schema file nor `columns[].type` types, the same type in each (S002 types
+    the others)."""
+    from .hash import resolved_columns
+
+    declared = {str(c.get("name")) for c in ds.get("columns") or [] if isinstance(c, dict)
+                and c.get("type")}  # fmt: skip
+    typed = {c.name for c in resolved_columns(ds, schema.columns if schema else ()) if c.type}
+    out, first, seen = [], None, set()
+    for rel, meta in _footers(root, ds):
+        if meta is None or rel in seen:
+            continue  # S010's; a path listed twice is M013's, read once
+        seen.add(rel)
+        try:
+            arrow = meta.schema.to_arrow_schema()
+        except (pa.ArrowException, ValueError):  # a type Arrow does not read: S010's
+            continue
+        parts = {p.split("=")[0] for p in Path(rel).parts if "=" in p}
+        stored = [(f.name, None if f.name in typed | declared else _same(f.type)) for f in arrow]
+        stored = [(n, t) for n, t in stored if n not in parts]
+        if twice := sorted({n for n, _ in stored if [s for s, _ in stored].count(n) > 1}):
+            message = f"column(s) stored twice in one file: {', '.join(twice)}"
+            out.append(Finding("TDS-S011", "error", message, dataset=ds.get("name"), file=rel))
+        shape = dict(stored)
+        if first is None:
+            first = (rel, shape)
+        elif shape != first[1]:
+            names = sorted(set(shape) ^ set(first[1]))
+            names += sorted(n for n in set(shape) & set(first[1]) if shape[n] != first[1][n])
+            message = f"columns unlike {first[0]}'s: {', '.join(names)}"
+            out.append(Finding("TDS-S011", "error", message, dataset=ds.get("name"), file=rel))
+    return out
+
+
+_UTC = frozenset({"UTC", "Etc/UTC", "+00:00", "Z"})
+
+
+def _same(t: pa.DataType) -> str:
+    """S011's type of an untyped column: dictionary encoding, `large_` strings and binaries and
+    the spellings of UTC are no difference (TDS 3.6, 3.7)."""
+    if pa.types.is_dictionary(t):
+        t = t.value_type
+    if pa.types.is_large_string(t) or pa.types.is_large_binary(t):
+        t = pa.string() if pa.types.is_large_string(t) else pa.binary()
+    if pa.types.is_timestamp(t) and t.tz in _UTC:
+        t = pa.timestamp(t.unit, "UTC")
+    return str(t)
 
 
 def _undeclared_markets(path: Path, data: Mapping[str, Any]) -> list[Finding]:
@@ -621,8 +694,10 @@ def _check_file(
     blind: set[str],
     codes: set[tuple[str, str]],
     size: object,
+    rowed: Collection[str] = (),
 ) -> Iterable[Finding]:
-    """S001~S010 of one file; `size`: its tds.json `bytes`."""
+    """S001~S010 of one file; `size`: its tds.json `bytes`; `rowed`: the columns a declared
+    profile requires on every row of its dataset (chapter 7), not null whatever 5.5 says."""
     try:
         meta = pq.ParquetFile(root / rel).metadata
         arrow = meta.schema.to_arrow_schema()
@@ -650,12 +725,13 @@ def _check_file(
     columns = resolved_columns(ds, schema.columns)  # the value hash's set too (#144)
     known, absent = {c.name for c in columns}, set[str]()
     for column in columns:
+        required = _required(column.null, params) or column.name in rowed
         if column.name not in arrow.names:
-            if column.name not in parts and _required(column.null, params):
+            present = column.name in PRESENT.get(str(ds.get("kind")), ())  # its cells may be null
+            if column.name not in parts and (required or present):
                 absent.add(column.name)
                 yield Finding("TDS-S001", "error", f"required column {column.name} is missing")
             continue
-        required = _required(column.null, params)
         yield from _check_column(meta, arrow, column, required, declared.get(column.name), blind)
         yield from _check_values(meta, arrow, column, codes, blind)
     within = params.get(WITHIN) if ds.get("kind") in SEQUENCED else None  # #348: it requires them
@@ -958,18 +1034,62 @@ def _check_profile(
         if not any(all(_has(m.datasets, need) for need in alt) for alt in group):
             wanted = " or ".join(describe(alt) for alt in group)
             yield Finding("TDS-M008", "error", f"{name} requires dataset {wanted}")
-    for need, columns in profile.columns if level != "manifest" else ():
+    root, traded = m.root.resolve(), None  # the `TRADED` instruments, read when a row needs them
+    rows = [(*c, "") for c in profile.columns]
+    rows += [(*c, " (equity or etf rows)") for c in profile.traded]
+    for need, columns, why in rows if level != "manifest" else ():
         for ds in m.datasets:
             if (only is not None and ds.get("name") not in only) or not _has([ds], need):
                 continue
+            if why:
+                traded = _traded(m, root) if traded is None else traded
+                if not _names(root, ds, traded):
+                    continue
             for column in columns:
-                lack = _lacks(m.root.resolve(), ds, column)
+                lack = _lacks(root, ds, column)
                 if lack is None:
                     said = f"column {column} of {ds.get('name')} ({name}): no statistics"
                     notes.append(f"TDS-M008 not checked for {said}")
                 elif lack:
-                    message = f"{name} requires column {column} in {need[0]}: {lack}"
+                    message = f"{name} requires column {column} in {need[0]}{why}: {lack}"
                     yield Finding("TDS-M008", "error", message, dataset=ds.get("name"))
+
+
+def _column(root: Path, ds: Mapping[str, Any], name: str) -> Iterable[pa.ChunkedArray]:
+    """Column `name` of each listed, readable file of `ds` that holds it; no other column."""
+    for rel, meta in _footers(root, ds):
+        if meta is not None and name in meta.schema.names:
+            try:
+                yield pq.ParquetFile(root / rel).read(columns=[name])[name]
+            except (OSError, KeyError, pa.ArrowException):  # a name twice: S011's, unread here
+                continue
+
+
+def _traded(m: Manifest, root: Path) -> set[Any]:
+    """The instruments whose `asset_class` is in `TRADED` (chapter 7, #705 Decisions 37)."""
+    out: set[Any] = set()
+    for ds in (d for d in m.datasets if d.get("kind") == "instruments"):
+        for rel, meta in _footers(root, ds):
+            if meta is not None and {"instrument_id", "asset_class"} <= set(meta.schema.names):
+                try:
+                    t = pq.ParquetFile(root / rel).read(columns=["instrument_id", "asset_class"])
+                except (OSError, KeyError, pa.ArrowException):
+                    continue
+                pairs = zip(*t.to_pydict().values(), strict=True)
+                out.update(i for i, a in pairs if a in TRADED and isinstance(i, str))  # else S's
+    return out
+
+
+def _names(root: Path, ds: Mapping[str, Any], ids: set[Any]) -> bool:
+    """Whether `ds`'s `instrument_id` column names one of `ids`, reading that column only."""
+    want = pa.array(sorted(ids), pa.string())
+    for ids_of_file in _column(root, ds, "instrument_id") if ids else ():
+        try:
+            if pc.any(pc.is_in(ids_of_file.cast(pa.string()), value_set=want)).as_py():
+                return True
+        except pa.ArrowException:  # an id column of another type: S002's, not this check's
+            continue
+    return False
 
 
 def _lacks(root: Path, ds: Mapping[str, Any], column: str) -> str | None:

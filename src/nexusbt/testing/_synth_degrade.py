@@ -20,17 +20,16 @@ from nexusbt.contracts import ID_COLUMN as ID
 CORE_PROFILE = "tds:equity-daily-core@1.0"
 #: Spec 4.8's core values (T0.16a) → whether the gap breaks the core profile (TDS 7).
 CORE = {
-    "no_ohlc": True,  # F-01: OHLCV
-    "no_sessions": True,  # F-02: calendar_sessions
-    "sparse_bars": True,  # F-03: density = dense, obs_status
-    "no_cum_factors": False,  # F-04: required in no profile
+    "no_ohlc": True,  # core's OHLCV; minimal-daily's E18 when read (F-01 retired, #705)
+    # no `no_sessions`: every daily profile and every open needs calendar_sessions (#705)
+    # no `sparse_bars`: daily bars are always dense, and F-03 is retired (#705)
     "kr_ex_is_record": False,  # F-05
     "us_div_split_adjusted_no_dates": False,  # F-09
     "no_delistings": True,  # F-13: delistings
     "late_bars": False,  # #354: no gap of the 4.5 table; a late `ts_available` is valid data
     "no_tick_info": False,  # F-15: market_rules and tick_rule_id are required in no profile
     "volume_in_lots": False,  # F-16: V011 is a warning
-    "no_volume": True,  # F-18: OHLCV (#584)
+    "no_volume": True,  # core's OHLCV (#584); E18 when read since F-18 retired (#705)
 }
 LOT = 100  # `volume_in_lots`: the shares of one KR lot (4.8 (11a))
 #: `late_bars` (#354): the share of the KR bars that are late, by 1 to LATE_BY sessions, drawn
@@ -40,8 +39,7 @@ LATE_SHARE, LATE_BY, LATE_STREAM = 0.005, 3, 354
 LATER = ("no_fundamentals_state", "no_eligibility", "no_share_counts", "no_fundamentals_events",
          "no_benchmarks", "no_panels")  # fmt: skip
 #: The datasets a value leaves out.
-ABSENT = {"no_sessions": "calendar_sessions", "no_delistings": "delistings",
-          "no_tick_info": "market_rules"}  # fmt: skip
+ABSENT = {"no_delistings": "delistings", "no_tick_info": "market_rules"}
 DATES = ("record_date", "declared_date", "pay_date", "resolution_date")
 
 
@@ -69,11 +67,9 @@ def absent(degrade: Sequence[str]) -> set[str]:
 
 
 def fields(name: str, given: Mapping[str, Any], degrade: Sequence[str]) -> dict[str, Any]:
-    """A dataset's tds.json fields; sparse bars say so in `params.density` (TDS 5.5), late bars
-    in the column rule, with no `params.ready_delay`, so 5.1.2's delta is 0."""
+    """A dataset's tds.json fields; late bars say so in the column rule, with no
+    `params.ready_delay`, so 5.1.2's delta is 0."""
     out = dict(given)
-    if name == "bars_1d" and "sparse_bars" in degrade:
-        out["params"] = {**out["params"], "density": "sparse"}
     if name == "bars_1d" and "late_bars" in degrade:
         out["availability"] = {"column": "ts_available"}
         out["columns"] = [*out["columns"], {"name": "ts_available", "type": "ts_us"}]
@@ -106,7 +102,7 @@ Gap = Callable[[str, Tables, pa.Array, int], Tables]
 
 
 def _no_ohlc(market: str, t: Tables, closes: pa.Array, seed: int) -> Tables:
-    """F-01: open, high and low null, the close kept."""
+    """Open, high and low null, the close kept: a minimal-daily package (#705)."""
     bars = t["bars_1d"]
     null = pa.nulls(len(bars), pa.float64())
     for c in ("open", "high", "low"):
@@ -139,11 +135,6 @@ def _no_tick_rule(market: str, t: Tables, closes: pa.Array, seed: int) -> Tables
 #: market it applies to (None: every market). The others only leave a dataset out (ABSENT).
 GAPS: dict[str, tuple[str | None, Gap]] = {
     "no_ohlc": (None, _no_ohlc),
-    "sparse_bars": (None, lambda m, t, c, s: {  # F-03: the sessions it traded, no obs_status
-        "bars_1d": t["bars_1d"].filter(pc.equal(t["bars_1d"]["obs_status"], "traded"))
-        .drop_columns(["obs_status"])}),
-    "no_cum_factors": (None, lambda m, t, c, s: {  # F-04
-        "bars_1d": t["bars_1d"].drop_columns(["cum_factor_split", "cum_factor_total"])}),
     "kr_ex_is_record": ("KR", lambda m, t, c, s: {  # F-05
         "corporate_actions": _rows(t["corporate_actions"],
                                    lambda r: r | {"record_date": r["ex_date"]})}),
@@ -151,7 +142,7 @@ GAPS: dict[str, tuple[str | None, Gap]] = {
     "late_bars": (None, lambda m, t, c, s: {"bars_1d": _late(m, t["bars_1d"], c, s)}),
     "volume_in_lots": ("KR", _in_lots),
     "no_tick_info": (None, _no_tick_rule),
-    "no_volume": (None, lambda m, t, c, s: {  # F-18: both columns left out
+    "no_volume": (None, lambda m, t, c, s: {  # both columns left out
         "bars_1d": t["bars_1d"].drop_columns(["volume", "value_traded"])}),
 }  # fmt: skip
 
@@ -164,7 +155,7 @@ def apply(market: str, tables: Tables, degrade: Sequence[str],
     `us_div_split_adjusted_no_dates` divides only the dividends with a share event after them;
     seed 0's `small` has none, so a test of F-09's A004 count injects one (`EventSpec`).
     `kr_ex_is_record` writes `record_date = ex_date` and keeps the bars' ex-dates, which the
-    cumulative factors follow (A001)."""
+    prices moved on."""
     out = dict(tables)
     for value, (only, gap) in GAPS.items():
         if value in degrade and only in (None, market):

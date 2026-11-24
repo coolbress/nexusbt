@@ -131,8 +131,8 @@ def execute(
     corporate actions, not a switch that turns the adjustment off. `counts`, when given, gets
     5.4.1's counts of every row each term is computed at, as `(row, graph hash, diagnostic):
     n`: the rows the plan gives, decisions or not, whatever the chunks (a row two chunks
-    compute is counted once). A user function's exception comes out as raised, the frames down
-    to it hidden (`__tracebackhide__`, 6.6, R-42)."""
+    compute is counted once). A user function's
+    exception comes out as raised, the frames down to it hidden (`__tracebackhide__`, 6.6, R-42)."""
     __tracebackhide__ = True
     wanted = np.unique(np.fromiter(decisions, dtype=np.int64))
     _check(spans, wanted)

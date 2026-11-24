@@ -1,8 +1,7 @@
-"""The `full` level's corporate-action checks from the rows: A001~A011 (TDS 5.11, 5.13, 8.3).
+"""The `full` level's corporate-action checks from the rows: A003~A011 (TDS 5.11, 5.13, 8.3).
 
-A001 multiplies each chain's latest version from `actions.resolve` at `c = +inf`, never a second
-resolver. Where TDS leaves a rule open, the choices on #227 (2026-11-10) apply: daily bars only,
-the events between an instrument's adjacent rows (no compare across a null), A004 on
+A001 and A002 compared the bars' `cum_factor_*`, which left the standard (#705); their numbers
+are retired. Where TDS leaves a rule open, the choices on #227 (2026-11-10) apply: A004 on
 `cash_prev_close` rows, A006 on four kinds, A008 and A009 on the resolver's terms time. And the
 choices on #228 (2026-11-10): A010 on every row of a share-changing kind (three kinds only with
 a `ratio_new_per_old`) and on any malformed ratio, compared with `share_factor` (else its
@@ -12,7 +11,6 @@ the distributions that are no older version's and not cancelled, with no upper b
 
 from __future__ import annotations
 
-import bisect
 import math
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
@@ -20,13 +18,12 @@ from typing import Any
 
 import pyarrow as pa
 
-from .actions import SPLIT_LIKE, ActionsError, _ts_terms, resolve
+from .actions import SPLIT_LIKE, _ts_terms
 from .check import ACTION_CODES, Finding, Severity
-from .keys import ranked
 from .manifest import Manifest
 from .refs import _rows
 
-A001, A002, A003, A004, A005, A006, A007, A008, A009, A010, A011 = ACTION_CODES
+A003, A004, A005, A006, A007, A008, A009, A010, A011 = ACTION_CODES
 NEEDS_NEW = frozenset({"stock_merger", "mixed_merger", "spinoff", "exchange_offer"})  # A006
 #: TDS 5.11: the kinds that change the shares held (A010); `WITH_RATIO` only with a
 #: `ratio_new_per_old` (a consolidation, a share exchange, an allotment ratio).
@@ -36,31 +33,23 @@ WITH_RATIO = frozenset({"capital_reduction", "exchange_offer", "rights_issue"})
 DISTRIBUTIONS = frozenset({"cash_dividend", "special_dividend", "return_of_capital"})  # A011
 EXITS = ("delisting_id", "instrument_id", "last_trading_date",
          "ret_observed_includes_distributions")  # fmt: skip
-FACTORS = ("cum_factor_split", "cum_factor_total")
 #: The columns read: the resolver's and the A codes' (TDS 5.11).
 COLUMNS = ("event_id", "instrument_id", "kind", "ex_date", "ts_effective", "ts_announced",
            "ts_terms_available", "ratio_num", "ratio_den", "ratio_new_per_old", "share_factor",
            "new_instrument_id", "cash_per_share", "price_factor", "affects", "factor_method",
            "factor_ref_price", "revision_of", "status")  # fmt: skip
-#: Which `affects` each cumulative factor multiplies (TDS 5.11; spec 4.6: total is `≠ none`).
-MULTIPLIES = {"cum_factor_split": {"split_and_total"},
-              "cum_factor_total": {"split_and_total", "total_only"}}  # fmt: skip
 
 
-def check_actions(
-    m: Manifest, only: Sequence[str] | None, blind: set[str], notes: list[str]
-) -> list[Finding]:
-    """A001~A009 on the checked datasets; a file the codes cannot read leaves them unchecked."""
+def check_actions(m: Manifest, only: Sequence[str] | None, blind: set[str]) -> list[Finding]:
+    """A003~A011 on the checked datasets; a file the codes cannot read leaves them unchecked."""
     try:
-        return _check(m, only, blind, notes)
+        return _check(m, only, blind)
     except (OSError, pa.ArrowException):  # a file Parquet cannot read: S010's, its rows unseen
         blind.update(ACTION_CODES)
         return []
 
 
-def _check(
-    m: Manifest, only: Sequence[str] | None, blind: set[str], notes: list[str]
-) -> list[Finding]:
+def _check(m: Manifest, only: Sequence[str] | None, blind: set[str]) -> list[Finding]:
     root = m.root.resolve()
     present = {d.get("kind") for d in m.datasets}
 
@@ -92,72 +81,6 @@ def _check(
                 out += _distributions(str(ds.get("name")), rows([ds], EXITS), events)
             except TypeError:  # a date column of another type: S002's, the days not comparable
                 blind.add(A011)
-    daily = [d for d in checked if d.get("kind") == "bars" and _daily(d)]
-    if not daily:
-        return out
-    by_id = {e["event_id"]: e for e in events}
-    try:
-        chains = resolve(pa.Table.from_pylist(ranked(events)[0]), None).chains if events else {}
-    except (ActionsError, TypeError) as exc:  # a cycle (A007), a dangling `revision_of`
-        blind.add(A001)
-        notes.append(f"{A001} not checked: the resolver cannot tie the chains: {exc}")
-        chains = None
-    steps: defaultdict[Any, list[tuple[Any, str | None, float | None]]] = defaultdict(list)
-    latest = [by_id[r.event_id] for r in (chains or {}).values() if r.effective and r.event_id]
-    for e in sorted((e for e in latest if e["ex_date"] is not None), key=lambda e: e["ex_date"]):
-        steps[e["instrument_id"]].append((e["ex_date"], e["affects"], e["price_factor"]))
-    known = chains is not None and "corporate_actions" in present
-    return out + [f for ds in daily for f in _factors(root, ds, steps, known, blind)]
-
-
-def _daily(ds: Mapping[str, Any]) -> bool:
-    return isinstance(params := ds.get("params"), dict) and params.get("freq") == "1d"
-
-
-def _factors(
-    root: Any, ds: Mapping[str, Any], steps: Mapping[Any, list[tuple[Any, str | None, Any]]],
-    known: bool, blind: set[str],
-) -> list[Finding]:  # fmt: skip
-    """A001 and A002 over one daily bars dataset; `known`: the events could be resolved."""
-    last: dict[Any, tuple[Any, ...]] = {}  # instrument → its previous row
-    bad: dict[str, list[dict[str, str]]] = {A001: [], A002: []}
-    files = [f for f in ds.get("files") or [] if isinstance(f, dict)]  # in path order, as K002
-    ordered = {**ds, "files": sorted(files, key=lambda f: str(f.get("path")))}
-    for i, day, *values in _rows(root, ordered, ("instrument_id", "session_date", *FACTORS)):
-        if i in last and (day is None or last[i][0] is None or day <= last[i][0]):
-            continue  # out of order: K002's, never a step back
-        if i not in last:
-            if any(v is not None and v != 1.0 for v in values):
-                bad[A002].append({"instrument_id": str(i), "session_date": str(day)})
-        else:
-            events = steps.get(i, [])
-            span = events[bisect.bisect_right(events, last[i][0], key=lambda s: s[0]) :
-                          bisect.bisect_right(events, day, key=lambda s: s[0])]  # fmt: skip
-            for column, before, now in zip(FACTORS, last[i][1:], values, strict=True):
-                if before is None or now is None:
-                    continue
-                if not known:
-                    blind.add(A001)
-                    continue
-                want = _product(span, MULTIPLIES[column])
-                if want is not None and not math.isclose(now, before * want, rel_tol=1e-12):
-                    bad[A001].append({"instrument_id": str(i), "session_date": str(day)})
-        last[i] = (day, *values)
-    name = str(ds.get("name"))
-    said = {A001: "cumulative factor ratio(s) differ from the product of the session's events",
-            A002: "instrument(s) whose first cumulative factor is not 1.0"}  # fmt: skip
-    return [Finding(code, "error", f"{len(keys)} {said[code]}", dataset=name, key=keys[0],
-                    count=len(keys)) for code, keys in bad.items() if keys]  # fmt: skip
-
-
-def _product(span: Iterable[tuple[Any, str | None, Any]], affects: set[str]) -> float | None:
-    """The events' price factors this column multiplies; None if one is "none" (TDS 5.11)."""
-    out = 1.0
-    for _, kind, factor in span:
-        if kind in affects:
-            if factor is None:
-                return None
-            out *= factor
     return out
 
 

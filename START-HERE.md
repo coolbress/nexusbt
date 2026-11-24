@@ -4,7 +4,7 @@
 
 **Event-driven where it matters, vectorized where it scales. You just snap the blocks together.**
 
-This repository builds **NexusBT**, an open-source (Apache-2.0) backtesting and screening engine for equity factor research. The design is finished; the code is not written yet. Everything an agent needs is in this repository after the hand-off pack is copied in. There is no other memory to look for. Korean translation: [START-HERE.ko.md](START-HERE.ko.md).
+This repository builds **NexusBT**, an open-source (Apache-2.0) backtesting and screening engine for equity factor research. The design is finished and the first milestone (M1) is being built; the README's "Status" says what runs today. Everything an agent needs is in this repository after the hand-off pack is copied in. There is no other memory to look for. Korean translation: [START-HERE.ko.md](START-HERE.ko.md).
 
 ## File map (after copying)
 

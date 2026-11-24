@@ -28,7 +28,19 @@ Change = Callable[[dict[str, Any], Files], object]
 
 INSTRUMENTS = "instruments/part-00000.parquet"
 BARS = "bars/freq=1d/market=US/year=2024/part-00000.parquet"
+CALENDAR = "calendar_sessions/part-00000.parquet"
+ROWS = {CALENDAR: 2}  # the base's files hold one row each, the calendar two sessions
 DAY = pa.array([dt.date(2024, 1, 2)])
+
+
+def sessions() -> pa.Table:
+    """The base's XNYS sessions of 2024-01-02 and -03 (TDS 5.4), as the exchange publishes
+    them: the days the cases' bars fall on."""
+    days = [dt.datetime(2024, 1, d, tzinfo=dt.UTC) for d in (2, 3)]
+    return pa.table({"calendar_id": ["XNYS"] * 2, "session_date": [d.date() for d in days],
+                     "ts_open": pa.array([d.replace(hour=14, minute=30) for d in days], TS_UTC),
+                     "ts_close": pa.array([d.replace(hour=21) for d in days], TS_UTC),
+                     "session_kind": ["regular"] * 2, "source": ["exchange"] * 2})  # fmt: skip
 
 
 def instruments(**columns: pa.Array | None) -> pa.Table:
@@ -40,9 +52,20 @@ def instruments(**columns: pa.Array | None) -> pa.Table:
 
 
 def bars_table(**columns: pa.Array | None) -> pa.Table:
-    """One daily bar (TDS 5.5); a column `None` is left out."""
+    """One daily bar (TDS 5.5); a column `None` is left out. An equity's bars hold all of OHLCV
+    (chapter 7, #705): by default `open` and `low` are the whole number at or below `close`,
+    `high` the one at or above (10.0 where `close` is not a finite f64), `volume` 100, so that a
+    case that breaks `close` breaks that column alone."""
     base = {"instrument_id": pa.array(["US:AAA"]), "session_date": DAY, "close": pa.array([10.0])}
-    return pa.table({k: v for k, v in (base | columns).items() if v is not None})
+    table = base | columns
+    n, close = len(table["instrument_id"] or []), table["close"]
+    f64 = close is not None and close.type == pa.float64()
+    near = [c if isinstance(c, float) and math.isfinite(c) else 10.0
+            for c in (close.to_pylist() if f64 else [None] * n)]  # fmt: skip
+    down, up = [float(math.floor(c)) for c in near], [float(math.ceil(c)) for c in near]
+    filled = {"open": down, "high": up, "low": down, "volume": [100.0] * n}
+    table |= {k: v for k, v in filled.items() if k not in table}
+    return pa.table({k: v for k, v in table.items() if v is not None})
 
 
 def parquet(
@@ -63,15 +86,18 @@ def rewrite(m: dict[str, Any], files: Files, rel: str, table: pa.Table, **opts: 
 
 
 def base() -> Package:
-    """A package that passes the manifest and schema levels: `tds:minimal-daily@1.0`."""
+    """A package that passes the manifest and schema levels: `tds:minimal-daily@1.0`, with the
+    XNYS sessions of 2024-01-02 and -03 every daily profile requires (TDS 7, #705)."""
     files = {
         INSTRUMENTS: parquet(instruments(), "instruments"),
         BARS: parquet(bars_table(), "bars_1d"),
+        CALENDAR: parquet(sessions(), "calendar_sessions"),
     }
-    bars_1d = {"params": {"freq": "1d", "price_basis": "raw"}, "availability": {"rule": "ts_end"}}
+    bars_1d = {"params": dict(DENSE), "availability": {"rule": "ts_end"}}  # all declared (C5)
     datasets: list[tuple[str, str, str, str, dict[str, Any]]] = [
         ("instruments", "instruments", "instruments", INSTRUMENTS, {}),
         ("bars_1d", "bars", "bars/freq=1d", BARS, bars_1d),
+        ("calendar_sessions", "calendar_sessions", "calendar_sessions", CALENDAR, {}),
     ]
     manifest = {
         "tds_version": "1.0",
@@ -87,7 +113,7 @@ def base() -> Package:
         },
         "datasets": [
             {"name": name, "kind": kind, "schema_version": "1.0", "path": path, **extra}
-            | {"files": [{"path": file, "rows": 1, "bytes": len(files[file])}]}
+            | {"files": [{"path": file, "rows": ROWS.get(file, 1), "bytes": len(files[file])}]}
             for name, kind, path, file, extra in datasets
         ],
         "hashes": {"hash_spec": "tds-hash-1"},
@@ -147,6 +173,9 @@ def _add(kind: str, columns: dict[str, Any], *paths: str) -> Change:
 
     def change(m: dict[str, Any], files: Files) -> None:
         table, entries = pa.table(columns), []
+        if kind == "calendar_sessions":  # in place of the base's (#705): one calendar
+            m["datasets"] = [d for d in m["datasets"] if d["kind"] != kind]
+            files.pop(CALENDAR, None)
         for rel in paths or (f"{kind}/part-00000.parquet",):
             files[rel] = parquet(table, kind)
             entries.append({"path": rel, "rows": table.num_rows, "bytes": len(files[rel])})
@@ -201,14 +230,35 @@ def _bars_on(*days: int) -> Change:
 
 
 def _no_close(status: str) -> Change:
-    """A bar of `status` without a close, then a traded one with it: the dataset holds `close`,
-    which `tds:minimal-daily` requires (M008, #352)."""
+    """A bar of `status` without a price, volume 0 (5.5 for `halted`), then a traded one with
+    them: the dataset holds `close`, which `tds:minimal-daily` requires (M008, #352)."""
+    price = pa.array([None, 10.0])
     return _bars(
         instrument_id=pa.array(["US:AAA"] * 2),
         session_date=pa.array([dt.date(2024, 1, 2), dt.date(2024, 1, 3)]),
-        close=pa.array([None, 10.0]),
+        open=price, high=price, low=price, close=price, volume=pa.array([0.0, 100.0]),
         obs_status=pa.array([status, "traded"]),
-    )
+    )  # fmt: skip
+
+
+def _two_bars(**second: pa.Array) -> Change:
+    """A second bars file in the folder, US:AAA's bar of the 3rd with `second` added (S011)."""
+
+    def change(m: dict[str, Any], files: Files) -> None:
+        rel = BARS.replace("part-00000", "part-00001")
+        files[rel] = parquet(bars_table(session_date=pa.array([dt.date(2024, 1, 3)]), **second),
+                             "bars_1d")  # fmt: skip
+        bars(m)["files"].append({"path": rel, "rows": 1, "bytes": len(files[rel])})
+
+    return change
+
+
+def _id_twice(m: dict[str, Any], files: Files) -> None:
+    """The instruments file storing `instrument_id` twice (S011)."""
+    t = instruments()
+    names = [*t.column_names, "instrument_id"]
+    twice = pa.Table.from_arrays([*t.columns, t["instrument_id"]], names)
+    rewrite(m, files, INSTRUMENTS, twice)
 
 
 def _ranged(second_from: str) -> Change:
@@ -246,16 +296,25 @@ def _symbols(second_from: dt.date) -> Change:
     return change
 
 
-def _sessions(first: int, on: tuple[int, ...] = (2, 3)) -> Change:
-    """XNYS sessions on days `on` of January 2024 numbered from `first` (TDS 5.4)."""
-    days, n = [dt.datetime(2024, 1, d, tzinfo=dt.UTC) for d in on], len(on)
+def _sessions(first: int, on: tuple[int, ...] = (2, 3), years: tuple[int, ...] = (2024,)) -> Change:
+    """XNYS sessions on days `on` of January of `years` numbered from `first` (TDS 5.4)."""
+    days = [dt.datetime(y, 1, d, tzinfo=dt.UTC) for y in years for d in on]
+    n = len(days)
     return _add("calendar_sessions", {
         "calendar_id": ["XNYS"] * n, "session_date": pa.array([d.date() for d in days]),
         "ts_open": pa.array([d.replace(hour=14, minute=30) for d in days], TS_UTC),
         "ts_close": pa.array([d.replace(hour=21) for d in days], TS_UTC),
         "session_ord": pa.array(range(first, first + n), pa.int32()),
-        "session_kind": ["regular"] * n,
+        "session_kind": ["regular"] * n, "source": ["exchange"] * n,
     })  # fmt: skip
+
+
+def no_calendar(m: dict[str, Any], files: Files) -> None:
+    """The base without its `calendar_sessions`, for a test of a package that has none, and so
+    declaring no profile: every daily one requires it (C3, #705)."""
+    m["datasets"] = [d for d in m["datasets"] if d["kind"] != "calendar_sessions"]
+    m["profiles"] = []
+    files.pop(CALENDAR, None)
 
 
 def _both(*changes: Change) -> Change:
@@ -392,7 +451,7 @@ def _classified(*rows: Classified) -> Change:
 _A = ("A", "2019-01-01", None, "2018-12-01", "2020-03-06", 1, "both", "native")
 _A2 = ("A", "2019-01-01", "2020-03-20", "2020-03-06", None, 1, "both", "native")
 _B = ("B", "2020-03-20", None, "2020-03-06", None, 1, "both", "native")
-DENSE = {"freq": "1d", "price_basis": "raw", "density": "dense"}
+DENSE = {"freq": "1d", "price_basis": "raw", "density": "dense", "bar_time": "session"}
 
 
 def _dense(*days: int) -> Change:
@@ -460,17 +519,19 @@ def _hashes(code: str, wrong: bool) -> Change:
     return change
 
 
-TS = pa.array([0], pa.timestamp("us", "UTC"))
+#: The base session's close, 2024-01-02 21:00Z, so that a bar's `ts_end` is its session's (T005).
+TS = pa.array([dt.datetime(2024, 1, 2, 21, tzinfo=dt.UTC)], pa.timestamp("us", "UTC"))
 VERSION_1_9 = {"tds.dataset": "bars_1d", "tds.schema_version": "1.9"}  # M011: the file says so too
 THROUGH = dt.datetime(2024, 1, 2, 21, tzinfo=dt.UTC)  # `markets.US.complete_through` (TDS 3.8)
 
 
-def _watermark(ts_end: dt.datetime) -> Change:
-    """US `complete_through` THROUGH, and the bar available at its `ts_end` (rule `ts_end`)."""
+def _watermark(through: dt.datetime) -> Change:
+    """US `complete_through` `through`, and the bar available at its `ts_end` (rule `ts_end`),
+    THROUGH, its session's close (T005)."""
 
     def change(m: dict[str, Any], files: Files) -> None:
-        m["markets"]["US"]["complete_through"] = THROUGH.isoformat().replace("+00:00", "Z")
-        _bars(ts_end=pa.array([ts_end], pa.timestamp("us", "UTC")))(m, files)
+        m["markets"]["US"]["complete_through"] = through.isoformat().replace("+00:00", "Z")
+        _bars(ts_end=pa.array([THROUGH], pa.timestamp("us", "UTC")))(m, files)
 
     return change
 
@@ -533,12 +594,11 @@ def action_table(rows: list[dict[str, Any]]) -> pa.Table:
 
 
 def _actions(
-    *events: dict[str, Any], split: tuple[float, ...] = (1.0, 0.5), total: Any = None,
-    on: tuple[int, ...] = (2, 3), bars_on: tuple[int, ...] = (), with_bbb: bool = False,
+    *events: dict[str, Any], on: tuple[int, ...] = (2, 3), bars_on: tuple[int, ...] = (),
+    with_bbb: bool = False,
 ) -> Change:  # fmt: skip
     """`events` (each a change of SPLIT) in `corporate_actions`, XNYS sessions on days `on` and
-    US:AAA's bars on days `bars_on` (default `on`) with `cum_factor_split` `split` and
-    `cum_factor_total` `total` (default `split`); `with_bbb` adds instrument US:BBB."""
+    US:AAA's bars on days `bars_on` (default `on`); `with_bbb` adds instrument US:BBB."""
 
     def change(m: dict[str, Any], files: Files) -> None:
         n = len(bars_on or on)
@@ -547,8 +607,7 @@ def _actions(
         _sessions(0, on)(m, files)
         days = pa.array([dt.date(2024, 1, d) for d in bars_on or on])
         _bars(instrument_id=pa.array(["US:AAA"] * n), session_date=days,
-              close=pa.array([10.0] * n), cum_factor_split=pa.array(split),
-              cum_factor_total=pa.array(total or split))(m, files)  # fmt: skip
+              close=pa.array([10.0] * n))(m, files)  # fmt: skip
         if with_bbb:
             bbb = instruments(instrument_id=pa.array(["US:BBB"]))
             rewrite(m, files, INSTRUMENTS, pa.concat_tables([instruments(), bbb]))
@@ -564,8 +623,7 @@ _MERGER = {"kind": "stock_merger", "new_instrument_id": "US:BBB", "price_factor"
            "affects": "none", "factor_method": "vendor"}  # fmt: skip
 _SPINOFF = {"kind": "spinoff", "new_instrument_id": "US:BBB", "price_factor": 0.8,
             "affects": "total_only", "factor_method": "spinoff_first_close"}  # fmt: skip
-_SPUN: dict[str, Any] = {"split": (1.0, 1.0), "total": (1.0, 0.8), "with_bbb": True}
-_EXIT_DIVIDEND = _actions(_DIVIDEND | {"price_factor": 0.9}, split=(1.0,), bars_on=(2,))
+_EXIT_DIVIDEND = _actions(_DIVIDEND | {"price_factor": 0.9}, bars_on=(2,))
 
 
 def _fx(rate: float) -> Change:
@@ -725,22 +783,26 @@ CASES: dict[str, tuple[Change, Change]] = {
         _both(_bars(x_cf_note=pa.array(["a"])), _items_freq),
         _bars(note=pa.array(["a"])),
     ),
-    "TDS-S006": (
-        _instruments(asset_class=pa.array(["etf"])),
-        _instruments(asset_class=pa.array(["stock"])),
+    "TDS-S006": (  # bars' `obs_status`: `asset_class` is open since #705 B3
+        _keep,
+        _bars(obs_status=pa.array(["trade"])),
     ),
     "TDS-S007": (
         _instruments(codes=True, category=pa.array(["ordinary"])),
         _instruments(category=pa.array(["ordinary"])),
     ),
     "TDS-S008": (_keep, _bars(market=pa.array(["US"]))),
-    "TDS-S009": (_bars(close=pa.array([-1e300])), _bars(close=pa.array([math.inf]))),
+    "TDS-S009": (_bars(vwap=pa.array([-1e300])), _bars(vwap=pa.array([math.inf]))),  # no V001
+    "TDS-S011": (  # two bars files of the same columns; then one with value_traded, an id twice
+        _two_bars(),
+        _both(_two_bars(value_traded=pa.array([1000.0])), _id_twice),
+    ),
     "TDS-S010": (
         _keep,  # `tds.dataset` is the dataset's name, `bars_1d` (TDS 3.7)
         _bars(meta={"tds.dataset": "bars", "tds.schema_version": "1.0"}),  # the kind, not the name
     ),
     "TDS-T002": (_column_forms(complete=True), _column_forms(complete=False)),
-    "TDS-T006": (_watermark(THROUGH), _watermark(THROUGH + dt.timedelta(microseconds=1))),
+    "TDS-T006": (_watermark(THROUGH), _watermark(THROUGH - dt.timedelta(microseconds=1))),
     "TDS-T001": (  # a second before the event
         _event(series_id=["US:CPI"]),
         _event(NEW_YEAR - dt.timedelta(seconds=1), series_id=["US:CPI"]),
@@ -765,7 +827,10 @@ CASES: dict[str, tuple[Change, Change]] = {
         _exits(delisted=True, ts_exit_known=_at(2), ts_value_available=_at(2)),
         _exits(delisted=True, ts_exit_known=_at(2), ts_value_available=_at(2, 14, 0)),
     ),
-    "TDS-D002": (_keep, _bars(session_date=pa.array([dt.date(2024, 1, 1)]))),  # before listed_on
+    "TDS-D002": (  # before listed_on, on a session (R003)
+        _keep,
+        _both(_sessions(0, (1, 2, 3)), _bars(session_date=pa.array([dt.date(2024, 1, 1)]))),
+    ),
     "TDS-D001": (_dense(2, 3), _dense(2)),  # the 3rd missing
     "TDS-D003": (_exited(_at(2, 21, 0)), _exited(_at(3))),  # known after the 2nd's close (#425)
     "TDS-D004": (_covered(), _covered(instruments=2)),
@@ -774,7 +839,14 @@ CASES: dict[str, tuple[Change, Change]] = {
         _panels("strict", "strict"),  # one key twice in one folder
     ),
     "TDS-K002": (_bars_on(2, 3), _bars_on(3, 2)),
-    "TDS-K003": (_keep, _bars(session_date=pa.array([dt.date(2025, 1, 2)]))),  # in year=2024
+    "TDS-K003": (  # a 2025 session's bar in the year=2024 file
+        _keep,
+        _both(
+            _sessions(0, (2, 3), years=(2024, 2025)),
+            _instruments(listed_on=pa.array([dt.date(2025, 1, 2)])),  # no 2024 row is due: D001
+            _bars(session_date=pa.array([dt.date(2025, 1, 2)])),
+        ),
+    ),
     "TDS-K004": (_ranged("2024-01-03T00-00-00Z"), _ranged("2024-01-02T12-00-00Z")),
     "TDS-K010": (_symbols(dt.date(2024, 6, 3)), _symbols(dt.date(2024, 6, 1))),
     "TDS-K011": (_sessions(0), _sessions(1)),
@@ -796,23 +868,21 @@ CASES: dict[str, tuple[Change, Change]] = {
     "TDS-R007": (_facts("F1"), _facts("F9")),
     "TDS-R008": (_exits(delisted=True), _exits(delisted=False)),  # an exit, no delisted_on
     "TDS-R009": (_facts("F1"), _facts("F1", state_item="net_income")),
-    "TDS-A001": (_actions({}), _actions({}, split=(1.0, 0.4))),
-    "TDS-A002": (_actions({}), _actions({}, split=(2.0, 1.0))),  # the ratio is still 0.5
-    "TDS-A003": (  # a null factor: A001 does not compare across it
-        _actions({"price_factor": None, "factor_method": "unavailable"}, split=(1.0, 0.4)),
-        _actions({"price_factor": None}, split=(1.0, 0.4)),
+    "TDS-A003": (
+        _actions({"price_factor": None, "factor_method": "unavailable"}),
+        _actions({"price_factor": None}),
     ),
     "TDS-A004": (  # 1 - 1.0/10.0 = 0.9
-        _actions(_DIVIDEND | {"price_factor": 0.9}, split=(1.0, 1.0), total=(1.0, 0.9)),
-        _actions(_DIVIDEND | {"price_factor": 0.95}, split=(1.0, 1.0), total=(1.0, 0.95)),
+        _actions(_DIVIDEND | {"price_factor": 0.9}),
+        _actions(_DIVIDEND | {"price_factor": 0.95}),
     ),
     "TDS-A005": (  # sessions on the 2nd and 4th: the 3rd is no session
         _actions({"ex_date": dt.date(2024, 1, 4), "ts_effective": _at(4)}, on=(2, 4)),
         _actions({}, on=(2, 4)),
     ),
     "TDS-A006": (
-        _actions(_MERGER, split=(1.0, 1.0), with_bbb=True),
-        _actions(_MERGER | {"new_instrument_id": None}, split=(1.0, 1.0), with_bbb=True),
+        _actions(_MERGER, with_bbb=True),
+        _actions(_MERGER | {"new_instrument_id": None}, with_bbb=True),
     ),
     "TDS-A007": (
         _actions({}, _REVISED),
@@ -823,8 +893,8 @@ CASES: dict[str, tuple[Change, Change]] = {
         _actions({"ts_terms_available": _at(3, 15)}),  # after the 14:30 open it takes effect
     ),
     "TDS-A009": (  # the 3rd's close is 21:00; a spinoff is no A008, its share count stays
-        _actions(_SPINOFF | {"ts_terms_available": _at(3, 21, 0)}, **_SPUN),
-        _actions(_SPINOFF | {"ts_terms_available": _at(3, 20, 0)}, **_SPUN),
+        _actions(_SPINOFF | {"ts_terms_available": _at(3, 21, 0)}, with_bbb=True),
+        _actions(_SPINOFF | {"ts_terms_available": _at(3, 20, 0)}, with_bbb=True),
     ),
     "TDS-A010": (  # missing, one-sided, zero, 1/8 against ratio_new_per_old 2.0
         _actions({"share_factor": 2.0}),
@@ -883,14 +953,15 @@ FAILS: dict[str, tuple[str | None, ...]] = {
         "TDS-H003", "TDS-M017",
     ], (None,)),
     "TDS-M003": (None,) * 4,  # snapshot_id, and a market without each of its three fields
+    "TDS-S011": ("instruments", "bars_1d"),
     **dict.fromkeys([
         "TDS-M004", "TDS-M006", "TDS-M009", "TDS-M010", "TDS-M011", "TDS-M012", "TDS-M013",
         "TDS-S001", "TDS-S002", "TDS-S004", "TDS-S005", "TDS-S008", "TDS-S009", "TDS-S010",
         "TDS-T006", "TDS-D002", "TDS-K002", "TDS-K003", "TDS-K004", "TDS-R001", "TDS-R003",
-        "TDS-H001", "TDS-H002", "TDS-H004",
+        "TDS-H001", "TDS-H002", "TDS-H004", "TDS-S006",
     ], ("bars_1d",)),
     **dict.fromkeys([
-        "TDS-S003", "TDS-S006", "TDS-S007", "TDS-R002", "TDS-R004", "TDS-R005", "TDS-R006",
+        "TDS-S003", "TDS-S007", "TDS-R002", "TDS-R004", "TDS-R005", "TDS-R006",
     ], ("instruments",)),
     "TDS-M014": ("bars_1d", "instruments"),  # the unknown rule, the unknown object
     "TDS-M016": ("bars_1d",),
@@ -911,7 +982,6 @@ FAILS: dict[str, tuple[str | None, ...]] = {
     "TDS-K011": ("calendar_sessions",),
     "TDS-R007": ("fundamentals_state",),
     "TDS-R009": ("fundamentals_state",),
-    **dict.fromkeys(["TDS-A001", "TDS-A002"], ("bars_1d",)),
     **dict.fromkeys(
         [f"TDS-A00{n}" for n in range(3, 10)], ("corporate_actions",)
     ),

@@ -1,8 +1,8 @@
-"""#568: the bars' extent (spec 4.5 F-01, F-02, F-03, F-15) is read from the bars files only
+"""#568: the bars' extent (spec 4.5 F-15) is read from the bars files only
 when a fallback uses it, and once per open. A test counts the engine's Parquet row reads of
 the bars files: `read_table`, and a `ParquetFile`'s `read`, `read_row_group(s)` and
 `iter_batches`. The footer (`read_schema`, `read_metadata`, a `ParquetFile`'s `metadata`) is
-not counted: `obs_status` being a column decides F-03, and F-01 reads its statistics."""
+not counted."""
 
 from __future__ import annotations
 
@@ -73,13 +73,14 @@ def without_coverage(path: Path) -> None:
 
 def opened(
     path: Path, reads: Counter[str], markets: tuple[str, ...],
-    asked: CapabilityRequest | None = BACKTEST,
+    asked: CapabilityRequest | None = BACKTEST, quiet: bool = True,
 ) -> dict[str, int]:  # fmt: skip
     """Open the package and read each market's calendar: the row reads of each bars file,
-    counted from the open on."""
+    counted from the open on; `quiet`, each fallback's E30 is not a test error."""
     reads.clear()
     with warnings.catch_warnings():
-        warnings.simplefilter("ignore")  # each fallback's E30
+        if quiet:
+            warnings.simplefilter("ignore")
         snap = open_snapshot(DataConfig(path=path, allow_untested=True), required=asked)
         for m in markets:
             snap.calendar(m)
@@ -96,31 +97,20 @@ def test_no_fallback_reads_no_bars_file(tmp_path: Path, reads: Counter[str]) -> 
 
 #: degrade, markets, the feature asked for: each fallback whose record reads the bars' extent
 #: (the cases of `test_open_without_coverage.py`).
-CASES = {"F-01": (["no_ohlc"], ("KR", "US"), "price"),
-         "F-02": (["no_sessions"], ("KR", "US"), "backtest"),
-         "F-03": (["sparse_bars"], ("KR", "US"), "backtest"),
-         "F-15": (["no_tick_info"], ("KR", "ZZ"), "grid")}  # fmt: skip
+CASES = {"F-15": (["no_tick_info"], ("KR", "ZZ"), "grid")}  # F-01, F-02, F-03, F-18 retired
 
 
 @pytest.mark.parametrize("case", CASES)
 def test_a_fallback_reads_each_bars_file_once(
     tmp_path: Path, reads: Counter[str], case: str
 ) -> None:
-    """When `coverage` is left out and F-02, F-03 or F-15 is taken, then opening the package
-    and reading every market's calendar reads each bars file once (F-02 read it three times:
-    for its extent, for its off-calendar check and again for each calendar)."""
+    """When `coverage` is left out and F-15 is taken, then opening the package and
+    reading every market's calendar reads each bars file once."""
     degrade, markets, feature = CASES[case]
     path = make_snapshot(tmp_path / "s", preset="tiny", markets=markets, degrade=degrade)
     without_coverage(path)
     asked = CapabilityRequest(frozenset({feature}))
     assert opened(path, reads, markets, asked) == dict.fromkeys(bars_files(path), 1)
-
-
-def test_f02_with_coverage_reads_each_bars_file_once(tmp_path: Path, reads: Counter[str]) -> None:
-    """When `coverage` is declared and F-02 is taken, then only its off-calendar check reads
-    the bars, once per file."""
-    path = make_snapshot(tmp_path / "s", preset="tiny", degrade=["no_sessions"])
-    assert opened(path, reads, ("KR", "US")) == dict.fromkeys(bars_files(path), 1)
 
 
 @pytest.mark.parametrize("case", CASES)
@@ -155,7 +145,13 @@ BARS = """instrument_id,session_date,close,volume
 XNYS:AAPL,2024-01-02,185.64,82488700
 """
 MINIMAL = """profiles: [tds:minimal-daily@1.0]
-market: {code: US, calendar_id: XNYS, currency: USD, timezone: America/New_York}
+market:
+  code: US
+  calendar_id: XNYS
+  currency: USD
+  timezone: America/New_York
+  open: "09:30"
+  close: "16:00"
 datasets:
   instruments:
     file: instruments.csv
@@ -168,9 +164,11 @@ datasets:
 def test_imported_package_reads_no_bars_file_at_open(tmp_path: Path, reads: Counter[str]) -> None:
     """When `tds import csv` writes a package (with `coverage`, #566) and it is opened with
     every feature it can give and its calendar read, then no bars file is read: the calendar
-    F-02 synthesizes is bounded by the declared extent."""
+    is the import's (#705 Decisions 59), where F-02 once synthesized one. It opens with no
+    warning, F-03 retired with it (#705)."""
     for name, text in (("instruments.csv", INSTRUMENTS), ("bars.csv", BARS),
                        ("mapping.yaml", MINIMAL)):  # fmt: skip
         (tmp_path / name).write_text(text, encoding="utf-8")
     pkg = import_csv(tmp_path / "mapping.yaml", tmp_path / "pkg")
-    assert opened(pkg, reads, ("US",), None) == dict.fromkeys(bars_files(pkg), 0)
+    read = opened(pkg, reads, ("US",), None, quiet=False)  # filterwarnings: a warning fails
+    assert read == dict.fromkeys(bars_files(pkg), 0)

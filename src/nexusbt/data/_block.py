@@ -24,20 +24,23 @@ if TYPE_CHECKING:
     from nexusbt.data._calendar import Calendar
     from nexusbt_tds.manifest import Manifest
 
-#: `obs_status` codes of a block's cells, by position (TDS 5.5); -1, the last, has no bar.
-OBS_STATUS = np.array(["traded", "no_trade", "halted", "missing", "absent"])
+#: `obs_status` codes of a block's cells, by position: TDS 5.5's four; `unstated`, a bar whose
+#: `obs_status` is null (no state given, its values read as stored; #725 Decisions 129); and
+#: -1, the last, no bar.
+OBS_STATUS = np.array(["traded", "no_trade", "halted", "missing", "unstated", "absent"])
+_STATES = pa.array(OBS_STATUS[:4])  # the values TDS 5.5 gives `obs_status`
+_UNSTATED = 4
 #: The `Price` columns 3.2 derives from a bars column: the block holds that column as stored,
 #: and the executor adjusts a window by the column's basis (5.3.3), `close_tr`'s with C_total.
 _SOURCE = {"close_tr": "close", "close_unadjusted": "close", "volume_unadjusted": "volume"}
 #: Price cells NaN in a halted or missing session (3.2); `no_trade` keeps its reference close.
 _PRICES = frozenset({"open", "high", "low", "close", "close_tr", "close_unadjusted"})
 _VOLUMES = ("volume", "volume_unadjusted")  # 0 in a `no_trade` session (3.2)
-#: The bars columns a package may leave out, read as NaN (4.5 F-01, F-18).
+#: `open`, `high`, `low`, `volume` and `value_traded` without a value are E14 or E18 at open,
+#: never a fallback (4.4-3; F-01 and F-18 retired, #705).
 OHL = ("open", "high", "low")
-TRADED = ("volume", "value_traded")
-_NULLABLE = (*OHL, *TRADED)
 _INTEGER = frozenset({"i8", "i16", "i32", "i64"})
-#: Columns a bars file may lack: the block reads them when present (TDS 5.5, F-03).
+#: Columns a bars file may lack: the block reads them when present (TDS 5.5).
 _OPTIONAL = ("obs_status", "ts_end", "ts_available")
 
 
@@ -93,25 +96,26 @@ def build_block(
     status = np.full(shape, -1, dtype=np.int8)
     available = np.full(shape, np.datetime64("NaT", "us"))
     source, _ = bars_availability(bars, str(manifest.data["snapshot_id"]))
-    sources = [_SOURCE.get(f, f) for f in fields]  # NaN where a file lacks them (F-01, F-18)
-    wanted = [ID, "session_date", "close", *(s for s in sources if s not in _NULLABLE)]
-    optional = [*_OPTIONAL, *([source] if source != "ts_close" else []),  # ts_close: calendar's
-                *(s for s in sources if s in _NULLABLE)]  # fmt: skip
+    sources = [_SOURCE.get(f, f) for f in fields]
+    wanted = [ID, "session_date", "close", *sources]
+    optional = [*_OPTIONAL, *([source] if source != "ts_close" else [])]  # ts_close: calendar's
     for path in _files(bars, calendar.market, dates) if n else ():
-        rows, cols, table = _cells(manifest.root / path, ids, dates, wanted, optional)
+        meta = pq.read_metadata(manifest.root / path)
+        rows, cols, table = _cells(manifest.root / path, meta, ids, dates, wanted, optional)
         if source not in (*table.column_names, "ts_end", "ts_close"):
             raise _absent(manifest, bars, path, source)
         for f, s in zip(fields, sources, strict=True):
             if s in table.column_names:
                 cells = table[s].to_numpy(zero_copy_only=False)
                 values[f][rows, cols] = cells.astype(np.float64)
-        if "obs_status" in table.column_names:
-            codes = pc.index_in(table["obs_status"], pa.array(OBS_STATUS[:-1])).fill_null(-1)
-            status[rows, cols] = codes.to_numpy().astype(np.int8)
-        else:  # F-03: traded with a price, else no_trade
-            status[rows, cols] = np.where(pc.is_valid(table["close"]).to_numpy(), 0, 1)
+        if "obs_status" in table.column_names:  # a null one states nothing: values as stored
+            given = table["obs_status"]  # a value outside 5.5's four (S006) is hidden, as before
+            codes = pc.if_else(pc.is_null(given), _UNSTATED, pc.index_in(given, _STATES))
+            status[rows, cols] = codes.fill_null(-1).to_numpy().astype(np.int8)
+        else:  # no column: no row states one, as a null (3.2; F-03 retired, #705)
+            status[rows, cols] = _UNSTATED
         available[rows, cols] = _available(source, table, calendar, start + rows)
-    status[exists & (status == -1)] = 3  # a listed session without a bar is missing (F-03)
+    status[exists & (status == -1)] = 3  # a listed session without a row: missing (TDS 5.5)
     hidden = (status == 2) | (status == 3)  # halted, missing
     for f in fields:
         values[f][hidden & (f in _PRICES)] = np.nan
@@ -178,7 +182,7 @@ def _axis(
     # nullable, so a package may leave the column out of every file (TDS 4.5): none delisted
     delisted = (t["delisted_on"].to_numpy(zero_copy_only=False).astype("datetime64[D]")
                 if "delisted_on" in t.column_names
-                else np.full(len(t), np.datetime64("NaT"), "datetime64[D]"))  # fmt: skip
+                else np.full(len(t), np.datetime64("NaT", "D")))  # fmt: skip  # a unit: NumPy 2
     meets = (listed <= given[-1]) & ~(delisted < given[0])
     ids = tuple(str(i) for i in np.array(t[ID].to_pylist(), dtype=object)[meets])
     return ids, listed[meets], delisted[meets]
@@ -196,18 +200,31 @@ def _absent(manifest: Manifest, bars: Mapping[str, Any], path: str, column: str)
     )  # fmt: skip
 
 
+def gone(meta: pq.FileMetaData, column: str) -> bool:
+    """The file lacks `column`, or its footer says null in every row; False when it cannot say.
+    The open's checks of 4.4-3 read it (#705)."""
+    if column not in meta.schema.names:
+        return True
+    at = meta.schema.names.index(column)
+    stats = [meta.row_group(g).column(at).statistics for g in range(meta.num_row_groups)]
+    if any(s is None or not s.has_null_count for s in stats):
+        return False
+    return bool(sum(s.null_count for s in stats) == meta.num_rows)
+
+
 def _cells(
     path: Path,
+    meta: pq.FileMetaData,
     ids: tuple[str, ...],
     dates: NDArray[np.datetime64],
     wanted: Sequence[str],
     optional: Sequence[str],
 ) -> tuple[NDArray[np.intp], NDArray[np.intp], pa.Table]:
     """A file's rows that fall in the block, with their row and column numbers; the `optional`
-    columns are read when the file has them. The dictionary of `instrument_id` is mapped to
-    column numbers once, then each row's index is looked up in that small table (5.3.1,
-    A-05). `ids` is sorted and not empty."""
-    names = set(pq.read_schema(path).names)
+    columns are read when the file has them (`meta`, its footer). The dictionary of
+    `instrument_id` is mapped to column numbers once, then each row's index is looked up in
+    that small table (5.3.1, A-05). `ids` is sorted and not empty."""
+    names = set(meta.schema.to_arrow_schema().names)
     columns = list(dict.fromkeys([*wanted, *(c for c in optional if c in names)]))
     table = pq.read_table(path, columns=columns, read_dictionary=[ID])
     sorted_ids = np.array(ids, dtype=object)

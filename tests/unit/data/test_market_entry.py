@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pyarrow.parquet as pq
 import pytest
 
 from nexusbt.contracts import SnapshotError, VerifyPolicy
@@ -21,7 +22,13 @@ XNYS:AAPL,equity,ZZ,XNYS,USD,1980-12-12
 """
 BARS = "instrument_id,session_date,close,volume\nXNYS:AAPL,2024-01-02,185.64,82488700\n"
 MINIMAL = """profiles: [tds:minimal-daily@1.0]
-market: {code: US, calendar_id: XNYS, currency: USD, timezone: America/New_York}
+market:
+  code: US
+  calendar_id: XNYS
+  currency: USD
+  timezone: America/New_York
+  open: "09:30"
+  close: "16:00"
 datasets:
   instruments:
     file: instruments.csv
@@ -36,9 +43,10 @@ datasets:
 def test_a_market_without_a_field_stops_the_open_naming_m003(
     field: str, verify: VerifyPolicy, tmp_path: Path
 ) -> None:
-    """When `markets.US.<field>` is deleted from a package without `calendar_sessions` (the
-    issue's steps), then `open_snapshot` raises E14 naming TDS-M003, at every `verify` level."""
-    path = make_snapshot(tmp_path / "s", preset="tiny", degrade=["no_sessions"])
+    """When `markets.US.<field>` is deleted (the issue's steps, on a package that now holds its
+    calendar: F-02 retired, #705), then `open_snapshot` raises E14 naming TDS-M003, at every
+    `verify` level."""
+    path = make_snapshot(tmp_path / "s", preset="tiny")
     data = json.loads((path / "tds.json").read_text(encoding="utf-8"))
     del data["markets"]["US"][field]
     (path / "tds.json").write_text(json.dumps(data), encoding="utf-8")
@@ -48,10 +56,10 @@ def test_a_market_without_a_field_stops_the_open_naming_m003(
     assert f"markets.US: field {field!r} is missing" in str(raised.value)
 
 
-def undeclared_market_package(tmp_path: Path) -> Path:
+def undeclared_market_package(tmp_path: Path, bars_csv: str = BARS) -> Path:
     """The CSVs above imported, and the bars file moved out of its `market=` partition, so
     that the engine takes the bars' market from `instruments` (#564)."""
-    for name, text in (("instruments.csv", INSTRUMENTS), ("bars.csv", BARS),
+    for name, text in (("instruments.csv", INSTRUMENTS), ("bars.csv", bars_csv),
                        ("mapping.yaml", MINIMAL)):  # fmt: skip
         (tmp_path / name).write_text(text, encoding="utf-8")
     pkg = import_csv(tmp_path / "mapping.yaml", tmp_path / "pkg")
@@ -83,3 +91,28 @@ def test_an_instrument_of_an_undeclared_market_stops_the_open_naming_m010(
     assert "[E14]" in str(raised.value)
     assert "'XNYS:AAPL'" in str(raised.value)
     assert "market 'ZZ'" in str(raised.value)
+
+
+def test_a_missing_close_comes_before_the_undeclared_market(tmp_path: Path) -> None:
+    """Spec 4.4: step 3's E14 for bars without close (#698) before step 4's for the market
+    `markets` does not declare (TDS-M010), at the default `verify`."""
+    pkg = undeclared_market_package(tmp_path, BARS.replace(",close", "").replace(",185.64", ""))
+    with pytest.raises(SnapshotError) as raised:
+        open_snapshot(DataConfig(path=pkg))
+    assert "the bars of market ZZ have no close column" in str(raised.value)  # its instrument's
+    assert "TDS-M010" not in str(raised.value)
+
+
+def test_bars_without_close_or_ids_are_still_the_close_e14(tmp_path: Path) -> None:
+    """The second review of #705's 3c: the market cannot be read from the file's ids (it has
+    none), and pyarrow's error does not take the E14's place."""
+    pkg = undeclared_market_package(tmp_path, BARS.replace(",close", "").replace(",185.64", ""))
+    data = json.loads((pkg / "tds.json").read_text(encoding="utf-8"))
+    (entry,) = next(d for d in data["datasets"] if d["kind"] == "bars")["files"]
+    pq.write_table(pq.read_table(part := pkg / entry["path"]).drop_columns(["instrument_id"]), part)
+    entry["bytes"] = part.stat().st_size  # the default `manifest` level reads no hash
+    (pkg / "tds.json").write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(SnapshotError) as raised:
+        open_snapshot(DataConfig(path=pkg))
+    assert "the bars of market - have no close column" in str(raised.value)
+    assert "FieldRef" not in str(raised.value)

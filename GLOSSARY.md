@@ -36,7 +36,7 @@ This file holds the terms of the spec's glossary (spec §1.2 and §9.2) and noth
 - **Exact ratio** (`ratio_num/ratio_den`): every share-changing corporate action carries an exact integer ratio. The engine never infers fractions from floats; a decimal literal is used only if the user opts in (`[corporate_actions] decimal_ratio = "literal"`, warned).
 - **`fundamentals_state`**: resolved financial-state intervals `[ts_known_from, ts_known_to)` published by the producer (period choice, TTM, source priority, strict eligibility). The engine only looks them up. Raw facts are `fundamentals_events`.
 - **Two time axes**: classifications and index membership are used only when both the effective period (`effective_from/to`) and the known period (`ts_known_from/to`) hold.
-- **Forward cumulative factors** (`cum_factor_split/total`): products of event factors starting at 1.0 on the first listed session. New data never changes old values.
+- **Forward cumulative factors** (`C`, spec 5.3.3): products of event factors starting at 1.0 on the first listed session, computed by the engine from the events. New data never changes old values.
 - **Watermark**: the last complete session of a market in a snapshot. `live` never fills after it.
 - **Macro series** (`Macro.series`): a versioned (vintage) macro or alternative series from `series_observations`, used as a market-level term. Default `vintage="as_of"` = the latest version known at the decision.
 - **Event term** (`Events.<kind>`, `Events.of(type)`): a term over event datasets (earnings, filings, dividends, …). An event exists only after its `ts_available`. `surprise = value − consensus` when both exist.

@@ -39,7 +39,7 @@ from nexusbt.data import (
 )
 from nexusbt.data._capabilities import _columns
 from nexusbt.testing._synth_daily import RULES
-from nexusbt.testing.synth import make_snapshot
+from nexusbt.testing.synth import make_snapshot, read
 from nexusbt_tds import ProfileStatus
 from nexusbt_tds.hash import declared_value_hash, package_hashes, write_hashes
 
@@ -333,7 +333,7 @@ def test_price_only_graph_needs_core_only(tiny: Path, tmp_path: Path) -> None:
     """4.3: `Price` alone needs instruments and bars; a richer feature is E18 on such a package."""
     assert CapabilityRequest().datasets == {"instruments", "bars"}
     bare = shutil.copytree(tiny, tmp_path / "bare")
-    kept = {"instruments", "bars"}
+    kept = {"instruments", "bars", "calendar_sessions"}  # minimal-daily's three (C3, #705)
     for d in json.loads((bare / "tds.json").read_text(encoding="utf-8"))["datasets"]:
         if d["kind"] not in kept:
             shutil.rmtree(bare / d["path"])
@@ -342,8 +342,16 @@ def test_price_only_graph_needs_core_only(tiny: Path, tmp_path: Path) -> None:
     write_hashes(bare)  # fewer datasets: the package value hash changes too (#455)
     s = open_snapshot(DataConfig(path=bare), required=CapabilityRequest())
     assert (s.capabilities.features, s.fallbacks) == (frozenset({"price", "grid"}), [])
-    with pytest.raises(CapabilityError, match="backtest needs corporate_actions,"):  # F-02 too
+    with pytest.raises(CapabilityError, match="backtest needs corporate_actions,"):
         open_snapshot(DataConfig(path=bare), required=CapabilityRequest(frozenset({"backtest"})))
+    # C3 (#705): minimal-daily declared without its calendar breaks it, E14 at open, not F-02
+    shutil.rmtree(bare / "calendar_sessions")
+    edit_manifest(bare, lambda d: d.update(
+        datasets=[x for x in d["datasets"] if x["kind"] != "calendar_sessions"]))  # fmt: skip
+    write_hashes(bare)
+    with pytest.raises(SnapshotError, match="TDS-M008") as raised:
+        open_snapshot(DataConfig(path=bare), required=CapabilityRequest())
+    assert raised.value.code == "E14"
     with pytest.raises(ValueError, match="no feature"):
         CapabilityRequest(frozenset({"Price"}))
 
@@ -370,53 +378,56 @@ def opened_warned(path: Path, **cfg: Any) -> tuple[Any, list[str]]:
     return s, [str(w.message) for w in said]
 
 
-def test_fallback_F02_sessions(tmp_path: Path) -> None:  # noqa: N802 - the ticket's test name
-    """F-02: one E30 line, one record per market (XKRX and XNYS sessions of the bars' period),
-    and the manifest assumption; a calendar exchange_calendars does not know is E18."""
-    s, said = opened_warned(make_snapshot(tmp_path / "a", preset="tiny", degrade=["no_sessions"]))
-    assert len(said) == 1
-    assert "DataProfileWarning [E30] F-02" in said[0]
-    assert s.fallbacks == [FallbackRecord("F-02", "calendar_sessions", "KR", 62),  # tiny's own
-                           FallbackRecord("F-02", "calendar_sessions", "US", 62)]  # fmt: skip
-    assert s.assumptions == ("sessions synthesized from exchange_calendars 4.13.2",)
-    old = make_snapshot(tmp_path / "o", preset="small", n_kr=2, n_us=2, start=dt.date(2001, 1, 2),
-                        end=dt.date(2001, 1, 31), degrade=["no_sessions"])  # fmt: skip
-    # bars from 2001: before exchange_calendars' default 20 years back
-    assert [r.count for r in opened_warned(old)[0].fallbacks] == [19, 21]
-    zz =make_snapshot(tmp_path / "zz", preset="tiny", markets=("KR", "ZZ"),
-                       degrade=["no_sessions"])  # fmt: skip
-    with pytest.raises(CapabilityError, match="backtest needs calendar_sessions"):
-        open_snapshot(DataConfig(path=zz, allow_untested=True), required=BACKTEST)
+def test_a_package_without_calendar_sessions_is_e14_at_open(tiny: Path, tmp_path: Path) -> None:
+    """4.4-4 (#705 Decisions 59; F-02 retired): no calendar, no profile declared, is E14 at
+    open for `Price` alone too, saying what to do; no fallback builds the sessions."""
+    bare = shutil.copytree(tiny, tmp_path / "bare")
+    shutil.rmtree(bare / "calendar_sessions")
+    edit_manifest(bare, lambda d: d.update(profiles=[], datasets=[
+        x for x in d["datasets"] if x["kind"] != "calendar_sessions"]))  # fmt: skip
+    write_hashes(bare)
+    with pytest.raises(SnapshotError, match="has no calendar_sessions") as raised:
+        open_snapshot(DataConfig(path=bare), required=CapabilityRequest())
+    assert raised.value.code == "E14"
+    assert "tds import csv" in str(raised.value)
 
 
-def test_fallback_F03_densify(tmp_path: Path) -> None:  # noqa: N802 - the ticket's test name
-    """F-03: sparse bars without obs_status are recorded for a backtest, not for `Price` alone."""
-    sparse = make_snapshot(tmp_path / "s", preset="tiny", degrade=["sparse_bars"])
-    s, said = opened_warned(sparse)
-    assert [(r.id, r.market) for r in s.fallbacks] == [("F-03", "KR"), ("F-03", "US")]
-    assert {(r.dataset, r.count) for r in s.fallbacks} == {("bars_1d", 341)}  # tiny: all traded
-    assert "listing period x sessions" in said[0]
-    assert open_snapshot(DataConfig(path=sparse), required=CapabilityRequest()).fallbacks == []
+def test_a_market_without_sessions_is_e14_whatever_the_run_reads(
+    tiny: Path, tmp_path: Path
+) -> None:
+    """4.4-4: `calendar_sessions` without XNYS is E14 at `manifest`, the default level, where
+    the checker's R002 does not read rows, for a run over KR too (#705, as #717's close)."""
+
+    def kr_only(rows: Rows) -> Rows:
+        return [r for r in rows if r["calendar_id"] == "XKRX"]
+
+    gap = rewrite(tiny, tmp_path / "k", calendar_sessions=kr_only)
+    with pytest.raises(SnapshotError, match=r"no session of calendar XNYS \(market US\)") as raised:
+        open_snapshot(DataConfig(path=gap, markets=("KR",)), required=CapabilityRequest())
+    assert raised.value.code == "E14"
 
 
-def test_fallback_F04_factors_from_resolver(tiny: Path, tmp_path: Path) -> None:  # noqa: N802 - the ticket's test name
-    """F-04 is a definition: no cumulative factor columns, the resolver's factors, no warning."""
-    assert open_snapshot(DataConfig(path=tiny), required=BACKTEST).capabilities.cum_factors == (
-        "columns")  # fmt: skip
-    bare = make_snapshot(tmp_path / "f", preset="tiny", degrade=["no_cum_factors"])
-    s = open_snapshot(DataConfig(path=bare), required=BACKTEST)  # filterwarnings: no warning
-    assert (s.capabilities.cum_factors, s.fallbacks) == ("resolver", [])
+def test_fallback_F04_factors_from_resolver(tiny: Path) -> None:  # noqa: N802 - the ticket's test name
+    """F-04 is a definition: the resolver's factors from the events, no warning, and since
+    #705 no package of the generator has the columns and the run manifest no label for them."""
+    s = open_snapshot(DataConfig(path=tiny), required=BACKTEST)  # filterwarnings: no warning
+    assert s.fallbacks == []
     assert "backtest" in s.capabilities.features
+    assert not {"cum_factor_split", "cum_factor_total"} & set(read(tiny, "bars_1d").column_names)
+    assert set(s._recorded()["data"]["capabilities"]) == {"features", "supported"}
 
 
 def test_fallbacks_fail_mode_raises_E14(tmp_path: Path) -> None:  # noqa: N802 - the ticket's test name
-    """4.4-3: `[data] fallbacks = "fail"` makes a needed fallback E14, without a warning."""
-    gap = make_snapshot(tmp_path / "g", preset="tiny", degrade=["no_sessions"])
-    with pytest.raises(SnapshotError, match="fallback F-02 needed") as raised:
-        open_snapshot(DataConfig(path=gap, fallbacks=FallbacksPolicy.FAIL), required=BACKTEST)
+    """4.4-3: `[data] fallbacks = "fail"` makes a needed fallback E14, without a warning (F-15,
+    since F-02 and F-03 retired, #705)."""
+    gap = make_snapshot(tmp_path / "g", preset="tiny", markets=("KR", "ZZ"),
+                        degrade=["no_tick_info"])  # fmt: skip
+    fail = DataConfig(path=gap, fallbacks=FallbacksPolicy.FAIL, allow_untested=True)
+    with pytest.raises(SnapshotError, match="fallback F-15 needed") as raised:
+        open_snapshot(fail, required=CapabilityRequest(frozenset({"grid"})))
     assert "[E14]" in str(raised.value)
-    price = CapabilityRequest()  # `Price` alone needs no session table: nothing to refuse
-    assert open_snapshot(DataConfig(path=gap, fallbacks=FallbacksPolicy.FAIL), required=price)
+    price = CapabilityRequest()  # `Price` alone reads no grid: nothing to refuse
+    assert open_snapshot(fail, required=price)
 
 
 def test_volume_unit_warning_lifted_E30(tmp_path: Path) -> None:  # noqa: N802 - the ticket's test name
@@ -560,37 +571,6 @@ def test_two_grid_sources_of_a_kind_leave_grid_off(tmp_path: Path, source: Any) 
         open_snapshot(DataConfig(path=path, allow_untested=True), required=GRID)
     assert raised.value.code == "E18"
     assert f"keep only one of {kind}, {kind}_b in the package" in str(raised.value)
-
-
-def test_bar_outside_synthesized_calendar_is_r003(tmp_path: Path) -> None:
-    """4.5 F-02: a bar on a day the synthesized calendar does not have is E14 `TDS-R003`."""
-    gap = make_snapshot(tmp_path / "g", preset="tiny", degrade=["no_sessions"])
-    saturday = dt.date(2020, 1, 4)
-    moved = rewrite(gap, tmp_path / "m", bars_1d=lambda rows: [
-        r | {"session_date": saturday} if r["session_date"] == dt.date(2020, 1, 3)
-        and r["instrument_id"] == "KR:T00001" else r for r in rows])  # fmt: skip
-    with pytest.raises(SnapshotError, match="TDS-R003") as raised:
-        open_snapshot(DataConfig(path=moved), required=BACKTEST)
-    assert "2020-01-04" in str(raised.value)
-    price = CapabilityRequest()  # `Price` alone: no F-02, so no synthesized calendar to hold
-    assert open_snapshot(DataConfig(path=moved), required=price).fallbacks == []
-
-
-def test_one_market_without_sessions_takes_f02_alone(
-    tiny: Path, kr_zz: Path, tmp_path: Path
-) -> None:
-    """4.4-4: `calendar_sessions` without XNYS gives F-02 for US only; KR keeps its own. A
-    missing calendar exchange_calendars does not know (ZZ's) is E18."""
-
-    def kr_only(rows: Rows) -> Rows:
-        return [r for r in rows if r["calendar_id"] == "XKRX"]
-
-    s, said = opened_warned(rewrite(tiny, tmp_path / "k", calendar_sessions=kr_only))
-    assert s.fallbacks == [FallbackRecord("F-02", "calendar_sessions", "US", 62)]
-    assert "F-02" in said[0]
-    zz = rewrite(kr_zz, tmp_path / "z", calendar_sessions=kr_only)
-    with pytest.raises(CapabilityError, match="backtest needs calendar_sessions"):
-        open_snapshot(DataConfig(path=zz, allow_untested=True), required=BACKTEST)
 
 
 def test_backtest_on_adjusted_bars_names_raw_bars(tiny: Path, tmp_path: Path) -> None:

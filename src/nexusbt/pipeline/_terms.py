@@ -363,17 +363,23 @@ def factor(
                   "source": digest, "captured": reads.captured}  # fmt: skip
         if adjustment is not None:  # absent when not declared: the hash stays as it was
             params["adjustment"] = adjustment
-        if reads.impure or reads.decorator:
-            warning = _impure(fn.__name__, reads.impure, reads.decorator)
+        if reads.impure or reads.decorator or reads.under:
+            warning = _impure(fn.__name__, reads.impure, reads.decorator, reads.under)
             warnings.warn(str(warning), stacklevel=2)
         return Factor("user", tuple(inputs), tuple(params.items()), function=fn)
 
     return wrap
 
 
-def _impure(name: str, globals_: Sequence[str], decorator: str = "") -> ImpureFunctionWarning:
-    """E24 for the globals `name` reads, and for the library decorator it is under whose wrapper
-    holds what the hash cannot read (#645): what the user wrote, never a name inside the library."""
+def _impure(
+    name: str,
+    globals_: Sequence[str],
+    decorator: str = "",
+    under: Sequence[tuple[str, str, str]] = (),
+) -> ImpureFunctionWarning:
+    """E24 for the globals `name` reads, for the library decorator it is under whose wrapper
+    holds what the hash cannot read (#645), and for each helper read under one (#676): what the
+    user wrote, never a name inside the library."""
     line = _user_line()
     shown = ", ".join(repr(g) for g in globals_)
     what, fix = [], []
@@ -388,6 +394,12 @@ def _impure(name: str, globals_: Sequence[str], decorator: str = "") -> ImpureFu
         fix.append(f"apply @nx.factor to a function that is not under @{decorator}; the engine"
                    f" hashes {name}'s own code and the helpers it calls, not what the decorator's"
                    " wrapper holds")  # fmt: skip
+    for reader, helper, held in under:
+        what.append(f"{reader} reads {helper}, which is under {held}, whose wrapper holds what the"
+                    " engine cannot check")  # fmt: skip
+        fix.append(f"read a function that is not under @{held} in place of {helper}; the engine"
+                   f" hashes {helper}'s own code and the helpers it calls, not what the"
+                   " decorator's wrapper holds")  # fmt: skip
     return ImpureFunctionWarning(
         what="; ".join(what),
         where=f"function {name}",
@@ -412,7 +424,7 @@ def l1_disabled(term: Term) -> bool:
         seen.add(node._key)
         if isinstance(node.function, FunctionType):
             reads = _reads(node.function)
-            if reads.impure or reads.decorator:
+            if reads.impure or reads.decorator or reads.under:
                 return True
         todo += [*node.inputs, *(v for _, v in node.params if isinstance(v, Term))]
     return False
@@ -596,13 +608,15 @@ def _holds(node: ast.Lambda, at: tuple[int, int]) -> bool:
 @dataclass(frozen=True, slots=True)
 class _Reads:
     """What a user function reads (6.5 (6)): its project helpers, to any depth; the constant-like
-    values (a helper's as `qualname:name`), hashed; the rest and file reads, E24's (`impure`);
-    the library decorator whose wrapper holds what the hash cannot read, E24's too (#645)."""
+    values (a helper's as `module.qualname:name`, #673), hashed; the rest and file reads, E24's;
+    the library decorator whose wrapper holds what the hash cannot read, E24's too (#645), and
+    for a helper under one, the function reading it, the name it reads and the decorator (#676)."""
 
     helpers: tuple[FunctionType, ...]
     captured: tuple[tuple[str, Any], ...]
     impure: tuple[str, ...]
     decorator: str = ""
+    under: tuple[tuple[str, str, str], ...] = ()
 
 
 @functools.cache
@@ -660,21 +674,30 @@ def _project_file(file: str) -> bool:
 def _reads(fn: FunctionType) -> _Reads:
     """What `fn` reads; for a library's function keeping a project function in `__wrapped__`
     (`functools.singledispatch`), both (#645): the project function's reads as if undecorated,
-    and the wrapper's by #589's rule, not again through the project function. The wrapper's own
-    constants go in under the decorator's name (a decorator's argument passed by name is not in
-    the source); the defaults it shows are the project function's, already in. What the wrapper
-    holds that the hash cannot read makes the function E24, naming the decorator."""
+    and the wrapper's by `_wrapper`, not again through the project function."""
     inner = _helper(fn)
     if inner is None or inner is fn:
         return _walk(fn, set())
     own = _walk(inner, set())
-    held = _walk(fn, {id(inner), *map(id, own.helpers)})
+    held = _wrapper(fn, "", {id(inner), *map(id, own.helpers)})
     helpers = sorted((*own.helpers, *held.helpers), key=lambda h: h.__qualname__)
+    captured = sorted((*own.captured, *held.captured), key=lambda c: c[0])
+    return _Reads(tuple(helpers), tuple(captured), own.impure, held.decorator, own.under)
+
+
+def _wrapper(fn: FunctionType, prefix: str, seen: set[int]) -> _Reads:
+    """A library's function `fn` keeping a project function in `__wrapped__`, judged by #589's
+    rule without walking the functions in `seen` (the project function, #645), wherever the
+    project function is read: the term's own function or a helper (#676). The wrapper's own
+    constants go in under `prefix` and the decorator's name (a decorator's argument passed by name
+    is not in the source); the defaults it shows are the project function's, already in. What the
+    wrapper holds that the hash cannot read is E24, naming the decorator."""
+    held = _walk(fn, seen)
     decorator = _decorator(fn)
-    theirs = [(n if ":" in n else f"{decorator}:{n}", v) for n, v in held.captured
+    theirs = [(n if ":" in n else f"{prefix}{decorator}:{n}", v) for n, v in held.captured
               if not n.endswith("=")]  # fmt: skip
-    captured = sorted((*own.captured, *theirs), key=lambda c: c[0])
-    return _Reads(tuple(helpers), tuple(captured), own.impure, decorator if held.impure else "")
+    unread = held.impure or held.under
+    return _Reads(held.helpers, tuple(theirs), (), decorator if unread else "")
 
 
 def _decorator(wrapper: FunctionType) -> str:
@@ -689,6 +712,7 @@ def _walk(fn: FunctionType, seen: set[int]) -> _Reads:
     found = _defaults(fn)
     helpers: list[FunctionType] = []
     impure: set[str] = set()
+    under: set[tuple[str, str, str]] = set()
     todo = [fn]
     while todo:
         f = todo.pop()
@@ -697,12 +721,25 @@ def _walk(fn: FunctionType, seen: set[int]) -> _Reads:
         seen.add(id(f))
         names, attrs = _loads(f.__code__)
         values = _values(f, names)
-        prefix = "" if f is fn else f"{f.__qualname__}:"
-        todo += _judge(sorted(values.items()), attrs, prefix, found, impure)
+        prefix = "" if f is fn else _prefix(f)
+        for name, value, helper in _judge(sorted(values.items()), attrs, prefix, found, impure):
+            todo.append(helper)
+            if isinstance(value, FunctionType) and value is not helper:  # a library's wrapper
+                held = _wrapper(value, _prefix(helper), {*seen, id(helper)})
+                helpers += held.helpers
+                found.update(held.captured)
+                if held.decorator and f is not helper:  # not again by itself, calling itself
+                    under.add((f.__name__, name, held.decorator))
         impure.update(_opens(names, values, attrs))
         helpers += [] if f is fn else [f]
-    ordered = sorted(helpers, key=lambda h: h.__qualname__)
-    return _Reads(tuple(ordered), tuple(sorted(found.items())), tuple(sorted(impure)))
+    ordered = sorted(dict.fromkeys(helpers), key=lambda h: h.__qualname__)  # once each, in order
+    return _Reads(tuple(ordered), tuple(sorted(found.items())), tuple(sorted(impure)),
+                  under=tuple(sorted(under)))  # fmt: skip
+
+
+def _prefix(f: FunctionType) -> str:
+    """The key a helper's constants go in under, `module.qualname:` (#673)."""
+    return f"{f.__globals__.get('__name__', '?')}.{f.__qualname__}:"
 
 
 def _defaults(fn: FunctionType) -> dict[str, Any]:
@@ -729,11 +766,12 @@ def _judge(
     prefix: str,
     found: dict[str, Any],
     impure: set[str],
-) -> list[FunctionType]:
+) -> list[tuple[str, Callable[..., Any], FunctionType]]:
     """Sort what one function reads, last name first: a constant into `found` (under `prefix`),
     a project namespace into the attributes read of it, data or a callable not found again by
-    reference into `impure`; the project helpers it reaches are returned, in the order met."""
-    helpers: list[FunctionType] = []
+    reference into `impure`; the project helpers it reaches are returned, in the order met, each
+    with the name and the value it is read by (a library's wrapper keeping it, #676)."""
+    helpers: list[tuple[str, Callable[..., Any], FunctionType]] = []
     spaces = set[int]()
     while reads:
         name, value = reads.pop()
@@ -747,7 +785,7 @@ def _judge(
         elif _held(value):  # an array, a list, a dict, a DataFrame, an object holding one,
             impure.add(name)  # also when it keeps a function in `__wrapped__`
         elif helper := _helper(value):
-            helpers.append(helper)
+            helpers.append((name, value, helper))
         elif not _found(value, name.rpartition(".")[2]):  # built while the program ran
             impure.add(name)
     return helpers

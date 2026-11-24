@@ -90,23 +90,6 @@ def test_ready_delay_from_availability_rule(tmp_path: Path) -> None:
             delay(bars_declared(tiny, tmp_path / f"wrong{n}", **wrong))
 
 
-def test_calendar_without_sessions_is_the_library_s(tmp_path: Path) -> None:
-    """4.5 F-02: a package without `calendar_sessions` takes the sessions of exchange_calendars
-    over its bars' period, numbered from 0 (3.7)."""
-    bare = make_snapshot(tmp_path / "bare", preset="tiny", degrade=["no_sessions"])
-    with pytest.warns(UserWarning, match="F-02"):
-        kr = open_snapshot(DataConfig(path=bare)).calendar("KR")
-    assert (len(kr.dates), kr.dates[0], kr.dates[-1]) == (
-        62, np.datetime64("2020-01-02"), np.datetime64("2020-03-31"))  # fmt: skip
-    assert np.datetime64("2020-01-24") not in kr.dates  # Seollal
-    assert (kr.ts_close[1], kr.session_ord[-1]) == (np.datetime64("2020-01-03T06:30"), 61)
-    data = json.loads((bare / "tds.json").read_text(encoding="utf-8"))
-    data["markets"]["KR"]["calendar_id"] = "XQQQ"  # a calendar the library does not know
-    (bare / "tds.json").write_text(json.dumps(data), encoding="utf-8")
-    with pytest.raises(CapabilityError, match="no sessions for market KR: calendar XQQQ"):
-        open_snapshot(DataConfig(path=bare)).calendar("KR")
-
-
 def test_late_bars_counts_only_bars_in_a_row() -> None:
     """5.1.2 `LateBar`: a bar later than its row's `ready`; one on no session is in no row."""
     days = np.array(["2020-01-03", "2020-01-06"], "datetime64[D]")

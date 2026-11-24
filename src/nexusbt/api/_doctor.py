@@ -16,6 +16,7 @@ from nexusbt.artifacts import Index
 from nexusbt.config import DEFAULTS, UUID4, load_config
 from nexusbt.contracts import ConfigError
 from nexusbt.data import GENERIC, DataConfig, _data_root, open_snapshot
+from nexusbt.data._datasets import chosen
 
 TOML = Path("nexusbt.toml")
 _DATA, _RESEARCH = "config — nexusbt.toml [data] -", "config — nexusbt.toml [research] family_id"
@@ -159,14 +160,14 @@ def doctor() -> str:
     lines.append(("unchecked", ", ".join(s.unchecked) or "none"))
     lines.append(("codes", ", ".join(f"{c} {n}" for c, n in sorted(s.warnings.items())) or "none"))
     named = [(f, f"{f.dataset}.{f.column}" if f.column else f.dataset) for f in s.fallbacks]
-    lines += [("fallback", f"{f.id} {name} {f.market} {f.count}") for f, name in named]  # F-01
+    lines += [("fallback", f"{f.id} {name} {f.market} {f.count}") for f, name in named]
     lines += [] if s.fallbacks else [("fallbacks", "none")]
-    # 4.5 F-16: TDS-V011 needs `value_traded`, so without it the unit of `volume` is unchecked;
-    # one line for each dataset, not per market, with `volume` there or not (#650 Decisions)
-    lacking = dict.fromkeys(f.dataset for f in s.fallbacks
-                            if f.id == "F-18" and f.column == "value_traded")  # fmt: skip
-    said = "volume unit unverified (no value_traded, TDS-V011)"
-    lines += [("volume", f"{dataset} {said}") for dataset in lacking]
+    # 4.5 F-16: TDS-V011 needs `value_traded`, so without a value of it the unit of `volume` is
+    # unchecked; one line for the bars, not per market (#650 Decisions; F-18 retired, #705)
+    caps = s.capabilities
+    if "value_traded" in caps.unread.union(*caps.unread_in.values()):
+        bars = chosen(s._manifest.data).get("bars", {}).get("name", "bars")
+        lines.append(("volume", f"{bars} volume unit unverified (no value_traded, TDS-V011)"))
     for m, info in s.markets.items():
         d = s.daily.get(m)
         rules = "none" if info.rules is None else info.rules.replace(GENERIC, "untested")

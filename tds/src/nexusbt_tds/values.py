@@ -33,17 +33,23 @@ from typing import Any
 
 import pyarrow as pa
 
-from .check import VALUE_CODES, Finding, Severity
+from .check import VALUE_CODES, Finding, Severity, _has
 from .keys import listed
 from .manifest import Manifest
+from .profiles import PROFILES, TRADED, profile_id
 from .refs import _rows, _stored
 
 V001, V002, V004, V005, V010, V011, V012, V020, V030, V040, V041, V050 = VALUE_CODES
 WARNINGS = frozenset({V010, V030, V041})
 PRICES = ("open", "high", "low", "close", "vwap")
+#: A bar's values for V004's row with no state: what it observed of the session (TDS 5.5).
+VALUED = (*PRICES, "volume", "value_traded")
 RATIO = ("instrument_id", "session_date", "high", "low", "close", "volume", "value_traded")
 #: TDS 5.27's raw price columns, per kind.
 GRID = {"bars": PRICES[:4], "tradability_daily": ("up_limit_price", "down_limit_price")}
+#: The profiles that hold fundamentals: there an `equity` row of `instruments` holds `issuer_id`
+#: (V020; chapter 7, #705 B2, #725 Decisions 185); other classes may leave it null.
+ISSUED = frozenset({"tds:equity-daily-research@1.0", "tds:pit-fundamentals@1.0"})
 #: TDS 5.1's V020: the columns each `asset_class` needs.
 NEEDS = {
     "option": ("underlying_instrument_id", "strike", "option_right", "exercise_style",
@@ -58,20 +64,25 @@ COLUMNS = {
     "instruments": (
         "instrument_id",
         "asset_class",
-        *sorted({c for v in NEEDS.values() for c in v}),
+        *sorted({c for v in NEEDS.values() for c in v} | {"issuer_id"}),
     ),
     "fx_rates": ("base", "quote", "rate"),
     "quotes": ("instrument_id", "bid_px", "ask_px"),
-    "delistings": ("delisting_id", "ret_lo", "ret_hi"),
+    "delistings": ("delisting_id", "ret_lo", "ret_hi", "policy_id", "exit_value_status"),
     "events": ("event_id", "instrument_id", "issuer_id", "series_id"),
 }
 SAID = {V001: "bar(s) whose high and low do not enclose open and close",
         V002: "bar(s) with a negative price, volume or value_traded",
-        V004: "bar(s) traded with no close", V005: "FX rate(s) <= 0",
+        V004: "bar(s) traded with no close, or on equity or etf with no open, high, low or volume "
+              "where a declared profile requires them; no_trade or halted with a volume not 0; "
+              "halted with a price; or with neither a value nor obs_status",
+        V005: "FX rate(s) <= 0",
         V010: "equity bar(s) whose volume is not an integer",
-        V020: "instrument(s) without a column their asset_class needs",
+        V020: "instrument(s) without a column their asset_class needs, issuer_id of an equity "
+              "included where a declared profile holds fundamentals",
         V030: "locked or crossed quote(s), bid_px >= ask_px",
-        V040: "delisting(s) with ret_lo > ret_hi",
+        V040: "delisting(s) with ret_lo > ret_hi, or not unobserved with ret_lo, ret_hi or "
+              "policy_id null",
         V041: "event(s) with instrument_id, issuer_id and series_id all null",
         V050: "label column(s) also in feature_panels"}  # fmt: skip
 
@@ -99,9 +110,12 @@ def check_values(
 
 
 def _raw(ds: Mapping[str, Any]) -> bool:
-    """Whether the dataset's prices are raw: `price_basis` `raw`, the default (TDS 5.5)."""
+    """Whether the dataset's prices are raw: a bars dataset's `price_basis` `raw`, which has no
+    default (TDS 5.5; a missing one is M003's, #705 C5); another kind's prices are raw."""
     params = ds.get("params")
-    return not isinstance(params, dict) or (params.get("price_basis") or "raw") == "raw"
+    return ds.get("kind") != "bars" or (
+        isinstance(params, dict) and params.get("price_basis") == "raw"
+    )
 
 
 def _off_grid(m: Manifest, only: Sequence[str] | None) -> list[Finding]:
@@ -206,11 +220,16 @@ def _check(m: Manifest, only: Sequence[str] | None, unverified: list[str]) -> li
              for i, *rest in _rows(root, d, listed)}  # fmt: skip
     features = {c for d in m.datasets if d.get("kind") == "feature_panels"
                 for c in _values(root, d, schemas)}  # fmt: skip
+    # the declared profiles' `traded` needs: where a dataset meets one, V004 reads all five
+    declared = [PROFILES[i] for i in map(profile_id, m.profiles) if i in PROFILES]
+    needs = [need for p in declared for need, _ in p.traded]
     out = []
     for ds in (d for d in m.datasets if only is None or d.get("name") in only):
         kind, bad = str(ds.get("kind")), dict[str, list[Any]]()  # code → [count, first key]
+        whole = any(_has([ds], need) for need in needs) if kind != "instruments" else (
+            any(p.name in ISSUED for p in declared))  # fmt: skip
         for row in _rows(root, ds, COLUMNS[kind]) if kind in COLUMNS else ():
-            for code in _broken(kind, dict(zip(COLUMNS[kind], row, strict=True)), kinds):
+            for code in _broken(kind, dict(zip(COLUMNS[kind], row, strict=True)), kinds, whole):
                 bad.setdefault(code, [0, row[0]])[0] += 1
         if kind == "label_panels" and (both := sorted(_values(root, ds, schemas) & features)):
             bad[V050] = [len(both), both[0]]
@@ -229,8 +248,11 @@ def _values(root: Path, ds: Mapping[str, Any], schemas: Mapping[str, Any]) -> se
     return {c for c in _stored(root, ds) if c not in fixed and not c.startswith("x_")}
 
 
-def _broken(kind: str, r: dict[str, Any], kinds: Mapping[Any, tuple[Any, ...]]) -> list[str]:
-    """The codes one row of `kind` breaks."""
+def _broken(
+    kind: str, r: dict[str, Any], kinds: Mapping[Any, tuple[Any, ...]], whole: bool
+) -> list[str]:
+    """The codes one row of `kind` breaks; `whole`, its dataset meets a profile that requires
+    an equity's OHLCV (chapter 7)."""
     out = []
     if kind == "bars":
         o, h, lo, c = r["open"], r["high"], r["low"], r["close"]
@@ -241,12 +263,21 @@ def _broken(kind: str, r: dict[str, Any], kinds: Mapping[Any, tuple[Any, ...]]) 
         prices = () if free else PRICES
         if any(r[k] is not None and r[k] < 0 for k in (*prices, "volume", "value_traded")):
             out.append(V002)
-        if r["obs_status"] == "traded" and c is None:
+        cells = (*PRICES[:4], "volume") if whole and asset in TRADED else ("close",)  # 5.5, 7
+        state, volume = r["obs_status"], r["volume"]
+        if (
+            (state == "traded" and any(r[k] is None for k in cells))
+            or (state in ("no_trade", "halted") and volume is not None and volume != 0)
+            or (state == "halted" and any(r[k] is not None for k in PRICES[:4]))
+            or (state is None and all(r[k] is None for k in VALUED))
+        ):  # 5.5: a written volume of no trade is 0, a halt has no price (#705 Decisions
+            # 38, 168); a row with neither values nor a state says nothing (131)
             out.append(V004)
         if asset == "equity" and r["volume"] is not None and not float(r["volume"]).is_integer():
             out.append(V010)
-    elif kind == "instruments":
-        if any(r[k] is None for k in NEEDS.get(r["asset_class"], ())):
+    elif kind == "instruments":  # `whole`: a declared profile holds fundamentals (#705 B2)
+        own = ("issuer_id",) if whole and r["asset_class"] == "equity" else ()
+        if any(r[k] is None for k in (*NEEDS.get(r["asset_class"], ()), *own)):
             out.append(V020)
     elif kind == "fx_rates":
         out += [V005] if r["rate"] is not None and r["rate"] <= 0 else []
@@ -254,8 +285,10 @@ def _broken(kind: str, r: dict[str, Any], kinds: Mapping[Any, tuple[Any, ...]]) 
         bid, ask = r["bid_px"], r["ask_px"]
         out += [V030] if None not in (bid, ask) and bid >= ask else []
     elif kind == "delistings":
-        lo, hi = r["ret_lo"], r["ret_hi"]
-        out += [V040] if None not in (lo, hi) and lo > hi else []
+        lo, hi = r["ret_lo"], r["ret_hi"]  # null only where the value is unobserved (#705 D8)
+        known = r["exit_value_status"] != "unobserved"
+        out += [V040] if (None not in (lo, hi) and lo > hi) or (
+            known and None in (lo, hi, r["policy_id"])) else []  # fmt: skip
     elif kind == "events" and r["instrument_id"] is r["issuer_id"] is r["series_id"] is None:
         out.append(V041)
     return out

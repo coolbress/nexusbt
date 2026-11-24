@@ -6,7 +6,6 @@ from __future__ import annotations
 import datetime as dt
 import json
 import math
-import warnings
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -19,6 +18,7 @@ import pytest
 import yaml
 
 import nexusbt as nx
+from nexusbt.testing import synth
 from nexusbt.testing.synth import make_snapshot, read
 from nexusbt_tds.hash import write_hashes
 
@@ -29,6 +29,17 @@ OHL = ("open", "high", "low")
 #: next); the window 2019-05-20 .. 2019-05-28 is seven sessions.
 STOCK, LAST = "KR:T00004", "2019-05-28"
 HALTED, NO_TRADE = dt.date(2019, 5, 20), dt.date(2019, 5, 21)  # each keeps its close
+
+
+def total_at(package: Path, day: dt.date) -> float:
+    """`STOCK`'s running total factor on `day`: the product of the total steps the generator
+    applied to its prices on or before it (`synth.APPLIED`, #705), the engine's resolver not
+    asked, as the bars' `cum_factor_total` held it before #705."""
+    out = 1.0
+    for iid, ex, basis, factor, _ in synth.APPLIED[package.resolve()]["KR"]:
+        if (iid, basis) == (STOCK, "total") and ex <= day:
+            out *= factor
+    return out
 
 
 @pytest.fixture(autouse=True)
@@ -125,13 +136,14 @@ def test_derived_columns_read_their_bars_source(tiny: Path, column: str, source:
 
 def test_close_tr_window_with_a_dividend_is_3_2_formula(small: Path) -> None:
     """3.2: a `close_tr` window over an ex date is `raw[s]·C_total[t]/C_total[s]`, computed here
-    from the package's bars `close` and `cum_factor_total`, NaN where halted or missing; the
-    same window of `close`, split-adjusted only, differs before the ex date."""
+    from the package's bars `close` and the total steps the generator applied to them (its
+    record, #705), NaN where halted or missing; the same window of `close`, split-adjusted
+    only, differs before the ex date."""
     bars = read(small, "bars_1d").filter(pc.field("instrument_id") == STOCK)
     bars = bars.filter((pc.field("session_date") >= HALTED)
                        & (pc.field("session_date") <= dt.date.fromisoformat(LAST)))  # fmt: skip
     raw = np.array(bars["close"].to_pylist(), dtype=float)
-    total = np.array(bars["cum_factor_total"].to_pylist(), dtype=float)
+    total = np.array([total_at(small, d) for d in bars["session_date"].to_pylist()])
     hidden = np.isin(bars["obs_status"].to_pylist(), ["halted", "missing"])
     assert len(raw) == 7
     assert total[0] != total[-1]  # the dividend lies in the window
@@ -152,7 +164,7 @@ def test_no_trade_session_keeps_its_close(small: Path) -> None:
     adjusted to t in a `close_tr` window (the dividend after it applies)."""
     close = bars_on(small, "close", str(NO_TRADE))[STOCK]
     assert latest(small, "close_unadjusted", str(NO_TRADE))[STOCK] == close
-    then, now = (bars_on(small, "cum_factor_total", d)[STOCK] for d in (str(NO_TRADE), LAST))
+    then, now = (total_at(small, d) for d in (NO_TRADE, dt.date.fromisoformat(LAST)))
     assert window_cells(small, "close_tr", 6, LAST)[0] == pytest.approx(close * now / then)
 
 
@@ -178,8 +190,8 @@ def test_t12_returns_on_its_default_input(tmp_path: Path) -> None:
     def change(row: dict[str, Any]) -> dict[str, Any]:
         i = dates.index(str(row["session_date"]))
         return row if row["instrument_id"] != one else row | {
-            "close": None if i == 240 else 100.0 + i, "cum_factor_split": 1.0,
-            "cum_factor_total": 1.0, "obs_status": "halted" if i == 240 else "traded"}  # fmt: skip
+            "close": None if i == 240 else 100.0 + i,
+            "obs_status": "halted" if i == 240 else "traded"}  # fmt: skip
 
     rewrite(root, "bars", change)
     pipe = nx.Pipeline({"m": nx.factors.Returns(232).shift(21)})
@@ -214,70 +226,84 @@ def test_close_tr_refused_on_adjusted_prices(tmp_path: Path, monkeypatch: Any) -
     assert latest(root, "close") == pytest.approx(bars_on(root, "close"), nan_ok=True)
 
 
-def f01(caught: list[warnings.WarningMessage]) -> list[str]:
-    return [str(w.message) for w in caught if "F-01" in str(w.message)]
-
-
-def test_f01_by_market_when_null_in_every_row(tmp_path: Path) -> None:
-    """4.5 F-01, by market: US holds `open`, `high`, `low` null in every row, KR holds them;
-    one E30 at open names US's three columns once each, the record is US's, KR's open read."""
+def test_a_market_whose_files_hold_no_open_is_e18_when_a_run_over_it_reads_it(
+    tmp_path: Path,
+) -> None:
+    """#705 (2026-11-22, F-01 retired): US's files hold `open`, `high`, `low` null in every row,
+    KR's hold them. The package opens without a fallback; a run over US reading `open` is E18
+    naming the market, before any value; KR's run reads its opens."""
     root = make_snapshot(tmp_path / "p", preset="tiny")
     without_ohl(root, "US", drop=False)
-    with pytest.warns(UserWarning, match="F-01") as caught:  # E30, said at open (4.5)
-        snapshot = nx.open(str(root))
-    [message] = f01(caught.list)
-    assert all(message.count(f"market US, column {c}") == 1 for c in OHL), message
-    assert "KR" not in message
-    records = {(r.market, r.column) for r in snapshot.fallbacks if r.id == "F-01"}
-    assert records == {("US", c) for c in OHL}
-    with pytest.warns(UserWarning, match="F-01"):  # the run opens the package again
-        kr = [v for i, v in run(root, {"o": nx.Price.open.latest})["o"].items() if "KR" in i]
+    assert not nx.open(str(root)).fallbacks
+    with pytest.raises(nx.CapabilityError, match="the bars of market US hold no value of open"):
+        run(root, {"o": nx.Price.open.latest})
+    kr = nx.run_pipeline(nx.Pipeline({"o": nx.Price.open.latest}), start=DAY, end=DAY,
+                         markets=["KR"], snapshot=str(root)).table["o"].to_pylist()  # fmt: skip
     assert kr
     assert not any(math.isnan(v) for v in kr)
 
 
-def test_f01_once_per_run_when_columns_left_out(tmp_path: Path, monkeypatch: Any) -> None:
-    """4.5 F-01: bars files without the columns give NaN, not pyarrow's `ArrowInvalid`, with
-    one E30 for the run however many chunks it computes (here two)."""
+@pytest.mark.parametrize("column", OHL)
+def test_a_term_over_a_column_left_out_is_e18_before_any_value(
+    column: str, tmp_path: Path, monkeypatch: Any
+) -> None:
+    """#705 Decisions 48 (c): a minimal-daily package whose bars files leave out `open`, `high`
+    and `low` opens, and a run reading one stops with E18 naming the
+    column and the profile that holds it, before any chunk is computed (not NaN, not pyarrow's
+    `ArrowInvalid`)."""
     from nexusbt.compute import _chunks
 
-    root = make_snapshot(tmp_path / "p", preset="tiny", markets=("KR",))
+    root = make_snapshot(tmp_path / "p", preset="tiny", markets=("KR",), degrade=["no_ohlc"])
     without_ohl(root, "KR", drop=True)
-    monkeypatch.setattr(_chunks, "spans", lambda dates, *_: [(0, 1), (2, len(dates) - 1)])
-    pipe = nx.Pipeline({c: getattr(nx.Price, c).latest for c in OHL})
-    with pytest.warns(UserWarning, match="F-01") as caught:
-        table = nx.run_pipeline(pipe, start=DAY, end="2020-01-10", snapshot=str(root)).table
-    assert len(f01(caught.list)) == 1
-    assert len(table) > 5
-    assert all(math.isnan(v) for c in OHL for v in table[c].to_pylist())
+    computed: list[object] = []
+
+    def spans(*args: object) -> list[tuple[int, int]]:
+        computed.append(args)
+        return []
+
+    monkeypatch.setattr(_chunks, "spans", spans)
+    pipe = nx.Pipeline({"c": nx.Price.close.latest, "x": getattr(nx.Price, column).latest})
+    with pytest.raises(nx.CapabilityError) as raised:
+        nx.run_pipeline(pipe, start=DAY, end="2020-01-10", snapshot=str(root))
+    text = str(raised.value)
+    assert text.startswith("CapabilityError [E18]")
+    assert f"Price.{column} is not in snapshot" in text
+    assert "tds:equity-daily-core@1.0 requires it" in text
+    assert not computed
 
 
-def test_f01_when_one_year_file_lacks_them(tmp_path: Path) -> None:
-    """4.5 F-01 holds for a market when any of its files lacks the columns, not only when every
-    file does: 2019's file without them, 2020's with them, is E30 with the 2019 rows."""
+@pytest.mark.parametrize("drop", [True, False], ids=["left out", "null"])
+def test_one_year_file_without_open(drop: bool, tmp_path: Path) -> None:
+    """#705 (2026-11-22): 2019's file without `open`, `high`, `low`, 2020's with them, breaks
+    TDS 3.6 (every file of a dataset has the same columns): E14 at open, whatever the profile.
+    The same columns null in every row of 2019's file are data, as a halted session's null is:
+    the package opens and 2019's opens read NaN."""
     root = make_snapshot(tmp_path / "p", preset="small", markets=("KR",), n_kr=2,
                          start=dt.date(2019, 12, 2), end=dt.date(2020, 1, 31))  # fmt: skip
     data = json.loads((root / "tds.json").read_text(encoding="utf-8"))
     bars = next(d for d in data["datasets"] if d["kind"] == "bars")
     [f2019] = [f for f in bars["files"] if "year=2019" in f["path"]]
-    table = pq.read_table(part := root / f2019["path"]).drop_columns(list(OHL))
-    pq.write_table(table, part)
+    table = pq.read_table(part := root / f2019["path"])
+    for c in OHL:
+        table = table.set_column(table.schema.get_field_index(c), c, pa.nulls(len(table)))
+    pq.write_table(table.drop_columns(list(OHL)) if drop else table, part)
     f2019["bytes"] = part.stat().st_size
     (root / "tds.json").write_text(json.dumps(data), encoding="utf-8")
     write_hashes(root)
-    with pytest.warns(UserWarning, match="F-01") as caught:
-        snapshot = nx.open(str(root))
-    assert f"column open, {len(table)}" in f01(caught.list)[0]
-    assert {r.column for r in snapshot.fallbacks if r.id == "F-01"} == set(OHL)
+    if drop:
+        with pytest.raises(nx.SnapshotError, match="has no column high, low, open, which other"):
+            nx.open(str(root))
+        return
+    found = latest(root, "open", day="2019-12-30")
+    assert found
+    assert all(math.isnan(v) for v in found.values())
 
 
-def test_f01_undecided_without_footer_statistics(tmp_path: Path) -> None:
-    """Without footer statistics, null in every row is not known without reading the rows,
-    which open does not do: no F-01, the cells NaN as stored."""
-    root = make_snapshot(tmp_path / "p", preset="tiny", markets=("KR",))
+def test_a_column_without_footer_statistics_is_read_then_e18(tmp_path: Path) -> None:
+    """Without footer statistics, null in every row is not in the footer, so open reads that
+    one column (#705 Decisions 50): null in every row, a run reading it is E18, never NaN
+    passed on in silence."""
+    root = make_snapshot(tmp_path / "p", preset="tiny", markets=("KR",), degrade=["no_ohlc"])
     without_ohl(root, "KR", drop=False, stats=False)
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        values = latest(root, "open")
-    assert not f01(caught)
-    assert all(math.isnan(v) for v in values.values())
+    with pytest.raises(nx.CapabilityError, match=r"Price\.open is not in snapshot"):
+        latest(root, "open")
