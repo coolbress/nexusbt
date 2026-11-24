@@ -63,18 +63,57 @@ def spec(vector: dict[str, Any]) -> list[tuple[str, str]]:
     return [(c["name"], c["type"]) for c in vector["columns"]]
 
 
-@pytest.mark.parametrize("vector", VECTORS["vectors"], ids=lambda v: v["name"])
+TABLES = [v for v in VECTORS["vectors"] if "rows" in v]  # a logical table; else files (below)
+
+
+def _published(vector: dict[str, Any]) -> bytes:
+    """A vector's bytes: one stream, or a partitioned dataset's joined bytes (TDS 4.5 step 6)
+    after each partition's own stream is matched."""
+    if "partitioning" not in vector:
+        return encode_table(arrow_table(vector), spec(vector), vector["key"])
+    names = [p["name"] for p in vector["partitioning"]]
+    at = [spec(vector).index(c) for c in spec(vector) if c[0] in names]
+    digests = {}
+    for part in vector["partitions"]:
+        mine = [r for r in vector["rows"] if [r[i] for i in at] == part["values"]]
+        data = encode_table(arrow_table({**vector, "rows": mine}), spec(vector), vector["key"])
+        assert (data.hex(), hashlib.sha256(data).hexdigest()) == (part["bytes"], part["sha256"])
+        digests[b"".join(ref_encoder.text(str(v)) for v in part["values"])] = data
+    hashed = {n: hashlib.sha256(d).digest() for n, d in digests.items()}
+    return tds_hashes.joined(vector["partitioning"], hashed)
+
+
+@pytest.mark.parametrize("vector", TABLES, ids=lambda v: v["name"])
 def test_vectors_match_published(vector: dict[str, Any]) -> None:
-    data = encode_table(arrow_table(vector), spec(vector), vector["key"])
+    data = _published(vector)
     assert data.hex() == vector["bytes"]
     assert hashlib.sha256(data).hexdigest() == vector["sha256"]
     assert not [n for n in vector.get("absent", []) if f"\n{n}\t".encode() in data]
 
 
-@pytest.mark.parametrize("vector", VECTORS["vectors"], ids=lambda v: v["name"])
+@pytest.mark.parametrize("vector", TABLES, ids=lambda v: v["name"])
 def test_reference_encoder_matches_pyarrow_path(vector: dict[str, Any]) -> None:
+    if "partitioning" in vector:
+        names = [p["name"] for p in vector["partitioning"]]
+        joined, _ = ref_encoder.partitioned(spec(vector), vector["key"], vector["rows"], names)
+        assert joined == _published(vector)
+        return
     reference = ref_encoder.encode(spec(vector), vector["key"], vector["rows"])
     assert reference == encode_table(arrow_table(vector), spec(vector), vector["key"])
+
+
+@pytest.mark.parametrize("vector", [v for v in VECTORS["vectors"] if "files" in v],
+                         ids=lambda v: v["name"])  # fmt: skip
+def test_vectors_of_files_match_published(vector: dict[str, Any], tmp_path: Path) -> None:
+    """The same values split into files another way, in another order: one hash (#725 160)."""
+    names = [c["name"] for c in vector["columns"]]
+    parts = {f"bars/{rel}": arrow_table({**vector, "rows": rows}) for rel, rows in
+             vector["files"].items()}  # fmt: skip
+    dataset = {**BARS, "partitioning": vector["partitioning"], "key": vector["key"]}
+    assert names == ["instrument_id", "session_date", "close"]
+    assert value_hash(package(tmp_path, dataset, parts), "bars_1d") == vector["sha256"]
+    (same,) = (v for v in VECTORS["vectors"] if v["name"] == vector["same_as"])
+    assert vector["sha256"] == same["sha256"]
 
 
 def package(root: Path, dataset: dict[str, Any], parts: dict[str, pa.Table], **write: Any) -> Path:
@@ -125,6 +164,32 @@ def test_partition_columns_from_path(tmp_path: Path) -> None:
     assert value_hash(package(tmp_path / "a", BARS, PARTS), "bars_1d") == PUBLISHED
     moved = {k.replace("US/year=2024", "US/year=2025"): v for k, v in PARTS.items()}
     assert value_hash(package(tmp_path / "b", BARS, moved), "bars_1d") != PUBLISHED
+
+
+def test_two_partitionings_of_the_same_values_hash_apart(tmp_path: Path) -> None:
+    """One logical table split by `obs_status` or by `price_type`, both "traded": the same
+    partition names and rows; the joined bytes name the columns (#725 Decisions 198)."""
+    row = {"instrument_id": ["US:B"], "session_date": [dt.date(2024, 1, 3)], "close": [10.0]}
+    hashes = []
+    for by, other in (("obs_status", "price_type"), ("price_type", "obs_status")):
+        dataset = {**BARS, "partitioning": [{"name": by, "type": "code"}]}
+        part = {f"bars/{by}=traded/part-00000.parquet": pa.table({**row, other: ["traded"]})}
+        hashes.append(value_hash(package(tmp_path / by, dataset, part), "bars_1d"))
+    assert hashes[0] != hashes[1]
+
+
+def test_a_partition_is_one_some_row_holds(tmp_path: Path) -> None:
+    """An empty file in a partition of its own adds no partition; with no rows at all the
+    dataset joins none (TDS 4.5 step 6)."""
+    empty = US.slice(0, 0)
+    more = {**PARTS, "bars/market=JP/year=2024/part-00000.parquet": empty}
+    assert value_hash(package(tmp_path / "a", BARS, more), "bars_1d") == PUBLISHED
+    none = {"bars/market=JP/year=2024/part-00000.parquet": empty}
+    data = tds_hashes.joined([MARKET, YEAR], {})
+    expected = hashlib.sha256(data).hexdigest()
+    assert value_hash(package(tmp_path / "b", BARS, none), "bars_1d") == expected
+    names = b"\x02\x00\x00\x00\x06\x00\x00\x00market\x04\x00\x00\x00year"
+    assert data == b"TDSP1\n" + names + b"\x00\x00\x00\x00"  # no partition
 
 
 def test_bars_without_a_key_take_the_schema_key_of_their_freq(tmp_path: Path) -> None:
@@ -370,7 +435,7 @@ def test_semantic_json_holds_every_listed_key(tmp_path: Path) -> None:
         '"key":["instrument_id","session_date"],"kind":"bars","name":"bars_1d",'
         '"params":{"freq":"1d"},"pit_quality":null,"price_exponent":-9,"schema_version":null,'
         f'"size_exponent":0,"units":{{}},"value_sha256":"{PUBLISHED}"}}],"editions":null,'
-        '"hash_spec":"tds-hash-1","id_namespaces":null,"markets":null,"policies":null,'
+        '"hash_spec":"tds-hash-2","id_namespaces":null,"markets":null,"policies":null,'
         '"profiles":null,"roll_rules":null,"tds_version":"1.0"}'
     )
 
@@ -394,15 +459,16 @@ def test_file_value_hash_written(tmp_path: Path, capsys: pytest.CaptureFixture[s
     printed = tds_hash(pkg, capsys, "--write")
     written = json.loads((pkg / "tds.json").read_text())
     assert (written["title"], written["producer"]) == ("kept", {"name": "p"})
-    assert written["hashes"] == {"hash_spec": "tds-hash-1", **{
+    assert written["hashes"] == {"hash_spec": "tds-hash-2", **{
         k: printed[k] for k in ("physical_sha256", "value_sha256", "semantic_sha256")}}  # fmt: skip
     (dataset,) = written["datasets"]
     assert dataset["value_sha256"] == printed["bars_1d"] == PUBLISHED
+    (vector,) = (v for v in VECTORS["vectors"] if v["name"] == "partition_columns")
     for entry in dataset["files"]:
         assert entry["sha256"] == hashlib.sha256((pkg / entry["path"]).read_bytes()).hexdigest()
-        one = {entry["path"]: PARTS[entry["path"]]}
-        alone = package(tmp_path / entry["path"].split("/")[1], BARS_TWO, one)
-        assert entry["value_sha256"] == value_hash(alone, "bars_1d")  # that file's rows only
+        # that file's rows only, one stream: alone in its partition, the partition's hash
+        (own,) = (p for p in vector["partitions"] if f"market={p['values'][0]}/" in entry["path"])
+        assert entry["value_sha256"] == own["sha256"]
         assert printed[entry["path"]] == f"{entry['sha256']} {entry['value_sha256']}"
     assert tds_hash(pkg, capsys) == printed  # writing the hashes does not change them
 

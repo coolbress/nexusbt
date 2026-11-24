@@ -244,7 +244,7 @@ def write(
              **dg.fields(name, FIELDS.get(name, {}), degrade), **cover[name], "files": entries}
             for name, entries in files.items()
         ],
-        "hashes": {"hash_spec": "tds-hash-1"},
+        "hashes": {"hash_spec": "tds-hash-2"},
         "writer": {"name": PRODUCER, "row_group_rows": ROW_GROUP},
     }  # fmt: skip
     (root / "tds.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")

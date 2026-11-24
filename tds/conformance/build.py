@@ -116,7 +116,7 @@ def base() -> Package:
             | {"files": [{"path": file, "rows": ROWS.get(file, 1), "bytes": len(files[file])}]}
             for name, kind, path, file, extra in datasets
         ],
-        "hashes": {"hash_spec": "tds-hash-1"},
+        "hashes": {"hash_spec": "tds-hash-2"},
         "writer": {"name": "nexusbt-tds conformance", "row_group_rows": 1},
     }
     return manifest, files

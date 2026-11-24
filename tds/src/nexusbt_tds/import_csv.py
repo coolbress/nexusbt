@@ -29,7 +29,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from ._mapping import read_mapping
-from .hash import write_hashes
+from .hash import HASH_SPEC, write_hashes
 from .manifest import MANIFEST, TDS_DRAFT
 from .schemas.verify import SCHEMA_DIR
 
@@ -114,7 +114,7 @@ def import_csv(mapping: Path, out: Path) -> Path:
         "profiles": profiles,
         "id_namespaces": spec.get("id_namespaces", {code: "instrument ids as the CSV files give"}),
         "markets": {code: {k: v for k, v in market.items() if k not in _NOT_MARKETS}},
-        "datasets": datasets, "hashes": {"hash_spec": "tds-hash-1"},
+        "datasets": datasets, "hashes": {"hash_spec": HASH_SPEC},
         "writer": {"name": "pyarrow", "version": pa.__version__},
     }  # fmt: skip
     out.mkdir(parents=True, exist_ok=True)

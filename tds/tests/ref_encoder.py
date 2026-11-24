@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import datetime as dt
 import functools
+import hashlib
 import struct
 from typing import Any
 
@@ -68,3 +69,24 @@ def encode(columns: list[tuple[str, str]], key: list[str], rows: list[list[Any]]
     body = b"".join(cell(t, r[i]) for r in sorted(rows, key=functools.cmp_to_key(by))
                     for i, (_, t) in enumerate(columns))  # fmt: skip
     return head + body
+
+
+def text(v: str) -> bytes:
+    return le(len(v.encode()), 4, signed=False) + v.encode()
+
+
+def partitioned(
+    columns: list[tuple[str, str]], key: list[str], rows: list[list[Any]], partitioning: list[str]
+) -> tuple[bytes, dict[tuple[Any, ...], bytes]]:
+    """Step 6: the joined bytes and each partition's own stream, by its values (a row's
+    partition values in `partitioning` order, as 3.6's text: a date is already its text)."""
+    at = [[n for n, _ in columns].index(p) for p in partitioning]
+    groups: dict[tuple[Any, ...], list[list[Any]]] = {}
+    for r in rows:
+        groups.setdefault(tuple(r[i] for i in at), []).append(r)
+    streams = {v: encode(columns, key, g) for v, g in groups.items()}
+    named = sorted((b"".join(text(str(x)) for x in v), v) for v in streams)
+    out = b"TDSP1\n" + le(len(partitioning), 4, signed=False) + b"".join(map(text, partitioning))
+    out += le(len(named), 4, signed=False)
+    out += b"".join(n + hashlib.sha256(streams[v]).digest() for n, v in named)
+    return out, streams
