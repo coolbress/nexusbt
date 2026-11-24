@@ -1,6 +1,7 @@
 # 2. Read TDS packages directly, no bundle step; one stable key `instrument_id`
 
 - Status: Accepted
+- Amended by: [ADR 0050](0050-tools-write-the-instrument-id-and-symbol-periods-live-in-one-place.md) (2026-11-24)
 - Date: 2026-10-28
 - Spec: §1.2, §3.2, §4
 
