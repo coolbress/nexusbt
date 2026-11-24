@@ -208,6 +208,9 @@ def test_package_defaults_and_layout(tmp_path: Path) -> None:
     bars = next(d for d in manifest["datasets"] if d["kind"] == "bars")
     assert (bars["pit_quality"], bars["availability"]) == ("backfilled", {"rule": "ts_end"})
     assert bars["files"][0]["path"] == "bars/freq=1d/market=US/year=2024/part-00000.parquet"
+    # the folders declared, so 4.5 step 6 hashes them, and each partition listed (#725 203)
+    assert [p["name"] for p in bars["partitioning"]] == ["market", "year"]
+    assert [p["values"] for p in bars["partitions"]] == [["US", 2024]]
     assert check(out, level="full").error_count == 0
     with pytest.raises(CsvImportError, match="not empty"):  # never writes over a folder
         import_csv(mapping, out)

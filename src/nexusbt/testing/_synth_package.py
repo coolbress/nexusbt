@@ -53,9 +53,12 @@ def _typed(*pairs: tuple[str, str]) -> list[dict[str, str]]:
 
 
 #: Each dataset's tds.json fields besides its name, kind, path and files.
+#: The `market=`/`year=` folders `_daily` writes, declared (TDS 3.6, 4.5 step 6; #725 203).
+PARTITIONING = [{"name": "market", "type": "code"}, {"name": "year", "type": "i16"}]
 FIELDS: dict[str, dict[str, Any]] = {
     "bars_1d": {
         "kind": "bars", "path": "bars/freq=1d", "availability": {"rule": "ts_end"},
+        "partitioning": PARTITIONING,
         "params": {"freq": "1d", "price_basis": "raw", "density": "dense", "bar_time": "session"},
         "columns": _typed(("ts_start", "ts_us"), ("ts_end", "ts_us"))},
     # TDS 5.3, 5.14, 5.20: the sort each is written in, so K002 judges it (#412)
@@ -68,9 +71,11 @@ FIELDS: dict[str, dict[str, Any]] = {
     "delistings": {"availability": {"exit": "ts_exit_known", "value": "ts_value_available"}},
     "tradability_daily": {
         "path": "tradability_daily/freq=1d", "params": {"availability_by_column": BY_COLUMN},
+        "partitioning": PARTITIONING,
         "columns": _typed((ID, "id"), ("session_date", "date"))},
     "eligibility_daily": {  # TDS 5.20: the rule is session_close, a missing row means false
         "availability": {"rule": "session_close"}, "params": {"missing_means": False},
+        "partitioning": PARTITIONING,
         "sort": ["session_date", ID, "rule_id"],
         "columns": _typed(("rule_id", "id"), (ID, "id"), ("session_date", "date"),
                           ("is_eligible", "bool"), ("ts_available", "ts_us"))},

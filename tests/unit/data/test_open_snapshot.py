@@ -172,7 +172,8 @@ def test_edited_dataset_value_hash_is_h003_at_open(
     """ADR 0042 (#455): a dataset `value_sha256` edited after the hashes were written no longer
     hashes to `hashes.value_sha256`, so the open stops with E14 `TDS-H003`; no row is hashed."""
     edited = shutil.copytree(tiny, tmp_path / "edited")
-    edit_manifest(edited, lambda d: dataset(d, "bars_1d").update(value_sha256="0" * 64))
+    # an unpartitioned dataset: a partitioned one's partitions would not join to it (H005)
+    edit_manifest(edited, lambda d: dataset(d, "instruments").update(value_sha256="0" * 64))
     monkeypatch.setattr("nexusbt.data.package_hashes", lambda _: pytest.fail("rows hashed"))
     with pytest.raises(SnapshotError, match="TDS-H003") as raised:
         open_snapshot(DataConfig(path=edited, verify=VerifyPolicy.MANIFEST))

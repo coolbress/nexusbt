@@ -114,13 +114,6 @@ def _text(value: str) -> bytes:
     return struct.pack("<I", len(data)) + data
 
 
-def partition_name(values: Mapping[str, Any], partitioning: Sequence[Mapping[str, Any]]) -> bytes:
-    """A partition's name (TDS 4.5 step 6): per `partitioning` column in order, the 3.6
-    canonical text of its value; `values` are the path's, as `_partitions` reads them."""
-    texts = (values[p["name"]].as_py() for p in partitioning)
-    return b"".join(_text(v.isoformat() if isinstance(v, dt.date) else str(v)) for v in texts)
-
-
 def joined(partitioning: Sequence[Mapping[str, Any]], digests: Mapping[bytes, bytes]) -> bytes:
     """The bytes a partitioned dataset's value hash is taken over (TDS 4.5 step 6): the
     `partitioning` column names, then each partition's name and the 32 bytes of its value hash,
@@ -379,11 +372,30 @@ def by_freq(value: object, params: Mapping[str, Any]) -> list[str] | None:
     return value if isinstance(value, list) else None
 
 
+def partition_values(path: str, partitioning: list[dict[str, Any]]) -> list[Any]:
+    """A file's partition values from its path as `partitions[].values` writes them (TDS 4.2):
+    in `partitioning` order, an integer as a number, a date or text as its 3.6 text."""
+    parts = _partitions(path, partitioning, [])
+    texts = (parts[p["name"]].as_py() for p in partitioning)
+    return [v.isoformat() if isinstance(v, dt.date) else v for v in texts]
+
+
+def name_of(values: Sequence[Any]) -> bytes:
+    """`partitions[].values` as TDS 4.5 step 6's partition name: per `partitioning` column, the
+    3.6 canonical text of its value."""
+    return b"".join(_text(str(v)) for v in values)
+
+
 def dataset_hashes(
-    root: Path, entry: Mapping[str, Any], folder: Path, spilled: list[Path]
+    root: Path,
+    entry: Mapping[str, Any],
+    folder: Path,
+    spilled: list[Path],
+    partitions: list[dict[str, Any]] | None = None,
 ) -> tuple[str, dict[str, str]]:
     """The dataset's value hash and each file's, in one read of its rows (TDS 4.5); sorted runs
-    go to `folder` when the dataset is more than one batch."""
+    go to `folder` when the dataset is more than one batch. A partitioned dataset's partitions,
+    `{"values", "value_sha256"}` in step 6's order, are added to `partitions` when given."""
     from .schemas.verify import dictionary_schemas, load_schemas
 
     schemas = load_schemas() | dictionary_schemas()
@@ -405,9 +417,11 @@ def dataset_hashes(
             raise HashError(f"{entry['name']}: key column {', '.join(missing)} is not in the data")
     partitioning = entry.get("partitioning") or []
     groups: dict[bytes, list[int]] = {}  # partition name → its files; b"": all, unpartitioned
+    values: dict[bytes, list[Any]] = {}
     for i, f in enumerate(entry["files"]):
-        name = partition_name(_partitions(f["path"], partitioning, []), partitioning)
-        groups.setdefault(name, []).append(i)
+        said = partition_values(f["path"], partitioning)
+        values[name_of(said)] = said
+        groups.setdefault(name_of(said), []).append(i)
     # one stream unpartitioned; else one per partition, each with the dataset's header (step 6),
     # sorted alone: the temporary files a sort writes hold one partition at most (#725 160)
     whole: dict[bytes, Any] = {}
@@ -424,6 +438,10 @@ def dataset_hashes(
     if not partitioning:
         return (whole.get(b"") or hashlib.sha256(_header(columns))).hexdigest(), files
     digests = {n: h.digest() for n, h in whole.items()}
+    if partitions is not None:
+        partitions += [
+            {"values": values[n], "value_sha256": digests[n].hex()} for n in sorted(digests)
+        ]
     return hashlib.sha256(joined(partitioning, digests)).hexdigest(), files
 
 
@@ -514,9 +532,13 @@ def file_sha256(path: Path) -> str:
 
 
 def _inventory(
-    root: Path, folder: Path, spilled: list[Path]
+    root: Path,
+    folder: Path,
+    spilled: list[Path],
+    partitions: dict[str, list[dict[str, Any]]],
 ) -> tuple[dict[str, str], dict[str, dict[str, str]], list[Any]]:
-    """Per dataset its value hash, per file its sha256 and value hash, and the semantic entries."""
+    """Per dataset its value hash, per file its sha256 and value hash, and the semantic entries;
+    a partitioned dataset's partitions go to `partitions`."""
     datasets: dict[str, str] = {}
     files: dict[str, dict[str, str]] = {}
     semantic = []
@@ -527,7 +549,8 @@ def _inventory(
                 if f["path"] in files:
                     raise HashError(f"{f['path']} is listed twice (TDS-M013)")
                 files[f["path"]] = {"sha256": file_sha256(inside(root, f["path"]))}
-            datasets[name], values = dataset_hashes(root, entry, folder, spilled)
+            parts = partitions.setdefault(name, []) if entry.get("partitioning") else None
+            datasets[name], values = dataset_hashes(root, entry, folder, spilled, parts)
             for path, value in values.items():
                 files[path]["value_sha256"] = value
         except HashError:
@@ -581,25 +604,27 @@ def _semantic(root: Path, entries: list[Any]) -> str:
 
 def semantic_json(path: Path) -> str:
     """The canonical JSON the semantic hash is taken over (TDS 4.5)."""
-    return _semantic(Path(path), _inventory(Path(path), spill_folder(path, None), [])[2])
+    return _semantic(Path(path), _inventory(Path(path), spill_folder(path, None), [], {})[2])
 
 
 def package_hashes(
     path: Path, *, tmp_dir: Path | None = None, spilled: list[Path] | None = None
 ) -> dict[str, Any]:
     """Every TDS 4.5 hash of the package: `physical_sha256`, `value_sha256`, `semantic_sha256`,
-    `datasets` {name: value_sha256} and `files` {path: {sha256, value_sha256}}. `spilled` gets
-    each temporary file of sorted runs written (in `tmp_dir`, else beside the package), each
-    already removed."""
+    `datasets` {name: value_sha256}, `files` {path: {sha256, value_sha256}} and `partitions`
+    {name: [{values, value_sha256}]} of each partitioned dataset. `spilled` gets each temporary
+    file of sorted runs written (in `tmp_dir`, else beside the package), each already removed."""
     root = Path(path)
     spilled = [] if spilled is None else spilled
-    datasets, files, entries = _inventory(root, spill_folder(root, tmp_dir), spilled)
+    partitions: dict[str, list[dict[str, Any]]] = {}
+    datasets, files, entries = _inventory(root, spill_folder(root, tmp_dir), spilled, partitions)
     return {
         "physical_sha256": _lines({p: f["sha256"] for p, f in files.items()}),
         "value_sha256": _lines(datasets),
         "semantic_sha256": _sha256(_semantic(root, entries).encode("utf-8")),
         "datasets": datasets,
         "files": files,
+        "partitions": partitions,
     }
 
 
@@ -622,6 +647,8 @@ def write_hashes(
     data = json.loads((root / MANIFEST).read_text(encoding="utf-8"))
     for entry in (d for d in data["datasets"] if isinstance(d, dict)):  # as Manifest.datasets
         entry["value_sha256"] = hashes["datasets"][entry["name"]]
+        if entry["name"] in hashes["partitions"]:  # TDS 4.2: required where partitioned
+            entry["partitions"] = hashes["partitions"][entry["name"]]
         for f in entry["files"]:
             f.update(hashes["files"][f["path"]])
     data["hashes"] = {k: hashes[k] for k in ("physical_sha256", "value_sha256", "semantic_sha256")}

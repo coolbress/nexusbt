@@ -519,6 +519,28 @@ def _hashes(code: str, wrong: bool) -> Change:
     return change
 
 
+#: The base bars' path partitions, declared (TDS 3.6, 4.5 step 6).
+PARTITIONING = [{"name": "market", "type": "code"}, {"name": "year", "type": "i16"}]
+
+
+def _partitioned(wrong: bool) -> Change:
+    """Bars declared partitioned, with their `partitions[]` and `value_sha256` (TDS 4.2) from
+    the checker's own hashes; the one partition's hash `WRONG` if `wrong` (H005)."""
+
+    def change(m: dict[str, Any], files: Files) -> None:
+        from nexusbt_tds.hash import package_hashes
+
+        bars(m)["partitioning"] = PARTITIONING
+        with tempfile.TemporaryDirectory() as tmp:
+            hashes = package_hashes(write(Path(tmp), m, files))
+        bars(m)["value_sha256"] = hashes["datasets"]["bars_1d"]
+        bars(m)["partitions"] = hashes["partitions"]["bars_1d"]
+        if wrong:
+            bars(m)["partitions"][0]["value_sha256"] = WRONG
+
+    return change
+
+
 #: The base session's close, 2024-01-02 21:00Z, so that a bar's `ts_end` is its session's (T005).
 TS = pa.array([dt.datetime(2024, 1, 2, 21, tzinfo=dt.UTC)], pa.timestamp("us", "UTC"))
 VERSION_1_9 = {"tds.dataset": "bars_1d", "tds.schema_version": "1.9"}  # M011: the file says so too
@@ -941,6 +963,7 @@ CASES: dict[str, tuple[Change, Change]] = {
         code: (_hashes(code, False), _hashes(code, True))
         for code in ("TDS-H001", "TDS-H002", "TDS-H003", "TDS-H004")
     },
+    "TDS-H005": (_partitioned(False), _partitioned(True)),
 }
 
 #: Code → the datasets its fail package breaks: the checker reports that code once for each,
@@ -958,7 +981,7 @@ FAILS: dict[str, tuple[str | None, ...]] = {
         "TDS-M004", "TDS-M006", "TDS-M009", "TDS-M010", "TDS-M011", "TDS-M012", "TDS-M013",
         "TDS-S001", "TDS-S002", "TDS-S004", "TDS-S005", "TDS-S008", "TDS-S009", "TDS-S010",
         "TDS-T006", "TDS-D002", "TDS-K002", "TDS-K003", "TDS-K004", "TDS-R001", "TDS-R003",
-        "TDS-H001", "TDS-H002", "TDS-H004", "TDS-S006",
+        "TDS-H001", "TDS-H002", "TDS-H004", "TDS-H005", "TDS-S006",
     ], ("bars_1d",)),
     **dict.fromkeys([
         "TDS-S003", "TDS-S007", "TDS-R002", "TDS-R004", "TDS-R005", "TDS-R006",
