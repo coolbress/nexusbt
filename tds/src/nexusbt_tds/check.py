@@ -510,8 +510,12 @@ _BITS = {"i8": 8, "i16": 16, "i32": 32, "i64": 64}
 #: Without tds.json `partitioning`: 3.6's examples, any other a code (rule chosen in #56).
 _PARTITION_TYPE = {"year": "i16", "date": "date"}
 #: Columns every file holds though a cell may be null: S001 without them. TDS 5.27's key column
-#: `price_from` (null = 0), which the key and the value hash read (#705 C5, #725 Decisions 176).
-PRESENT: Mapping[str, tuple[str, ...]] = {"market_rules": ("price_from",)}
+#: `price_from` (null = 0), which the key and the value hash read (#705 C5, #725 Decisions 176);
+#: TDS 5.13's range and policy, null only on an `unobserved` row (V040; #705 Decisions 8).
+PRESENT: Mapping[str, tuple[str, ...]] = {
+    "market_rules": ("price_from",),
+    "delistings": ("ret_lo", "ret_hi", "policy_id"),
+}
 
 
 def _required(null: object, params: Mapping[str, Any]) -> bool:
