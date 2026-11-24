@@ -5,7 +5,7 @@ Appendix B of the spec (`docs/spec/engine-spec-v3.4.md`) with the repository's s
 Columns:
 
 - **Spec status** (B.1 and B.2 only): appendix B's own word, unchanged. `v1` = implemented by this spec, `changed` = implemented with a corrected meaning, `later` = after v1 (with the reason), `reserved` = name only.
-- **Status**: the repository's word. `planned` = a ticket exists and its pull request has not merged; `implemented` = the pull request merged (its number goes in the Ticket column); `deferred` = `later`, `reserved`, a `v1.x` ticket, or no engine ticket at all (the item is the spec's own, the producer's or the TDS document's: R-21, R-44, R-48, TDS-D22, RV-I06, RV-D9, R4-27); `replaced` = appendix B says the item was folded into another id (no row says so today).
+- **Status**: the repository's word. `planned` = a ticket exists and its pull request has not merged; `implemented` = the pull request merged (its number goes in the Ticket column); `deferred` = `later`, `reserved`, a `v1.x` ticket, or no engine ticket at all (the item is the spec's own, the producer's or the TDS document's: R-21, R-44, R-48, TDS-D22, RV-I06, RV-D9, R4-27); `replaced` = appendix B says the item was folded into another id or superseded (the rows #752 superseded on 2026-11-24 carry that issue in the Ticket column).
 - **Ticket**: the representative ticket as appendix B names it, with the GitHub issue number once the issue exists (the M0 and M1 tickets and T6.16 today; a range such as `T0.13a~T0.16b` is left as written) and the pull request number once it merges.
 
 The pull request that implements a ticket moves its rows to `implemented` and adds the pull request number (spec §9.5). The spec columns change only when the spec changes; this file never corrects the spec. `tests/docs/test_requirements_map.py` checks that every id of appendix B has exactly one row here.
@@ -30,14 +30,14 @@ The pull request that implements a ticket moves its rows to `implemented` and ad
 | R-14 | plan pruning | 5.3.2 | M1 | v1 | planned | T1.7a/b (#239, #240) |
 | R-15 | truncation test | 6.5 | M6 | changed (diagnostic, date priority SC-05, A-25, A-50) | planned | T6.9 |
 | R-16 | labels only in target | 6.5 | M2 | v1 | planned | T2.6 |
-| R-17 | known_on rule | 5.1 | M2 | changed (`available_at <= decision_ts`, fundamentals_state) | planned | T2.1, T2.2 |
+| R-17 | known_on rule | 5.1 | M2 | changed (`available_at <= decision_ts`, fundamentals_state (leaves with its code in #752's R3)) | planned | T2.1 |
 | R-18 | adjustment as of that day | 5.3.3 | M1 | v1 | planned | T1.8 (#241) |
 | R-19 | units, E5, `.to()` | 3.3, 5.1.5 | M2 | v1 | planned | T2.5 |
 | R-20 | reading snapshots directly | chapter 4 (TDS v1) | M1 | v1 | planned | T1.1a/b (#232, #233) |
 | R-21 | export list | 4.5, 10.2 | E1 | v1 (reference producer side) | deferred | reference producer |
 | R-22 | column dictionary | 3.2, 4.6 | M1 | v1 | planned | T1.6 (#238) |
 | R-23 | trace columns, explain | 4.6, 3.9 | M2 | v1 | planned | T2.11 |
-| R-24 | external data known_on | 3.2 | M2 | v1 | planned | T2.6 |
+| R-24 | external data known_on | 3.2 | M2 | v1; superseded 2026-11-24 (#752) | replaced | #752 |
 | R-25 | cost table versions | 4.7, 5.6.8 | M3 | v1 | planned | T3.8, T4.5 |
 | R-26 | bench suite | chapter 7 | M6 | v1 | planned | T1.24 (#259) |
 | R-27 | automatic chunking | 5.3.8 | M6 | v1 | planned | T6.5 |
@@ -61,7 +61,7 @@ The pull request that implements a ticket moves its rows to `implemented` and ad
 | R-47 | period windows | 11.3 | E4 | later (A-36) | deferred | – |
 | R-48 | engine choice | 11.1 | E4 | changed (`panel` only, A-35) | deferred | – |
 | R-49 | ledger adapters | 5.9.6~5.9.7, 11.4 | M5 | v1 (paper), brokers later | planned | T5.1~T5.3, T5.7 |
-| R-50 | zipline comparison | 8.1 | M1~M3b | changed (scope narrowed, SC-12, A-57) | planned | T1.17 (#252), T1.18 (#253), T2.13, T3.17a, T3.17b |
+| R-50 | zipline comparison | 8.1 | M1~M3b | changed (scope narrowed, SC-12, A-57) | planned | T1.17 (#252), T1.18 (#253), T3.17a, T3.17b |
 | R-51 | future-information test list | 8.4 | M2, M6 | v1 | planned | T2.6, T6.9, T6.13 |
 | R-52 | survivorship, currency, segment tests | 8.4 | M2 | v1 | planned | T2.4, T2.5, T2.9 |
 | R-53 | documentation example tests | 8.5 | all | v1 | planned | T1.20 (#260) |
@@ -74,11 +74,11 @@ The pull request that implements a ticket moves its rows to `implemented` and ad
 | R-60 | pay-date estimate | 5.6.11 | M3 | v1 | planned | T3.10 |
 | R-61 | provisional costs | 5.6.8 | M3 | v1 | planned | T3.8 |
 | R-62 | sleeves, clocks | 5.1.3, 5.6.9 | M4 | v1 | planned | T4.1, T4.2 |
-| R-63 | fundamentals_state | 4.6, 5.3.5 | M2 | v1 | planned | T2.2 |
+| R-63 | fundamentals_state | 4.6, 5.3.5 | M2 | v1; superseded 2026-11-24 (#752) | replaced | #752 |
 | R-64 | zipline only as oracle | 2.5, 8.1 | M0 | v1 | planned | T0.2a (#45) |
 | R-65 | plinth loop | chapter 9 | M0 | v1 | planned | T0.1 (#44), T0.10 (#50) |
 | R-66 | TDS as the input contract | chapter 4, 2.3 | M0 | v1 | planned | T0.13a/b (#51, #55), T0.14a~c, T0.15a/b (#226, #227), T1.1a/b (#232, #233) |
-| R-67 | announcing fallbacks | 4.5 | M1~M3a | v1 | planned | T0.16a/b (#230; T0.16b not cut yet), T1.1b (#233), T2.2, T2.3, T2.4, T3.10, T3.11 |
+| R-67 | announcing fallbacks | 4.5 | M1~M3a | v1 | planned | T0.16a/b (#230; T0.16b not cut yet), T1.1b (#233), T2.3, T2.4, T3.10, T3.11 |
 | R-68 | market names are data, rules are packs | 4.7, 3.11 | M0, M4 | v1 | planned | T0.5a (#53), T1.1a (#232), T4.4, T4.11 |
 | R-69 | public first path (CSV → rerun) | 4.3, 8.5 | M1, M2 | v1 | planned | T1.22 (#257), T1.23 (#258), T2.17 |
 | R-70 | release gate | 9.1, 10.0 | M6 | v1 | planned | T6.15, T6.16 (#8) |
@@ -135,18 +135,18 @@ The pull request that implements a ticket moves its rows to `implemented` and ad
 | TDS-D4 | time unit us/ns | 4.6, 11.3 | planned | T0.13a/b (#51, #55) |
 | TDS-D5 | `country=` → `market=` | 4.6 | planned | T1.4 (#236) |
 | TDS-D6 | `instruments` | 4.6, 3.2 `Meta` | planned | T0.6 (#58), T1.6 (#238) |
-| TDS-D7 | `instrument_symbols` + `instrument_xref` | 4.6 | planned | T0.6 (#58) |
+| TDS-D7 | `instrument_symbols` + `instrument_xref` (`instrument_xref` superseded 2026-11-24, #752) | 4.6 | planned | T0.6 (#58) |
 | TDS-D8 | price limits and rule edition removed from the session table | 4.6, 5.6.5 | planned | T4.4 |
-| TDS-D9 | `shares_out` → `share_counts`, factor names | 3.2, 5.3.3, 5.3.5a | planned | T2.15, T1.8 (#241) |
-| TDS-D10 | `tradability_daily` columns, `trading_status_events` | 4.6, 5.6.5 | planned | T3.5a/b |
+| TDS-D9 | `shares_out` → `share_counts`, factor names — superseded 2026-11-24 (#752): share counts are user items (5.3.5a) | 3.2, 5.3.3, 5.3.5a | planned | T2.15, T1.8 (#241) |
+| TDS-D10 | `tradability_daily` columns, `trading_status_events` (`trading_status_events` superseded 2026-11-24, #752) | 4.6, 5.6.5 | planned | T3.5a/b |
 | TDS-D11 | `corporate_actions` columns and kinds | 4.6 correspondence table, 5.3.3–5.3.4, 5.6.10–5.6.12 | planned | T3.9–T3.11, T1.8 (#241) |
-| TDS-D12 | `classifications` two time axes | 4.6, 5.1.5, 5.3.6 | planned | T2.1, T2.3 |
+| TDS-D12 | `classifications` two time axes — superseded 2026-11-24 (#752) | 4.6, 5.1.5, 5.3.6 | replaced | #752 |
 | TDS-D13 | `delistings` | 4.6, 5.6.13 | planned | T3.11 |
-| TDS-D14 | `fundamentals_state` + `fundamentals_events` | 4.6, 5.3.5, 3.9 Explanation | planned | T2.2, T2.11 |
+| TDS-D14 | `fundamentals_state` + `fundamentals_events` — superseded 2026-11-24 (#752) | 4.6, 5.3.5, 3.9 Explanation | replaced | #752 |
 | TDS-D15 | benchmark = index instruments + bars | 4.6, 3.11, 5.7 | planned | T4.6 |
-| TDS-D16 | `eligibility_daily` + `universe_membership` | 3.6, 4.6, 5.1.5 | planned | T2.3, T2.4 |
+| TDS-D16 | `eligibility_daily` + `universe_membership` — superseded 2026-11-24 (#752) | 3.6, 4.6, 5.1.5 | replaced | #752 |
 | TDS-D17 | `fx_rates` | 4.6, 3.11 `[fx] series`, 5.1.5, 5.6.9 | planned | T2.5, T4.2 |
-| TDS-D18 | `feature_panels`/`label_panels` `name=` | 3.2, 3.11 `[panels]`, 4.6 | planned | T2.3, T2.7 |
+| TDS-D18 | `feature_panels`/`label_panels` `name=` — superseded 2026-11-24 (#752) | 3.2, 3.11 `[panels]`, 4.6 | replaced | #752 |
 | TDS-D19 | value hash (v2 logical hash) includes partition columns | 4.2, 5.9.4 | planned | T0.14c (#57) |
 | TDS-D20 | no partition columns inside files | 4.6 | planned | T0.13a/b (#51, #55), T1.4 (#236) |
 | TDS-D21 | checker stages and codes, E14 carries the TDS code | 4.4, 6.6 E14 | planned | T0.13a~T0.15b, T1.1a/b (#232, #233) |
@@ -167,7 +167,7 @@ The pull request that implements a ticket moves its rows to `implemented` and ad
 | RV-C06 | P0 | buyable quantity, intraday funds | 5.6.3, 5.6.7 | planned | T3.5b, T3.6, T3.8 |
 | RV-C07 | P0 | integer minor units, NAV bridge, cost attribution, annual linking | INV-06, 5.6.1, 5.6.8, 5.6.9, 5.7, 5.9.1 | planned | T3.3, T3.14, T4.10 |
 | RV-C08 | P0 | rectangular lookup, keys, after-the-fact attributes | 3.2, 4.6, 5.3.6 | planned | T0.14a/b (#224, #225), T2.1, T2.3 |
-| RV-C09 | P0 | missing eligibility = false, strict quality | 3.6, 4.4, 5.1.5, 4.8(10) | planned | T0.7 (#220), T2.1, T2.4 |
+| RV-C09 | P0 | missing eligibility = false (superseded 2026-11-24, #752, by the carry declaration of 5.3.5), strict quality | 3.6, 4.4, 5.1.5, 4.8(10) | planned | T0.7 (#220), T2.1, T2.4 |
 | RV-C10a | P0 | three hashes (physical, value, semantic) | 1.2, 4.2, 5.3.9, 5.9.2, 5.9.4 | planned | T0.14c (#57), T6.12, T6.4 |
 | RV-C10b | P1 | cache dependencies (captured constant globals, external inputs, query policy) | 5.3.7, 5.3.9, 6.5 | planned | T1.5 (#237), T1.12 (#246), T6.4 |
 | RV-C11 | P0 | property premises, `every` anchor, leakage tests, numeric grades | INV-03·11·13~15, 3.7, 5.3.10, 8.3, 8.4 | planned | T1.3 (#235), T1.7b (#240), T1.19 (#254), T1.21 (#255), T4.8, T6.2, T6.9 |
