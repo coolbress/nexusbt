@@ -68,7 +68,7 @@ COLUMNS = {
     ),
     "fx_rates": ("base", "quote", "rate"),
     "quotes": ("instrument_id", "bid_px", "ask_px"),
-    "delistings": ("delisting_id", "ret_lo", "ret_hi"),
+    "delistings": ("delisting_id", "ret_lo", "ret_hi", "policy_id", "exit_value_status"),
     "events": ("event_id", "instrument_id", "issuer_id", "series_id"),
 }
 SAID = {V001: "bar(s) whose high and low do not enclose open and close",
@@ -81,7 +81,8 @@ SAID = {V001: "bar(s) whose high and low do not enclose open and close",
         V020: "instrument(s) without a column their asset_class needs, issuer_id of an equity "
               "included where a declared profile holds fundamentals",
         V030: "locked or crossed quote(s), bid_px >= ask_px",
-        V040: "delisting(s) with ret_lo > ret_hi",
+        V040: "delisting(s) with ret_lo > ret_hi, or not unobserved with ret_lo, ret_hi or "
+              "policy_id null",
         V041: "event(s) with instrument_id, issuer_id and series_id all null",
         V050: "label column(s) also in feature_panels"}  # fmt: skip
 
@@ -284,8 +285,10 @@ def _broken(
         bid, ask = r["bid_px"], r["ask_px"]
         out += [V030] if None not in (bid, ask) and bid >= ask else []
     elif kind == "delistings":
-        lo, hi = r["ret_lo"], r["ret_hi"]
-        out += [V040] if None not in (lo, hi) and lo > hi else []
+        lo, hi = r["ret_lo"], r["ret_hi"]  # null only where the value is unobserved (#705 D8)
+        known = r["exit_value_status"] != "unobserved"
+        out += [V040] if (None not in (lo, hi) and lo > hi) or (
+            known and None in (lo, hi, r["policy_id"])) else []  # fmt: skip
     elif kind == "events" and r["instrument_id"] is r["issuer_id"] is r["series_id"] is None:
         out.append(V041)
     return out

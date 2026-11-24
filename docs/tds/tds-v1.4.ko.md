@@ -765,7 +765,7 @@ LEAN 계수 파일·Qlib `factor`·공급사 조정 종가만 있는 사용자�
 
 ### 5.13 `delistings` (상장폐지·종료 사건)
 
-열쇠 `delisting_id`. 정렬 (`instrument_id`, `exit_date`). 명세서 4.11과 생산자 정책 `exit-value-v1`의 뜻을 그대로 옮기고 이름만 TDS 규칙으로.
+열쇠 `delisting_id`. 정렬 (`instrument_id`, `exit_date`). 명세서 4.11의 뜻을 이름만 TDS 규칙으로 바꿔 그대로 잇는다. 생산자는 자기 규칙을 `policies.delisting`(4.2)과 줄마다의 `policy_id`에 이름 들고, 받은 값을 모를 때 줄이 무엇을 가지는지는 아래에 있다.
 
 | 칼럼 | 형 | null | 뜻 |
 |---|---|---|---|
@@ -782,14 +782,16 @@ LEAN 계수 파일·Qlib `factor`·공급사 조정 종가만 있는 사용자�
 | ret_observed_includes_distributions | bool | 예 | [v1.2, V31-04; v1.3, R3-05] 참 = `ret_observed`가 `last_trading_date` 뒤 배당락인 현금 분배(청산 분배 등)를 이미 담음(CRSP DLRET식) → 관측 총액 = `q·ref_units·(1 + r)`이고, 배당락 때 이미 기입한 그 분배를 빼서 남은 종료 금액을 정한다(배당락 때 아직 몰랐던 플래그로 과거 기입을 지우지 않음); 거짓 = 담지 않음 → 분배는 따로 기입하고 종료 = `q·ref_units·(1 + r)`(관측 금액은 분배를 뺀 값이므로 분배 계수를 **곱하지 않는다**; v1.2의 "분배만큼 계수를 곱한 기준"은 분배를 두 번 줄였다); null = 모름(그런 분배가 있으면 A011 W). 모름이면 소비자는 참·거짓 두 해석의 총 회수액(분배 + 종료) 가운데 **작은 쪽**을 쓰고 경고한다 — 분배를 두 번 세지 않는다(v1.3의 "거짓으로 봄"은 `r = 0` 관측에서 분배를 두 번 셈) [v1.4, R4F-05]. 정책값(`ret_policy`·`ret_lo`·`ret_hi`)에는 분배 뒤 남은 자본 기준(분배 계수를 곱한 기준)을 쓴다. `ref_units` = `ref_price` × 그 뒤 주식 수 단위 사건의 가격 계수 |
 | ts_value_available | ts_us | 예 | 관측 대가 공개 순간. 소비자는 이 순간 전에는 관측 대가를 판단 크기·현금에 쓰지 않는다(금액 모르는 권리) — null이면 `ts_exit_known`, 그것도 null이면 종료 세션 개장 [v1.1, RV-C01] |
 | ret_policy | f64 | 예 | 정책값(만든 쪽 규칙, `policy_id`) |
-| ret_lo, ret_hi | f64 | 아니오 | 손실 시나리오(상·하한 아님 — 소비자는 이것을 "가장 큰 부담"으로 부르지 않는다 [v1.3, R3-09]) |
-| policy_id | id | 아니오 | |
+| ret_lo, ret_hi | f64 | 예 | 손실 시나리오(상·하한 아님 — 소비자는 이것을 "가장 큰 부담"으로 부르지 않는다 [v1.3, R3-09]); `exit_value_status = unobserved`일 때만 null(아래) [2026-11-24, #705 결정 8] |
+| policy_id | id | 예 | `exit_value_status = unobserved`일 때만 null(아래) [2026-11-24, #705 결정 8] |
 | pay_date | date | 예 | 대가 지급일 |
 | handled_by_event_id | id | 예 | 주식 합병 등 `corporate_actions`가 처리하면 그 id(그때 종료가치 적용 안 함) |
 | reason_code | string | 예 | 원 사유 코드 |
 | evidence_id | string | 예 | |
 
-검사: A011(W, v1.2: `last_trading_date` 뒤 배당락 분배가 있는데 `ret_observed_includes_distributions`가 null), R008(`instruments.delisted_on`과 `exit_date` 일치), V040(`ret_lo <= ret_hi`), T011(`ts_value_available < ts_exit_known`이면 경고).
+검사: A011(W, v1.2: `last_trading_date` 뒤 배당락 분배가 있는데 `ret_observed_includes_distributions`가 null), R008(`instruments.delisted_on`과 `exit_date` 일치), V040(`ret_lo <= ret_hi`; `unobserved`가 아니면 `ret_lo`, `ret_hi`, `policy_id`가 null이 아님), T011(`ts_value_available < ts_exit_known`이면 경고).
+
+- **받은 값을 모르는 퇴장** [2026-11-24, #705 결정 8; #737]. 생산자가 종목이 떠났다는 것과 그때는 알지만 보유자가 무엇을 받았는지 모르면, 그 줄은 `exit_value_status = unobserved`이고 `ret_observed`와 `ret_policy`는 null이다; `ret_lo`, `ret_hi`, `policy_id`도 null일 수 있고, 표준은 그것들에 숫자를 가진 규칙을 이름 들지 않는다. `ref_date` = `last_trading_date`; `ref_price` = 그날까지 값이 있는 마지막 봉의 원종가; 마지막 거래일만 알면 `exit_date`는 종목 달력에서 그 다음 세션; 생산자가 모르면 `delist_type`은 `unknown`. `exit_value_status`가 `observed`나 `estimated`인 줄은 `ret_lo`, `ret_hi`, `policy_id`를 가진다(V040). null인 범위에 엔진이 무엇을 가정하는지는 엔진의 몫이다; 이 엔진의 것은 엔진 스펙 4.5(F-13)와 5.6.13이 말한다.
 
 ### 5.14 `share_counts` (주식 수, PIT)
 
@@ -1181,7 +1183,7 @@ tds export {zipline-bundle|nautilus-catalog|wide-parquet} ... # 9.8
 | TDS-V030 | W | 교차·잠긴 BBO |
 | TDS-V031 | W | 호가 재구성 뒤 교차 |
 | TDS-V032 | W | `params.sequence_consecutive_within`을 선언한 데이터셋의 그룹 안 순번 빈칸(5.6) |
-| TDS-V040 | E | `ret_lo > ret_hi` |
+| TDS-V040 | E | `ret_lo > ret_hi`; 또는 `exit_value_status`가 `unobserved`가 아닌 줄의 `ret_lo`, `ret_hi`, `policy_id`가 null (5.13; `full` 수준에서 읽음) [2026-11-24, #705 결정 8] |
 | TDS-V041 | W | `events` 행에 `instrument_id`·`issuer_id`·`series_id`가 모두 null [v1.4, R4F-EV-02] |
 | TDS-V050 | E | 라벨 칼럼 이름이 특징 표에도 있음 |
 | TDS-H001 | E | 파일 sha256 다름 |
@@ -1622,3 +1624,4 @@ datasets:
 - 2026-11-23: **v1.4** 안에서. 4.2, 5.5, 8.3 TDS-M003·TDS-M017, 9.5, 10.5: 이 선언들은 기본값이 없다. `tds_draft`는 필수이고, `bars` 데이터셋의 `params.price_basis`·`params.bar_time`·`params.density`와 `availability`는 적으며, 없거나 `null`이면 TDS-M003이다(전에는 2026-11-18 전의 본문으로, `raw`, `session`, `ts_end`로 읽었다); 다른 종류의 공개 규칙 기본값, 5.5의 `aggregation`, 5.27의 `price_from`은 여기서 바꾸지 않는다; TDS-M017은 검사기의 것과 다른 날짜다. `tds import csv`는 일봉의 `price_basis`가 없으면 멈추고, mapping이 주지 않으면 `bar_time` `session`과 `density` `dense`를 쓴다(관리자 결정 2026-11-21, #705 C5와 결정 9; 171). 그것들이 없는 패키지는 통과했고 이제 `manifest` 수준에서 실패한다. (1)단계 안의 고침: `tds_version` `"1.0"` 그대로, `tds_draft`는 2026-11-19 그대로(단계가 끝날 때까지, 10.5).
 - 2026-11-23: **v1.4** 안에서. 5.27, 8.3 TDS-S001: `market_rules`의 키 칼럼 `price_from`은 모든 파일에 있고 칸은 null일 수 있다(null = 0); 그것이 없는 파일은 S001이고, 전에는 그 키와 값 해시를 검사하지 못했다(관리자 결정 2026-11-23, #705 C5, #725 결정 176; #43에서 옮겨 온 #229의 물음). 그 칼럼이 없는 `market_rules` 파일은 통과했고 이제 `schema` 수준에서 실패한다. (1)단계 안의 고침: `tds_version` `"1.0"` 그대로, `tds_draft`는 2026-11-19 그대로(단계가 끝날 때까지, 10.5).
 - 2026-11-24: **v1.4** 안에서. 5.1, 5.17, 7, 8.3 TDS-S007·TDS-V020, 10.3a(#705 A5, B3, B2; #725 결정 180~188): 5.17은 `period_kind`마다의 뜻을 적는다(새 기간 열은 없음); `asset_class`는 열린 목록이고 목록에 없는 값은 TDS-S007(W)이며, S007은 이제 값마다 줄 수를 말한다; `tds:equity-daily-research@1.0`이나 `tds:pit-fundamentals@1.0`을 선언하면 `instruments`의 `equity` 행마다 `issuer_id`가 있다(V020, `full` 수준). `fundamentals_state`의 키에 드는 `statement_basis`와 5.18의 `period_start`는 값 해시를 만드는 방법을 바꾸므로 해시 묶음과 함께 온다(10.5). 목록 밖 `asset_class`를 가진 패키지는 실패(S006)했고 이제 경고와 함께 통과한다; 두 프로필 가운데 하나를 선언했는데 equity의 `issuer_id`가 없는 패키지는 통과했고 이제 `full` 수준에서 실패한다. 어느 해시도 움직이지 않았다. (1)단계 안의 고침: `tds_version` `"1.0"` 그대로, `tds_draft`는 2026-11-19 그대로(단계가 끝날 때까지, 10.5).
+- 2026-11-24: **v1.4** 안에서. 5.13: 받은 값을 모를 때 줄이 무엇을 가지는지(`unobserved`; `ret_lo`, `ret_hi`, `policy_id`는 null일 수 있고, 스키마 파일의 세 열이 null 가능; 기준가는 마지막 원종가)를 적고, 첫 문장이 표준이 정의하지 않는 생산자 정책에 기대지 않는다; 그 밖의 줄에서는 전에 S003이 지키던 셋을 V040이 지키므로, 그런 null은 `schema` 수준에서 실패하던 것이 이제 `full`에서 실패한다; 파일은 여전히 세 열을 가진다(S001); 엔진 스펙 4.5의 F-13과 5.6.13이 null인 범위를 엔진의 가정으로 다룬다(#737; #705 결정 8; #725 결정 126, 192). 해시·해시 벡터·적합성 사례는 움직이지 않았다. (1)단계 안의 고침: `tds_version` `"1.0"` 그대로, `tds_draft`는 2026-11-19 그대로(단계가 끝날 때까지, 10.5); 그것을 옮길 때 이 고침을 까닭의 하나로 든다.

@@ -940,6 +940,45 @@ def test_value_rules_edges(change: Any, found: list[str], tmp_path: Path) -> Non
     assert codes(write(tmp_path, change), "full") == found
 
 
+def _exit(status: str, lo: float | None, hi: float | None, policy: str | None,
+          *, left_out: tuple[str, ...] = ()) -> Any:  # fmt: skip
+    """US:AAA's delisting on the 2nd with `exit_value_status` `status` and the three values;
+    `left_out`: columns the file does not hold."""
+    columns = {
+        "delisting_id": ["US:L1"], "instrument_id": ["US:AAA"], "last_trading_date": build.DAY,
+        "exit_date": build.DAY, "delist_type": ["unknown"], "ref_date": build.DAY,
+        "ref_price": [10.0], "exit_value_status": [status],
+        "ret_lo": pa.array([lo], pa.float64()), "ret_hi": pa.array([hi], pa.float64()),
+        "policy_id": pa.array([policy], pa.string()),
+    }  # fmt: skip
+    kept = {k: v for k, v in columns.items() if k not in left_out}
+    return build._both(build._add("delistings", kept), build._instruments(delisted_on=build.DAY))
+
+
+@pytest.mark.parametrize(
+    ("change", "found"),
+    [
+        (_exit("unobserved", None, None, None), []),  # #705 Decisions 8: nothing to name
+        (_exit("unobserved", -1.0, 0.0, "exit-value-v1"), []),  # a producer's own values
+        (_exit("observed", -0.2, 0.0, "exit-value-v1"), []),
+        (_exit("observed", None, 0.0, "exit-value-v1"), ["TDS-V040"]),
+        (_exit("estimated", -0.5, None, "exit-value-v1"), ["TDS-V040"]),
+        (_exit("estimated", -0.5, 0.0, None), ["TDS-V040"]),
+    ],
+)  # fmt: skip
+def test_only_an_unobserved_exit_leaves_its_range_and_policy_null(
+    change: Any, found: list[str], tmp_path: Path
+) -> None:
+    assert codes(write(tmp_path, change), "full") == found
+
+
+def test_a_delistings_file_holds_the_three_columns_even_where_null(tmp_path: Path) -> None:
+    """Nullable on an `unobserved` row, never left out of the file (S001 at `schema`)."""
+    three = ("ret_lo", "ret_hi", "policy_id")
+    change = _exit("unobserved", None, None, None, left_out=three)
+    assert codes(write(tmp_path, change), "schema") == ["TDS-S001"] * 3  # one per column
+
+
 RESEARCH, PIT = "tds:equity-daily-research@1.0", "tds:pit-fundamentals@1.0"
 
 
