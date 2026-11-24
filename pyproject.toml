@@ -14,8 +14,8 @@ classifiers = ["Typing :: Typed"]
 # to uv.lock. numpy: 2.2's 2.5.3, below 2.6 for numba 0.68. exchange-calendars: 2.2's 4.13.2,
 # exact; it brings pandas with it (#58 Decisions). numba: 0.68.1 (2.2's 0.68.0 raised by #507),
 # exact, for the compiled element functions of 5.3.10 2a (T1.7b, #240).
-dependencies = ["nexusbt-tds>=1.0,<2", "pyarrow>=26.0.0,<27", "numpy>=2.5.3,<2.6",
-                "exchange-calendars==4.13.2", "numba==0.68.1"]
+dependencies = ["nexusbt-tds>=1.0,<2", "pyarrow>=26.0.0,<27", "numpy>=2.5.5,<2.6",
+                "exchange-calendars==4.13.3", "numba==0.68.1"]
 
 [project.scripts]
 nexusbt = "nexusbt.cli.main:main"
@@ -47,7 +47,7 @@ dev = [
     # Reads the golden case files `tests/golden/cases/*.yaml` (8.2; #59 Decisions). 2.2 pins no
     # YAML library: the newest release, 2025-09-25, exact. MIT, development only.
     "pyyaml==6.0.3",
-    "ruff>=0.17.4",
+    "ruff>=0.17.5",
 ]
 
 # Two distributions: the engine, and the checker `nexusbt-tds` under `tds/`, versioned apart (2.3).
