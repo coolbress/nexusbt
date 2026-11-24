@@ -22,17 +22,20 @@ XNYS:AAPL,equity,US,XNYS,USD,1980-12-12,1,1,false
 BARS = """instrument_id,session_date,close,volume
 XNYS:AAPL,2024-01-02,185.64,82488700
 """
-COUNT = BARS.replace("volume\n", "volume,trade_count\n").replace("82488700\n", "82488700,{}\n")
-#: TDS chapter 7's two CSVs; the market and price basis that 7 gives as flags, here in the mapping.
-MINIMAL = """profiles: [tds:minimal-daily@1.0]
-market: {code: US, calendar_id: XNYS, currency: USD, timezone: America/New_York}
-datasets:
-  instruments:
-    file: instruments.csv
-  bars:
-    file: bars.csv
-    params: {freq: 1d, price_basis: total_adjusted}
+#: An equity's daily bars with all of OHLCV, as core requires them (#705 Decisions 37);
+#: minimal-daily asks close alone (#705, 2026-11-22).
+WHOLE = """instrument_id,session_date,open,high,low,close,volume
+XNYS:AAPL,2024-01-02,187.15,188.44,183.89,185.64,82488700
 """
+COUNT = BARS.replace("volume\n", "volume,trade_count\n").replace("82488700\n", "82488700,{}\n")
+#: TDS chapter 7's two CSVs; the market and price basis that 7 gives as flags, here in the mapping,
+#: with the regular hours the import builds `calendar_sessions` from (#705 Decisions 59).
+HOURS = ', open: "09:30", close: "16:00"'
+MINIMAL = ("profiles: [tds:minimal-daily@1.0]\n"
+           "market: {code: US, calendar_id: XNYS, currency: USD, timezone: America/New_York"
+           + HOURS + "}\n"
+           "datasets:\n  instruments:\n    file: instruments.csv\n  bars:\n    file: bars.csv\n"
+           "    params: {freq: 1d, price_basis: total_adjusted}\n")  # fmt: skip
 
 
 def write(folder: Path, files: dict[str, str]) -> Path:
@@ -51,12 +54,19 @@ def rows(package: Path, dataset: str) -> list[dict[str, object]]:
 def test_mapping_template_and_format(tmp_path: Path) -> None:
     mapping = write(tmp_path, {
         "instruments.csv": INSTRUMENTS,
-        "bars.csv": "﻿code,date,종가,거래량,note\n"  # a spreadsheet's byte-order mark
-                    "AAPL,20240103,184.25,-,\nAAPL,20240102,185.64,82488700,x\n",
+        "bars.csv": "﻿code,date,open,high,low,종가,거래량,note\n"  # a spreadsheet's byte-order mark
+                    "AAPL,20240103,184,185,183,184.25,-,\n"
+                    "AAPL,20240102,185,186,184,185.64,82488700,x\n",
         "mapping.yaml": """# a comment line
 name: "demo: a colon inside quotes"
 profiles: ["tds:minimal-daily@1.0"]
-market: {code: US, calendar_id: XNYS, currency: USD, timezone: America/New_York}
+market:
+  code: US
+  calendar_id: XNYS
+  currency: USD
+  timezone: America/New_York
+  open: "09:30"
+  close: "16:00"
 datasets:
   instruments:
     file: instruments.csv
@@ -189,7 +199,7 @@ def test_input_that_cannot_be_read_stops(
 
 def test_package_defaults_and_layout(tmp_path: Path) -> None:
     """TDS 9: no availability time invented; TDS 3.6 partitions; a folder never written over."""
-    mapping = write(tmp_path, {"instruments.csv": INSTRUMENTS, "bars.csv": BARS,
+    mapping = write(tmp_path, {"instruments.csv": INSTRUMENTS, "bars.csv": WHOLE,
                                "mapping.yaml": MINIMAL})  # fmt: skip
     out = import_csv(mapping, tmp_path / "pkg")
     assert rows(out, "instruments")[0]["is_synthetic"] is False
@@ -217,7 +227,7 @@ CHAPTER_7 = "\n".join(",".join(r.split(",")[:6]) for r in INSTRUMENTS.splitlines
 def test_minimal_two_csv(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """When I run `tds import csv` on the two CSVs of TDS chapter 7 and then `tds check --level
     full`, then I see it pass with the profile's three results."""
-    mapping = write(tmp_path, {"instruments.csv": CHAPTER_7, "bars.csv": BARS,
+    mapping = write(tmp_path, {"instruments.csv": CHAPTER_7, "bars.csv": WHOLE,
                                "mapping.yaml": MINIMAL})  # fmt: skip
     out = tmp_path / "pkg"
     assert main(["import", "csv", str(mapping), "--out", str(out)]) == 0
@@ -228,7 +238,17 @@ def test_minimal_two_csv(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> 
     assert "0 errors, 0 warnings at level full" in printed
     manifest = json.loads((out / "tds.json").read_text(encoding="utf-8"))
     bars = next(d for d in manifest["datasets"] if d["kind"] == "bars")
-    assert bars["params"] == {"freq": "1d", "price_basis": "total_adjusted"}
+    assert bars["params"] == {
+        "freq": "1d",
+        "price_basis": "total_adjusted",  # the user's fact
+        "bar_time": "session",
+        "density": "dense",
+    }  # the kind's (#705 C5)
+    said = json.loads((tmp_path / "import_report.json").read_text(encoding="utf-8"))
+    assert [a for a in said["datasets"]["bars"]["assumed"] if a.startswith("params.")] == [
+        "params.bar_time session (a daily bar of the market's session, TDS 5.5)",
+        "params.density dense (the import writes a row on each session, TDS 5.5)",
+    ]
     assert manifest["markets"]["US"]["timezone"] == "America/New_York"
     assert rows(out, "bars")[0]["close"] == 185.64
     # an import that cannot be read: exit 1 and the reason, no traceback
@@ -236,11 +256,116 @@ def test_minimal_two_csv(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> 
     assert "tds import csv: " in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("status", ["", ",obs_status"], ids=["close", "close and obs_status"])
+def test_a_close_only_equity_passes_minimal_daily(
+    status: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """When a stock's price file holds close only and the mapping declares minimal-daily, then
+    `tds import csv` and `tds check --level full` pass: the profile asks close alone of every
+    row, an equity's too (#705, 2026-11-22), and V004 asks no more of it."""
+    bars = f"instrument_id,session_date,close{status}\nXNYS:AAPL,2024-01-02,185.64"
+    bars += ",traded\n" if status else "\n"
+    mapping = write(tmp_path, {"instruments.csv": CHAPTER_7, "bars.csv": bars,
+                               "mapping.yaml": MINIMAL})  # fmt: skip
+    out = tmp_path / "pkg"
+    assert main(["import", "csv", str(mapping), "--out", str(out)]) == 0
+    assert main(["check", str(out), "--level", "full"]) == 0
+    printed = capsys.readouterr().out
+    assert "tds:minimal-daily@1.0: declared, verified to schema, not_checked" in printed
+    assert "0 errors, 0 warnings at level full" in printed
+    assert ("obs_status" in rows(out, "bars")[0]) == bool(status)
+    assert [r["source"] for r in rows(out, "calendar_sessions")] == ["inferred_from_bar_dates"]
+
+
+def test_the_calendar_is_built_from_the_bars_dates_and_the_declared_hours(tmp_path: Path) -> None:
+    """#705 Decisions 59: a session on each date a bar has, at the market's declared hours in its
+    time zone (winter and summer, UTC offsets -5 and -4), nothing else invented; the hours are
+    the mapping's, not `markets`'."""
+    bars = BARS + "XNYS:AAPL,2024-07-01,210.0,1\n"
+    out = import_csv(write(tmp_path, {"instruments.csv": CHAPTER_7, "bars.csv": bars,
+                                      "mapping.yaml": MINIMAL}), tmp_path / "pkg")  # fmt: skip
+    days = rows(out, "calendar_sessions")
+    found = [(str(r["session_date"]), str(r["ts_open"]), str(r["ts_close"])) for r in days]
+    assert found == [
+        ("2024-01-02", "2024-01-02 14:30:00+00:00", "2024-01-02 21:00:00+00:00"),
+        ("2024-07-01", "2024-07-01 13:30:00+00:00", "2024-07-01 20:00:00+00:00"),
+    ]
+    kinds = {(r["session_kind"], r["is_half_day"], r["source"]) for r in days}
+    assert kinds == {("regular", None, "inferred_from_bar_dates")}
+    assert "session_ord" not in days[0]
+    manifest = json.loads((out / "tds.json").read_text(encoding="utf-8"))
+    assert {"open", "close"}.isdisjoint(manifest["markets"]["US"])
+    assert check(out, level="full").error_count == 0
+
+
+def test_the_bars_own_times_make_their_days_sessions(tmp_path: Path) -> None:
+    """#705 Decisions 59 (the review of 6-0): a day the bars give `ts_start` and `ts_end` takes
+    them, a half day too, so that TDS-T005 holds; a day they give none takes the declared hours;
+    `ts_end` alone takes it and the declared open."""
+    bars = ("instrument_id,session_date,close,volume,ts_start,ts_end\n"
+            "XNYS:AAPL,2024-07-03,221.0,1,2024-07-03T13:30:00Z,2024-07-03T17:00:00Z\n"
+            "XNYS:AAPL,2024-07-05,222.0,1,,2024-07-05T19:00:00Z\n"
+            "XNYS:AAPL,2024-07-08,223.0,1,,\n")  # fmt: skip
+    out = import_csv(write(tmp_path, {"instruments.csv": CHAPTER_7, "bars.csv": bars,
+                                      "mapping.yaml": MINIMAL}), tmp_path / "pkg")  # fmt: skip
+    found = [(str(r["ts_open"])[11:16], str(r["ts_close"])[11:16])
+             for r in rows(out, "calendar_sessions")]  # fmt: skip
+    assert found == [("13:30", "17:00"), ("13:30", "19:00"), ("13:30", "20:00")]
+    assert check(out, level="full").error_count == 0
+    two = bars.replace("XNYS:AAPL,2024-07-08,223.0,1,,", "XNYS:MSFT,2024-07-03,400.0,1,,"
+                       "2024-07-03T20:00:00Z")  # fmt: skip
+    instruments = CHAPTER_7 + "XNYS:MSFT,equity,US,XNYS,USD,1986-03-13\n"
+    other = write(tmp_path / "two", {"instruments.csv": instruments, "bars.csv": two,
+                                     "mapping.yaml": MINIMAL})  # fmt: skip
+    with pytest.raises(CsvImportError, match="the bars of 2024-07-03 give two ts_end values, "
+                       "2024-07-03T17:00:00"):  # fmt: skip
+        import_csv(other, tmp_path / "two" / "pkg")
+
+
+def test_a_calendar_block_without_source_stops(tmp_path: Path) -> None:
+    """TDS 5.4 and 9.5 (#705 Decisions 69): `source` is written; the import makes none up."""
+    block = "  calendar_sessions:\n    file: sessions.csv\n"
+    sessions = "calendar_id,session_date,ts_open,ts_close,session_kind\n" + (
+        "XNYS,2024-07-01,2024-07-01T13:30:00Z,2024-07-01T20:00:00Z,regular\n")  # fmt: skip
+    files = {"instruments.csv": CHAPTER_7, "bars.csv": BARS, "sessions.csv": sessions}
+    mapping = write(tmp_path, files | {"mapping.yaml": MINIMAL + block})
+    with pytest.raises(CsvImportError, match=r"sessions\.csv: no column for source"):
+        import_csv(mapping, tmp_path / "pkg")
+
+
+def test_a_dataset_named_calendar_sessions_of_another_kind_stops(tmp_path: Path) -> None:
+    # the review of 6-0: the calendar the import writes would take the same name
+    named = MINIMAL.replace("  bars:\n    file", "  calendar_sessions:\n    kind: bars\n    file")
+    mapping = write(tmp_path, {"instruments.csv": CHAPTER_7, "bars.csv": BARS,
+                               "mapping.yaml": named})  # fmt: skip
+    with pytest.raises(CsvImportError, match="is not of kind calendar_sessions"):
+        import_csv(mapping, tmp_path / "pkg")
+
+
+WRITE = "write the regular session's hours in the market's local time, `close` the latest"
+
+
+@pytest.mark.parametrize(("hours", "said"), [
+    ("", WRITE), (', open: "9:30", close: "16:00"', WRITE),
+    (', open: "16:00", close: "09:30"', "the market's `open` is not before its `close`"),
+], ids=["none", "H:MM", "late"])  # fmt: skip
+def test_a_mapping_without_hours_stops_saying_what_to_write(
+    hours: str, said: str, tmp_path: Path
+) -> None:
+    # #705 Decisions 59: no hours, or hours not read, stop the import before anything is written
+    mapping = write(tmp_path, {"instruments.csv": CHAPTER_7, "bars.csv": BARS,
+                               "mapping.yaml": MINIMAL.replace(HOURS, hours)})  # fmt: skip
+    with pytest.raises(CsvImportError, match=re.escape(said)):
+        import_csv(mapping, tmp_path / "pkg")
+    assert not (tmp_path / "pkg").exists()
+
+
 def test_a_kind_typed_by_105_is_imported(tmp_path: Path) -> None:
     """`share_counts` (5.14) had columns of no type, which "is not imported from CSV"."""
     counts = ("instrument_id,count_kind,as_of_date,shares,ts_available,source,evidence_id\n"
               "XNYS:AAPL,listed,2024-01-02,1000,2024-01-03T00:00:00Z,filing,e1\n")  # fmt: skip
-    mapping = write(tmp_path, {"instruments.csv": CHAPTER_7, "bars.csv": BARS, "counts.csv": counts,
+    mapping = write(tmp_path, {"instruments.csv": CHAPTER_7, "bars.csv": WHOLE,
+                               "counts.csv": counts,
                                "mapping.yaml": MINIMAL + "  share_counts:\n    file: counts.csv\n"
                                "    availability: {column: ts_available}\n"})  # fmt: skip
     out = tmp_path / "pkg"
@@ -346,3 +471,112 @@ def test_report_never_lands_on_an_input(tmp_path: Path) -> None:
         (tmp_path / "d" / "m.json").write_text(json.dumps(as_json), encoding="utf-8")
         with pytest.raises(CsvImportError, match="currency is text, a number or a bool"):
             import_csv(tmp_path / "d" / "m.json", tmp_path / "d" / "f" / "pkg")
+
+
+#: Three instruments over 2024-01-02..05 (#705 Decisions 112, 113): AAPL listed long before,
+#: a gap on the 4th; MSFT listed on the 3rd, one bar on the 4th; CENS listed on its first bar
+#: (`listed_on_censored`, its listing day not known), a gap on the 4th.
+GAPS_INSTRUMENTS = """instrument_id,asset_class,market,calendar_id,currency,listed_on,\
+listed_on_censored,lot_size,multiplier,is_synthetic
+XNYS:AAPL,equity,US,XNYS,USD,1980-12-12,false,1,1,false
+XNYS:MSFT,equity,US,XNYS,USD,2024-01-03,false,1,1,false
+XNYS:CENS,equity,US,XNYS,USD,2024-01-03,true,1,1,false
+"""
+GAPS_BARS = """instrument_id,session_date,close,volume
+XNYS:AAPL,2024-01-02,10,1
+XNYS:AAPL,2024-01-03,11,1
+XNYS:AAPL,2024-01-05,12,1
+XNYS:MSFT,2024-01-04,20,1
+XNYS:CENS,2024-01-03,30,1
+XNYS:CENS,2024-01-05,31,1
+"""
+
+
+def filled(package: Path) -> list[tuple[object, str]]:
+    return sorted((r["instrument_id"], str(r["session_date"])) for r in rows(package, "bars")
+                  if r.get("obs_status") == "missing")  # fmt: skip
+
+
+def test_the_import_fills_a_row_on_each_session_an_instrument_lacks(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """When an instrument has no bar on a session of the calendar, from the later of its
+    listed_on and the first session to the last date the market's bars have, then a row with
+    obs_status missing and no value is written, and the report counts them."""
+    mapping = write(tmp_path, {"instruments.csv": GAPS_INSTRUMENTS, "bars.csv": GAPS_BARS,
+                               "mapping.yaml": MINIMAL})  # fmt: skip
+    package = tmp_path / "pkg"
+    assert main(["import", "csv", str(mapping), "--out", str(package)]) == 0
+    assert "; 4 missing session rows filled (see the report)" in capsys.readouterr().out
+    four = [("XNYS:AAPL", "2024-01-04"), ("XNYS:CENS", "2024-01-04"),
+            ("XNYS:MSFT", "2024-01-03"), ("XNYS:MSFT", "2024-01-05")]  # fmt: skip
+    assert filled(package) == four
+    # CENS: listed_on is its first bar (censored), so nothing before the 3rd
+    assert ("XNYS:CENS", "2024-01-02") not in filled(package)
+    missing = [r for r in rows(package, "bars") if r["obs_status"] == "missing"]
+    assert {r["close"] for r in missing} == {None}
+    assert {r["volume"] for r in missing} == {None}
+    assert {r["obs_status"] for r in rows(package, "bars")} == {None, "missing"}  # not made up
+    said = json.loads((tmp_path / "import_report.json").read_text(encoding="utf-8"))
+    bars = said["datasets"]["bars"]
+    assert (bars["rows_read"], bars["rows_kept"], bars["rows_filled"]) == (6, 6, 4)
+    assert len(rows(package, "bars")) == 10
+    assert any(a.startswith("1 instruments stopped before 2024-01-05 and have no last_session")
+               for a in bars["assumed"])  # fmt: skip
+    # the import's end is D001's: an instrument with no end runs to the last session a row of
+    # its market has, so the stopped one is judged, and passes (TDS 5.5, #705 Decisions 134)
+    result = check(package, level="full")
+    assert (result.errors, "TDS-D001" in result.unchecked) == ((), False)
+
+
+def test_daily_bars_without_a_price_basis_are_refused(tmp_path: Path) -> None:
+    """Only the user knows how the prices are adjusted (TDS 5.5, #705 C5), so a mapping that
+    does not say stops, naming the three values; no package is written."""
+    files = {"instruments.csv": GAPS_INSTRUMENTS, "bars.csv": GAPS_BARS,
+             "mapping.yaml": MINIMAL.replace(", price_basis: total_adjusted}", "}")}  # fmt: skip
+    with pytest.raises(CsvImportError, match=r"price_basis is missing.*raw .*split_adjusted"):
+        import_csv(write(tmp_path, files), tmp_path / "pkg")
+    assert not (tmp_path / "pkg").exists()
+
+
+def test_daily_bars_declared_sparse_are_refused(tmp_path: Path) -> None:
+    """Daily bars are dense and the import writes a row on each session (TDS 5.5), so a
+    mapping that declares them sparse stops, saying what to write; no package is written."""
+    sparse = MINIMAL.replace("total_adjusted}", "total_adjusted, density: sparse}")
+    files = {"instruments.csv": GAPS_INSTRUMENTS, "bars.csv": GAPS_BARS, "mapping.yaml": sparse}
+    with pytest.raises(CsvImportError, match=r"daily bars are dense.*write density: dense"):
+        import_csv(write(tmp_path, files), tmp_path / "pkg")
+    assert not (tmp_path / "pkg").exists()
+
+
+def test_last_session_stops_the_fill_and_complete_through_extends_it(tmp_path: Path) -> None:
+    """A user's last_session ends an instrument's rows there; a user's complete_through runs
+    them to its date over the given calendar, where without it they stop at the last bar."""
+    instruments = GAPS_INSTRUMENTS.replace("is_synthetic\n", "is_synthetic,last_session\n")
+    instruments = instruments.replace("1,1,false\n", "1,1,false,\n").replace(
+        "XNYS:MSFT,equity,US,XNYS,USD,2024-01-03,false,1,1,false,",
+        "XNYS:MSFT,equity,US,XNYS,USD,2024-01-03,false,1,1,false,2024-01-04")  # fmt: skip
+    sessions = "calendar_id,session_date,ts_open,ts_close,session_kind\n" + "".join(
+        f"XNYS,2024-01-0{d},2024-01-0{d}T14:30:00Z,2024-01-0{d}T21:00:00Z,regular\n"
+        for d in (2, 3, 4, 5, 8))  # fmt: skip
+    block = "  calendar_sessions:\n    file: sessions.csv\n    values: {source: exchange}\n"
+    dense = MINIMAL.replace("total_adjusted}", "total_adjusted, density: dense}")
+    through = dense.replace(HOURS, ', complete_through: "2024-01-08T21:00:00Z"') + block
+    # dense bars hold obs_status on every row: the source's rows say it, the import never does
+    traded = GAPS_BARS.replace("volume\n", "volume,obs_status\n").replace(",1\n", ",1,traded\n")
+    files = {"instruments.csv": instruments, "bars.csv": traded, "sessions.csv": sessions}
+    package = import_csv(write(tmp_path, files | {"mapping.yaml": through}), tmp_path / "pkg")
+    assert filled(package) == [("XNYS:AAPL", "2024-01-04"), ("XNYS:AAPL", "2024-01-08"),
+                               ("XNYS:CENS", "2024-01-04"), ("XNYS:CENS", "2024-01-08"),
+                               ("XNYS:MSFT", "2024-01-03")]  # fmt: skip
+    result = check(package, level="full")  # dense, with an end: D001 judges and passes
+    assert [f.code for f in result.errors] == []
+    assert "TDS-D001" not in result.unchecked
+    naive = through.replace("21:00:00Z", "21:00:00")  # read in no host's time zone
+    with pytest.raises(CsvImportError, match="is not an RFC 3339 instant with an offset"):
+        import_csv(write(tmp_path / "n", files | {"mapping.yaml": naive}), tmp_path / "n" / "p")
+    nameless = GAPS_BARS + ",2024-01-04,5,1\n"  # an id left empty: the checker's S003, no crash
+    files |= {"bars.csv": nameless, "mapping.yaml": MINIMAL}
+    package = import_csv(write(tmp_path / "e", files), tmp_path / "e" / "pkg")
+    assert filled(package) == []
+    assert "TDS-S003" in [f.code for f in check(package, level="schema").errors]

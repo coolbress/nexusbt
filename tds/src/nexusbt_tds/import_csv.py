@@ -9,6 +9,8 @@ CSV and over the `instruments` fills of `_FILLS`), `missing_values`, `availabili
 cannot be read stops the import with its file and line, so every row read is kept or the import
 fails; nothing is written until every dataset is read and checked. `import_report.json`, next to
 the package, says what was kept and every default and fill assumed (#257 decisions 3 to 5, 7).
+Without a `calendar_sessions` block, the bars' dates and the market's `open` and `close` give
+one (TDS 5.4, 9.5; #705 Decisions 59).
 """
 
 from __future__ import annotations
@@ -32,6 +34,10 @@ from .manifest import MANIFEST, TDS_DRAFT
 from .schemas.verify import SCHEMA_DIR
 
 _TOP = {"name", "snapshot_id", "profiles", "market", "id_namespaces", "datasets"}
+#: Daily bars' `params` the import writes when the mapping gives none, and why (#705 C5): the
+#: kind's conventions, never a fact only the user knows (`price_basis` stops the import).
+_DAILY = (("bar_time", "session", "a daily bar of the market's session"),
+          ("density", "dense", "the import writes a row on each session"))  # fmt: skip
 _DATASET = {"file", "kind", "params", "columns", "values", "missing_values", "availability",
             "pit_quality"}  # fmt: skip
 REPORT = "import_report.json"
@@ -67,14 +73,32 @@ def import_csv(mapping: Path, out: Path) -> Path:
         if not isinstance(market.get(field), str) or not market[field]:
             raise CsvImportError(f"{mapping.name}: the market's `{field}` is missing or not text")
     code = market["code"]
-    datasets, tables, report = [], [], {}
+    datasets, read, report, bars = [], [], {}, []
     for name, ds in _items(spec.get("datasets"), "datasets"):
         _keys(ds, _DATASET, f"datasets.{name}")
         if not isinstance(ds.get("file"), str):
             raise CsvImportError(f"datasets.{name}: `file` is missing")
         table, entry, report[name] = _read(mapping.parent / ds["file"], name, ds, market)
         datasets.append(entry)
-        tables.append((entry, _groups(entry, table, code)))  # every check before any write
+        bars += [table] if entry["kind"] == "bars" else []
+        read.append((entry, table))
+    if bars and "calendar_sessions" not in {e["kind"] for e in datasets}:  # #705 Decisions 59
+        if "calendar_sessions" in report:  # another kind under the name the calendar takes
+            raise CsvImportError("datasets.calendar_sessions is not of kind calendar_sessions;"
+                                 " rename it, the import writes the calendar there")  # fmt: skip
+        table, entry, report["calendar_sessions"] = _calendar(bars, market, mapping)
+        datasets.append(entry)
+        read.append((entry, table))
+    kinds = {e["kind"]: t for e, t in read}
+    daily = [i for i, (e, _) in enumerate(read)
+             if e["kind"] == "bars" and e.get("params", {}).get("freq") == "1d"]  # fmt: skip
+    seen = [d for i in daily for d in read[i][1].column("session_date").to_pylist() if d] if all(
+        "session_date" in read[i][1].column_names for i in daily) else []  # fmt: skip
+    for i in daily:  # a daily row per session (#705 Decisions 112), to the market's last bar
+        entry, table = read[i]
+        table, report[entry["name"]] = _filled(table, kinds, market, report[entry["name"]], seen)
+        read[i] = (entry, table)
+    tables = [(e, _groups(e, t, code)) for e, t in read]  # every check before any write
     report_path = out.parent / REPORT  # beside the package (TDS 9); never over an input
     inputs = {mapping.resolve(), *((mapping.parent / ds["file"]).resolve() for ds in
                                    spec["datasets"].values())}  # fmt: skip
@@ -89,7 +113,7 @@ def import_csv(mapping: Path, out: Path) -> Path:
         "producer": {"name": "nexusbt-tds import csv", "version": version("nexusbt-tds")},
         "profiles": profiles,
         "id_namespaces": spec.get("id_namespaces", {code: "instrument ids as the CSV files give"}),
-        "markets": {code: {k: v for k, v in market.items() if k != "code"}},
+        "markets": {code: {k: v for k, v in market.items() if k not in _NOT_MARKETS}},
         "datasets": datasets, "hashes": {"hash_spec": "tds-hash-1"},
         "writer": {"name": "pyarrow", "version": pa.__version__},
     }  # fmt: skip
@@ -104,6 +128,146 @@ def import_csv(mapping: Path, out: Path) -> Path:
     text = {"package": out.name, "mapping": mapping.name, "assumed": assumed, "datasets": report}
     report_path.write_text(json.dumps(text, indent=2, ensure_ascii=False) + "\n", "utf-8")
     return out
+
+
+#: TDS 5.4's `source` of the calendar the import builds from the bars' dates, the named last
+#: resort of #705 Decisions 3 and 59: its hours are the market's declared `open` and `close`.
+INFERRED = "inferred_from_bar_dates"
+_HOURS = re.compile(r"([01]\d|2[0-3]):[0-5]\d")
+_NOT_MARKETS = ("code", "open", "close")  # the mapping's, not `markets`' (TDS 3.8)
+
+
+def _calendar(
+    bars: list[pa.Table], market: dict[str, Any], mapping: Path
+) -> tuple[pa.Table, dict[str, Any], dict[str, Any]]:
+    """TDS 5.4 from the bars (#705 Decisions 59): a session on each date some bar has, opening
+    and closing at the bars' own `ts_start` and `ts_end` that day where they give them, else at
+    the market's declared regular hours in its time zone. Nothing else is invented:
+    `is_half_day` null, no `session_ord` (sessions without a bar are not known)."""
+    days = sorted({d for t in bars for d in t["session_date"].to_pylist() if d is not None})
+    given = {k: _observed(bars, c, mapping) for k, c in (("open", "ts_start"), ("close", "ts_end"))}
+    hours = {k: market.get(k) for k in given}
+    if any(d not in given[k] for k in given for d in days) and not all(
+        isinstance(v, str) and _HOURS.fullmatch(v) for v in hours.values()
+    ):
+        raise CsvImportError(
+            f"{mapping.name}: the market's `open` and `close` are missing or not HH:MM; write the "
+            "regular session's hours in the market's local time, `close` the latest time of day "
+            "the market's regular session has closed (TDS 5.4), or give a calendar_sessions "
+            "file")  # fmt: skip
+    at = {k: [given[k][d] if d in given[k] else _instant(
+        f"{d.isoformat()}T{hours[k]}:00", None, market["timezone"],
+        f"{mapping.name}: market.{k} on", "ts_us") for d in days] for k in given}  # fmt: skip
+    if late := [d for d, o, c in zip(days, at["open"], at["close"], strict=True) if o >= c]:
+        raise CsvImportError(f"{mapping.name}: the session of {late[0]} opens at or after it "
+                             "closes; the market's `open` is not before its `close`")  # fmt: skip
+    n, ts = len(days), _ARROW["ts_us"]
+    table = pa.table({"calendar_id": [market["calendar_id"]] * n,
+                      "session_date": pa.array(days, pa.date32()),
+                      "ts_open": pa.array(at["open"], ts), "ts_close": pa.array(at["close"], ts),
+                      "is_half_day": pa.nulls(n, pa.bool_()), "session_kind": ["regular"] * n,
+                      "source": [INFERRED] * n})  # fmt: skip
+    entry = {"name": "calendar_sessions", "kind": "calendar_sessions", "schema_version": "1.0",
+             "path": "calendar_sessions", "pit_quality": "backfilled"}  # fmt: skip
+    told = sum(d in given["open"] and d in given["close"] for d in days)
+    assumed = [f"a session on each of the {n} dates a bar has; {told} at the bars' ts_start and "
+               f"ts_end, the others at {hours['open']} to {hours['close']} {market['timezone']} "
+               "(the market's declared hours) where the bars give no time; session_kind "
+               f"regular, is_half_day null, source {INFERRED} (TDS 5.4)"]  # fmt: skip
+    said: dict[str, Any] = {"file": None, "rows_read": 0, "rows_kept": n, "rows_dropped": 0,
+                            "columns_kept": {}, "columns_dropped": [], "values": {},
+                            "assumed": assumed}  # fmt: skip
+    return table, entry, said
+
+
+def _filled(
+    bars: pa.Table, kinds: dict[str, pa.Table], market: dict[str, Any], said: dict[str, Any],
+    seen: list[dt.date],
+) -> tuple[pa.Table, dict[str, Any]]:  # fmt: skip
+    """Daily bars with a row on each session an instrument lacks (TDS 5.5, D001; #705 Decisions
+    112, 113): from the later of its `listed_on` (its first bar without one) and the calendar's
+    first session, to its `last_session`, else the market's `complete_through` date, else the
+    last date any bar of the market has (observed, no claim written). A filled row says
+    `obs_status = missing`, every other column null (#714); nothing else is made up."""
+    cal = kinds.get("calendar_sessions")
+    keys = ("instrument_id", "session_date")
+    keyed = set(keys) <= set(bars.column_names)
+    empty = not keyed or any(bars[c].null_count for c in keys)
+    if cal is None or not bars.num_rows or not seen or empty:
+        return bars, said  # a key left empty is the checker's S003 or the year= partition's
+    cal = cal.filter(pa.compute.equal(cal["calendar_id"], market["calendar_id"]))
+    sessions = sorted(set(cal["session_date"].to_pylist()))
+    known: dict[str, dict[str, Any]] = {}
+    if (inst := kinds.get("instruments")) is not None and "instrument_id" in inst.column_names:
+        cols = [c for c in ("instrument_id", "listed_on", "last_session") if c in inst.column_names]
+        known = {r["instrument_id"]: r for r in inst.select(cols).to_pylist()}
+    have: dict[str, set[dt.date]] = {}
+    for i, d in zip(bars["instrument_id"].to_pylist(), bars["session_date"].to_pylist(),
+                    strict=True):  # fmt: skip
+        have.setdefault(i, set()).add(d)
+    end, ending = _watermark(market, max(seen))
+    ids, days, ran = [], [], 0
+    for i, held in sorted(have.items()):
+        listed, last = (known.get(i, {}).get(k) for k in ("listed_on", "last_session"))
+        start = max(listed or min(held), sessions[0]) if sessions else min(held)
+        stop = last or end
+        ran += last is None and max(held) < end
+        new = [s for s in sessions if start <= s <= stop and s not in held]
+        ids += [i] * len(new)
+        days += new
+    if not ids:
+        return bars, said | {"rows_filled": 0}
+    if "obs_status" not in bars.column_names:  # the source's rows say nothing of it
+        bars = bars.append_column("obs_status", pa.nulls(bars.num_rows, pa.string()))
+    given = {"instrument_id": pa.array(ids, bars.schema.field("instrument_id").type),
+             "session_date": pa.array(days, bars.schema.field("session_date").type),
+             "obs_status": pa.array(["missing"] * len(ids), pa.string())}  # fmt: skip
+    rows = pa.table({f.name: given.get(f.name, pa.nulls(len(ids), f.type)) for f in bars.schema})
+    order = [c["name"] for c in _schema("bars")["columns"] if c["name"] in bars.column_names]
+    sort = _variant(_schema("bars")["sort"], {"freq": "1d"}) or []  # TDS 3.7's daily order
+    table = pa.concat_tables([bars, rows]).select(order).sort_by([(k, "ascending") for k in sort])
+    told = (f"{len(ids)} rows filled with obs_status missing and every value null, on the "
+            "sessions an instrument has no bar, from the later of its listed_on (its first "
+            "bar without one) and the calendar's first session, to its last_session or "
+            f"{end} ({ending}) (TDS 5.5, D001)")  # fmt: skip
+    stopped = (f"{ran} instruments stopped before {end} and have no last_session, so missing "
+               "rows run to it; give last_session to stop there")  # fmt: skip
+    assumed = [*said["assumed"], told, *([stopped] if ran else [])]
+    return table, said | {"rows_filled": len(ids), "assumed": assumed}  # rows_kept: of the read
+
+
+def _watermark(market: dict[str, Any], seen: dt.date) -> tuple[dt.date, str]:
+    """The last date the filled rows run to: the date of the market's `complete_through` in its
+    time zone (TDS 4.2), else the last date a bar of the market has, which the import writes
+    nowhere: completeness is the user's to claim, not the import's."""
+    through = market.get("complete_through")
+    if through is None:
+        return seen, "the last date a bar of the market has; no complete_through written"
+    try:
+        at = dt.datetime.fromisoformat(str(through).replace("Z", "+00:00"))
+        if at.tzinfo is None:  # a naive instant would be read in the host's time zone
+            raise ValueError(through)
+        day = at.astimezone(ZoneInfo(market["timezone"])).date()
+    except (ValueError, TypeError):
+        raise CsvImportError(f"market.complete_through {through!r} is not an RFC 3339 instant"
+                             " with an offset (TDS 4.2)") from None  # fmt: skip
+    return day, "the date of the market's complete_through"
+
+
+def _observed(bars: list[pa.Table], column: str, mapping: Path) -> dict[Any, Any]:
+    """The bars' `column` on each date that has it; two values on one date stop the import,
+    since one session has one (TDS 5.4, TDS-T005)."""
+    seen: dict[Any, set[Any]] = {}
+    for t in (t for t in bars if column in t.column_names):
+        for d, v in zip(t["session_date"].to_pylist(), t[column].to_pylist(), strict=True):
+            if d is not None and v is not None:
+                seen.setdefault(d, set()).add(v)
+    if two := next(((d, sorted(v)) for d, v in sorted(seen.items()) if len(v) > 1), None):
+        d, (a, b, *_) = two
+        raise CsvImportError(f"{mapping.name}: the bars of {d} give two {column} values, "
+                             f"{a.isoformat()} and {b.isoformat()}; one session has one, so "
+                             "write one, or give a calendar_sessions file")  # fmt: skip
+    return {d: v.pop() for d, v in seen.items()}
 
 
 def _items(value: object, where: str) -> list[tuple[str, dict[str, Any]]]:
@@ -147,6 +311,17 @@ def _read(
     schema, params = _schema(kind), ds.get("params") or {}
     if not isinstance(params, dict):
         raise CsvImportError(f"datasets.{name}.params is not a block of `key: value` lines")
+    if kind == "bars" and params.get("freq") == "1d" and params.get("price_basis") is None:
+        raise CsvImportError(
+            f"datasets.{name}.params: price_basis is missing, and only you know it (TDS 5.5): "
+            "write raw (prices as traded), split_adjusted (adjusted for splits) or "
+            "total_adjusted (adjusted for splits and dividends)"
+        )
+    if kind == "bars" and params.get("freq") == "1d" and params.get("density") == "sparse":
+        raise CsvImportError(
+            f"datasets.{name}.params: daily bars are dense, and the import "
+            "writes a row on each session (TDS 5.5); write density: dense"
+        )
     types = {c["name"]: c["type"] for c in schema["columns"]}
     rules = ds.get("columns") or {}
     _keys(rules, set(types), f"datasets.{name}.columns")
@@ -200,6 +375,11 @@ def _read(
         if column not in values and None not in filled:
             values[column] = filled
             assumed.append(f"{column} {sorted({str(v) for v in filled})} for every row ({why})")
+    if kind == "calendar_sessions" and "source" not in values:  # TDS 5.4: written, never made up
+        raise CsvImportError(
+            f"{path.name}: no column for source; give it, or `values: {{source:"
+            " exchange}` for a calendar the exchange published (TDS 5.4)"
+        )
     order = [c["name"] for c in schema["columns"] if c["name"] in values]
     table = pa.table({c: pa.array(values[c], _ARROW[types[c]]) for c in order})
     sort = _variant(schema["sort"], params) or []
@@ -207,6 +387,10 @@ def _read(
         raise CsvImportError(f"{path.name}: no column for {', '.join(absent)}, the sort key")
     table = table.sort_by([(k, "ascending") for k in sort]) if sort else table
     entry: dict[str, Any] = {"name": name, "kind": kind, "schema_version": "1.0", "path": name}
+    for key, value, why in _DAILY if kind == "bars" and params.get("freq") == "1d" else ():
+        if params.get(key) is None:  # the kind's convention, written and said (#705 C5)
+            params = params | {key: value}
+            assumed.append(f"params.{key} {value} ({why}, TDS 5.5)")
     entry |= {"params": params} if params else {}
     if either := [c for c in order if types[c] == "ts_us/ns"]:  # written in us; said so (4.5)
         entry["columns"] = [{"name": c, "type": "ts_us"} for c in either]

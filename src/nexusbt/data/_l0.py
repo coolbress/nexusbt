@@ -24,7 +24,6 @@ import pyarrow.parquet as pq
 
 from nexusbt.contracts import ID_COLUMN as ID
 from nexusbt.data._block import partition_values
-from nexusbt.data._calendar import read_calendar
 from nexusbt.data._datasets import dataset, needed
 from nexusbt_tds.actions import chain_digest
 from nexusbt_tds.hash import canonical_json, encode_table
@@ -33,7 +32,6 @@ from nexusbt_tds.schemas.verify import load_schemas
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from nexusbt.data._calendar import Calendar
     from nexusbt_tds.manifest import Manifest
 
 BLOCK_VERSION = "l0-v4"
@@ -101,18 +99,6 @@ def _chains(
     return chain_digest(events, dt.date(year, 12, 31)) if events.num_rows else ""
 
 
-def _synthesized(calendar: Calendar) -> pa.Table:
-    """4.5 F-02's session rows, over the columns it builds."""
-    utc = pa.timestamp("us", tz="UTC")
-    return pa.table({
-        "calendar_id": [calendar.calendar_id] * len(calendar.dates),
-        "session_date": pa.array(calendar.dates, pa.date32()),
-        "ts_open": pa.array(calendar.ts_open, pa.timestamp("us")).cast(utc),
-        "ts_close": pa.array(calendar.ts_close, pa.timestamp("us")).cast(utc),
-        "session_ord": pa.array(calendar.session_ord, pa.int32()),
-    })  # fmt: skip
-
-
 def _axis(
     manifest: Manifest,
     kinds: Mapping[str, Any],
@@ -124,14 +110,13 @@ def _axis(
     """5.3.9's axis-row hash: (a) the market's `instruments` rows whose `[listed_on,
     delisted_on]` meets the year's sessions, over the fields the block reads; (b) the
     calendar's `calendar_sessions` rows of the year and the whole year before, over every
-    column but `calendar_version`, or without such rows the ones F-02 builds, over the
-    columns it builds; each in TDS 4.5's canonical bytes."""
+    column but `calendar_version`; each in TDS 4.5's canonical bytes (F-02 retired, #705)."""
     schemas = load_schemas()
     sessions = _rows(manifest, kinds.get("calendar_sessions"))
-    if sessions.num_rows:
-        sessions = sessions.filter(pc.equal(sessions["calendar_id"], calendar))
-    if not sessions.num_rows:  # F-02: the rows the engine builds and reads (#480)
-        sessions = _synthesized(read_calendar(manifest, market))
+    # A manifest without `calendar_sessions` raises KeyError here, not the engine's error: no
+    # caller reaches it, since `l0_key` is read only for a snapshot `open_snapshot` gave, and
+    # the open refuses a market without sessions with E14 (4.4-4, #705)
+    sessions = sessions.filter(pc.equal(sessions["calendar_id"], calendar))
     years = pc.year(sessions["session_date"])
     own = sessions.filter(pc.equal(years, year))["session_date"]
     if len(own):

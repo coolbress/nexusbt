@@ -50,11 +50,16 @@ def test_init_uses_env_root(
     assert "already exists" in capsys.readouterr().err
 
 
-def doctor(root: Path, capsys: pytest.CaptureFixture[str]) -> str:
+def doctor(root: Path, capsys: pytest.CaptureFixture[str], warns: str | None = None) -> str:
+    """`doctor`'s standard output; `warns`, when given, is matched by standard error, where
+    the CLI prints the E30 `open` gives, in 6.6's shape (#649)."""
     assert main(["init", "--data-root", str(root)]) == 0
     capsys.readouterr()
     assert main(["doctor"]) == 0
-    return capsys.readouterr().out
+    out, err = capsys.readouterr()
+    if warns is not None:
+        assert re.match(warns, err), err
+    return out
 
 
 def test_doctor_lists_markets_packs_and_counts(
@@ -67,7 +72,8 @@ def test_doctor_lists_markets_packs_and_counts(
     for m in ("KR", "US"):  # the tiny preset: 6 instruments, 341 daily rows per market
         line = rf"^market {m} +rules {m}@1 +2020-01-02\.\.2020-03-31 +instruments 6 +rows 341$"
         assert re.search(line, out, re.M), out
-    assert re.search(r"^columns +13 daily bar columns$", out, re.M)  # tiny's bars file has 13
+    # tiny's bars file has 11: 13 before #705 took `cum_factor_split` and `cum_factor_total`
+    assert re.search(r"^columns +11 daily bar columns$", out, re.M)
     assert re.search(r"^free disk +\d+\.\d GB$", out, re.M)
 
 
@@ -86,50 +92,35 @@ def test_undeclared_counts_are_unknown_not_zero(
                      out, re.M), out  # fmt: skip
 
 
+#: A command run with no `-W` is under Python's default filter, not this repository's `error`.
+DEFAULT = pytest.mark.filterwarnings("default")
+
+
+@DEFAULT
 def test_doctor_lists_fallbacks_and_unchecked(
     tmp_path: Path, project: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """INV-12: what a run would fill and what the check level did not judge, both shown."""
-    package = make_snapshot(tmp_path / "pkg", preset="tiny", degrade=["no_sessions"])
-    with pytest.warns(UserWarning, match=r"\[E30\] F-02"):  # the line `open` also gives
-        out = doctor(package, capsys)
-    for m in ("KR", "US"):  # tiny's 62 sessions per market, synthesized (F-02)
-        assert re.search(rf"^fallback +F-02 calendar_sessions {m} 62$", out, re.M), out
+    package = make_snapshot(tmp_path / "pkg", preset="tiny", markets=("KR", "ZZ"),
+                            degrade=["no_tick_info"])  # fmt: skip
+    assert main(["init", "--data-root", str(package)]) == 0
+    with (project / "nexusbt.toml").open("a", encoding="utf-8") as toml:
+        toml.write("\n[markets]\nallow_untested = true\n")  # ZZ has no rules pack
+    capsys.readouterr()
+    assert main(["doctor"]) == 0
+    out, err = capsys.readouterr()
+    assert re.match(r"DataProfileWarning \[E30\] F-15\n", err), err  # the E30 `open` gives
+    # ZZ's six instruments, no grid (F-15; F-02 and F-03 retired, #705)
+    assert re.search(r"^fallback +F-15 market_rules ZZ 6$", out, re.M), out
     assert re.search(r"^unchecked +.*\bTDS-K001\b", out, re.M)  # a row rule, at `manifest`
     profile = r"tds:minimal-daily@1\.0 +declared yes +checked manifest +result not_checked"
     assert re.search(rf"^profile +{profile} +supported yes$", out, re.M), out
 
 
-def test_doctor_names_the_column_of_a_column_fallback(
-    tmp_path: Path, project: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """#604: F-01 is one record per market and column (4.5); each line says which column, as
-    `dataset.column` (the owner's format, #604 Decisions), and one with none prints as before."""
-    package = make_snapshot(tmp_path / "pkg", preset="tiny", degrade=["no_ohlc", "no_sessions"])
-    with pytest.warns(UserWarning, match=r"\[E30\] F-0[12]"):
-        out = doctor(package, capsys)
-    lines = [line.split(None, 1)[1] for line in out.splitlines() if line.startswith("fallback ")]
-    columns = [f"F-01 bars_1d.{c} {m} 341" for m in ("KR", "US") for c in ("open", "high", "low")]
-    # one line per record, none merged, in the records' order (4.5)
-    assert lines == ["F-02 calendar_sessions KR 62", "F-02 calendar_sessions US 62", *columns]
-
-
-def test_doctor_names_the_columns_of_f18(
-    tmp_path: Path, project: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """#584: bars without `volume` and `value_traded` (4.5 F-18) are a line per market and
-    column, as F-01's are (#604)."""
-    package = make_snapshot(tmp_path / "pkg", preset="tiny", degrade=["no_volume"])
-    with pytest.warns(UserWarning, match=r"\[E30\] F-18"):
-        out = doctor(package, capsys)
-    lines = [line.split(None, 1)[1] for line in out.splitlines() if line.startswith("fallback ")]
-    assert lines == [f"F-18 bars_1d.{c} {m} 341"
-                     for m in ("KR", "US") for c in ("volume", "value_traded")]  # fmt: skip
-
-
 UNVERIFIED = "volume     bars_1d volume unit unverified (no value_traded, TDS-V011)"
 
 
+@DEFAULT
 def test_doctor_says_volume_unit_unverified_without_value_traded(
     tmp_path: Path,
     project: Path,
@@ -145,8 +136,7 @@ def test_doctor_says_volume_unit_unverified_without_value_traded(
     neither = make_snapshot(tmp_path / "n", preset="tiny", degrade=["no_volume"])
     for package in (alone, neither):
         (project / "nexusbt.toml").unlink()
-        with pytest.warns(UserWarning, match=r"\[E30\] F-18"):
-            out = doctor(package, capsys)
+        out = doctor(package, capsys, r"^$")  # no fallback's E30 (F-18 retired, #705)
         assert [line for line in out.splitlines() if "volume unit unverified" in line] == [
             UNVERIFIED
         ], out

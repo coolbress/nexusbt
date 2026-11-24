@@ -19,7 +19,7 @@ import pyarrow.compute as pc
 import pyarrow.parquet as pq
 import pytest
 
-from nexusbt.contracts import CapabilityError, DecimalRatioPolicy, VerifyPolicy
+from nexusbt.contracts import CapabilityError, DecimalRatioPolicy, SnapshotError, VerifyPolicy
 from nexusbt.data import CapabilityRequest, DataConfig, MarketBlock, Snapshot, open_snapshot
 from nexusbt.data._l0 import l0_key
 from nexusbt.testing.synth import make_snapshot
@@ -190,10 +190,20 @@ READS: dict[str, tuple[Callable[[Snapshot], object], str]] = {
 
 
 @pytest.mark.parametrize("name", READS)
-def test_two_of_a_kind_is_e18_naming_both(tiny: Path, tmp_path: Path, name: str) -> None:
+def test_two_of_a_kind_is_e18_naming_both(
+    tiny: Path, tmp_path: Path, name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """#547: two datasets the engine cannot tell apart open with what needs them off, and
-    reading them, or requesting a feature that needs them, is E18 naming both with the fix."""
+    reading them, or requesting a feature that needs them, is E18 naming both with the fix.
+    Two calendars build no sessions either: the library is never asked for one (#705)."""
+    import exchange_calendars as xcals
+
+    def built(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("the engine built sessions with exchange_calendars")
+
     root = rewritten(tiny, tmp_path / name, doubled(name))
+    for entry_point in ("get_calendar", "get_calendar_names"):
+        monkeypatch.setattr(xcals, entry_point, built)
     snap, warned = opened(root)
     assert not [w for w in warned if "F-02" in w]  # off, not taken by a fallback
     read, feature = READS[name]
@@ -239,24 +249,25 @@ def utc_day_copy(first: bool) -> Callable[[Path, Manifest], None]:
     return change
 
 
-def test_daily_bars_without_bar_time_are_session_bars(tiny: Path, tmp_path: Path) -> None:
-    """#551: a daily bars dataset with no `bar_time` is read as session bars, the engine's rule
-    where TDS 5.5 names no default (spec 4.3): the block is the declared package's."""
-    want = first_session(opened(tiny)[0])
-    snap, _ = opened(rewritten(tiny, tmp_path / "absent", bar_time(None)))
-    np.testing.assert_array_equal(first_session(snap).values["close"], want.values["close"])
+def test_daily_bars_without_bar_time_are_refused_at_open(tiny: Path, tmp_path: Path) -> None:
+    """#551 read a daily bars dataset with no `bar_time` as session bars; since #705 C5 no
+    declaration has a default, so the checker's TDS-M003 stops it at open, at every verify
+    level, and no default is read (TDS 5.5)."""
+    root = rewritten(tiny, tmp_path / "absent", bar_time(None))
+    for level in VerifyPolicy:
+        with pytest.raises(SnapshotError, match=r"TDS-M003 params\.bar_time is missing"):
+            open_snapshot(DataConfig(path=root, verify=level))
 
 
-def test_daily_bars_with_null_bar_time_are_session_bars(tiny: Path, tmp_path: Path) -> None:
-    """#551's Outcome left this untested: an explicit `"bar_time": null` is not a value (TDS
-    5.5), so the engine reads it as it reads a missing one, as session bars (spec 4.3)."""
+def test_daily_bars_with_null_bar_time_are_refused_at_open(tiny: Path, tmp_path: Path) -> None:
+    """An explicit `"bar_time": null` is not a value (TDS 5.5), so it is a missing one: E14 at
+    open with TDS-M003 (#705 C5)."""
 
     def null(root: Path, data: Manifest) -> None:
         entry(data, "bars_1d")["params"]["bar_time"] = None
 
-    want = first_session(opened(tiny)[0])
-    snap, _ = opened(rewritten(tiny, tmp_path / "null", null))
-    np.testing.assert_array_equal(first_session(snap).values["close"], want.values["close"])
+    with pytest.raises(SnapshotError, match=r"TDS-M003 params\.bar_time is missing"):
+        opened(rewritten(tiny, tmp_path / "null", null))
 
 
 def test_utc_day_bars_alone_are_no_daily_bars(tiny: Path, tmp_path: Path) -> None:

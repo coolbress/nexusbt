@@ -8,6 +8,7 @@ internal error.
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -140,7 +141,10 @@ def _import(args: argparse.Namespace) -> int:
     except CsvImportError as exc:
         print(f"tds import csv: {exc}", file=sys.stderr)
         return ERRORS
-    print(f"wrote {out} and {out.parent / REPORT}")
+    said = json.loads((out.parent / REPORT).read_text(encoding="utf-8"))["datasets"]
+    n = sum(d.get("rows_filled", 0) for d in said.values())
+    filled = f"; {n} missing session rows filled (see the report)" if n else ""
+    print(f"wrote {out} and {out.parent / REPORT}{filled}")
     return OK
 
 

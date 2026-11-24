@@ -10,6 +10,7 @@ read; a partition column is S008's. A file Parquet cannot read leaves the three 
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Sequence
 from dataclasses import replace
 from pathlib import Path
@@ -68,7 +69,8 @@ def _check(m: Manifest, only: Sequence[str] | None, blind: set[str]) -> list[Fin
         for rel, _ in listed(root, ds):
             try:
                 found = _check_file(root / rel, columns, codes)
-            except (OSError, pa.ArrowException):  # S010's: this file's rows unseen, not others'
+            except (OSError, KeyError, pa.ArrowException):  # S010's or S011's (a name twice):
+                # this file's rows unseen, not others'
                 blind.update(CELL_CODES)
                 continue
             out += [replace(f, dataset=ds.get("name"), file=rel) for f in found]
@@ -81,14 +83,15 @@ def _check_file(path: Path, columns: Sequence[Any], codes: set[tuple[str, str]])
     kinds = dict(zip(arrow.names, arrow.types, strict=True))  # a name twice: Arrow refuses it
     enums = [c for c in columns if c.values is not None and c.name in kinds
              and _IS["code"](kinds[c.name])]  # fmt: skip
-    seen: dict[str, set[str]] = {c.name: set() for c in enums}
+    seen: dict[str, Counter[str]] = {c.name: Counter() for c in enums}  # value → its rows
     bad = {c.name: 0 for c in columns if c.type == "f64" and c.name in kinds
            and pa.types.is_float64(kinds[c.name])}  # fmt: skip
     if not seen and not bad:
         return []
     for batch in pq.ParquetFile(path).iter_batches(BATCH_ROWS, columns=[*seen, *bad]):
         for name in seen:
-            seen[name].update(pc.unique(_plain(batch.column(name))).drop_null().to_pylist())
+            for pair in pc.value_counts(_plain(batch.column(name)).drop_null()).to_pylist():
+                seen[name][pair["values"]] += pair["counts"]
         for name in bad:
             column = batch.column(name)
             bad[name] += pc.sum(pc.or_(pc.is_nan(column), pc.is_inf(column))).as_py() or 0
@@ -97,8 +100,9 @@ def _check_file(path: Path, columns: Sequence[Any], codes: set[tuple[str, str]])
         code, closed = (S006, True) if column.enum == "closed" else (S007, False)
         for value in sorted(seen[column.name]):
             if not _listed(value, column.values) and (closed or (column.name, value) not in codes):
-                msg = f"{column.name} holds {value!r}, not in its {column.enum} list"
-                out.append(Finding(code, "error" if closed else "warning", msg))
+                n = seen[column.name][value]  # an instruments row is an instrument (#705 B3)
+                msg = f"{column.name} holds {value!r} in {n} row(s), not in its {column.enum} list"
+                out.append(Finding(code, "error" if closed else "warning", msg, count=n))
     out += [Finding(S009, "error", f"{name} holds NaN or ±Inf", count=n)
             for name, n in bad.items() if n]  # fmt: skip
     return out

@@ -36,7 +36,7 @@
 - **정확 비율** (`ratio_num/ratio_den`): 주식 수를 바꾸는 모든 기업행동은 정확한 정수비를 가진다. 엔진은 실수에서 분수를 추론하지 않는다. 십진 리터럴은 사용자가 고를 때만(`[corporate_actions] decimal_ratio = "literal"`, 경고).
 - **`fundamentals_state`**: 생산자가 기간 선택·TTM·출처 우선순위·엄격 자격을 해석해 낸 재무 상태 구간 `[ts_known_from, ts_known_to)`. 엔진은 조회만 한다. 원 사실은 `fundamentals_events`.
 - **두 시간축**: 분류·지수 편입은 효력 기간(`effective_from/to`)과 앎 기간(`ts_known_from/to`)을 모두 만족할 때만 쓴다.
-- **앞으로 누적 계수** (`cum_factor_split/total`): 상장 첫 세션 1.0부터 사건 계수를 곱한 값. 새 자료가 와도 옛 값은 바뀌지 않는다.
+- **앞으로 누적 계수** (`C`, 명세서 5.3.3): 상장 첫 세션 1.0부터 사건 계수를 곱한 값. 엔진이 사건에서 계산한다. 새 자료가 와도 옛 값은 바뀌지 않는다.
 - **워터마크**: 스냅숏에서 시장별로 완결된 마지막 세션. `live`는 그 뒤로 체결하지 않는다.
 - **거시 계열** (`Macro.series`): `series_observations`의 판(vintage) 있는 거시·대체 계열을 시장 수준 항으로. 기본 `vintage="as_of"` = 판단 시각까지 알려진 마지막 판.
 - **사건 항** (`Events.<kind>`, `Events.of(type)`): 사건 데이터셋(실적, 공시, 배당 등) 위의 항. 사건은 `ts_available` 뒤에만 있다. `value`와 `consensus`가 둘 다 있으면 `surprise = value − consensus`.

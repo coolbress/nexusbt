@@ -82,6 +82,21 @@ def test_defaults_match_spec_table(tmp_path: Path) -> None:
     assert load_config().values["data"]["require_profiles"] == []
 
 
+@pytest.mark.parametrize(
+    ("given", "read"),
+    [("", None), ('"separate"', "separate"),
+     ('["consolidated", "separate"]', ["consolidated", "separate"])],
+)  # fmt: skip
+def test_fund_statement_basis_is_one_basis_or_an_order(
+    given: str, read: object, tmp_path: Path
+) -> None:
+    """5.3.5 and 3.11 (#705 B1, #725 Decisions 183 to 188): no default; a basis or an order."""
+    toml = f"[fund]\nstatement_basis = {given}\n" if given else ""
+    assert load_config(write(tmp_path, toml)).values["fund"]["statement_basis"] == read
+    with pytest.raises(ConfigError):  # not a basis of TDS 5.17
+        load_config(write(tmp_path, '[fund]\nstatement_basis = "parent"\n'))
+
+
 def test_unknown_key_suggests(tmp_path: Path) -> None:
     with pytest.raises(ConfigError) as caught:
         load_config(write(tmp_path, "[execution]\nmax_participaton = 0.1\n"))

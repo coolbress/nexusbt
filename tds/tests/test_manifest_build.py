@@ -16,7 +16,7 @@ from nexusbt_tds import build_manifest, import_csv
 from nexusbt_tds.cli import main
 from nexusbt_tds.manifest import ManifestError
 
-from .test_import_csv import BARS, CHAPTER_7, MINIMAL, write
+from .test_import_csv import CHAPTER_7, MINIMAL, WHOLE, write
 
 BARS_FILE = "bars/freq=1d/market=US/year=2024/part-00000.parquet"
 MINUTE_FILE = "bars/freq=1m/market=US/date=2024-01-02/part-00000.parquet"
@@ -25,7 +25,7 @@ US = {"calendar_id": "XNYS", "currency": "USD", "timezone": "America/New_York"} 
 
 def folder(tmp_path: Path) -> tuple[Path, dict[str, Any]]:
     """A folder of Parquet files with no tds.json, and the manifest its writer gave it."""
-    mapping = write(tmp_path, {"instruments.csv": CHAPTER_7, "bars.csv": BARS,
+    mapping = write(tmp_path, {"instruments.csv": CHAPTER_7, "bars.csv": WHOLE,
                                "mapping.yaml": MINIMAL})  # fmt: skip
     package = import_csv(mapping, tmp_path / "pkg")
     written = json.loads((package / "tds.json").read_text(encoding="utf-8"))
@@ -47,7 +47,8 @@ def test_draft_lists_files_and_stats(tmp_path: Path, capsys: pytest.CaptureFixtu
     assert main(["manifest", "build", str(package)]) == 0
     assert f"wrote {package / 'tds.json'}" in capsys.readouterr().out
     draft = json.loads((package / "tds.json").read_text(encoding="utf-8"))
-    bars, instruments = draft["datasets"]  # in name order
+    bars, calendar, instruments = draft["datasets"]  # in name order; the import's calendar
+    assert (calendar["name"], calendar["kind"]) == ("calendar_sessions", "calendar_sessions")
     assert (bars["name"], bars["kind"], bars["schema_version"], bars["path"]) == (
         "bars", "bars", "1.0", "bars")  # fmt: skip
     assert (instruments["name"], instruments["kind"]) == ("instruments", "instruments")
@@ -86,21 +87,27 @@ def test_todo_fields_flagged(tmp_path: Path, capsys: pytest.CaptureFixture[str])
         "datasets[].columns", "hashes"]  # fmt: skip
     code, found = findings(package, capsys)
     assert code == 1
-    assert [f for f in found if f[0] == "TDS-M003"] == [
+    assert [f for f in found if f[0] == "TDS-M003" and f[1] is None] == [
         ("TDS-M003", None, f"required manifest field {key!r} is missing")
         for key in ("profiles", "id_namespaces", "markets")
     ]
+    assert [f[2].split(" is")[0] for f in found if f[:2] == ("TDS-M003", "bars")] == [
+        "params.price_basis",
+        "params.density",
+        "params.bar_time",
+    ]  # no default (#705 C5)
     assert ("TDS-M014", "bars", "unknown availability rule 'TODO'") in found
     assert "availability" not in draft["datasets"][1]  # instruments: no instant (TDS 5.1)
 
     draft["profiles"] = ["tds:minimal-daily@1.0"]
     draft["id_namespaces"] = {"XNYS": "ids as the files give them"}
     (package / "tds.json").write_text(json.dumps(draft), encoding="utf-8")
-    assert [f[0] for f in findings(package, capsys)[1]].count("TDS-M003") == 1  # markets
+    assert [f[:2] for f in findings(package, capsys)[1]].count(("TDS-M003", None)) == 1  # markets
 
     draft["markets"] = {"US": US}
     draft["datasets"][0] |= {"availability": {"rule": "ts_end"},
-                             "params": {"freq": "1d", "price_basis": "total_adjusted"}}  # fmt: skip
+                             "params": {"freq": "1d", "price_basis": "total_adjusted",
+                                        "bar_time": "session", "density": "dense"}}  # fmt: skip
     del draft["TODO"]
     (package / "tds.json").write_text(json.dumps(draft), encoding="utf-8")
     assert main(["check", str(package)]) == 0
@@ -138,6 +145,8 @@ def filled(package: Path, draft: dict[str, Any]) -> None:
     bars = {"availability": {"rule": "ts_end"}, "params": {"price_basis": "total_adjusted"}}
     for entry in (d for d in draft["datasets"] if d.get("kind") == "bars"):
         freq = {"freq": entry["path"][-2:]} | entry.get("params", {})
+        kind = ("session", "dense") if freq["freq"] == "1d" else ("interval", "sparse")  # C5
+        freq |= dict(zip(("bar_time", "density"), kind, strict=True))
         entry |= bars | {"params": bars["params"] | freq}
     draft |= {"profiles": [], "id_namespaces": {"XNYS": "ids as the files give them"},
               "markets": {"US": US}}  # fmt: skip
@@ -182,6 +191,7 @@ def test_folder_with_two_datasets_of_one_kind(
     two_freqs(package, {"1d": "daily", "1m": None})
     assert [(d["name"], d["path"]) for d in build_manifest(package).data["datasets"]] == [
         ("bars_1m", "bars/freq=1m"),
+        ("calendar_sessions", "calendar_sessions"),  # the import's (#705 Decisions 59)
         ("daily", "bars/freq=1d"),
         ("instruments", "instruments"),
     ]
@@ -197,7 +207,7 @@ def test_folder_with_two_datasets_of_one_kind(
         (package / rel).parent.mkdir(parents=True)
         pq.write_table(pa.table({"x": [1]}), package / rel)
     draft = dict(build_manifest(package).data)
-    notes = draft["datasets"][3]
+    notes = draft["datasets"][4]  # after the two bars, calendar_sessions, instruments
     assert (notes["name"], notes["path"], notes["rows"], "params" in notes) == (
         "notes", "notes", 3, False)  # fmt: skip
     assert draft["TODO"][0] == (
@@ -241,7 +251,7 @@ def test_folder_the_schema_files_do_not_name(
     (package / "notes" / "sub").mkdir(parents=True)
     pq.write_table(pa.table({"x": [1, 2]}), package / "notes" / "sub" / "a.parquet")
     draft = build_manifest(package).data
-    notes = draft["datasets"][2]
+    notes = draft["datasets"][3]  # after bars, calendar_sessions, instruments
     assert (notes["name"], notes["path"], notes["rows"]) == ("notes_sub", "notes/sub", 2)
     assert (notes.get("kind"), notes["availability"]) == (None, "TODO")
     assert sorted(notes["files"][0]) == ["bytes", "path", "rows", "sha256"]  # no value hash
@@ -259,7 +269,7 @@ def test_folder_the_schema_files_do_not_name(
     # rows that are not the kind's (an integer id), metadata that is not text: a draft all the same
     odd_rows = pa.table({"instrument_id": [1, 2]}).replace_schema_metadata({b"blob": b"\xff\xfe"})
     pq.write_table(odd_rows, package / "instruments" / "part-00000.parquet")
-    assert "value_sha256" not in build_manifest(package).data["datasets"][1]
+    assert "value_sha256" not in build_manifest(package).data["datasets"][2]  # instruments
     (package / "tds.json").unlink()
     # two folders under one name (`notes/sub`, `notes_sub`), a tds.json that links to nowhere
     (package / "notes_sub").mkdir()

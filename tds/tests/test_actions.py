@@ -81,7 +81,7 @@ def test_resolver_at_cutoffs() -> None:
         assert got == rows, chain
     assert (at[2].chains["b1"].effective, at[2].chains["b1"].status) == (False, "cancelled")
     assert at[2].chains["c1"].effects.pay_date == day(12).date()
-    assert resolve(EVENTS, None) == at[2]  # +inf: the whole package's knowledge (A001)
+    assert resolve(EVENTS, None) == at[2]  # +inf: the whole package's knowledge
     assert [c for c, _, _ in changed_chains(at[1], at[2])] == ["a1", "b1", "c1"]
 
 

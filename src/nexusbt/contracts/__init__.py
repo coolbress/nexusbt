@@ -69,8 +69,7 @@ ENGINE_COLUMNS: Mapping[str, frozenset[str]] = MappingProxyType(
             "instrument_symbols": f"{ID_COLUMN} symbol_type symbol venue_mic valid_from valid_to"
             " ts_known_from ts_known_to",
             "calendar_sessions": "calendar_id session_date ts_open ts_close is_half_day",
-            "bars": f"{ID_COLUMN} session_date open high low close volume value_traded obs_status"
-            " cum_factor_split cum_factor_total",
+            "bars": f"{ID_COLUMN} session_date open high low close volume value_traded obs_status",
             "tradability_daily": f"{ID_COLUMN} session_date status_known halted_full_day"
             " limit_up_close limit_down_close locked_up locked_down price_limit_ratio"
             " up_limit_price down_limit_price reference_price admin_status",
@@ -640,7 +639,7 @@ _EXAMPLES: dict[str, tuple[str, str, str, str, str, str, str]] = {
     "E11": ("", "execution", "daily-bar fills for limit/stop orders are approximations", "[execution] order types", "the order of prices inside a day is not known", "see [execution] fill_model note; use at='open' market orders to avoid", "spec 5.6.4"),  # noqa: E501
     "E12": ("", "A1", "A1 has a spinoff on 2020-03-02 while held (100 shares)", "instrument A1, 2020-03-02", "the engine cannot tell what the holding becomes", "[corporate_actions] unsupported = 'cash_at_adjustment' (recorded), or exclude the security from the universe before 2020-03-02", "spec 5.6.12; tds check snap --level full"),  # noqa: E501
     "E13": ("", "corporate_actions", "the snapshot lacks ratio_num/ratio_den for event 7", "table corporate_actions, key event_id=7, column ratio_num", "a decimal ratio cannot give exact share counts", "ask the producer for ratio_num/ratio_den, or use the default [corporate_actions] decimal_ratio = 'exclude_instrument', or 'literal' (recorded)", "spec 5.6.1; tds check snap --level full"),  # noqa: E501
-    "E14": ("", "","snapshot check failed: TDS-A001 cum_factor_split does not match corporate_actions", "dataset bars, file bars/year=2020/part-0.parquet, key instrument_id=A1", "errors per code: TDS-A001 (3)", "tds check snap --level full; nexusbt doctor --full", "tds check snap --level full; spec 4.4 and the TDS code table"),  # noqa: E501
+    "E14": ("", "","snapshot check failed: TDS-A003 price_factor null while factor_method is not unavailable", "dataset corporate_actions, file corporate_actions/part-0.parquet, key event_id=7", "errors per code: TDS-A003 (3)", "tds check snap --level full; nexusbt doctor --full", "tds check snap --level full; spec 4.4 and the TDS code table"),  # noqa: E501
     "E15": ("", "run r1", "snapshot s1 is not available", "run r1", "a rerun needs the exact data it ran on", "nx.rerun(id, new_snapshot=True) creates a new run", "nx.runs(); tds check snap --level full"),  # noqa: E501
     "E16": ("", "", "[costs] profle = 'realistic' is not a key", "nexusbt.toml [costs] profle", "unknown keys would be silently ignored", "did you mean: profile?", "nx.config()"),  # noqa: E501
     "E17": ("strategy.py:15", "rel_mom", "rel_mom is a cross-market term and cannot feed a window", "term rel_mom", "a window over a cross-market value mixes calendars", "compute the window per market, then compare across markets", "spec 3.3 (terms)"),  # noqa: E501
@@ -696,7 +695,7 @@ _EXAMPLE_LAYERS: dict[str, str] = {
     "E11": "config — nexusbt.toml [execution] order = 'limit'",
     "E12": f"data — {_data('corporate_actions', 'kind')}",
     "E13": f"data — {_data('corporate_actions', 'ratio_num')}",
-    "E14": f"data — {_data('bars', 'cum_factor_split')}",
+    "E14": f"data — {_data('corporate_actions', 'price_factor')}",
     "E15": f"data — {_data('tds.json', 'snapshot_id')}",
     "E16": "config — nexusbt.toml [costs] profle = 'realistic'",
     "E17": "your code — strategy.py:15 in rel_mom", "E18": "config — argument engine='event'",

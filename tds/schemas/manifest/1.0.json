@@ -3,7 +3,7 @@
   "title": "TDS 1.0 tds.json (TDS 4.2)",
   "$comment": "TDS 8.3: a violation is TDS-M001, except a missing `required` field, which is TDS-M003. `x-unique` (not a JSON Schema keyword) names the field whose value no two array items share.",
   "type": "object",
-  "required": ["tds_version", "name", "created", "snapshot_id", "producer", "profiles", "id_namespaces", "markets", "datasets", "hashes", "writer"],
+  "required": ["tds_version", "name", "created", "snapshot_id", "producer", "profiles", "id_namespaces", "markets", "datasets", "hashes", "writer", "tds_draft"],
   "properties": {
     "tds_draft": {"$ref": "#/$defs/date"},
     "producer": {"type": "object"},

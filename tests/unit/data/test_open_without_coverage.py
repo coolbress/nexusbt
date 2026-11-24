@@ -1,6 +1,5 @@
-"""#564: a package without `coverage` (TDS 4.3, optional) opens; what F-02 and the fallback
-records read from it comes from the bars themselves (spec 4.5 F-02: "from the first to the last
-day of `bars`"; 4.6: the market from the `market=` partition)."""
+"""#564: a package without `coverage` (TDS 4.3, optional) opens; what the fallback records
+read from it comes from the bars themselves (4.6: the market from the `market=` partition)."""
 
 from __future__ import annotations
 
@@ -24,11 +23,17 @@ from nexusbt_tds.hash import write_hashes
 INSTRUMENTS = """instrument_id,asset_class,market,calendar_id,currency,listed_on
 XNYS:AAPL,equity,US,XNYS,USD,1980-12-12
 """
-BARS = """instrument_id,session_date,close,volume
-XNYS:AAPL,2024-01-02,185.64,82488700
-"""
+BARS = """instrument_id,session_date,open,high,low,close,volume
+XNYS:AAPL,2024-01-02,187.15,188.44,183.89,185.64,82488700
+"""  # an equity's whole bars; minimal-daily asks close alone (TDS 7, #705)
 MINIMAL = """profiles: [tds:minimal-daily@1.0]
-market: {code: US, calendar_id: XNYS, currency: USD, timezone: America/New_York}
+market:
+  code: US
+  calendar_id: XNYS
+  currency: USD
+  timezone: America/New_York
+  open: "09:30"
+  close: "16:00"
 datasets:
   instruments:
     file: instruments.csv
@@ -52,11 +57,9 @@ def test_chapter_7_csv_package_opens_and_reads_its_close(tmp_path: Path, declare
         no_coverage(data)
         (pkg / "tds.json").write_text(json.dumps(data), encoding="utf-8")
     assert check(pkg, level="full").error_count == 0
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")  # F-02's E30 for the synthesized XNYS sessions
-        snap = open_snapshot(DataConfig(path=pkg))
-        day = np.array(["2024-01-02"], dtype="datetime64[D]")
-        block = snap.market_block("US", ["close"], day)
+    snap = open_snapshot(DataConfig(path=pkg))  # no warning: the import's calendar, no F-02
+    day = np.array(["2024-01-02"], dtype="datetime64[D]")
+    block = snap.market_block("US", ["close"], day)
     assert block.instrument_ids == ("XNYS:AAPL",)
     assert block.values["close"].tolist() == [[185.64]]
 
@@ -75,9 +78,7 @@ def processed_only(data: dict[str, Any]) -> None:
 
 
 #: degrade, markets, the feature asked for: each fallback whose record reads the bars' extent.
-CASES = {"F-02": (["no_sessions"], ("KR", "US"), "backtest"),
-         "F-03": (["sparse_bars"], ("KR", "US"), "backtest"),
-         "F-15": (["no_tick_info"], ("KR", "ZZ"), "grid")}  # fmt: skip
+CASES = {"F-15": (["no_tick_info"], ("KR", "ZZ"), "grid")}  # F-02, F-03 retired (#705)
 
 
 @pytest.mark.parametrize("edit", [no_coverage, processed_only])
@@ -106,12 +107,15 @@ def test_bars_extent_read_from_the_bars_without_coverage(
 
 def test_bars_files_of_two_string_encodings_are_read_together(tmp_path: Path) -> None:
     """When one bars file writes `instrument_id` dictionary-encoded and another plain (the same
-    TDS 3.2 type) and `coverage` is left out, then F-02 counts the same sessions as with it."""
-    path = make_snapshot(tmp_path / "s", preset="tiny", degrade=["no_sessions"])
-    backtest = CapabilityRequest(frozenset({"backtest"}))
+    TDS 3.2 type) and `coverage` is left out, then F-15 counts the same instruments as with it
+    (F-02 and F-03, which counted sessions and rows, retired, #705)."""
+    path = make_snapshot(tmp_path / "s", preset="tiny", markets=("KR", "ZZ"),
+                         degrade=["no_tick_info"])  # fmt: skip
+    cfg, grid = DataConfig(path=path, allow_untested=True), CapabilityRequest(frozenset({"grid"}))
     with warnings.catch_warnings():
-        warnings.simplefilter("ignore")  # F-02's E30
-        declared = open_snapshot(DataConfig(path=path), required=backtest).fallbacks
+        warnings.simplefilter("ignore")  # F-15's E30
+        declared = open_snapshot(cfg, required=grid).fallbacks
+        assert [r.id for r in declared] == ["F-15"]
         data = json.loads((path / "tds.json").read_text(encoding="utf-8"))
         no_coverage(data)
         bars = next(d for d in data["datasets"] if d["kind"] == "bars")
@@ -123,4 +127,4 @@ def test_bars_files_of_two_string_encodings_are_read_together(tmp_path: Path) ->
         first["bytes"] = (path / first["path"]).stat().st_size
         (path / "tds.json").write_text(json.dumps(data), encoding="utf-8")
         write_hashes(path)
-        assert open_snapshot(DataConfig(path=path), required=backtest).fallbacks == declared
+        assert open_snapshot(cfg, required=grid).fallbacks == declared

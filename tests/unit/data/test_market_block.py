@@ -214,23 +214,39 @@ def test_bare_column_rule_reads_ts_available(tmp_path: Path) -> None:
     np.testing.assert_array_equal(b.ts_available[b.exists], stored["ts_available"].to_numpy())
 
 
-def test_without_obs_status_f03(tmp_path: Path) -> None:
-    """F-03: without `obs_status`, a bar with a price is traded and a listed session without a
-    bar is missing, never `absent`, which means outside the listing period (5.3.1)."""
-    sparse = ["sparse_bars"]  # dense rows, no obs_status column
-    source = make_snapshot(tmp_path / "src", preset="tiny", markets=("KR",), degrade=sparse)
-    hole = ("2020-01-07", B)
+def test_bars_without_obs_status_state_nothing(tiny: Path, tmp_path: Path) -> None:
+    """Spec 3.2 (#705, F-03 retired): bars with no `obs_status` column state no state, so
+    their values are read as stored, with no E30: a row without a close or a volume is not
+    made `no_trade` with a volume of 0. A listed session without a row is missing, never
+    `absent`, which means outside the listing period (5.3.1)."""
+    quiet, hole = ("2020-01-08", B), ("2020-01-07", B)
 
-    def drop(rows: Rows) -> Rows:
-        return [r for r in rows if (str(r["session_date"]), r["instrument_id"]) != hole]
+    def rows(given: Rows) -> Rows:
+        out = [r for r in given if (str(r["session_date"]), r["instrument_id"]) != hole]
+        valued = ("open", "high", "low", "close", "volume", "value_traded")
+        return [r | dict.fromkeys(valued) if (str(r["session_date"]), r["instrument_id"]) == quiet
+                else r for r in out]  # fmt: skip
 
-    with pytest.warns(UserWarning, match="F-03"):  # E30: the fallback is said at open (4.5)
-        snap = opened(edited(source, tmp_path / "gap", bars_1d=drop))
-    b = whole(snap, "KR", ["close"])
-    row = int(np.searchsorted(b.dates, np.datetime64("2020-01-07", "D")))
+    at = edited(tiny, tmp_path / "pkg", bars_1d=rows)
+    data = json.loads((at / "tds.json").read_text(encoding="utf-8"))
+    data["profiles"] = ["tds:minimal-daily@1.0"]  # core requires obs_status (TDS 7)
+    (bars,) = (d for d in data["datasets"] if d["name"] == "bars_1d")
+    for f in bars["files"]:
+        pq.write_table(pq.read_table(part := at / f["path"]).drop_columns(["obs_status"]), part)
+        f["bytes"] = part.stat().st_size
+    (at / "tds.json").write_text(json.dumps(data), encoding="utf-8")
+    write_hashes(at)
+    snap = opened(at)  # filterwarnings: no E30
+    assert snap.fallbacks == []
+    assert "backtest" not in snap.capabilities.features  # 4.3 reads obs_status: off, no F-03
+    b = whole(snap, "KR", ["close", "volume"])
+    assert np.isnan([cell(b, "close", *quiet), cell(b, "volume", *quiet)]).all()  # F-03: 0
+    assert (cell(b, "close", "2020-01-08", A), cell(b, "volume", "2020-01-08", A)) == (
+        10000.0, 1000.0)  # fmt: skip
+    row = int(np.searchsorted(b.dates, np.datetime64(hole[0], "D")))
     assert OBS_STATUS[b.obs_status[row, b.instrument_ids.index(B)]] == "missing"
-    assert OBS_STATUS[b.obs_status[row, b.instrument_ids.index(A)]] == "traded"
-    assert (OBS_STATUS[b.obs_status[b.exists]] != "absent").all()
+    assert np.isnan(cell(b, "close", *hole))
+    assert set(OBS_STATUS[b.obs_status[b.exists]]) == {"unstated", "missing"}
 
 
 def test_session_close_rule_is_the_close(tiny: Path, tmp_path: Path) -> None:
@@ -450,7 +466,7 @@ def test_l0_key_partition_scoped(years: Path, tmp_path: Path) -> None:
     base = edited(years, tmp_path / "chain18", None, corporate_actions=earlier)
     # a chain effective by 2018's end is in 2018's key and every later year's (5.3.9)
     assert moved(base, tmp_path / "chain18b", corporate_actions=announced) == {2018, 2019}
-    # XNYS has no calendar_sessions rows: F-02 builds its sessions (#480)
+    # the key holds each stable `markets` field (5.3.9); XNYS's rows are not in this package
     for field, value in (("currency", "USD"), ("timezone", "UTC"), ("calendar_id", "XNYS")):
 
         def stable(data: dict[str, Any], field: str = field, value: str = value) -> None:
@@ -565,32 +581,3 @@ def test_l0_key_ignores_axis_rows_outside_the_year(years: Path, tmp_path: Path) 
         return rows
 
     assert moved(years, tmp_path / "name", instruments=renamed) == set()
-
-
-def test_l0_key_synthesized_sessions(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """#480: without `calendar_sessions` (4.5 F-02) the axis-row hash (b) holds the sessions
-    F-02 builds, so a library that moves a session of 2018 misses 2018 and 2019, one of 2019
-    misses 2019, and the key never needs the library's version (5.3.9)."""
-    import exchange_calendars as xcals
-
-    root = make_snapshot(tmp_path / "snap", preset="small", markets=("KR",), n_kr=4,
-                         start=dt.date(2018, 12, 3), end=dt.date(2019, 2, 8),
-                         degrade=["no_sessions"])  # fmt: skip
-    assert not (root / "calendar_sessions").exists()
-    base, real = keys(root), xcals.get_calendar
-
-    def moved_session(day: str) -> set[int]:
-        def library(name: str, **kwargs: Any) -> Any:
-            calendar = real(name, **kwargs)
-            schedule = calendar.schedule.copy()
-            schedule.loc[day, "close"] += dt.timedelta(hours=1)
-            return type("Moved", (), {"schedule": schedule, "sessions": calendar.sessions})
-
-        with monkeypatch.context() as m:
-            m.setattr(xcals, "get_calendar", library)
-            after = keys(root)
-        return {y for y in base if base[y] != after[y]}
-
-    assert len(set(base.values())) == 2
-    assert moved_session("2018-12-14") == {2018, 2019}
-    assert moved_session("2019-01-15") == {2019}

@@ -28,7 +28,7 @@ from nexusbt.data._calendar import read_calendar
 from nexusbt.data._capabilities import CapabilityRequest as CapabilityRequest
 from nexusbt.data._capabilities import DataCapabilities as DataCapabilities
 from nexusbt.data._capabilities import FallbackRecord as FallbackRecord
-from nexusbt.data._capabilities import _columns, _values, check_fields, decide
+from nexusbt.data._capabilities import _columns, _values, check_fields, decide, said
 from nexusbt.data._coverage import BarsExtent
 from nexusbt.data._datasets import chosen
 from nexusbt.data._outputs import table_value_hash as table_value_hash
@@ -171,10 +171,8 @@ class Snapshot:
         unchecked: tuple[str, ...] = (),
         daily: Mapping[str, DailyCoverage] | None = None,
         daily_columns: int = 0,
-        extent: BarsExtent | None = None,
     ) -> None:
         self._manifest, self._hashes, self._markets = manifest, hashes, markets
-        self._extent = extent  # the open's bars extent, read at most once (#568)
         self.warnings, self.assumptions = dict(warnings), assumptions
         self.ca_exclusions, self._decided = ca_exclusions, decided
         self.unchecked, self.daily, self.daily_columns = unchecked, dict(daily or {}), daily_columns
@@ -208,6 +206,22 @@ class Snapshot:
     def fallbacks(self) -> list[FallbackRecord]:
         return list(self._decided[2])
 
+    def _recorded(self) -> dict[str, Any]:
+        """4.4-5: what a run manifest keeps of the open, as it is: `data.profiles`,
+        `data.capabilities`, `data.unchecked`, `data.fallbacks` (`[]` for none; #687) and
+        `assumptions`, with one sentence per fallback (1.2). Names, codes and counts only."""
+        caps = self.capabilities
+        data = {
+            "profiles": {n: {"declared": p.declared, "verified_level": p.verified_level,
+                             "result": p.result} for n, p in self.profiles.items()},
+            "capabilities": {"features": sorted(caps.features),
+                             "supported": sorted(caps.supported)},
+            "unchecked": list(self.unchecked),
+            "fallbacks": [{"id": f.id, "dataset": f.dataset, "market": f.market, "count": f.count,
+                           "column": f.column} for f in self.fallbacks],
+        }  # fmt: skip
+        return {"data": data, "assumptions": [*self.assumptions, *said(self.fallbacks)]}
+
     @property
     def markets(self) -> Mapping[str, MarketInfo]:
         return self._markets
@@ -216,7 +230,7 @@ class Snapshot:
         """The sessions of `market` and the time each of its rows freezes (5.1.1, 5.1.2)."""
         if market not in self._markets:
             raise _no_pack(market, self._manifest, False)
-        return read_calendar(self._manifest, market, self._extent)
+        return read_calendar(self._manifest, market)
 
     def market_block(
         self, market: str, fields: Sequence[str], sessions: object, *, overlap: int = 0
@@ -224,8 +238,14 @@ class Snapshot:
         """The dense block of the daily bars' `fields` over the calendar rows from the first to
         the last of `sessions`, after up to `overlap` rows of the previous chunk (5.3.1).
         `close_tr` on an adjusted-price package is E18 (4.3), at the first chunk's read."""
-        check_fields(self._manifest.data, self.capabilities, fields)
+        self._check_fields(fields, market)
         return build_block(self._manifest, self.calendar(market), fields, sessions, overlap)
+
+    def _check_fields(self, fields: Sequence[str], market: str | None = None) -> None:
+        """E18 for a bars column the graph reads that this package cannot give (4.3, 4.4-3):
+        `close_tr` without raw prices, or a column with no value in the bars or in `market`'s.
+        `run_pipeline` calls it once the graph is built, before any value (#705); not public."""
+        check_fields(self._manifest.data, self.capabilities, fields, market)
 
     def block_columns(self, market: str, sessions: object) -> tuple[str, ...]:
         """The instruments `market_block` would hold over `sessions`, no bar read: what a run
@@ -363,17 +383,16 @@ def open_snapshot(
     kinds = chosen(manifest.data)
     bars = kinds.get("bars")  # the one daily bars dataset, or none (4.3)
     extent = BarsExtent(folder, bars, kinds.get("instruments"))
-    caps, used, assumed = decide(folder, manifest, rules, result.warnings, required,
-                                 cfg.fallbacks, extent)  # fmt: skip
-    extent.release()  # the snapshot keeps the extent, not the bars' rows
+    caps, used = decide(folder, manifest, rules, result.warnings, required,
+                        cfg.fallbacks, extent)  # fmt: skip
     warnings = Counter(f.code for f in result.warnings)
     decided = (result.profiles, caps, used)
     covered = (bars or {}).get("coverage", {}).get("by_market", {})
     daily = {m: DailyCoverage(e.get("first"), e.get("last"), e.get("instruments"), e.get("rows"))
              for m, e in covered.items()}  # fmt: skip
-    return Snapshot(manifest, hashes, markets, warnings, untested + assumed, excluded, decided,
+    return Snapshot(manifest, hashes, markets, warnings, untested, excluded, decided,
                     unchecked=tuple(result.unchecked), daily=daily,
-                    daily_columns=len(_columns(folder, bars)), extent=extent)  # fmt: skip
+                    daily_columns=len(_columns(folder, bars)))  # fmt: skip
 
 
 def _market(name: str, entry: Mapping[str, Any], allow_untested: bool) -> MarketInfo:

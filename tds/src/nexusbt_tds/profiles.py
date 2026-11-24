@@ -32,6 +32,11 @@ class Profile:
     requires_multi_market: Needs = ()
     #: The columns each dataset of the package that meets the `Need` must hold (`_COLUMNS`).
     columns: tuple[tuple[Need, tuple[str, ...]], ...] = ()
+    #: The columns such a dataset must also hold when its `instrument_id` names an instrument
+    #: whose `asset_class` is in `TRADED` (chapter 7, #705 Decisions 37).
+    traded: tuple[tuple[Need, tuple[str, ...]], ...] = ()
+    #: The columns such a dataset holds on every row, not null (`_EVERY_ROW`; S001 and S003).
+    every_row: tuple[tuple[Need, tuple[str, ...]], ...] = ()
 
 
 _CONDITION = re.compile(r"([a-z_]+)([=<].*)?")
@@ -80,7 +85,7 @@ def describe(alt: tuple[Need, ...]) -> str:
     )
 
 
-_MINIMAL = ("instruments", "bars:freq=1d,price_basis")
+_MINIMAL = ("instruments", "bars:freq=1d,price_basis", "calendar_sessions")  # C3 (#705)
 _CORE = (
     "instruments",
     "bars:freq=1d,price_basis=raw,density=dense",
@@ -124,15 +129,20 @@ _TABLE = (
     Profile("tds:alt-events@1.0", "stable", _needs("events|series_observations")),
 )
 
-_OHLCV = {_CORE[1]: "open high low close volume obs_status"}
+#: Chapter 7's equity daily profiles: `close` on every bars dataset, and in core and research,
+#: on one that holds an `equity` or `etf` instrument, the other four as well; `index` and `rate`
+#: carry `close` only. `minimal-daily` asks `close` alone of every row (#705, 2026-11-22).
+TRADED = frozenset({"equity", "etf"})
+_OHLV = "open high low volume"
+_TRADED = {"equity-daily-core": {_CORE[1]: _OHLV}, "equity-daily-research": {_CORE[1]: _OHLV}}
 #: Chapter 7's "required" cell: the columns it names, under the dataset that holds them. Where
 #: the cell names no dataset, the row's dataset whose schema lists the column (10.3). The
 #: `tds:bitemporal` cell names the two datasets whose schema carries `ts_recorded` (5.17);
 #: `classifications` and `fundamentals_state` carry `ts_known_from` instead (#397 Decisions).
 _COLUMNS = {
     "minimal-daily": {_MINIMAL[1]: "close"},
-    "equity-daily-core": _OHLCV,
-    "equity-daily-research": _OHLCV,  # "above +"
+    "equity-daily-core": {_CORE[1]: "close obs_status"},
+    "equity-daily-research": {_CORE[1]: "close obs_status"},  # "above +"
     "panels": {"feature_panels": "ts_available", "label_panels": "ts_available"},
     "pit-fundamentals": {"fundamentals_events": "fact_id doc_id"}
     | {"fundamentals_state": "lineage_id"},
@@ -143,12 +153,20 @@ _COLUMNS = {
     "l3-book": {"book_deltas:depth_kind=mbo": "order_id"},
     "alt-events": {"events": "ts_available", "series_observations": "ts_available"},
 }
+#: Chapter 7's "`obs_status` on every row" (5.5's null cell, #705 Decisions 129): core and above;
+#: `minimal-daily` leaves it null on a row with values, its state not stated.
+_EVERY_ROW = {"equity-daily-core": {_CORE[1]: "obs_status"},
+              "equity-daily-research": {_CORE[1]: "obs_status"}}  # fmt: skip
 
 
 def _with_columns(p: Profile) -> Profile:
-    named = _COLUMNS.get(p.name.removeprefix("tds:").removesuffix("@1.0"), {})
-    columns = ((_needs(need)[0][0][0], tuple(names.split())) for need, names in named.items())
-    return replace(p, columns=tuple(columns))
+    short = p.name.removeprefix("tds:").removesuffix("@1.0")
+
+    def needs(named: Mapping[str, str]) -> tuple[tuple[Need, tuple[str, ...]], ...]:
+        return tuple((_needs(need)[0][0][0], tuple(cols.split())) for need, cols in named.items())
+
+    return replace(p, columns=needs(_COLUMNS.get(short, {})), traded=needs(_TRADED.get(short, {})),
+                   every_row=needs(_EVERY_ROW.get(short, {})))  # fmt: skip
 
 
 PROFILES: Mapping[str, Profile] = MappingProxyType({p.name: _with_columns(p) for p in _TABLE})
