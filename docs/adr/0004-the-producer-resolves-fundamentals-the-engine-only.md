@@ -1,6 +1,6 @@
 # 4. The producer resolves fundamentals; the engine only queries `fundamentals_state`
 
-- Status: Accepted
+- Status: Superseded by [ADR 0048](0048-values-outside-trading-are-the-users-in-three-value-tables.md) (2026-11-24)
 - Date: 2026-10-28
 - Spec: §5.3.5, TDS 5.17–5.18
 
