@@ -1,6 +1,7 @@
 # 5. One availability rule, `decision_ts`, a reference clock, and sleeves
 
 - Status: Accepted
+- Amended by: [ADR 0047](0047-a-date-only-value-is-known-before-its-markets-next-session-opens.md) (2026-11-24)
 - Date: 2026-10-28
 - Spec: §5.1
 

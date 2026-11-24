@@ -1,6 +1,6 @@
 # 15. Missing dividend pay dates are estimated and flagged
 
-- Status: Accepted
+- Status: Superseded by [ADR 0049](0049-a-missing-dividend-pay-date-is-declared-not-estimated.md) (2026-11-24)
 - Date: 2026-10-28
 - Spec: §5.6.11
 

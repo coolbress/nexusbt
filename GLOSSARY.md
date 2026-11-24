@@ -25,8 +25,9 @@ This file holds the terms of the spec's glossary (spec §1.2 and §9.2) and noth
 - **Market**: a key of TDS `markets` (for example `KR` = XKRX/KRW, `US` = XNYS/USD). Never hard-coded. A **supported market** has a market rules pack (`resources/markets/<M>.toml`).
 - **Market rules pack**: per-market rules — price limits, tick grid, rounding, provisional costs, settlement and short-sale ban dates, margin seeds. Seeds marked unverified are reported as such.
 - **Session**: one trading day of a market calendar. `ts_open` and `ts_close` are the real instants; the date is a label.
-- **Availability time** (`ts_available`): the first UTC instant an observation may be used. A date-only value becomes usable at the next session open.
-- **Information cutoff** (`decision_ts`): the last instant of information a decision may use. One rule everywhere: `ts_available <= decision_ts`.
+- **Availability time** (`ts_available`): the first UTC instant an observation may be used. A date-only value is known before its market's next session opens and is used from its date's close decision (spec 5.1.4).
+- **Decision time** (`decision_ts`): the instant a decision is taken and recorded; its orders fill only in a session that opens after it.
+- **Information cutoff**: what a decision may use: observations with `ts_available <= decision_ts`. A date-only value takes its row's freeze time as `ts_available`, its date saying it was known before the market's next session opens (spec 5.1.2, 5.1.4).
 - **As of**: always "as of `decision_ts`". Currencies and date strings never set the as-of time.
 - **Market axis**: the session sequence of one market. Row s freezes at `ready(s) = ts_close(s) + declared delay` and never changes afterwards.
 - **Term value**: the value a term has at a row, fixed at that row's `ready`. A window over a column reads its cells again at each row; a term that reads another term's values (`shift`, a window over a term, an element-wise operation) does not — it reads the values fixed at each row it reads (spec 5.1.2).

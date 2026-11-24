@@ -27,3 +27,8 @@ single-context (this repository):
 
 Write an ADR only when all three hold: **hard to reverse**, **surprising without
 context**, **the result of a real trade-off**.
+
+An accepted ADR's text is never deleted or rewritten (Nygard's form, as adr-tools
+writes it). Replaced whole: its line becomes `- Status: Superseded by [ADR NNNN](file) (date)`
+and the new record says `- Supersedes: [ADR MMMM](file)`. Changed in part: it gains one
+line `- Amended by: [ADR NNNN](file) (date)` and the change is written in the new record.
