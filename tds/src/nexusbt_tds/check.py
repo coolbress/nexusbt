@@ -77,7 +77,7 @@ REQUIRED += ("tds_draft",)  # no text is assumed (TDS 10.5; #705 C5)
 DATASET_REQUIRED = ("name", "kind", "schema_version", "path", "files")
 FILE_REQUIRED = ("path", "bytes")  # TDS 4.2; checked one by one in _check_dataset
 MARKET_REQUIRED = ("calendar_id", "currency", "timezone")  # TDS 3.8, 4.2 (#567)
-HASH_SPECS = frozenset({"tds-hash-1"})  # 4.5
+HASH_SPECS = frozenset({"tds-hash-2"})  # 4.5; -1 hashed a partitioned dataset otherwise
 SUPPORTED_MAJOR = 1  # 10.3
 #: The newest dataset `schema_version` MINOR this checker knows; per kind with T0.13b's files.
 KNOWN_MINOR = 0
@@ -345,7 +345,9 @@ def _check_manifest(m: Manifest, only: Sequence[str] | None) -> Iterable[Finding
     hashes = data.get("hashes")
     spec = hashes.get("hash_spec") if isinstance(hashes, dict) else None
     if spec is not None and not (isinstance(spec, str) and spec in HASH_SPECS):
-        yield Finding("TDS-M014", "error", f"unknown hash_spec {spec!r}")
+        again = " (an earlier draft's; write the hashes again, `tds hash --write`)"
+        old = again if spec == "tds-hash-1" else ""
+        yield Finding("TDS-M014", "error", f"unknown hash_spec {spec!r}{old}")
     draft = data.get("tds_draft")  # TDS 10.5 (#529); a value that is no date is M001's
     dated = isinstance(draft, str) and re.fullmatch(DATE, draft) is not None
     if dated and draft != TDS_DRAFT:  # a missing one is M003's (#705 C5)

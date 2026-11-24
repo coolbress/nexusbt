@@ -108,6 +108,28 @@ def _values(column: pa.ChunkedArray, tag: str, name: str = "") -> list[Any]:
     return list(column.to_pylist())
 
 
+def _text(value: str) -> bytes:
+    """u32 LE length + UTF-8 bytes (TDS 4.5 step 6's names)."""
+    data = value.encode("utf-8")
+    return struct.pack("<I", len(data)) + data
+
+
+def partition_name(values: Mapping[str, Any], partitioning: Sequence[Mapping[str, Any]]) -> bytes:
+    """A partition's name (TDS 4.5 step 6): per `partitioning` column in order, the 3.6
+    canonical text of its value; `values` are the path's, as `_partitions` reads them."""
+    texts = (values[p["name"]].as_py() for p in partitioning)
+    return b"".join(_text(v.isoformat() if isinstance(v, dt.date) else str(v)) for v in texts)
+
+
+def joined(partitioning: Sequence[Mapping[str, Any]], digests: Mapping[bytes, bytes]) -> bytes:
+    """The bytes a partitioned dataset's value hash is taken over (TDS 4.5 step 6): the
+    `partitioning` column names, then each partition's name and the 32 bytes of its value hash,
+    by name; a partition is a name some row holds."""
+    head = struct.pack("<I", len(partitioning)) + b"".join(_text(p["name"]) for p in partitioning)
+    body = struct.pack("<I", len(digests)) + b"".join(n + digests[n] for n in sorted(digests))
+    return b"TDSP1\n" + head + body
+
+
 def _header(columns: Columns) -> bytes:
     lines = (name.encode("utf-8") + b"\t" + tag.encode("utf-8") + b"\n" for name, tag in columns)
     return b"TDSV1\n" + b"".join(lines) + b"\n"
@@ -238,14 +260,21 @@ def _columns(names: Sequence[str], dataset: Mapping[str, Any], schema: list[Any]
 
 
 def _runs(
-    root: Path, entry: Mapping[str, Any], own: list[Columns], columns: Columns, key: list[str]
+    root: Path,
+    entry: Mapping[str, Any],
+    own: list[Columns],
+    columns: Columns,
+    key: list[str],
+    which: Sequence[int],
 ) -> Iterator[list[Record]]:
-    """The rows in runs of `BATCH_ROWS` or more (up to two batches), each sorted by the dataset's
-    row order. A file's own rows in that order are in its own: a column it lacks is all null."""
+    """The rows of the files numbered `which` (one partition's, TDS 4.5 step 6, or all) in runs
+    of `BATCH_ROWS` or more (up to two batches), each sorted by the dataset's row order. A file's
+    own rows in that order are in its own: a column it lacks is all null."""
     run: list[Record] = []
-    for i, f in enumerate(entry["files"]):
-        source = pq.ParquetFile(inside(root, f["path"]))
-        parts = _partitions(f["path"], entry.get("partitioning", []), source.schema_arrow.names)
+    for i in which:
+        path = entry["files"][i]["path"]
+        source = pq.ParquetFile(inside(root, path))
+        parts = _partitions(path, entry.get("partitioning", []), source.schema_arrow.names)
         for batch in source.iter_batches(batch_size=BATCH_ROWS):
             table = pa.Table.from_batches([batch])
             for name, value in parts.items():
@@ -374,13 +403,28 @@ def dataset_hashes(
     for cols in (columns, *own):
         if missing := [k for k in key if k not in dict(cols)]:
             raise HashError(f"{entry['name']}: key column {', '.join(missing)} is not in the data")
-    whole, each = hashlib.sha256(_header(columns)), [hashlib.sha256(_header(c)) for c in own]
-    with _merged(_runs(root, entry, own, columns, key), folder, spilled) as records:
-        for _, row, i, mine in records:
-            whole.update(row)
-            each[i].update(mine or row)
+    partitioning = entry.get("partitioning") or []
+    groups: dict[bytes, list[int]] = {}  # partition name → its files; b"": all, unpartitioned
+    for i, f in enumerate(entry["files"]):
+        name = partition_name(_partitions(f["path"], partitioning, []), partitioning)
+        groups.setdefault(name, []).append(i)
+    # one stream unpartitioned; else one per partition, each with the dataset's header (step 6),
+    # sorted alone: the temporary files a sort writes hold one partition at most (#725 160)
+    whole: dict[bytes, Any] = {}
+    each = [hashlib.sha256(_header(c)) for c in own]
+    for name, which in groups.items():
+        with _merged(_runs(root, entry, own, columns, key, which), folder, spilled) as records:
+            for _, row, i, mine in records:
+                if name not in whole:
+                    whole[name] = hashlib.sha256(_header(columns))
+                whole[name].update(row)
+                each[i].update(mine or row)
     paths = [f["path"] for f in entry["files"]]
-    return whole.hexdigest(), {p: h.hexdigest() for p, h in zip(paths, each, strict=True)}
+    files = {p: h.hexdigest() for p, h in zip(paths, each, strict=True)}
+    if not partitioning:
+        return (whole.get(b"") or hashlib.sha256(_header(columns))).hexdigest(), files
+    digests = {n: h.digest() for n, h in whole.items()}
+    return hashlib.sha256(joined(partitioning, digests)).hexdigest(), files
 
 
 def value_hash(path: Path, dataset: str) -> str:
@@ -402,7 +446,7 @@ def spilled_note(spilled: list[Path], what: str = "value hash") -> str:
     return f"{what}: {len(spilled)} temporary file(s) of sorted rows in {where}, removed"
 
 
-HASH_SPEC = "tds-hash-1"
+HASH_SPEC = "tds-hash-2"  # 4.5; -1 hashed a partitioned dataset as one stream (#705 B4)
 #: The package-level keys of the semantic hash (TDS 4.5), each `null` when tds.json has none.
 _PACKAGE_KEYS = ("markets", "id_namespaces", "editions", "policies", "currencies", "roll_rules")
 _DATASET_KEYS = ("kind", "schema_version", "params", "availability", "pit_quality", "key")

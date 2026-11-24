@@ -2009,7 +2009,8 @@ def test_M013_duplicate_path(tmp_path: Path) -> None:
             "params",
             build.DENSE | {"availability_by_column": {"is_halted": "x"}},
         ),
-        ("hashes", {"hash_spec": "tds-hash-2"}),
+        ("hashes", {"hash_spec": "tds-hash-1"}),  # an earlier draft's method (#705 B4)
+        ("hashes", {"hash_spec": "tds-hash-3"}),
     ],
 )
 def test_M014_unknown_required_rule(where: str, value: object, tmp_path: Path) -> None:

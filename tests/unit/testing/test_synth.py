@@ -391,7 +391,7 @@ def test_small_hashes_match_on_macos_and_linux(tmp_path: Path) -> None:
     hashes = json.loads((package / "tds.json").read_text())["hashes"]
     assert (hashes["value_sha256"], hashes["semantic_sha256"]) == (
         "e315ff96bdf394a69208ae07296c55163315dec6434ad37681aa496168ab816d",
-        "348b823f1d049d6951285e2bf3b8f5ccd62bb26bae3f3258876979974b17350d",  # #705: no cum_factor_*
+        "19f01d5fa8cf10ef78f4d2262fc89cf5bd17acd2f3798d8cfa425031934d4ae3",  # #705 B4: tds-hash-2
     )
 
 
