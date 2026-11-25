@@ -665,7 +665,7 @@ Columns: `instrument_id`, `session_date`, `ts_event`, `ts_recv`, `sequence`, `bi
 | flags | i32 | yes | Original bits |
 
 - Reconstruction rule: the start of a file (or date) is either a batch of `is_snapshot = true` rows after a `clear`, or declares with `params.continuity = "carry"` that it carries over the last state of the nearest earlier partition of the same `venue` in the package.
-- The engine reads the book only after rows with `is_last = true`. V031: warning if a crossed book appears after reconstruction. V032 (`sequence` gaps) is stated before 5.6's table, for the three datasets.
+- The engine reads the book only after rows with `is_last = true`. (V031, a crossed book after reconstruction, is retired [2026-11-25, #752]: `book_deltas` leaves the standard with the other out-of-scope kinds.) V032 (`sequence` gaps) is stated before 5.6's table, for the three datasets.
 - How each row changes the book (decision 2026-11-12, #347); `is_snapshot` rows apply by the same table:
 
 | `action` | `mbp` (book of price levels) | `mbo` (book of orders) |
@@ -676,11 +676,7 @@ Columns: `instrument_id`, `session_date`, `ts_event`, `ts_recv`, `sequence`, `bi
 | `clear` | Empty both sides, at the start of a file or in the middle of a day | Empty both sides, at the start of a file or in the middle of a day |
 | `trade`, `fill`, `none` | No change (the row's `size` is the traded size, not a level total) | No change |
 
-- How V031 is judged (#347):
-  - **When**: right after each row with `is_last = true`, whatever its `action`, `none` included; never in the middle of a batch.
-  - **Crossed**: best bid `>` best ask, strictly. A locked book (equal prices) is not V031. A side with no level is not judged.
-  - **Start of a date with `params.continuity = "carry"`**: the state of each instrument after its last `is_last = true` row in the nearest earlier partition of the same `venue` in the package (decision 2026-11-13, #430). When the package has no previous partition, the book starts empty and the output carries one line per (`venue`, `session_date`) saying the date was judged from a partial book.
-  - **Output**: one warning line per (`venue`, `session_date`, `instrument_id`) with the `ts_event` of the first crossed judgement point and the number of judgement points at which the book was crossed.
+- How V031 was judged (#347, #430): retired 2026-11-25 (#752), with the checker's code.
 
 `book_snapshots` — depth-N state at fixed intervals or per event. Long shape: key (`instrument_id`, `ts_event`, `side`, `level`). Columns `ts_event`, `ts_recv`, `side`, `level` (0 = best), `price`, `size`, `order_count`. Databento MBP-10 and Nautilus OrderBookDepth unrolled into rows. The columns named here without a type are typed when the schema leaves `experimental`.
 
@@ -1180,7 +1176,7 @@ Severity: E = error (profile fails), W = warning.
 | TDS-V012 | W | Grid information exists but a raw price deviates from the grid by more than 1e-9 relative [v1.2, V31-05] |
 | TDS-V020 | E | Required column per asset kind missing; an `equity` row's `issuer_id` where `tds:equity-daily-research@1.0` or `tds:pit-fundamentals@1.0` is declared (5.1; read at the `full` level) [2026-11-24, #705 B2] |
 | TDS-V030 | W | Crossed or locked BBO |
-| TDS-V031 | W | Crossed book after reconstruction |
+| TDS-V031 | — | Retired 2026-11-25 (#752), the number not reused: a crossed book after reconstruction; `book_deltas` leaves the standard (5.8) |
 | TDS-V032 | W | Sequence gap in a group whose dataset declares `params.sequence_consecutive_within` (5.6) |
 | TDS-V040 | E | `ret_lo > ret_hi`; or `ret_lo`, `ret_hi` or `policy_id` null on a row whose `exit_value_status` is not `unobserved` (5.13; read at the `full` level) [2026-11-24, #705 Decisions 8] |
 | TDS-V041 | W | An `events` row with `instrument_id`, `issuer_id` and `series_id` all null [v1.4, R4F-EV-02] |
@@ -1628,3 +1624,4 @@ Reference numbers are `R4F-NN` of specification v3.4 (appendix I). **`tds_versio
 - 2026-11-24: **v1.4**, in place. 4.5: `hash_spec` `tds-hash-2`; step 6, a partitioned dataset's value hash joined from its partitions' (#705 B4; #725 Decisions 146, 157 to 161, 198); a dataset without `partitioning` hashes as before. A package declaring `tds-hash-1` is TDS-M014. Moved: the semantic hash of every package (it holds `hash_spec`), and the value hash of a dataset that declares `partitioning`; the vector `partition_columns` with them, and the vector `partitioned_split_differently` added. The first of #705 plan item 12's pull requests (12a to 12e, one batch, #725 Decisions 196, 197): until `tds_draft` moves at its end, `tds-hash-2` is not final. `tds_version` stays `"1.0"`; `tds_draft` stays 2026-11-19 until then (10.5).
 - 2026-11-24: **v1.4**, in place. 4.2 `partitions` (required where `partitioning` is declared, M003) and 8.3 TDS-H005 (the manifest level joins them into `value_sha256`); TDS-H002 names the partitions apart (#705 B4, plan item 12b; #725 Decisions 199). A writer that lays a dataset out in `key=value` folders declares them as `partitioning`. Moved: the value and semantic hashes of a package that now declares its partitions. `tds_version` stays `"1.0"`; `tds_draft` stays 2026-11-19 until 12e (10.5).
 - 2026-11-25: **v1.4**, in place. 5.5 and the bars schema file: `cum_factor_split` and `cum_factor_total` leave; a package that still holds them gets TDS-S005 (#705 Decisions 35, 36; plan item 12d). Moved: the value hash of a dataset whose files hold either column undeclared (TDS-H002 and H003 against hashes written before); a package without them, none. `tds_version` stays `"1.0"`; `tds_draft` stays 2026-11-19 until 12e (10.5).
+- 2026-11-25: **v1.4**, in place. 5.8 and 8.3: TDS-V031 (a crossed book after reconstruction) is retired, its number never reused, before `book_deltas` leaves with the other out-of-scope kinds (#725 Decision 252; #752's R1b). Moved: the conformance case TDS-V031 is gone; no other package's hash. `tds_version` stays `"1.0"`; `tds_draft` stays 2026-11-19 until 12e (10.5).
