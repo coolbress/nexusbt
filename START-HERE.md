@@ -1,6 +1,6 @@
 # START HERE
 
-> **This is the hand-over document of 2026-10-29, not kept current.** It describes the repository before M0: the steps below are the ones that set it up, and its numbers are those of that date. For the present state read [README.md](README.md), [SPEC-INDEX.md](SPEC-INDEX.md) and the open issues. The spec checker it names, `tools/spec_lint.py`, is not in this repository.
+> **This is the hand-over document of 2026-10-29, not kept current.** It describes the repository before M0: the steps below are the ones that set it up, and its numbers are those of that date. For the present state read [README.md](README.md), [docs/plan/plan.md](docs/plan/plan.md) and the open issues. The spec checker it names, `tools/spec_lint.py`, is not in this repository.
 
 **Event-driven where it matters, vectorized where it scales. You just snap the blocks together.**
 
@@ -12,7 +12,7 @@ This repository builds **NexusBT**, an open-source (Apache-2.0) backtesting and 
 |---|---|---|
 | Engine spec v3.4 | [docs/spec/engine-spec-v3.4.md](docs/spec/engine-spec-v3.4.md) (Korean translation: [engine-spec-v3.4.ko.md](docs/spec/engine-spec-v3.4.ko.md)) | **The single source of truth.** Public edition. If anything disagrees with it, the spec wins |
 | Spec checker | `tools/spec_lint.py` (not in the repository yet: it was not in the pack) | `python3 tools/spec_lint.py` (stdlib only): § refs, ticket graph, ids. Run it after any spec edit |
-| Ticket index | [SPEC-INDEX.md](SPEC-INDEX.md) | milestone → ticket → spec sections → tests → blocked by. Ticket text lives in 10.1 of [docs/plan/plan.md](docs/plan/plan.md) |
+| Plan | [docs/plan/plan.md](docs/plan/plan.md) | milestone table (10.0) and ticket text with spec sections, tests and blockers (10.1) |
 | Data standard TDS v1.4 | [docs/tds/tds-v1.4.md](docs/tds/tds-v1.4.md) (+ [.ko](docs/tds/tds-v1.4.ko.md)), [examples](docs/tds/tds-examples.md) | Spec 2.3 and T0.1 place it at `tds/spec/tds-v1.md`; move it there in T0.1 and fix the links |
 | Glossary | [GLOSSARY.md](GLOSSARY.md) (+ [.ko](GLOSSARY.ko.md)) | The words of this project. `CONTEXT.md` and `CONTEXT.ko.md`, the spec's names, are symbolic links to these |
 | Decision records | [docs/adr/](docs/adr/) | Each record's Status line says whether it stands or what superseded it |
@@ -27,7 +27,7 @@ The interview notes for `/grill-with-docs` are **not** in this repository. They 
 1. This file.
 2. [ARCHITECTURE.md](ARCHITECTURE.md): the map of the system and its invariants.
 3. [GLOSSARY.md](GLOSSARY.md): the glossary.
-4. [SPEC-INDEX.md](SPEC-INDEX.md), then only the spec sections your ticket lists.
+4. Your ticket's entry in [docs/plan/plan.md](docs/plan/plan.md), then only the spec sections it lists.
 
 ## Order of work
 
@@ -61,11 +61,11 @@ Use the interview notes at `$PACK/GRILL-NOTES.md` (the local hand-off pack folde
 
 ### (c) `/to-spec`
 
-Make **one plan issue** that points at spec sections. Do not rewrite the spec. Include the milestone table and end conditions (10.0 of `docs/plan/plan.md`), the build order (spec 9), and links to the spec, `SPEC-INDEX.md` and the ADRs.
+Make **one plan issue** that points at spec sections. Do not rewrite the spec. Include the milestone table and end conditions (10.0 of `docs/plan/plan.md`), the build order (spec 9), and links to the spec, the plan document and the ADRs.
 
 ### (d) `/to-tickets`
 
-Cut issues from [SPEC-INDEX.md](SPEC-INDEX.md): the tickets in milestone order (M0 → M6, then v1.x). Each issue body is the ticket text from 10.1 of `docs/plan/plan.md`, copied as written: title, size, Done means, Acceptance, Blocked by, § sections. The issue's own title is a plain sentence of what the ticket does, not the ticket's commit-style title (`T6.16 ci(release): …`); the ticket id and that title go under the body's `## Parent`. Golden tickets (`T<m>.G…`) come before the tickets that use them. Replace `Blocked by` ticket ids with issue numbers as you go, and keep the id → issue map in the plan issue.
+Cut issues from 10.1 of [docs/plan/plan.md](docs/plan/plan.md): the tickets in milestone order (M0 → M6, then v1.x). Each issue body is the ticket text from 10.1 of `docs/plan/plan.md`, copied as written: title, size, Done means, Acceptance, Blocked by, § sections. The issue's own title is a plain sentence of what the ticket does, not the ticket's commit-style title (`T6.16 ci(release): …`); the ticket id and that title go under the body's `## Parent`. Golden tickets (`T<m>.G…`) come before the tickets that use them. Replace `Blocked by` ticket ids with issue numbers as you go, and keep the id → issue map in the plan issue.
 
 ### (e) `/implement #N`
 
@@ -88,7 +88,7 @@ From the spec header ("사용자 결정" blocks, 2026-10-27/28):
 - Share-changing corporate actions need exact integer ratios (TDS A010 = error). No f64 fraction inference; `decimal_ratio = "literal"` is opt-in.
 - `size.kelly` is v1.x. ML training inside every validation method is forward-only.
 - CPCV, walk-forward, CSCV/PBO, DSR are in v1 through one entry point `backtest(method=…)`; there is no `nx.validate`. The minimal `nx.ml.factor` block is in v1, and no pickle is used.
-- Economic-event investing uses the same blocks: `Macro.series`, `Events.<kind>`, `nx.on_event`, `from_parquet(shape=)`.
+- Economic-event investing uses the same blocks; such values are the user's value tables, read as `nx.Item.<name>` (spec 5.3.5).
 - Engine, spec and TDS are public. Only the producer's data is private (2026-10-27).
 
 The decision records are in [docs/adr/](docs/adr/); each record's Status line says whether it stands or what superseded it.
@@ -100,10 +100,10 @@ The decision records are in [docs/adr/](docs/adr/); each record's Status line sa
 
 ## Where the evidence is
 
-[docs/design/prototype-results.md](docs/design/prototype-results.md): on the M4 16 GB machine, P5 ran in 5.8 s p50 / 6.8 s p95 cold against what was then a 30 s gate and 10 s target (since 2026-11-24 the numbers are alerts measured on an 8 GB machine, ADR 0054). P11 (a)/(b)/(c) ran 5× under budget. Accounting hand cases passed 32/32. Computing only the decision rows gave bit-identical values to computing all rows. Output hashes matched on two machines. Spec chapter 7 cites it as [R4H-05]~[R4H-08].
+[docs/design/prototype-results.md](docs/design/prototype-results.md): on the M4 16 GB machine, P5 ran in 5.8 s p50 / 6.8 s p95 cold against what was then a 30 s gate and 10 s target (since 2026-11-24 the numbers are alerts measured on an 8 GB machine, ADR 0054). P11 (a)/(b)/(c) ran 5× under budget. Accounting hand cases passed 32/32. Computing only the decision rows gave bit-identical values to computing all rows. Output hashes matched on two machines. Spec chapter 7 cites it.
 
 ## Notes for the first sessions
 
 - Bracketed citations such as `review/…`, `teardown/…`, `sources/…`, `STORY.md` point to design-history files outside this repository. They explain why a rule exists; the rule itself is fully stated in the spec.
 - The spec mentions plinth 2.7.1; use the installed plinth. GRILL-NOTES item C5 (public flag name) is answered: GitHub repos are public unless `--private`.
-- Spec [R6-11]: the grill notes stay out of the repository. Read them from `$PACK/GRILL-NOTES.md` during `/grill-with-docs` and record answers in `CONTEXT.md`, ADRs or a spec PR.
+- The grill notes stay out of the repository. Read them from `$PACK/GRILL-NOTES.md` during `/grill-with-docs` and record answers in `CONTEXT.md`, ADRs or a spec PR.

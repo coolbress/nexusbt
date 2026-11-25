@@ -12,7 +12,7 @@
 >
 > **Inputs.** `review/consensus.md` (the three-reviewer consensus), `engine-blueprint-by-aspect.md` (below, "the blueprint"; chapter 13 SC, chapter 14 OQ), `engine-data-standard-v1.4.md` (below, "TDS"; chapter 12 D, chapter 13 Q, chapter 11 G and X are a private appendix), `engine-design-2026-10-27.md` (below, "the design"; 9.0 user decisions).
 >
-> **Priority.** When rules differ, the order is **user decisions (design 9.0 and later decisions) > this spec v3.4 = TDS v1.4 (for the input format, TDS wins over chapter 4 of this spec) > the three-reviewer consensus > the blueprint > the body of the design > sources**. How each conflict was settled is in appendix A (from A-104 for v3).
+> **Priority.** When rules differ, the order is **user decisions (design 9.0 and later decisions) > this spec v3.4 = TDS v1.4 (for the input format, TDS wins over chapter 4 of this spec) > the three-reviewer consensus > the blueprint > the body of the design > sources** (the `sources/` files of the design record, outside the repository). How each conflict was settled is in appendix A (from A-104 for v3).
 >
 > **Tracing notation.** The bracket at the end of a normative sentence is its source.
 > - `[R-xx]`, `[P1]`~`[P10]`: requirements and performance items of design chapter 8 (the performance numbers, P10's tolerance aside, are alerts, not promises, since 2026-11-24: chapter 7). Numbers from `R-56` on were added by this spec (1.4).
@@ -3420,7 +3420,7 @@ Status: **v1** = implemented by this spec, **changed** = implemented with a corr
 
 | SC | Class | Content | Section | Ticket | Status |
 |---|---|---|---|---|---|
-| SC-01 | addition | `risk=` slot, `nx.risk.none`, `TargetFrame.stage/pre_risk_weight` | 1.1, 3.7, 5.5.1–5.5.2 | T3.1, T3.2 (v1.x T7.3) | v1 |
+| SC-01 | addition | `risk=` slot, `nx.risk.none`, `TargetFrame.stage/pre_risk_weight` | 1.1, 3.7, 5.5.1–5.5.2 | T3.1, T3.2, T3.29 | v1 |
 | SC-02 | normative | target-state recursion, anchor, `top(hold=)`, INV-08 wording | 1.3 INV-08, 3.7, 5.5.3, 5.1.3 `anchor_decision_id` | T3.1 (signature, E18), T3.2, **T7.1** | norm v1, implementation v1 (T7.1; its place set when stage (2) cuts its tickets, #725 Decisions 244) |
 | SC-03 | normative | kernel numeric rules, INV-03·04 wording, INV-13 | 1.3, 3.4, 5.3.10, ADR-0019 | T1.7a/b, T1.11, T1.19, T6.2, T6.3 | v1 |
 | SC-04 | addition | P-START, M-SCALE·DUMMY·SPLIT-NEUTRAL·CCY·SLEEVE, `check(start_probe=)`, E32 | 1.3 INV-14·15, 6.5, 8.3 | **T1.21**, T4.8, **T6.13** | v1 |
