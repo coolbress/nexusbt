@@ -86,7 +86,7 @@
 | K11 | 결정적 쓰기: 같은 내용이면 같은 바이트, 같은 값 해시(4.5 정규 직렬화 — 쓰기 도구·언어와 무관). 파일·행 정렬, row group 경계 고정 | 엔진 INV-09, 생산자 빌드 지문 원칙과 같다 |
 | K12 | 적합성 검사기 `tds check`: 단계 3개(`manifest` / `schema` / `full`), 오류 코드 `TDS-<영역><번호>`, JSON 출력 | 엔진 `SnapshotError`(E14)는 이 코드를 그대로 싣는다 |
 
-**지금 할 일과의 관계.** v1 엔진은 그래프가 쓰는 기능에 필요한 데이터셋만 요구한다(가장 넓게는 `tds:equity-daily-research` + `panels` + `pit-fundamentals`: 주식 일봉 + 재무 + 패널). 나머지(분봉·틱·호가·선물·옵션·코인)는 표 모양을 **실험 판**(`experimental`)으로 정해 두고, 무손실 가져오기와 재생 고정 사례가 생긴 뒤 stable로 올린다(v1.1; v1의 "바꾸지 않고 쓴다" 약속은 너무 일렀다).
+**지금 할 일과의 관계.** v1 엔진은 그래프가 쓰는 기능에 필요한 데이터셋만 요구한다(가장 넓게는 `tds:equity-daily-research` + `panels` + `pit-fundamentals`: 주식 일봉 + 재무 + 패널). 분봉은 `bars`와 실험 판인 `tds:intraday-bars` 프로필이 모양을 정한다. 틱·호가·선물·옵션·코인은 2026-11-25에 표준에서 빠졌다. 나중에 오는 종류는 `experimental` 스키마로 들어오고, 무손실 가져오기와 재생 고정 사례가 생긴 뒤 stable로 올린다(5.6).
 
 ---
 
@@ -417,7 +417,7 @@
 | `markets` | ○ | 3.8. 시장마다: `calendar_id`(필수), `currency`(필수), `timezone`(필수), 셋 다 빈 글자가 아닌 문자열이고 없으면 TDS-M003 [2026-11-19, #567]; 워터마크 필드 `complete_through_session`·`complete_through`는 선택. 워터마크 필드는 매 게시마다 바뀌므로 소비자의 파티션 캐시 열쇠에는 안정 필드(`calendar_id`·`currency`·`timezone`)만 쓰기를 권한다 [v1.3, R3-04] |
 | `editions` | 판을 쓰는 표가 있으면 ○ | 판 이름과 뜻, 기본 판 |
 | `policies` | 선택 | 만든 쪽 규칙 이름과 판(엔진 실행 기록에 그대로 남음) |
-| `roll_rules` | 선물 연속 계약이 있으면 ○ | 5.22 |
+| `roll_rules` | ○; 그 모양은 2026-11-25에 선물과 함께 빠졌고, 필드는 의미 해시에 남는다(4.5) | 5.6 |
 | `datasets[]` | ○ | 데이터셋마다: `name`(필수), `kind`(필수), `schema_version`(필수), `path`(필수), `partitioning`, `key`, `sort`, `params`(종류별 매개변수), `availability`(6.2 규칙, 또는 가용 시각을 담은 칼럼을 지목하는 6.2 형식: `{"column": "<이름>"}`, `corporate_actions`의 `{"effect": …, "terms": …}`, `delistings`의 `{"exit": …, "value": …}`. 그 밖의 것은 TDS-M014), `pit_quality`(`native` / `backfilled` / `mixed`), `rows`, `value_sha256`, `partitions`(`partitioning`이 선언되면 필수, M003: 파티션마다 `partitioning` 순서의 `values`(정수는 수로, 그 밖의 값은 3.6 텍스트로)와 그 `value_sha256`, 4.5 6단계; manifest 수준이 줄을 읽지 않고 그것들을 이어 `value_sha256`과 견준다, H005 [2026-11-24, #705 B4]), `coverage`, `columns`(이름·형·null·단위·설명), `files[]`(필수)(`path`(필수)·행·`bytes`(필수)·sha256·주요 칼럼 최소/최대·**선택 `value_sha256`** — 그 파일 행만으로 4.5 정규 값 직렬화를 한 값 해시, 파티션 칼럼 포함; 소비자 쪽 조언용 — 이 값은 H004 경고 수준이라 틀려도 패키지가 막히지 않으므로 소비자는 검증하지 않은 `value_sha256`을 캐시 신원으로 쓰지 않는다; 파티션 단위 캐시 신원은 파일 `sha256`이 정한다 [v1.2, V31-12; v1.3, R3-04]). **필수 필드**: (필수) 표시가 있는 필드가 없으면 TDS-M003이고, 나머지 데이터셋·파일 필드는 매니페스트 수준에서 선택이며 스키마·전체 수준이 읽는 것을 검사한다(`columns`는 스키마와 대조, `rows`·`coverage`는 D004, `sha256`은 H001) [사용자 결정 2026-11-02]. **경로 안전**: 모든 `path`는 패키지 폴더 기준 상대 경로이고 `..`·절대 경로·밖으로 나가는 심볼릭 링크 금지(M012), 같은 파일 경로가 두 번 나오면 안 됨(M013) [v1.1] |
 | `hashes` | ○ | 4.5(`physical_sha256`, `value_sha256`, `semantic_sha256`, `hash_spec`) |
 | `writer` | ○ | 쓰기 도구, row group 행 수 |
@@ -587,14 +587,14 @@
 | value_traded | f64 | 예 | 거래대금(현지 통화) |
 | trade_count | i64 | 예 | 체결 수(Massive `transactions`) |
 | vwap | f64 | 예 | |
-| open_interest | f64 | 예 | 선물·옵션 미결제약정(그 봉 끝 기준; 공식 값은 `market_statistics`) |
+| open_interest | f64 | 예 | 선물·옵션 미결제약정(그 봉 끝 기준) |
 | obs_status | code(닫힘) | 예; 선언한 프로필이 요구하면 모든 줄에서 아니오(7장) | `traded` / `no_trade`(거래 없음) / `halted`(정지) / `missing`(자료 없음 이유 모름) |
 | ts_available | ts_us | 예 | 칼럼 또는 규칙, 늘 `availability`에 선언(기본 규칙 없음; 없으면 TDS-M003 [2026-11-23, #705 C5]; 흔한 규칙은 `ts_end`; 일봉 공급사 자료가 늦게 나오면 그 지연을 넣어 규칙 `ts_end+P`) |
 | source | code | 예 | |
 
 - `cum_factor_split`과 `cum_factor_total`은 이 표와 스키마 파일에서 빠졌다 [2026-11-25, #705 결정 35, 36]: 소비자는 조정을 사건에서 계산한다(K4). 파일에 그 둘을 선언 없이 아직 가진 패키지는 TDS-S005(W, 모르는 칼럼)를 받는다(있는 규칙). 모르는 칼럼은 값 해시에 들지 않으므로(4.5), 예전 검사기가 그 둘 위에서 쓴 해시는 패키지를 다시 쓸 때까지 맞지 않는다(TDS-H002, TDS-H003). 데이터셋의 `columns`(4.2)에 그 둘을 선언한 패키지는 그것을 자기가 선언한 칼럼으로 지닌다.
 
-- `obs_status = halted` [2026-11-22, #705]: 그 세션 내내 거래가 정지된 것이다(`tradability_daily`가 있으면 `halted_full_day = true`). open·high·low·close는 null이고 적은 `volume`은 0(V004). 장중에 정지가 있었어도 체결이 있었던 세션은 `traded`이고, 그 정지는 `tradability_daily.halt_count`가 세고 `trading_status_events`에 적힌다.
+- `obs_status = halted` [2026-11-22, #705]: 그 세션 내내 거래가 정지된 것이다(`tradability_daily`가 있으면 `halted_full_day = true`). open·high·low·close는 null이고 적은 `volume`은 0(V004). 장중에 정지가 있었어도 체결이 있었던 세션은 `traded`이고, 그 정지는 `tradability_daily.halt_count`가 센다.
 - `obs_status` [2026-11-23, #705]: 상태를 아는 줄에만 적는다. 쓰는 도구가 종목에 없는 세션에 채운 줄은 `missing`이고, 생산자의 줄은 생산자가 준 값이다. 값이 있는데 상태를 받지 못한 줄은 null로 둔다. 상태를 말하지 않는다는 뜻이고, 소비자는 값을 적힌 그대로 읽으며 `traded`로 여기지 않는다. `tds:minimal-daily@1.0`은 이를 허용하고, `tds:equity-daily-core@1.0`부터는 모든 줄에 `obs_status`가 있어야 한다(7장, TDS-S003). 값(`open`, `high`, `low`, `close`, `vwap`, `volume`, `value_traded`)도 `obs_status`도 없는 줄은 왜 값이 없는지 말하지 않으므로, 어느 프로필에서도 받아들이지 않는다(V004) [2026-11-23, #705].
 - 일봉(`freq=1d`)은 `params.density`가 무엇이든 dense다 [2026-11-23, #705]: 종목마다 `listed_on`부터 그 끝까지 그 달력의 모든 세션에 행이 하나(D001). 끝은 `last_session`이고, 없으면 그 시장 `complete_through`의 날짜(시장의 `timezone`에서 읽고, 시간대가 없으면 UTC), 그것도 없으면 데이터셋의 `coverage.by_market.<m>.processed_through_session`, 그것도 없으면 데이터셋에서 그 시장의 줄이 가진 마지막 세션이다. 다만 `delisted_on`을 넘지 않는다: 그 뒤의 줄은 D002의 것이다. `last_session`이 없는 종목은 끝을 모르는 종목이다: 그 줄은 패키지가 담은 끝까지 이어지고, 관측이 없는 세션은 `missing` 줄이며, 쓰는 도구는 그 종목의 `last_session`이나 `delisted_on`을 지어내지 않는다. 세션 밖 날짜 행 금지(D002).
 - 여러 세션에 걸친 봉(`freq` `1w`, `1mo`, 또는 `1d`도 `freq<1d`도 아닌 것) [2026-11-23, #705]: 키는 일봉의 것(`instrument_id`, `session_date`)이고, `session_date`는 그 봉이 덮는 마지막 세션이다. 봉은 `ts_end`에 다 만들어지므로 첫 세션을 적으면 줄의 날짜가 쓸 수 있게 되는 때보다 앞선다. `ts_start`와 `ts_end`는 필수다. 한 세션을 위해 쓴 규칙(D001, D002, T005)은 그것을 판정하지 않고, TDS는 아직 그 파티션 형태를 정하지 않았다(9.5는 `freq=1d`만 가져온다).
@@ -602,7 +602,6 @@
 - 일봉 종가 = 공식 종가(한국 종가 단일가, 미국 공식 종가). 다르면 `x_` 칼럼으로.
 - 일봉은 `KR_close`와 마찬가지로 정규장 종가를 뜻하며, 시간외 거래는 넣지 않는다(명세서 1.2, 4.6). KR에서 이 종가는 KRX 정규장 종가이며, NXT(넥스트레이드, 대체거래소)의 체결은 정규장 시간과 겹치는 것이라도 종가·OHLC·거래량·거래대금(`value_traded`)에 넣지 않는다(사용자 결정 2026-11-01).
 - `shares_out`(명세서 4.7)은 봉에서 빼고 `share_counts`로 옮긴다(공개 시각이 가격과 다르기 때문; 12장 D9). 만든 쪽 편의 칼럼 `x_<ns>_shares_out`은 허용.
-- 연속 계약 봉: `instrument_id`가 `is_synthetic = true`인 연속 종목이고 `params.roll_rule`을 밝힌다(5.22).
 - v1에서 봉에는 판이 없다: 봉을 바꾼 나중 스냅숏은 같은 열쇠 아래 바꾼 봉만 담는다. 바뀐 봉이 어떤 `ts_available`을 갖는지는 TDS가 정하지 않는다: 규칙이면 전과 같이 규칙이 내는 시각이고, 칼럼 규칙이면 생산자가 쓰는 값이다. 소비자는 바뀐 봉을 다른 봉과 똑같이 읽는다(위 `ready_delay`): 시각이 같으면 그 행에 새 값이 보이고, 시각이 늦으면 그 봉은 그 행에서 결측이다. 한 봉이 다른 두 스냅숏은 그 행의 두 이력이고, 실행을 재현하는 것은 그 실행이 기록한 스냅숏이다(4.1) [관리자 결정 2026-11-17, #494].
 
 ### 5.6 `trades` (체결 틱) — 빠짐 [2026-11-25, #752]
@@ -1039,7 +1038,7 @@ tds export {zipline-bundle|nautilus-catalog|wide-parquet} ... # 9.8
 | TDS-M016 | E | 데이터셋의 `coverage.by_market.<m>.processed_through_session`(4.3)이 그 시장에서 그 `last`보다 이르거나(처리했다는 세션 뒤의 행) 시장의 `complete_through_session`(3.8)보다 늦음 [v1.4, 2026-11-12] |
 | TDS-M017 | W | `tds_draft`(4.2)가 검사기가 구현한 초안 본문과 다른 날짜(10.5; 없으면 TDS-M003 [2026-11-23, #705]): 패키지가 초안의 다른 본문을 따르며, 그 해시는 같은 본문을 적은 패키지와만 비교한다 [v1.4, 2026-11-18] |
 | TDS-S001 | E | 필수 칼럼 없음; 그 가운데 칸이 null일 수 있는 `market_rules`의 `price_from`(5.27) [2026-11-23, #705] |
-| TDS-S002 | E | 칼럼 형 다름: 파일의 칼럼이 제 형과 다르거나, 매니페스트 `columns[].type`이 스키마 파일이 그 칼럼에 적은 형과 다름(`ts_us/ns` 칼럼에 `ts_us`나 `ts_ns`를 적는 것은 다른 것이 아니다) [2026-11-11]. 스키마 파일이 형을 적지 않은 칼럼(`"type": null`, `experimental` 종류)과 `x_` 칼럼은 매니페스트 `columns[].type`이 파일의 칼럼을 견줄 형이고, 그런 칼럼에 선언이 없으면 검사하지 않는다 [2026-11-12]. 파티션 칼럼이 아닌 칼럼은 값 해시의 형 태그(4.5 3단계)가 이 행이 그 칼럼을 견주는 형이다 [2026-11-12] |
+| TDS-S002 | E | 칼럼 형 다름: 파일의 칼럼이 제 형과 다르거나, 매니페스트 `columns[].type`이 스키마 파일이 그 칼럼에 적은 형과 다름(`ts_us/ns` 칼럼에 `ts_us`나 `ts_ns`를 적는 것은 다른 것이 아니다) [2026-11-11]. 스키마 파일이 형을 적지 않은 칼럼(`"type": null`; 지금은 없다, 5.6)과 `x_` 칼럼은 매니페스트 `columns[].type`이 파일의 칼럼을 견줄 형이고, 그런 칼럼에 선언이 없으면 검사하지 않는다 [2026-11-12]. 파티션 칼럼이 아닌 칼럼은 값 해시의 형 태그(4.5 3단계)가 이 행이 그 칼럼을 견주는 형이다 [2026-11-12] |
 | TDS-S003 | E | null 금지 칼럼에 null |
 | TDS-S004 | E | 순간 칼럼이 UTC tz가 아니거나 단위가 그 데이터셋 규정과 다름, INT96. 단위는 스키마 파일의 것이고, 매니페스트 `columns[].type`은 `ts_us/ns` 칼럼의 단위만 정한다 [2026-11-11]. 스키마 파일이 형을 적지 않은 칼럼이나 `x_` 칼럼에는 매니페스트가 `ts_us`나 `ts_ns`로 선언한 단위다 [2026-11-12] |
 | TDS-S005 | W | 모르는 칼럼(`x_` 접두 없음) |
@@ -1535,4 +1534,4 @@ datasets:
 - 2026-11-25: **v1.4** 안에서. 5.8과 8.3: TDS-V031(재구성 뒤 교차 호가)은 은퇴하고 번호는 다시 쓰지 않는다. `book_deltas`가 다른 범위 밖 종류와 함께 빠지기 전이다(#725 결정 252; #752의 R1b). 움직인 것: 적합성 사례 TDS-V031이 없어짐; 다른 패키지의 해시는 없음. `tds_version` `"1.0"` 그대로, `tds_draft`는 2026-11-19 그대로(12e까지, 10.5).
 - 2026-11-25: **v1.4** 안에서. 5.6과 8.3: TDS-V032(순번 빈칸)는 은퇴하고 번호는 다시 쓰지 않는다. `trades`, `quotes`, `book_deltas`가 `params.sequence_consecutive_within`의 모양과 그 TDS-S001과 함께 빠지기 전이다(#725 결정 252; #752의 R1c). 움직인 것: 적합성 사례 TDS-V032가 없어짐; 다른 패키지의 해시는 없음. `tds_version` `"1.0"` 그대로, `tds_draft`는 2026-11-19 그대로(12e까지, 10.5).
 - 2026-11-25: **v1.4** 안에서. 4.2 JSON 스키마, 5.6, 5.7, 8.3: TDS-V030(잠기거나 교차한 호가)과 TDS-T008(`ts_event`보다 앞선 `ts_recv`)은 은퇴하고 번호는 다시 쓰지 않는다. 선언 `params.sequence_consecutive_within`, 그 모양, 그 TDS-S001도 함께다. 틱 종류가 빠지기 전이다(#725 결정 252; #752의 R1a-1). 움직인 것: 적합성 사례 TDS-V030과 TDS-T008이 없어짐; 다른 패키지의 해시는 없음. `tds_version` `"1.0"` 그대로, `tds_draft`는 2026-11-19 그대로(12e까지, 10.5).
-- 2026-11-25: **v1.4** 안에서. K2, 4.1, 5.4, 5.6~5.10, 5.16, 5.22~5.24, 7, 9, 10.2와 8.3 TDS-M015: 범위 밖 종류(`trades`, `quotes`, `book_deltas`, `book_snapshots`, `market_statistics`, `calendar_segments`, `trading_status_events`, `rates`, `roll_calendar`, `option_chain_snapshots`, `funding_rates`, `reference_prices`)가 스키마 파일과 함께 빠지고, 프로필 `tds:l1-ticks`, `tds:l2-book`, `tds:l3-book`, `tds:futures`, `tds:options`, `tds:crypto`도 함께 빠진다(#725 결정 252; #752의 R1a-2). TDS-M015는 나중에 오는 종류를 위해 남는다(결정 253). 지금은 `experimental` 스키마가 없다. 움직이는 적합성 패키지나 해시는 없다. `tds_version` `"1.0"` 그대로, `tds_draft`는 2026-11-19 그대로(12e까지, 10.5).
+- 2026-11-25: **v1.4** 안에서. 지금 할 일과의 관계, K2, K9, 2의 범위, 4.1, 4.2의 `roll_rules`, 5.4~5.10, 5.15, 5.16, 5.22~5.24, 7, 9, 10.2, 검토 표의 실험 판 줄, 8.3 TDS-M015와 TDS-S002: 범위 밖 종류(`trades`, `quotes`, `book_deltas`, `book_snapshots`, `market_statistics`, `calendar_segments`, `trading_status_events`, `rates`, `roll_calendar`, `option_chain_snapshots`, `funding_rates`, `reference_prices`)가 스키마 파일과 함께 빠지고, 프로필 `tds:l1-ticks`, `tds:l2-book`, `tds:l3-book`, `tds:futures`, `tds:options`, `tds:crypto`도 함께 빠진다(#725 결정 252; #752의 R1a-2). TDS-M015는 나중에 오는 종류를 위해 남는다(결정 253). 지금은 `experimental` 스키마가 없다. 움직이는 적합성 패키지나 해시는 없다. `tds_version` `"1.0"` 그대로, `tds_draft`는 2026-11-19 그대로(12e까지, 10.5).

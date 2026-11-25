@@ -18,9 +18,11 @@ package version follows the `tds_version` it checks (`1.0.x`), tagged
   `calendar_segments`, `trading_status_events`, `rates`, `roll_calendar`,
   `option_chain_snapshots`, `funding_rates` and `reference_prices`, and the profiles
   `tds:l1-ticks`, `tds:l2-book`, `tds:l3-book`, `tds:futures`, `tds:options` and `tds:crypto`
-  (#752, TDS 5.6): a dataset of one of those kinds is now a kind with no schema file, so no
-  column, key or sort rule is read for it and it raises nothing, and a package declaring one of
-  those profiles gets TDS-M007. No schema is `experimental` now; TDS-M015 stays for a kind that
+  (#752, TDS 5.6): a dataset of one of those kinds is now a kind with no schema file, so its
+  columns, key and sort are not checked, while the rules that read any kind still apply (R001
+  on its `instrument_id`, for one); a `calendar_segments` dataset now leaves T006 unchecked and
+  R002 no longer reads its `calendar_id`. A package declaring one of those profiles gets
+  TDS-M007. No schema is `experimental` now; TDS-M015 stays for a kind that
   comes later
 
 ### Added
