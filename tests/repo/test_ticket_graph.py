@@ -91,10 +91,6 @@ def test_acyclic_and_milestone_order() -> None:
 
 SPEC = PLAN.parents[1] / "spec" / "engine-spec-v3.4.md"
 
-#: Tickets appendix B names that the plan moved, and the ticket each became; the test
-#: checks the new one. Remove T7.3 once appendix B's SC-01 row names T3.29.
-MOVED = {"T7.3": "T3.29"}
-
 
 def appendix_b_tickets(spec: str) -> list[list[str]]:
     """The ticket ids in the Ticket column of each row of appendix B's tables."""
@@ -117,4 +113,4 @@ def test_every_ticket_appendix_b_names_is_a_ticket_of_the_plan() -> None:
         "appendix B's tables held 256 rows on 2026-11-25; fewer means rows were lost"
     )
     known = {t.id for t in tickets(PLAN.read_text(encoding="utf-8"))}
-    assert sorted({MOVED.get(t, t) for row in rows for t in row} - known) == []
+    assert sorted({t for row in rows for t in row} - known) == []
