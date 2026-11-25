@@ -2,8 +2,8 @@
 
 - Status: Accepted
 - Date: 2026-11-25
-- Amends: [ADR 0016](0016-kernels-in-python-numpy-and-numba-behind-a-seam-that.md)
-- Spec: §1.4, §2.7, §7, §10 M6 (T6.6, T6.11, T6.28, T7.V)
+- Amends: [ADR 0016](0016-kernels-in-python-numpy-and-numba-behind-a-seam-that.md), [ADR 0038](0038-sizing-and-risk-slots-and-the-account-reading-layer.md)
+- Spec: the header's tracing note, §2.1, §7, §9.3 (the 0016 and 0038 rows), §10.0 and M6 (T6.6, T6.11, T6.26, T6.28, T7.V), §12 OI-46, appendix A-44
 
 ## Context
 
@@ -15,7 +15,9 @@ No machine is a performance target. Measurements are taken on an 8 GB machine; t
 
 The numbers of P1 to P9 and P11 are first estimates, re-written after the first measurement; afterwards a measurement worse than the one before raises an alert, a regression to fix. None is a pass/fail gate; P10 (the zipline comparison tolerance) stays a correctness gate. M6 measures, records and compares, and its correctness gates stay (257; #752's Decisions, 2026-11-25).
 
-A number the engine's behaviour reads stays a rule: the process-tree memory budget `[compute] memory_budget_gb`, by which chunks split; the running indicator after 2 s; static checks before the heavy computation.
+A number the engine's behaviour reads stays a rule: the process-tree memory budget `[compute] memory_budget_gb`, by which chunks split; the running indicator after 2 s; static checks before the heavy computation; and ADR 0019's pre-registered switch of window kernels from definition A to B, which reads M1's stage budget.
+
+ADR 0038 is amended in one place: the P11 gate it was to record after the prototype measurement is not set; P11's first numbers are re-written in spec chapter 7 instead.
 
 ADR 0016 is amended in one place, its trigger: a Numba kernel is considered for a Rust replacement when, measured on this 8 GB machine, most of a workload's time is in that one kernel and the owner judges the workload too slow to use. The replacement is tested bit for bit against the Python reference, as before (#752's Decisions, 2026-11-25).
 
