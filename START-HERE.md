@@ -105,7 +105,7 @@ ADRs (all accepted; full text in [docs/adr/](docs/adr/)):
 
 ## Where the evidence is
 
-[docs/design/prototype-results.md](docs/design/prototype-results.md): on the M4 16 GB machine, P5 ran in 5.8 s p50 / 6.8 s p95 cold against a 30 s gate and 10 s target. P11 (a)/(b)/(c) ran 5× under budget. Accounting hand cases passed 32/32. Computing only the decision rows gave bit-identical values to computing all rows. Output hashes matched on two machines. Spec chapter 7 cites it as [R4H-05]~[R4H-08].
+[docs/design/prototype-results.md](docs/design/prototype-results.md): on the M4 16 GB machine, P5 ran in 5.8 s p50 / 6.8 s p95 cold against what was then a 30 s gate and 10 s target (since 2026-11-24 the numbers are alerts measured on an 8 GB machine, ADR 0054). P11 (a)/(b)/(c) ran 5× under budget. Accounting hand cases passed 32/32. Computing only the decision rows gave bit-identical values to computing all rows. Output hashes matched on two machines. Spec chapter 7 cites it as [R4H-05]~[R4H-08].
 
 ## Notes for the first sessions
 

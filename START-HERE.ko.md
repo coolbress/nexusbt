@@ -104,7 +104,7 @@ ADR(모두 accepted. 전문은 [docs/adr/](docs/adr/), 한 줄 목록은 [START-
 
 ## 증거는 어디에
 
-[docs/design/prototype-results.md](docs/design/prototype-results.md): M4 16 GB 기계에서 P5는 cold p50 5.8 s / p95 6.8 s였다(관문 30 s, 목표 10 s). P11 (a)/(b)/(c)는 예산의 5분의 1 아래로 돌았다. 회계 손계산은 32/32 통과했다. 판단 행만 계산한 값은 전체 계산과 비트까지 같았다. 출력 해시는 두 기계에서 같았다. 명세 7장이 [R4H-05]~[R4H-08]로 인용한다.
+[docs/design/prototype-results.md](docs/design/prototype-results.md): M4 16 GB 기계에서 P5는 cold p50 5.8 s / p95 6.8 s였다(그때의 관문 30 s, 목표 10 s; 2026-11-24부터 숫자는 8 GB 기계에서 재는 알림, ADR 0054). P11 (a)/(b)/(c)는 예산의 5분의 1 아래로 돌았다. 회계 손계산은 32/32 통과했다. 판단 행만 계산한 값은 전체 계산과 비트까지 같았다. 출력 해시는 두 기계에서 같았다. 명세 7장이 [R4H-05]~[R4H-08]로 인용한다.
 
 ## 첫 세션을 위한 메모
 

@@ -86,7 +86,7 @@ The pull request that implements a ticket moves its rows to `implemented` and ad
 | P2 | screen 2 s | chapter 7 | M3/M6 | v1 | planned | T6.11 |
 | P3 | evaluate 5 s / 1 s | chapter 7 | M2/M6 | v1 | planned | T6.11 |
 | P4 | daily IC 30 s | chapter 7 | M6 | v1 | planned | T6.11 |
-| P5 | backtest 30 s gate / 10 s target | chapter 7 | M6 | changed (A-44) | planned | T6.11 |
+| P5 | backtest 30 s gate / 10 s target | chapter 7 | M6 | changed (A-44; an alert, not a gate, 2026-11-24, #752) | planned | T6.11 |
 | P6 | sweep 120 s / 60 s | chapter 7 | M6 | changed (A-44) | planned | T6.11 |
 | P7 | RSS 4 GB | chapter 7 | M6 | v1 | planned | T1.24 (#259), T6.11 |
 | P8 | static check 1 s | chapter 7 | M2 | v1 | planned | T2.12 |
