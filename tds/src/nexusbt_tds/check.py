@@ -7,7 +7,7 @@ of D002, and of M008 the columns a profile names); the `full` level adds, so far
 and S009 from the rows (`cells`), the key
 checks (K001~K004, K010, K011; `keys`), the
 reference checks (R001~R009; `refs`), the adjustment and value checks (`adjustments`,
-`values`, V031 in `books`, V032 in `sequences`), the interval checks (T003, T004, T012;
+`values`, V032 in `sequences`), the interval checks (T003, T004, T012;
 `times`), the instant checks (T001, T002, T005, T007, T008, T010, T011; `instants`), the
 density checks (D001~D004;
 `densities`) and the hashes (H001~H004, TDS 4.5); no profile is verified beyond `schema`.
@@ -52,7 +52,7 @@ _ROW_CODES = (
     "S001 S002 S003 S004 S005 S006 S007 S008 S009 S010 S011 K001 K002 K003 K004 K010 K011"
     " R001 R002 R003 R004 R005 R006 R007 R008 R009 T001 T002 T003 T004 T005 T006 T007 T008"
     " T010 T011 T012 D001 D002 D003 D004 A003 A004 A005 A006 A007 A008 A009 A010 A011"
-    " V001 V002 V004 V005 V010 V011 V012 V020 V030 V031 V032 V040 V041 V050 H001 H002 H003 H004"
+    " V001 V002 V004 V005 V010 V011 V012 V020 V030 V032 V040 V041 V050 H001 H002 H003 H004"
 )
 UNCHECKED_AT_MANIFEST = tuple(f"TDS-{c}" for c in _ROW_CODES.split())
 #: What the `schema` level judges from footers. S006 and S007 see only a column's minimum and
@@ -183,7 +183,6 @@ def check(
             found += _check_ranges(manifest, datasets, blind)
         if level == "full":
             from .adjustments import check_actions
-            from .books import check_books
             from .cells import check_cells
             from .densities import check_densities
             from .hash import spilled_note
@@ -203,7 +202,6 @@ def check(
             found += check_refs(manifest, datasets, blind)
             found += check_actions(manifest, datasets, blind)
             found += check_values(manifest, datasets, blind, notes)
-            found += check_books(manifest, datasets, blind, notes)
             found += check_sequences(manifest, datasets, blind)
             found += check_times(manifest, datasets, blind)
             found += check_instants(manifest, datasets, blind, notes)
@@ -253,16 +251,15 @@ KEY_CODES = ("TDS-K001", "TDS-K002", "TDS-K003", "TDS-K004", "TDS-K010", "TDS-K0
 REF_CODES = tuple(f"TDS-R{n:03}" for n in range(1, 10))  # `refs` checks them
 #: `adjustments` checks them; A001 and A002 are retired with `cum_factor_*` (TDS 8.3, #705).
 ACTION_CODES = tuple(f"TDS-A{n:03}" for n in range(3, 12))
-#: `values` checks them; `books` V031 (#430); `sequences` V032 (#348, #432).
+#: `values` checks them; `sequences` V032 (#348, #432). V031 is retired with `book_deltas` (#752).
 VALUE_CODES = tuple(f"TDS-V{n:03}" for n in (1, 2, 4, 5, 10, 11, 12, 20, 30, 40, 41, 50))
-BOOK_CODES = ("TDS-V031",)
 SEQUENCE_CODES = ("TDS-V032",)
 TIME_CODES = ("TDS-T003", "TDS-T004", "TDS-T012")  # `times` checks them (#225)
 INSTANT_CODES = tuple(f"TDS-T{n:03}" for n in (1, 2, 5, 7, 8, 10, 11))  # `instants` (#225)
 DENSITY_CODES = ("TDS-D001", D002, "TDS-D003", "TDS-D004")  # `densities` (#225, #425)
 CELL_CODES = ("TDS-S006", "TDS-S007", "TDS-S009")  # `cells`, from the rows (#391)
 FULL_CODES = (*KEY_CODES, *REF_CODES, *ACTION_CODES, *VALUE_CODES, *TIME_CODES, *INSTANT_CODES,
-              *DENSITY_CODES, *HASH_CODES, *CELL_CODES, *BOOK_CODES, *SEQUENCE_CODES)  # fmt: skip
+              *DENSITY_CODES, *HASH_CODES, *CELL_CODES, *SEQUENCE_CODES)  # fmt: skip
 
 
 def _check_hashes(

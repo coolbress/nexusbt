@@ -880,7 +880,7 @@ def test_A011_on_a_timestamp_last_trading_date_is_S002_and_unchecked(tmp_path: P
     assert "TDS-A011" in result.unchecked
 
 
-#: V011, V012, V031 and V032 have tests of their own.
+#: V011, V012 and V032 have tests of their own; V031 is retired (#752).
 V_CODES = [f"TDS-V{n:03}" for n in (1, 2, 4, 5, 10, 20, 30, 40, 41, 50)]
 
 
@@ -1119,11 +1119,6 @@ def test_a_dataset_typed_by_105_has_a_value_hash_with_no_columns_in_tds_json(
     assert len(value_hash(root, "share_counts")) == 64
 
 
-def test_V031(tmp_path: Path) -> None:
-    """The pass package's books cross only inside a batch; the fail package's after one (#430)."""
-    test_K_codes("TDS-V031", tmp_path)
-
-
 def test_V032(tmp_path: Path) -> None:
     """Snapshot rows numbered out of order pass; a skipped live number fails (#348, #432)."""
     test_K_codes("TDS-V032", tmp_path)
@@ -1138,9 +1133,9 @@ def test_V032(tmp_path: Path) -> None:
 
 def test_no_declaration_leaves_no_V_code_unchecked(tmp_path: Path) -> None:
     # #432: a book_deltas dataset with no sequence_consecutive_within: nothing to judge
-    result = check(write(tmp_path, build.CASES["TDS-V031"][0]), level="full")
+    result = check(write(tmp_path, build._book(98)), level="full")
     assert "TDS-V032" not in [f.code for f in result.warnings]
-    assert not {*V_CODES, "TDS-V012", "TDS-V031", "TDS-V032"} & set(result.unchecked)
+    assert not {*V_CODES, "TDS-V012", "TDS-V032"} & set(result.unchecked)
 
 
 @pytest.mark.usefixtures("refs_batches")
@@ -1462,7 +1457,7 @@ def test_full_level_checks_only_the_keys_references_and_hashes_so_far(tmp_path: 
         "tds:minimal-daily@1.0": ProfileStatus(True, "schema", "not_checked")
     }
     hashes = {"TDS-H001", "TDS-H002", "TDS-H003", "TDS-H004"}
-    judged = {*K_CODES, *R_CODES, *hashes, "TDS-V012", "TDS-V031", *T_CODES, *D_CODES, "TDS-D002"}
+    judged = {*K_CODES, *R_CODES, *hashes, "TDS-V012", *T_CODES, *D_CODES, "TDS-D002"}
     judged |= {"TDS-V032"}  # no declaration: nothing promised, so judged (#432)
     judged -= {*_NO_CAL, *_NO_EXITS, "TDS-D001"}
     assert not judged & set(result.unchecked)

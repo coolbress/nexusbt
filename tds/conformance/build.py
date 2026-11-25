@@ -951,7 +951,6 @@ CASES: dict[str, tuple[Change, Change]] = {
     ),
     "TDS-V020": (_future(**_FUTURE), _future(**_FUTURE | {"root": None})),
     "TDS-V030": (_quote(99, 100), _quote(100, 100)),  # locked
-    "TDS-V031": (_book(98), _book(101)),
     "TDS-V032": (
         _book(98, (*_SNAPSHOT, *range(1000, 1006))),
         _book(98, (*_SNAPSHOT, 1000, 1001, 1002, 1004, 1005, 1006)),
@@ -1016,7 +1015,6 @@ FAILS: dict[str, tuple[str | None, ...]] = {
     "TDS-V005": ("fx_rates",),
     "TDS-V020": ("instruments",),
     "TDS-V030": ("quotes",),
-    "TDS-V031": ("book_deltas",),
     "TDS-V032": ("book_deltas",),
     "TDS-V040": ("delistings",),
     "TDS-V041": ("events",),
