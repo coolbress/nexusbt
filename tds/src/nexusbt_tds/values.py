@@ -1,10 +1,10 @@
-"""The `full` level's value checks from the rows: V001~V050 (TDS 5.1, 5.5, 5.13, 5.15,
-5.21, 5.25, 8.3).
+"""The `full` level's value checks from the rows: V001~V040 (TDS 5.1, 5.5, 5.15, 5.25, 8.3).
 
 Rules chosen with the maintainer (#227, 2026-11-10): V001 compares a bar whose open, high, low
 and close are all present; V002 reads bars, and an instrument with `asset_class` `index` or
 `category` `spread` may have negative prices, never a negative `volume` or `value_traded`; V010
-reads the bars of `equity` instruments. V031 and V032 are retired (#752).
+reads the bars of `equity` instruments. V020 asks no `issuer_id` (#725 Decision 255). V031, V032,
+V041 and V050 are retired (#752).
 
 V011 (TDS 3.4; #229, 2026-11-10) reads the bars declared raw, of every instrument but an `index`:
 R = value_traded / (volume * multiplier * (high + low + close) / 3) of each bar that has the five
@@ -37,19 +37,16 @@ from .check import VALUE_CODES, Finding, Severity, _has
 from .keys import listed
 from .manifest import Manifest
 from .profiles import PROFILES, TRADED, profile_id
-from .refs import _rows, _stored
+from .refs import _rows
 
-V001, V002, V004, V005, V010, V011, V012, V020, V040, V041, V050 = VALUE_CODES
-WARNINGS = frozenset({V010, V041})
+V001, V002, V004, V005, V010, V011, V012, V020, V040 = VALUE_CODES
+WARNINGS = frozenset({V010})
 PRICES = ("open", "high", "low", "close", "vwap")
 #: A bar's values for V004's row with no state: what it observed of the session (TDS 5.5).
 VALUED = (*PRICES, "volume", "value_traded")
 RATIO = ("instrument_id", "session_date", "high", "low", "close", "volume", "value_traded")
 #: TDS 5.27's raw price columns, per kind.
 GRID = {"bars": PRICES[:4], "tradability_daily": ("up_limit_price", "down_limit_price")}
-#: The profiles that hold fundamentals: there an `equity` row of `instruments` holds `issuer_id`
-#: (V020; chapter 7, #705 B2, #725 Decisions 185); other classes may leave it null.
-ISSUED = frozenset({"tds:equity-daily-research@1.0", "tds:pit-fundamentals@1.0"})
 #: TDS 5.1's V020: the columns each `asset_class` needs.
 NEEDS = {
     "option": ("underlying_instrument_id", "strike", "option_right", "exercise_style",
@@ -64,11 +61,10 @@ COLUMNS = {
     "instruments": (
         "instrument_id",
         "asset_class",
-        *sorted({c for v in NEEDS.values() for c in v} | {"issuer_id"}),
+        *sorted({c for v in NEEDS.values() for c in v}),
     ),
     "fx_rates": ("base", "quote", "rate"),
     "delistings": ("delisting_id", "ret_lo", "ret_hi", "policy_id", "exit_value_status"),
-    "events": ("event_id", "instrument_id", "issuer_id", "series_id"),
 }
 SAID = {V001: "bar(s) whose high and low do not enclose open and close",
         V002: "bar(s) with a negative price, volume or value_traded",
@@ -77,18 +73,15 @@ SAID = {V001: "bar(s) whose high and low do not enclose open and close",
               "halted with a price; or with neither a value nor obs_status",
         V005: "FX rate(s) <= 0",
         V010: "equity bar(s) whose volume is not an integer",
-        V020: "instrument(s) without a column their asset_class needs, issuer_id of an equity "
-              "included where a declared profile holds fundamentals",
+        V020: "instrument(s) without a column their asset_class needs",
         V040: "delisting(s) with ret_lo > ret_hi, or not unobserved with ret_lo, ret_hi or "
-              "policy_id null",
-        V041: "event(s) with instrument_id, issuer_id and series_id all null",
-        V050: "label column(s) also in feature_panels"}  # fmt: skip
+              "policy_id null"}  # fmt: skip
 
 
 def check_values(
     m: Manifest, only: Sequence[str] | None, blind: set[str], notes: list[str]
 ) -> list[Finding]:
-    """V001~V050 on the checked datasets; a file the codes cannot read leaves them unchecked."""
+    """V001~V040 on the checked datasets; a file the codes cannot read leaves them unchecked."""
     unverified: list[str] = []
     try:
         found = _check(m, only, unverified)
@@ -210,40 +203,27 @@ def _volume_units(
 
 
 def _check(m: Manifest, only: Sequence[str] | None, unverified: list[str]) -> list[Finding]:
-    from .schemas.verify import load_schemas
-
-    root, schemas = m.root.resolve(), load_schemas()
+    root = m.root.resolve()
     listed = ("instrument_id", "asset_class", "category", "multiplier")
     kinds = {i: tuple(rest) for d in m.datasets if d.get("kind") == "instruments"
              for i, *rest in _rows(root, d, listed)}  # fmt: skip
-    features = {c for d in m.datasets if d.get("kind") == "feature_panels"
-                for c in _values(root, d, schemas)}  # fmt: skip
     # the declared profiles' `traded` needs: where a dataset meets one, V004 reads all five
     declared = [PROFILES[i] for i in map(profile_id, m.profiles) if i in PROFILES]
     needs = [need for p in declared for need, _ in p.traded]
     out = []
     for ds in (d for d in m.datasets if only is None or d.get("name") in only):
         kind, bad = str(ds.get("kind")), dict[str, list[Any]]()  # code → [count, first key]
-        whole = any(_has([ds], need) for need in needs) if kind != "instruments" else (
-            any(p.name in ISSUED for p in declared))  # fmt: skip
+        whole = any(_has([ds], need) for need in needs)
         for row in _rows(root, ds, COLUMNS[kind]) if kind in COLUMNS else ():
             for code in _broken(kind, dict(zip(COLUMNS[kind], row, strict=True)), kinds, whole):
                 bad.setdefault(code, [0, row[0]])[0] += 1
-        if kind == "label_panels" and (both := sorted(_values(root, ds, schemas) & features)):
-            bad[V050] = [len(both), both[0]]
-        named = COLUMNS.get(kind, ("column",))[0]  # the row's id, or the label column
+        named = COLUMNS.get(kind, ("",))[0]  # the row's id
         for code, (n, first) in sorted(bad.items()):
             severity: Severity = "warning" if code in WARNINGS else "error"
             msg, key = f"{n} {SAID[code]}", {named: str(first)}
             out.append(Finding(code, severity, msg, str(ds.get("name")), key=key, count=n))
         out += _volume_units(root, ds, unverified, kinds) if kind == "bars" else []
     return out
-
-
-def _values(root: Path, ds: Mapping[str, Any], schemas: Mapping[str, Any]) -> set[str]:
-    """A panel's value columns: stored, not in its schema file, not `x_`."""
-    fixed = {c.name for c in schemas[str(ds.get("kind"))].columns}
-    return {c for c in _stored(root, ds) if c not in fixed and not c.startswith("x_")}
 
 
 def _broken(
@@ -273,9 +253,8 @@ def _broken(
             out.append(V004)
         if asset == "equity" and r["volume"] is not None and not float(r["volume"]).is_integer():
             out.append(V010)
-    elif kind == "instruments":  # `whole`: a declared profile holds fundamentals (#705 B2)
-        own = ("issuer_id",) if whole and r["asset_class"] == "equity" else ()
-        if any(r[k] is None for k in (*NEEDS.get(r["asset_class"], ()), *own)):
+    elif kind == "instruments":
+        if any(r[k] is None for k in NEEDS.get(r["asset_class"], ())):
             out.append(V020)
     elif kind == "fx_rates":
         out += [V005] if r["rate"] is not None and r["rate"] <= 0 else []
@@ -284,6 +263,4 @@ def _broken(
         known = r["exit_value_status"] != "unobserved"
         out += [V040] if (None not in (lo, hi) and lo > hi) or (
             known and None in (lo, hi, r["policy_id"])) else []  # fmt: skip
-    elif kind == "events" and r["instrument_id"] is r["issuer_id"] is r["series_id"] is None:
-        out.append(V041)
     return out

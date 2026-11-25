@@ -673,22 +673,6 @@ def _event(available: dt.datetime = NEW_YEAR, **ids: list[str | None]) -> Change
     }, rel)  # fmt: skip
 
 
-def _labels(column: str) -> Change:
-    """Feature panel `f` with column `mom` and label panel `l` with `column`, both described."""
-    row = {"instrument_id": ["US:AAA"], "period": pa.array([dt.date(2024, 1, 1)]),
-           "as_of_date": pa.array([dt.date(2023, 12, 29)]),
-           "ts_available": pa.array([NEW_YEAR], TS_UTC)}  # fmt: skip
-    label = "label_panels/name=l/edition=strict/year=2024/part-00000.parquet"
-    return _both(
-        _panels("strict", mom=[1.0]),
-        _add("label_panels", row | {column: [0.1]}, label),
-        _add("dictionary/columns", {"dataset": ["feature_panels", "label_panels"],
-                                    "column": ["mom", column]}),
-        lambda m, f: [d.update(columns=[{"name": c, "type": "f64"}]) for d, c in
-                      zip(m["datasets"][-3:-1], ("mom", column), strict=True)],
-    )  # fmt: skip
-
-
 def _future(**columns: Any) -> Change:
     """US:AAA as a future (5.1) with `columns`."""
     return _instruments(asset_class=pa.array(["future"]), **columns)
@@ -783,7 +767,6 @@ CASES: dict[str, tuple[Change, Change]] = {
     "TDS-T003": (_states((1, 2), (2, None)), _states((1, 3), (2, None))),
     "TDS-T004": (_members(dt.date(2024, 1, 4)), _members(dt.date(2024, 1, 3))),
     "TDS-T012": (_classified(_A, _A2, _B), _classified((*_A[:4], None, *_A[5:]), _B)),
-    "TDS-T007": (_facts("F1"), _facts("F1", period_end=[dt.date(2024, 1, 2)])),  # known the 1st
     "TDS-T010": (
         _instruments(last_session=DAY),
         _instruments(last_session=pa.array([dt.date(2024, 1, 1)])),
@@ -830,7 +813,6 @@ CASES: dict[str, tuple[Change, Change]] = {
         _instruments(underlying_instrument_id=pa.array(["US:AAA"])),
         _instruments(underlying_instrument_id=pa.array(["US:ZZZ"])),
     ),
-    "TDS-R007": (_facts("F1"), _facts("F9")),
     "TDS-R008": (_exits(delisted=True), _exits(delisted=False)),  # an exit, no delisted_on
     "TDS-R009": (_facts("F1"), _facts("F1", state_item="net_income")),
     "TDS-A003": (
@@ -894,8 +876,6 @@ CASES: dict[str, tuple[Change, Change]] = {
     ),
     "TDS-V020": (_future(**_FUTURE), _future(**_FUTURE | {"root": None})),
     "TDS-V040": (_exits(delisted=True, ret_lo=-0.5), _exits(delisted=True, ret_lo=0.5)),
-    "TDS-V041": (_event(series_id=["US:CPI"]), _event()),
-    "TDS-V050": (_labels("fwd_ret"), _labels("mom")),
     **{
         code: (_hashes(code, False), _hashes(code, True))
         for code in ("TDS-H001", "TDS-H002", "TDS-H003", "TDS-H004")
@@ -929,7 +909,6 @@ FAILS: dict[str, tuple[str | None, ...]] = {
     **dict.fromkeys(["TDS-D001", "TDS-D004"], ("bars_1d",)),
     "TDS-T001": ("events",),
     "TDS-T005": ("bars_1d",),
-    "TDS-T007": ("fundamentals_events",),
     "TDS-T010": ("instruments",),
     "TDS-T011": ("delistings",),
     "TDS-D003": ("delistings",),
@@ -939,7 +918,6 @@ FAILS: dict[str, tuple[str | None, ...]] = {
     "TDS-K001": ("feature_panels",),
     "TDS-K010": ("instrument_symbols",),
     "TDS-K011": ("calendar_sessions",),
-    "TDS-R007": ("fundamentals_state",),
     "TDS-R009": ("fundamentals_state",),
     **dict.fromkeys(
         [f"TDS-A00{n}" for n in range(3, 10)], ("corporate_actions",)
@@ -952,8 +930,6 @@ FAILS: dict[str, tuple[str | None, ...]] = {
     "TDS-V005": ("fx_rates",),
     "TDS-V020": ("instruments",),
     "TDS-V040": ("delistings",),
-    "TDS-V041": ("events",),
-    "TDS-V050": ("label_panels",),
 }
 # fmt: on
 #: Code → the datasets its fail package breaks from the `schema` level on, where they differ

@@ -24,6 +24,13 @@ package version follows the `tds_version` it checks (`1.0.x`), tagged
   R002 no longer reads its `calendar_id`. A package declaring one of those profiles gets
   TDS-M007. No schema is `experimental` now; TDS-M015 stays for a kind that
   comes later
+- TDS-T007 (a fact available before `period_end`), TDS-R007 (`selected_fact_id` not in
+  `fundamentals_events`), TDS-V041 (an `events` row with no id) and TDS-V050 (a label column
+  also a feature column) are retired, their numbers not reused, before their kinds leave (#752);
+  `tds check` lists none of them as `unchecked` at any level
+- TDS-V020 no longer asks for `issuer_id` on an `equity` row where
+  `tds:equity-daily-research@1.0` or `tds:pit-fundamentals@1.0` is declared (#725 Decision 255);
+  it still asks each `asset_class` for its columns
 
 ### Added
 - TDS-M010 at the `schema` level for an `instruments.market` not declared in `markets` (TDS 3.8,

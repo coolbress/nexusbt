@@ -164,7 +164,7 @@ nx.run_pipeline(pipe, start="2024-01-01", end="2024-04-30", freq="monthly")
 | ev-1003 | earnings.announcement | US:AAPL | | 2024-05-02T20:30Z | 2024-05-02T20:31Z | 1.53 | 1.50 | USD/주 (EPS) | sec |
 | ev-1004 | macro.release | | US_CPI_YOY | 2024-03-12T12:30Z | 2024-03-12T12:30Z | 3.2 | 3.1 | % | bls |
 
-칼럼 이름은 TDS v1.4 5.21 그대로다(종류 칼럼 이름은 `event_type`, 이름공간 있는 문자열). `instrument_id`·`issuer_id`·`series_id` 가운데 하나는 있어야 한다(없으면 경고 V041). 정정은 새 `event_id`.
+칼럼 이름은 TDS v1.4 5.21 그대로다(종류 칼럼 이름은 `event_type`, 이름공간 있는 문자열). `instrument_id`·`issuer_id`·`series_id` 가운데 하나는 있다(그 검사 V041은 은퇴했다). 정정은 새 `event_id`.
 
 쓰는 법: `Events.earnings.days_since()`(= `event_type` `earnings.announcement`), `Events.of("earnings.prelim").surprise`, 일정 `nx.on_event(Events.of("earnings.prelim"), delay=1)`.
 
