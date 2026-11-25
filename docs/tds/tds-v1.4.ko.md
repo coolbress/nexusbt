@@ -185,7 +185,7 @@
 **K4. 원가격 + 사건 표 + 앞으로 누적 계수.**
 - `bars`의 가격은 원가격(그날 실제로 거래된 가격, 현지 통화). 조정 가격만 가진 사용자는 `tds:minimal-daily` 프로필에서만 허용되고 `price_basis`를 선언해야 한다(7장).
 - 조정의 원본은 `corporate_actions`의 사건마다 가격 배수 `price_factor`(m_e)와 주식 수 배수 `share_factor`(q_e). 수량 효과는 `share_factor`로 **명시**하고, 소비자는 분할류가 아닌 사건에서 가격 계수의 역수로 수량을 추론하지 않는다(5.11 해석 절차) [v1.1].
-- 누적 계수는 소비자가 사건에서 계산한다 [2026-11-22, #705]: `C[s] = Π_{e ≤ s} m_e`(정정 사슬마다 최신판 하나), 상장 첫 세션 = 1.0. 새 자료를 뒤에 붙여도 옛 행의 값은 바뀌지 않는다. 과거 사건이 늦게 발견되면 그 뒤 행만 바뀐다. 역분할 때문에 `C`는 단조가 아니다. bars의 선택 칼럼 `cum_factor_split`, `cum_factor_total`은 2026-11-22부터 어느 검사도 읽지 않고(A001·A002 은퇴, 8.3), 5.5가 말하는 대로 5.5에서 빠진다.
+- 누적 계수는 소비자가 사건에서 계산한다 [2026-11-22, #705]: `C[s] = Π_{e ≤ s} m_e`(정정 사슬마다 최신판 하나), 상장 첫 세션 = 1.0. 새 자료를 뒤에 붙여도 옛 행의 값은 바뀌지 않는다. 과거 사건이 늦게 발견되면 그 뒤 행만 바뀐다. 역분할 때문에 `C`는 단조가 아니다. 예전 bars 칼럼 `cum_factor_split`, `cum_factor_total`은 2026-11-22부터 어느 검사도 읽지 않고(A001·A002 은퇴, 8.3), 5.5가 말하는 대로 2026-11-25에 5.5에서 빠졌다.
 - 공개 시각: 계수는 사건의 `ts_effective`에 효력이 생기지만, 금액·비율이 늦게 공개된 사건(한국 옛 배당)은 사건의 `ts_terms_available`로 소비자가 대기 처리한다(명세서 5.3.4; v1의 `ts_amount_available`은 오기였다). 그래서 누적 계수 하나만으로 미래 정보 없는 조정을 할 수 없는 칸이 있다는 것을 표준에 적는다(5.11).
 
 **K5. 재무 = 사실 사건 + 해석 상태 구간.**
@@ -591,12 +591,10 @@
 | vwap | f64 | 예 | |
 | open_interest | f64 | 예 | 선물·옵션 미결제약정(그 봉 끝 기준; 공식 값은 `market_statistics`) |
 | obs_status | code(닫힘) | 예; 선언한 프로필이 요구하면 모든 줄에서 아니오(7장) | `traded` / `no_trade`(거래 없음) / `halted`(정지) / `missing`(자료 없음 이유 모름) |
-| cum_factor_split | f64 | 예 | 빠지는 중(아래). 상장 첫 세션 1.0 (일봉에만) |
-| cum_factor_total | f64 | 예 | 빠지는 중(아래). 현금 분배까지 넣은 누적 계수 (일봉에만) |
 | ts_available | ts_us | 예 | 칼럼 또는 규칙, 늘 `availability`에 선언(기본 규칙 없음; 없으면 TDS-M003 [2026-11-23, #705 C5]; 흔한 규칙은 `ts_end`; 일봉 공급사 자료가 늦게 나오면 그 지연을 넣어 규칙 `ts_end+P`) |
 | source | code | 예 | |
 
-- `cum_factor_split`과 `cum_factor_total`은 이 개정의 (1)단계를 끝내는 해시 묶음에서 이 표와 스키마 파일에서 빠진다(#705). 모르는 칼럼은 값 해시에 들지 않기 때문이다(4.5). 2026-11-22부터 그 둘을 읽는 검사는 없고(A001·A002는 은퇴), 소비자는 조정을 사건에서 계산한다(K4).
+- `cum_factor_split`과 `cum_factor_total`은 이 표와 스키마 파일에서 빠졌다 [2026-11-25, #705 결정 35, 36]: 소비자는 조정을 사건에서 계산한다(K4). 파일에 그 둘을 선언 없이 아직 가진 패키지는 TDS-S005(W, 모르는 칼럼)를 받는다(있는 규칙). 모르는 칼럼은 값 해시에 들지 않으므로(4.5), 예전 검사기가 그 둘 위에서 쓴 해시는 패키지를 다시 쓸 때까지 맞지 않는다(TDS-H002, TDS-H003). 데이터셋의 `columns`(4.2)에 그 둘을 선언한 패키지는 그것을 자기가 선언한 칼럼으로 지닌다.
 
 - `obs_status = halted` [2026-11-22, #705]: 그 세션 내내 거래가 정지된 것이다(`tradability_daily`가 있으면 `halted_full_day = true`). open·high·low·close는 null이고 적은 `volume`은 0(V004). 장중에 정지가 있었어도 체결이 있었던 세션은 `traded`이고, 그 정지는 `tradability_daily.halt_count`가 세고 `trading_status_events`에 적힌다.
 - `obs_status` [2026-11-23, #705]: 상태를 아는 줄에만 적는다. 쓰는 도구가 종목에 없는 세션에 채운 줄은 `missing`이고, 생산자의 줄은 생산자가 준 값이다. 값이 있는데 상태를 받지 못한 줄은 null로 둔다. 상태를 말하지 않는다는 뜻이고, 소비자는 값을 적힌 그대로 읽으며 `traded`로 여기지 않는다. `tds:minimal-daily@1.0`은 이를 허용하고, `tds:equity-daily-core@1.0`부터는 모든 줄에 `obs_status`가 있어야 한다(7장, TDS-S003). 값(`open`, `high`, `low`, `close`, `vwap`, `volume`, `value_traded`)도 `obs_status`도 없는 줄은 왜 값이 없는지 말하지 않으므로, 어느 프로필에서도 받아들이지 않는다(V004) [2026-11-23, #705].
@@ -756,7 +754,7 @@
 3. 고른 판이 `status = cancelled`면 효과 없음; `announced`이면서 `ts_effective <= c`면 효과 없음(소비자 경고); `effective`면 효과 있음.
 4. 효과 넷: 가격 계수 `price_factor`(null이면 "없음" — 누적 계수도 그 경계에서 "없음"), 수량 계수 `share_factor`(위 규칙), 권리(현금·새 종목·비율), 결제(`pay_date`, `pay_date_status`).
 5. 같은 사슬의 판이 c에 따라 바뀌면(정정·취소) 소비자는 이미 기입한 금액을 정정 기입으로 바로잡는다(과거 기입을 고치지 않음).
-6. (2026-11-22 은퇴, #705: A001은 `c = +∞`로 풀어 bars의 `cum_factor_*`를 대조했고, 그 칼럼은 5.5에서 빠진다.) `c = +∞`(패키지 전체 지식)에서 사슬은 최신판 하나만 내고, 취소된 사슬은 1.0이다.
+6. (2026-11-22 은퇴, #705: A001은 `c = +∞`로 풀어 bars의 `cum_factor_*`를 대조했고, 그 칼럼은 5.5에서 빠졌다.) `c = +∞`(패키지 전체 지식)에서 사슬은 최신판 하나만 내고, 취소된 사슬은 1.0이다.
 
 **배당 날짜 주의.** 한국은 기준일(record) ≠ 배당락일(ex). 결제 주기 때문에 배당락은 보통 기준일 전 영업일이다 [미확인: 시기별 규칙]. 기준일만 아는 자료는 `ex_date`를 규칙으로 유도하고 `x_<ns>_ex_date_method = 'record_minus_1_session'` 같은 칼럼을 남긴다.
 
@@ -1162,7 +1160,7 @@ tds export {zipline-bundle|nautilus-catalog|wide-parquet} ... # 9.8
 | TDS-D002 | E | 세션이 아닌 날 행, 또는 상장 기간 밖 행. `full` 단계의 행 단위 D002는 종목의 `listed_on`..`delisted_on` 밖의 일봉이고, 세션이 아닌 날은 R003이다 [2026-11-11] |
 | TDS-D003 | E | 데이터셋이 처리했다는 세션 뒤의 행: 시장 `<m>`에 `last`가 없는 데이터셋에서, 이용 가능 시각(4.3)이 시장 달력에서 `coverage.by_market.<m>.processed_through_session`의 마감보다 뒤인 행 [2026-11-12, #425] |
 | TDS-D004 | E | 매니페스트 `rows`·`coverage`가 실제와 다름: 데이터셋과 파일마다의 `rows`, 그리고 4.2 예시에 있는 `coverage` 키 중 적힌 것(`instruments`, `session_date` 또는 패널 `period`의 `ts_min`·`ts_max`, `market=` 파티션마다 `by_market`의 `instruments`·`first`·`last`·`rows`) [2026-11-11] |
-| TDS-A001 | — | 2026-11-22 은퇴(#705), 번호는 다시 쓰지 않음: bars의 `cum_factor_*` 비를 그 세션 사건 계수와 대조했다. 그 칼럼은 5.5에서 빠진다(5.5) |
+| TDS-A001 | — | 2026-11-22 은퇴(#705), 번호는 다시 쓰지 않음: bars의 `cum_factor_*` 비를 그 세션 사건 계수와 대조했다. 그 칼럼은 5.5에서 빠졌다(5.5) |
 | TDS-A002 | — | 2026-11-22 은퇴(#705), 번호는 다시 쓰지 않음: 첫 세션의 `cum_factor_*`가 1.0이 아니었다 |
 | TDS-A003 | E | `price_factor ≤ 0`·null인데 `factor_method ≠ unavailable` |
 | TDS-A004 | W | 현금배당 계수가 `1 − D/ref_price`와 다름(상대 1e-9) |
@@ -1520,7 +1518,7 @@ datasets:
 | 기업행동 | 해석 절차 없음, `share_factor` 기본 = 1/price_factor, `ts_amount_available` 오기 | 해석 절차(5.11: 사슬·기준 시각의 판·상태·네 효과·정정), `share_factor`는 분할류 밖에서 추론 금지, `ts_terms_available` 통일, A008·A009 | C03, Q03 |
 | 폐지 | `ts_exit_known` 필수 | null 허용(backfilled), `ts_value_available` 전에는 회수액을 판단에 쓰지 않는다는 소비자 문장 | Q09, C01 |
 | 정답 표 | 시각 칼럼 없음 | 선택 `ts_label_start/end/available`, `return_definition` 예 | C04 |
-| 프로필 | 판 없음, "pass" 하나, `minimal-daily`에 종가 백테스트 약속, research에 `cum_factor_*` 필수 | `@1.0` 판, 세 결과(선언·검사 단계·결과, `not_checked`), `minimal-daily`는 분석만, `cum_factor_*`는 모든 프로필에서 선택, 엔진 지원 매트릭스는 표준 밖 | I01, I03 |
+| 프로필 | 판 없음, "pass" 하나, `minimal-daily`에 종가 백테스트 약속, research에 `cum_factor_*` 필수 | `@1.0` 판, 세 결과(선언·검사 단계·결과, `not_checked`), `minimal-daily`는 분석만, `cum_factor_*`는 모든 프로필에서 선택(그리고 2026-11-25부터 표준 밖, 5.5), 엔진 지원 매트릭스는 표준 밖 | I01, I03 |
 | 호환 | 모르는 열거값은 `other`, 모든 MINOR를 읽음 | 모르는 필수 해석 규칙·닫힌 열거 새 값은 거절(M014), 서술용만 `other`, experimental 스키마는 약속 밖 | I01, Q11 |
 | 매니페스트 | `$schema` = 소유하지 않은 도메인, 생산자 힌트 없음, 경로 안전 없음 | 상대 경로 `$schema`, `producer.hints`, 경로 안전(M012·M013), 프로필 판 | Q04, I09, I01 |
 | 실험 판 | 틱·호가·선물·옵션·코인이 1.0 안 | `experimental`(M015 경고), 일봉 주식만 stable | I07 |
@@ -1629,3 +1627,4 @@ datasets:
 - 2026-11-24: **v1.4** 안에서. 5.13: 받은 값을 모를 때 줄이 무엇을 가지는지(`unobserved`; `ret_lo`, `ret_hi`, `policy_id`는 null일 수 있고, 스키마 파일의 세 열이 null 가능; 기준가는 마지막 원종가)를 적고, 첫 문장이 표준이 정의하지 않는 생산자 정책에 기대지 않는다; 그 밖의 줄에서는 전에 S003이 지키던 셋을 V040이 지키므로, 그런 null은 `schema` 수준에서 실패하던 것이 이제 `full`에서 실패한다; 파일은 여전히 세 열을 가진다(S001); 엔진 스펙 4.5의 F-13과 5.6.13이 null인 범위를 엔진의 가정으로 다룬다(#737; #705 결정 8; #725 결정 126, 192). 해시·해시 벡터·적합성 사례는 움직이지 않았다. (1)단계 안의 고침: `tds_version` `"1.0"` 그대로, `tds_draft`는 2026-11-19 그대로(단계가 끝날 때까지, 10.5); 그것을 옮길 때 이 고침을 까닭의 하나로 든다.
 - 2026-11-24: **v1.4** 안에서. 4.5: `hash_spec` `tds-hash-2`; 6단계, 파티션이 있는 데이터셋의 value hash를 파티션들의 것에서 잇는다(#705 B4; #725 결정 146, 157~161, 198); `partitioning`이 없는 데이터셋은 전처럼 해시한다. `tds-hash-1`을 선언한 패키지는 TDS-M014. 움직인 것: 모든 패키지의 의미 해시(`hash_spec`을 담으므로)와 `partitioning`을 선언한 데이터셋의 value hash; 그와 함께 벡터 `partition_columns`, 그리고 벡터 `partitioned_split_differently`를 더함. #705 계획 12번 풀 리퀘스트(12a~12e, 한 묶음, #725 결정 196, 197)의 첫째: 끝에서 `tds_draft`가 옮겨질 때까지 `tds-hash-2`는 끝난 것이 아니다. `tds_version` `"1.0"` 그대로, `tds_draft`는 2026-11-19 그대로(그때까지, 10.5).
 - 2026-11-24: **v1.4** 안에서. 4.2 `partitions`(`partitioning`이 선언되면 필수, M003)와 8.3 TDS-H005(manifest 수준이 그것들을 이어 `value_sha256`과 견줌); TDS-H002가 다른 파티션을 이름 든다(#705 B4, 계획 12b; #725 결정 199). 데이터셋을 `key=value` 폴더로 놓는 도구는 그것을 `partitioning`으로 선언한다. 움직인 것: 이제 파티션을 선언하는 패키지의 값·의미 해시. `tds_version` `"1.0"` 그대로, `tds_draft`는 2026-11-19 그대로(12e까지, 10.5).
+- 2026-11-25: **v1.4** 안에서. 5.5와 bars 스키마 파일: `cum_factor_split`과 `cum_factor_total`이 빠진다; 그 둘을 아직 가진 패키지는 TDS-S005를 받는다(#705 결정 35, 36; 계획 12d). 움직인 것: 파일에 두 칼럼 가운데 하나라도 선언 없이 가진 데이터셋의 값 해시(그 전에 쓴 해시에 대해 TDS-H002·H003); 두 칼럼이 없는 패키지는 없음. `tds_version` `"1.0"` 그대로, `tds_draft`는 2026-11-19 그대로(12e까지, 10.5).
