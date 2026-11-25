@@ -1,11 +1,11 @@
 # Spec index: milestone → ticket → spec section → tests
 
-Built from `docs/spec/engine-spec-v3.4.md` (chapter 10). It was generated at the hand-over by a spec checker that is not in this repository, and it has been maintained by hand since. Use it in `/to-tickets` and `/implement` sessions to open only the sections a ticket needs. If this file and the spec disagree, the spec wins; correct this file by hand.
+Built from the plan document [docs/plan/plan.md](docs/plan/plan.md), which was spec chapter 10. It was generated at the hand-over by a spec checker that is not in this repository, and it has been maintained by hand since. Use it in `/to-tickets` and `/implement` sessions to open only the sections a ticket needs. If this file disagrees with the spec, the spec wins, and with the plan document's ticket text, the plan document wins; correct this file by hand.
 
 - **§** = section of the engine spec. **TDS x.y** = section of the data standard (`docs/tds/tds-v1.4.md`; examples in `docs/tds/tds-examples.md`; Korean translations `*.ko.md`).
 - **Tests** = hand-computed golden cases (`G-NN`, spec 8.2, `tests/golden/`), property tests (`P-NAME`, spec 8.3, `tests/property/`), point-in-time cases (`T-NN`, spec 8.4). A golden ticket (`T<m>.G…`) is written and merged in a separate session *before* the ticket that consumes it.
 - Every ticket also lists its acceptance test names in the spec; those are the red tests to write first.
-- Milestone end conditions and the command to show at the end of each milestone: spec 10.0.
+- Milestone end conditions and the command to show at the end of each milestone: 10.0 of the plan document.
 
 ## Counts
 

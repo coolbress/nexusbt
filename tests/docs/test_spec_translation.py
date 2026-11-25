@@ -9,7 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from spec_translation import compare, main
+from spec_translation import chapters, compare, main
 
 KOREAN = """\
 # 명세
@@ -179,3 +179,13 @@ def test_the_english_spec_keeps_every_id_of_the_korean_spec(
     canonical = SPEC / "engine-spec-v3.4.md"
     assert korean.exists(), f"the Korean translation {korean.name} is missing"
     assert main([str(korean), str(canonical), "--complete"]) == 0, capsys.readouterr().out
+
+
+def test_the_english_plan_keeps_every_id_of_the_korean_plan(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Chapter 10 left the spec for `docs/plan/` (#767); its ids are still compared there."""
+    plan = SPEC.parent / "plan"
+    korean, english = plan / "plan.ko.md", plan / "plan.md"
+    assert main([str(korean), str(english), "--complete"]) == 0, capsys.readouterr().out
+    assert "chapter 10" in dict(chapters(english.read_text(encoding="utf-8")))

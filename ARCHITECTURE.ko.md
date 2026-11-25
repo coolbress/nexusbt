@@ -110,7 +110,7 @@ NexusBT는 일봉 주식 팩터 연구를 위한 백테스트·스크리닝 엔�
 | 지표, evaluate, 실행 기록, 모의 장부 | §5.7–5.9 |
 | 연구 위생, 검증 방법, 오류 | §6 |
 | 성능, 시험 | §7, §8 |
-| 마일스톤과 티켓 | §10과 [SPEC-INDEX.md](SPEC-INDEX.md) |
+| 마일스톤과 티켓 | [docs/plan/plan.ko.md](docs/plan/plan.ko.md)(명세 §10이 가리킴)와 [SPEC-INDEX.md](SPEC-INDEX.md) |
 | 확장 지점 | §11 |
 | 결정 | [docs/adr/](docs/adr/) (짧은 형태는 §9.3) |
 

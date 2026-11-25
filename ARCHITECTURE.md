@@ -109,7 +109,7 @@ All of them are tested in every milestone (§1.3). The ones that shape the archi
 | Metrics, evaluate, run records, paper book | §5.7–5.9 |
 | Research hygiene, validation methods, errors | §6 |
 | Performance, tests | §7, §8 |
-| Milestones and tickets | §10 and [SPEC-INDEX.md](SPEC-INDEX.md) |
+| Milestones and tickets | [docs/plan/plan.md](docs/plan/plan.md) (spec §10 points there) and [SPEC-INDEX.md](SPEC-INDEX.md) |
 | Extension points | §11 |
 | Decisions | [docs/adr/](docs/adr/) (short form in §9.3) |
 
