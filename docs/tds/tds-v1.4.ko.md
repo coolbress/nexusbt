@@ -591,12 +591,10 @@
 | vwap | f64 | 예 | |
 | open_interest | f64 | 예 | 선물·옵션 미결제약정(그 봉 끝 기준; 공식 값은 `market_statistics`) |
 | obs_status | code(닫힘) | 예; 선언한 프로필이 요구하면 모든 줄에서 아니오(7장) | `traded` / `no_trade`(거래 없음) / `halted`(정지) / `missing`(자료 없음 이유 모름) |
-| cum_factor_split | f64 | 예 | 빠지는 중(아래). 상장 첫 세션 1.0 (일봉에만) |
-| cum_factor_total | f64 | 예 | 빠지는 중(아래). 현금 분배까지 넣은 누적 계수 (일봉에만) |
 | ts_available | ts_us | 예 | 칼럼 또는 규칙, 늘 `availability`에 선언(기본 규칙 없음; 없으면 TDS-M003 [2026-11-23, #705 C5]; 흔한 규칙은 `ts_end`; 일봉 공급사 자료가 늦게 나오면 그 지연을 넣어 규칙 `ts_end+P`) |
 | source | code | 예 | |
 
-- `cum_factor_split`과 `cum_factor_total`은 이 개정의 (1)단계를 끝내는 해시 묶음에서 이 표와 스키마 파일에서 빠진다(#705). 모르는 칼럼은 값 해시에 들지 않기 때문이다(4.5). 2026-11-22부터 그 둘을 읽는 검사는 없고(A001·A002는 은퇴), 소비자는 조정을 사건에서 계산한다(K4).
+- `cum_factor_split`과 `cum_factor_total`은 이 표와 스키마 파일에서 빠졌다 [2026-11-25, #705 결정 35, 36]: 소비자는 조정을 사건에서 계산한다(K4). 그 둘을 아직 가진 패키지는 TDS-S005(W, 모르는 칼럼)를 받는다(있는 규칙). 모르는 칼럼은 값 해시에 들지 않으므로(4.5), 예전 검사기가 그 둘 위에서 쓴 해시는 패키지를 다시 쓸 때까지 맞지 않는다(TDS-H002, TDS-H003).
 
 - `obs_status = halted` [2026-11-22, #705]: 그 세션 내내 거래가 정지된 것이다(`tradability_daily`가 있으면 `halted_full_day = true`). open·high·low·close는 null이고 적은 `volume`은 0(V004). 장중에 정지가 있었어도 체결이 있었던 세션은 `traded`이고, 그 정지는 `tradability_daily.halt_count`가 세고 `trading_status_events`에 적힌다.
 - `obs_status` [2026-11-23, #705]: 상태를 아는 줄에만 적는다. 쓰는 도구가 종목에 없는 세션에 채운 줄은 `missing`이고, 생산자의 줄은 생산자가 준 값이다. 값이 있는데 상태를 받지 못한 줄은 null로 둔다. 상태를 말하지 않는다는 뜻이고, 소비자는 값을 적힌 그대로 읽으며 `traded`로 여기지 않는다. `tds:minimal-daily@1.0`은 이를 허용하고, `tds:equity-daily-core@1.0`부터는 모든 줄에 `obs_status`가 있어야 한다(7장, TDS-S003). 값(`open`, `high`, `low`, `close`, `vwap`, `volume`, `value_traded`)도 `obs_status`도 없는 줄은 왜 값이 없는지 말하지 않으므로, 어느 프로필에서도 받아들이지 않는다(V004) [2026-11-23, #705].
@@ -1629,3 +1627,4 @@ datasets:
 - 2026-11-24: **v1.4** 안에서. 5.13: 받은 값을 모를 때 줄이 무엇을 가지는지(`unobserved`; `ret_lo`, `ret_hi`, `policy_id`는 null일 수 있고, 스키마 파일의 세 열이 null 가능; 기준가는 마지막 원종가)를 적고, 첫 문장이 표준이 정의하지 않는 생산자 정책에 기대지 않는다; 그 밖의 줄에서는 전에 S003이 지키던 셋을 V040이 지키므로, 그런 null은 `schema` 수준에서 실패하던 것이 이제 `full`에서 실패한다; 파일은 여전히 세 열을 가진다(S001); 엔진 스펙 4.5의 F-13과 5.6.13이 null인 범위를 엔진의 가정으로 다룬다(#737; #705 결정 8; #725 결정 126, 192). 해시·해시 벡터·적합성 사례는 움직이지 않았다. (1)단계 안의 고침: `tds_version` `"1.0"` 그대로, `tds_draft`는 2026-11-19 그대로(단계가 끝날 때까지, 10.5); 그것을 옮길 때 이 고침을 까닭의 하나로 든다.
 - 2026-11-24: **v1.4** 안에서. 4.5: `hash_spec` `tds-hash-2`; 6단계, 파티션이 있는 데이터셋의 value hash를 파티션들의 것에서 잇는다(#705 B4; #725 결정 146, 157~161, 198); `partitioning`이 없는 데이터셋은 전처럼 해시한다. `tds-hash-1`을 선언한 패키지는 TDS-M014. 움직인 것: 모든 패키지의 의미 해시(`hash_spec`을 담으므로)와 `partitioning`을 선언한 데이터셋의 value hash; 그와 함께 벡터 `partition_columns`, 그리고 벡터 `partitioned_split_differently`를 더함. #705 계획 12번 풀 리퀘스트(12a~12e, 한 묶음, #725 결정 196, 197)의 첫째: 끝에서 `tds_draft`가 옮겨질 때까지 `tds-hash-2`는 끝난 것이 아니다. `tds_version` `"1.0"` 그대로, `tds_draft`는 2026-11-19 그대로(그때까지, 10.5).
 - 2026-11-24: **v1.4** 안에서. 4.2 `partitions`(`partitioning`이 선언되면 필수, M003)와 8.3 TDS-H005(manifest 수준이 그것들을 이어 `value_sha256`과 견줌); TDS-H002가 다른 파티션을 이름 든다(#705 B4, 계획 12b; #725 결정 199). 데이터셋을 `key=value` 폴더로 놓는 도구는 그것을 `partitioning`으로 선언한다. 움직인 것: 이제 파티션을 선언하는 패키지의 값·의미 해시. `tds_version` `"1.0"` 그대로, `tds_draft`는 2026-11-19 그대로(12e까지, 10.5).
+- 2026-11-25: **v1.4** 안에서. 5.5와 bars 스키마 파일: `cum_factor_split`과 `cum_factor_total`이 빠진다; 그 둘을 아직 가진 패키지는 TDS-S005를 받는다(#705 결정 35, 36; 계획 12d). 움직인 것: 두 칼럼이 없는 패키지의 해시는 없음. `tds_version` `"1.0"` 그대로, `tds_draft`는 2026-11-19 그대로(12e까지, 10.5).

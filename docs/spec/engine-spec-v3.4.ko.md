@@ -2946,8 +2946,9 @@ pytest 표시: `unit`, `golden`, `property`, `docs`, `examples`, `parity`, `perf
 - **판** (edition): `strict`(엄격판, 기본; 공급사 입력·사후 공개가 계보에 없는 값만) / `compare`(공급사 값 포함, 비교용).
 - **시장** (market): TDS `markets`의 키(예 `KR` = XKRX·KRW, `US` = XNYS·USD). 코드에 박지 않는다. **지원 시장** = 시장 규칙 팩(`resources/markets/<M>.toml`)이 있는 시장.
 - **세션** (session): 시장 달력의 거래일. `ts_open`, `ts_close`가 진짜 시각이고 날짜는 이름표.
-- **공개 시각** (`ts_available`): 그 관측을 처음 쓸 수 있는 UTC 시각. 날짜만 있으면 다음 세션 시가.
-- **정보 마감 시각** (`decision_ts`): 판단이 쓸 수 있는 정보의 마지막 시각. 규칙은 하나: `ts_available <= decision_ts`.
+- **공개 시각** (`ts_available`): 그 관측을 처음 쓸 수 있는 UTC 순간. 날짜만 있는 값은 그 시장의 다음 세션이 열리기 전에 알려진 것이고, 그 날짜의 종가 판단부터 쓴다(5.1.4).
+- **판단 시각** (`decision_ts`): 판단을 내리고 기록하는 순간. 그 주문은 그 뒤에 열리는 세션에서만 체결된다.
+- **정보 마감**: 판단이 쓸 수 있는 것: `ts_available <= decision_ts`인 관측. 날짜만 있는 값은 그 행의 동결 시각을 `ts_available`로 갖고, 그 날짜는 시장의 다음 세션이 열리기 전에 알려졌다는 뜻이다(5.1.2, 5.1.4).
 - **as of**: 항상 "decision_ts 기준"을 뜻한다. 통화나 날짜 문자열이 as-of를 정하지 않는다.
 - **시장 축** (market axis): 한 시장의 세션 열. 행 s는 굳는 시각 `ready(s) = ts_close(s) + 선언된 지연`에 굳고, 그 뒤 온 자료로 바뀌지 않는다.
 - **단계** (phase): 한 세션 안 순서 `session_start < open < intraday < close_fill < close_mark < decision < session_end`. 같은 시각이면 이 순서.
@@ -3621,7 +3622,7 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 - Done means: 두 경우 모두 G-107의 숫자와 그 `ca_exclusions.parquet` 행, 첫 화면 `hypothetical exits` 줄을 출력하는 예제, 같은 스냅숏으로 스크린과 백테스트의 유니버스가 같음.
 - Acceptance: `tests/golden/test_ca.py::test_G107`, `tests/unit/accounting/test_ca_exclude.py::test_not_before_visible`, `::test_exit_before_effective`, `::test_unverified_exit_close`, `::test_window_nan_across_event`, `::test_require_exact_E13`, `::test_exclusion_row_for_name_not_held`, `::test_hypothetical_exit_pnl_line`, `::test_ca_exit_lo_hi_bracket_long`, `::test_ca_exit_short_bound_open`, `::test_no_ca_exit_replay_without_exit`, `tests/property/test_screen_backtest.py::test_same_universe_with_exclusions`.
 
-**T3.10 `feat(accounting): cash dividends with entitlements, late amounts, corrections, pay-date estimation and data warnings`** · `M3a` `accounting` · M · Blocked by: T3.9 · §5.6.11, §5.3.3a(4)(7)(10), §4.5 F-05·F-09 *(v3.2: 권리 수량은 효력 세션 보유로 고정, 늦게 알게 된 사건은 덧붙여 기입 [R3-01])* *(v3: 정정 기입·취소)* *(지급일 추정은 2026-11-24에 사용자의 선언으로 바뀜, #752)*
+**T3.10 `feat(accounting): cash dividends with entitlements, late amounts, corrections, pay-date declaration and data warnings`** · `M3a` `accounting` · M · Blocked by: T3.9 · §5.6.11, §5.3.3a(4)(7)(10), §4.5 F-05·F-09 *(v3.2: 권리 수량은 효력 세션 보유로 고정, 늦게 알게 된 사건은 덧붙여 기입 [R3-01])* *(v3: 정정 기입·취소)* *(지급일 추정은 2026-11-24에 사용자의 선언으로 바뀜, #752)*
 - Done means: G-19~G-21, G-35, G-43, G-44, G-111(#310) 통과, 실행 경고에 E28 건수; `degrade=["kr_ex_is_record"]`에서 E30 건수, `degrade=["us_div_split_adjusted_no_dates"]`에서 "amounts unverified" 가정 줄.
 - Acceptance: `test_accounting.py::test_G19`, `::test_G20`, `::test_G21`, `::test_G35`, `::test_G43_dividend_revised_after_payment`, `::test_G44_dividend_cancelled`, `::test_G20_entitlement_survives_exit_before_terms`, `tests/unit/accounting/test_actions_late.py::test_late_discovered_event_uses_effective_holding`, `tests/unit/accounting/test_dividend_data_warnings.py::test_F05_counted`, `::test_F09_assumption`.
 

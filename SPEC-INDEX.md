@@ -138,7 +138,7 @@ Built from `docs/spec/engine-spec-v3.4.md` (chapter 10). It was generated at the
 | T3.5b | `feat(execution): volume cap and affordable cash allocation with the actual cost function` | 5.6.6, 5.6.7 | G-10, G-12, G-41, G-53 | T3.5a, T3.8, T3.Gd |
 | T3.9 | `feat(accounting): splits, reverse splits, stock dividends, bonus issues and capital reductions via the resolver` | 5.6.10, 5.3.3a, 4.6 | G-16..G-18, G-34, G-45..G-46 | T3.4, T0.15a, T3.Gc, T3.Gd |
 | T3.9b | `feat(accounting): exclude instruments with share events lacking exact ratios (default policy)` | 5.6.1, 3.11, 6.6 | G-107 | T3.9, T1.1a, T3.Gd |
-| T3.10 | `feat(accounting): cash dividends with entitlements, late amounts, corrections, pay-date estimation and data warnings` | 5.6.11, 5.3.3a, 4.5 | G-19..G-21, G-35, G-43..G-44 | T3.9 |
+| T3.10 | `feat(accounting): cash dividends with entitlements, late amounts, corrections, pay-date declaration and data warnings` | 5.6.11, 5.3.3a, 4.5 | G-19..G-21, G-35, G-43..G-44 | T3.9 |
 | T3.11 | `feat(accounting): delisting with knowledge-time proceeds, mergers, rights and unsupported actions` | 5.6.12, 5.6.13, 4.5 | G-22..G-26, G-42, G-47 | T3.10 |
 | T3.12 | `feat(execution): single-sleeve simulation loop and session step` | 5.6.3, 5.6.14 | G-30 | T3.5b, T3.11, T3.22 |
 | T3.13a | `feat(api): single-market backtest and metrics` | 5.7, 3.8, 3.9 | G-61 | T3.12, T3.2, T2.9, T3.Ge |
