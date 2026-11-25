@@ -1,7 +1,9 @@
-"""Read the ticket lines of spec 10.1 and check their "Blocked by" graph (T0.12).
+"""Read the ticket lines of 10.1 in `docs/plan/plan.md` and check their "Blocked by" graph.
+
+T0.12; the plan was spec chapter 10 until #767.
 
 A ticket line: ``**T0.2a `chore: …`** **[v3]** · `M0` `infra` · M · Blocked by: T0.1 · §2.3``.
-The milestone order is the order of the ``#### <M> — …`` headings of 10.1. Spec 10.0
+The milestone order is the order of the ``#### <M> — …`` headings of 10.1. The plan's 10.0
 ("Ticket rules") says the graph is acyclic and that every dependency is in the same
 or an earlier milestone; `check` says where that is not so.
 """

@@ -12,7 +12,7 @@ This repository builds **NexusBT**, an open-source (Apache-2.0) backtesting and 
 |---|---|---|
 | Engine spec v3.4 | [docs/spec/engine-spec-v3.4.md](docs/spec/engine-spec-v3.4.md) (Korean translation: [engine-spec-v3.4.ko.md](docs/spec/engine-spec-v3.4.ko.md)) | **The single source of truth.** Public edition. If anything disagrees with it, the spec wins |
 | Spec checker | `tools/spec_lint.py` (not in the repository yet: it was not in the pack) | `python3 tools/spec_lint.py` (stdlib only): § refs, ticket graph, ids. Run it after any spec edit |
-| Ticket index | [SPEC-INDEX.md](SPEC-INDEX.md) | milestone → ticket → spec sections → tests → blocked by. Ticket text lives in spec 10.1 |
+| Ticket index | [SPEC-INDEX.md](SPEC-INDEX.md) | milestone → ticket → spec sections → tests → blocked by. Ticket text lives in 10.1 of [docs/plan/plan.md](docs/plan/plan.md) |
 | Data standard TDS v1.4 | [docs/tds/tds-v1.4.md](docs/tds/tds-v1.4.md) (+ [.ko](docs/tds/tds-v1.4.ko.md)), [examples](docs/tds/tds-examples.md) | Spec 2.3 and T0.1 place it at `tds/spec/tds-v1.md`; move it there in T0.1 and fix the links |
 | Glossary | [GLOSSARY.md](GLOSSARY.md) (+ [.ko](GLOSSARY.ko.md)) | The words of this project. `CONTEXT.md` and `CONTEXT.ko.md`, the spec's names, are symbolic links to these |
 | ADRs 0001–0041 | [docs/adr/](docs/adr/) | All accepted. Short form in spec 9.3 |
@@ -61,11 +61,11 @@ Use the interview notes at `$PACK/GRILL-NOTES.md` (the local hand-off pack folde
 
 ### (c) `/to-spec`
 
-Make **one plan issue** that points at spec sections. Do not rewrite the spec. Include the milestone table and end conditions (spec 10.0), the build order (spec 9), and links to the spec, `SPEC-INDEX.md` and the ADRs.
+Make **one plan issue** that points at spec sections. Do not rewrite the spec. Include the milestone table and end conditions (10.0 of `docs/plan/plan.md`), the build order (spec 9), and links to the spec, `SPEC-INDEX.md` and the ADRs.
 
 ### (d) `/to-tickets`
 
-Cut issues from [SPEC-INDEX.md](SPEC-INDEX.md): 219 tickets in milestone order (M0 → M6, then v1.x). Each issue body is the ticket text from spec 10.1, copied as written: title, size, Done means, Acceptance, Blocked by, § sections. The issue's own title is a plain sentence of what the ticket does, not the ticket's commit-style title (`T6.16 ci(release): …`); the ticket id and that title go under the body's `## Parent`. Golden tickets (`T<m>.G…`) come before the tickets that use them. Replace `Blocked by` ticket ids with issue numbers as you go, and keep the id → issue map in the plan issue.
+Cut issues from [SPEC-INDEX.md](SPEC-INDEX.md): 219 tickets in milestone order (M0 → M6, then v1.x). Each issue body is the ticket text from 10.1 of `docs/plan/plan.md`, copied as written: title, size, Done means, Acceptance, Blocked by, § sections. The issue's own title is a plain sentence of what the ticket does, not the ticket's commit-style title (`T6.16 ci(release): …`); the ticket id and that title go under the body's `## Parent`. Golden tickets (`T<m>.G…`) come before the tickets that use them. Replace `Blocked by` ticket ids with issue numbers as you go, and keep the id → issue map in the plan issue.
 
 ### (e) `/implement #N`
 

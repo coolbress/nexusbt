@@ -12,7 +12,7 @@
 |---|---|---|
 | 엔진 명세 v3.4 | [docs/spec/engine-spec-v3.4.md](docs/spec/engine-spec-v3.4.md)(영어 정본) · 한국어 번역 [engine-spec-v3.4.ko.md](docs/spec/engine-spec-v3.4.ko.md) | **유일한 기준.** 공개판. 다른 문서와 다르면 명세가 이긴다 |
 | 명세 검사기 | `tools/spec_lint.py`(아직 저장소에 없음: 인계 묶음에 들어 있지 않았다) | `python3 tools/spec_lint.py`(표준 라이브러리만): § 참조, 티켓 그래프, 번호. 명세를 고칠 때마다 돌린다 |
-| 티켓 색인 | [SPEC-INDEX.md](SPEC-INDEX.md) | 마일스톤 → 티켓 → 명세 절 → 시험 → 막는 티켓. 티켓 본문은 명세 10.1 |
+| 티켓 색인 | [SPEC-INDEX.md](SPEC-INDEX.md) | 마일스톤 → 티켓 → 명세 절 → 시험 → 막는 티켓. 티켓 본문은 [docs/plan/plan.md](docs/plan/plan.md)의 10.1 |
 | 자료 표준 TDS v1.4 | [docs/tds/tds-v1.4.md](docs/tds/tds-v1.4.md) (+ [한국어](docs/tds/tds-v1.4.ko.md)), [예시](docs/tds/tds-examples.md) | 명세 2.3과 T0.1은 `tds/spec/tds-v1.md` 자리를 쓴다. T0.1에서 옮기고 링크를 고친다 |
 | 용어집 | [GLOSSARY.md](GLOSSARY.md) (+ [한국어](GLOSSARY.ko.md)) | 이 프로젝트의 낱말. 명세가 쓰는 이름 `CONTEXT.md`·`CONTEXT.ko.md`는 이 둘을 가리키는 심볼릭 링크 |
 | ADR 0001–0041 | [docs/adr/](docs/adr/) | 모두 accepted. 짧은 판은 명세 9.3 |
@@ -61,11 +61,11 @@
 
 ### (c) `/to-spec`
 
-명세 절을 가리키는 **계획 이슈 하나**를 만든다. 명세는 고쳐 쓰지 않는다. 마일스톤 표와 끝 조건(명세 10.0), 만드는 순서(명세 9장), 명세·`SPEC-INDEX.md`·ADR 링크를 넣는다.
+명세 절을 가리키는 **계획 이슈 하나**를 만든다. 명세는 고쳐 쓰지 않는다. 마일스톤 표와 끝 조건(`docs/plan/plan.md`의 10.0), 만드는 순서(명세 9장), 명세·`SPEC-INDEX.md`·ADR 링크를 넣는다.
 
 ### (d) `/to-tickets`
 
-[SPEC-INDEX.md](SPEC-INDEX.md)에서 이슈를 만든다. 티켓은 219개이고 마일스톤 순서(M0 → M6, 그다음 v1.x)로 만든다. 이슈 본문은 명세 10.1의 티켓 글을 그대로 옮긴다: 제목, 크기, Done means, Acceptance, Blocked by, § 절. 이슈 자체의 제목은 티켓이 무엇을 하는지 한 문장으로 쓰고, 티켓의 커밋 꼴 제목(`T6.16 ci(release): …`)은 쓰지 않는다. 티켓 id와 그 제목은 본문 `## Parent`에 둔다. 정답 티켓(`T<m>.G…`)이 그것을 쓰는 티켓보다 먼저다. `Blocked by`의 티켓 번호는 만들면서 이슈 번호로 바꾸고, 티켓 번호 → 이슈 번호 대응은 계획 이슈에 둔다.
+[SPEC-INDEX.md](SPEC-INDEX.md)에서 이슈를 만든다. 티켓은 219개이고 마일스톤 순서(M0 → M6, 그다음 v1.x)로 만든다. 이슈 본문은 `docs/plan/plan.md` 10.1의 티켓 글을 그대로 옮긴다: 제목, 크기, Done means, Acceptance, Blocked by, § 절. 이슈 자체의 제목은 티켓이 무엇을 하는지 한 문장으로 쓰고, 티켓의 커밋 꼴 제목(`T6.16 ci(release): …`)은 쓰지 않는다. 티켓 id와 그 제목은 본문 `## Parent`에 둔다. 정답 티켓(`T<m>.G…`)이 그것을 쓰는 티켓보다 먼저다. `Blocked by`의 티켓 번호는 만들면서 이슈 번호로 바꾸고, 티켓 번호 → 이슈 번호 대응은 계획 이슈에 둔다.
 
 ### (e) `/implement #N`
 
