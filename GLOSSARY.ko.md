@@ -8,7 +8,7 @@
 
 - **데이터 칼럼** (`Price.close`, `Meta.category`, `Trad.*`): 스냅숏 칼럼 사전에서 만든 import 가능한 속성. 값 표의 항목은 `nx.Item.<name>`으로 읽는다.
 - **항** (Term: `Factor`, `Filter`, `Classifier`): 칼럼에서 만들고 서로 조합하는 계산 그래프 노드. zipline Pipeline과 같은 이름·뜻.
-- **전략** (`Strategy`): 아홉 칸(일정·유니버스·신호·구성·자금 관리·위험 관리·집행·탈출·비용)을 가진 값 객체.
+- **전략** (`Strategy`): 열 칸(일정·유니버스·신호·구성·자금 관리·위험 관리·결정 블록·집행·탈출·비용)을 가진 값 객체.
 - **실행** (Run): `evaluate`·`backtest`·`screen`·`sweep`·`live` 한 번. `runs/<run_id>/`에 봉인된다.
 - **설정** (`nexusbt.toml`): 두 부분으로 된 프로젝트 기본값. 1부는 결과를 가장 크게 바꾸는 값(데이터 경로, 판, 자본, 기준 통화, 슬리브, 계좌 종류, 공매도, 비용, 세금, 구간), 2부는 고급. `nexusbt config check`·`nexusbt config show`가 풀어 보여 준다.
 
@@ -50,12 +50,12 @@
 - **일정** (schedule): 판단이 일어나는 때(`nx.monthly()` 등). 사건 뒤 판단은 보통 일정에 `nx.Item.<name>.age()` Filter를 쓴다.
 - **자격 / 거래 가능**: 자격 = 판단 때 고를 수 있나(유니버스). 거래 가능 = 집행 세션에 체결되나(상태 기계).
 - **정규 목표** (`target_weight`): 판단의 `(instrument_id, target_weight)` 표. 시장 정보만 쓰는 순수 함수의 결과이고 `screen`과 `backtest`에서 같다. 구성(`portfolio=`) → 자금 관리(`sizing=`) → 시장 정보만 읽는 위험 규칙(`risk=`) 순서로 만든다.
-- **최종 목표** (`final_weight`): 정규 목표에 계좌를 읽는 위험 규칙(낙폭 브레이크, 포트폴리오 손절, 재진입 금지)의 배수를 곱한 값. 주문은 이 값을 쓴다.
+- **최종 목표** (`final_weight`): 정규 목표, `decide` 블록이 있으면 결정 목표 `decided_weight`에 계좌를 읽는 위험 규칙(낙폭 브레이크, 포트폴리오 손절, 재진입 금지)의 배수를 곱한 값. 주문은 이 값을 쓴다.
 - **자금 관리 칸** (sizing): 고른 종목의 비중을 정하는 순수 함수(동일, 역변동성, ERC, 변동성 목표 등). 계좌를 읽지 않는다.
 - **위험 관리 칸** (risk): 비중을 0 쪽으로만 줄이는 순서 있는 규칙 목록. 계좌를 읽는 규칙은 최종 목표 층에서만 돈다.
 - **그림자 지수** (shadow index): 정규 목표를 비용 없이 들고 간 지수. 낙폭 브레이크가 다시 들어갈 때를 정한다.
 - **목표 상태·기준점** (target state, anchor): 앞 판단의 정규 목표 집합과 그 재귀가 시작한 판단. 완충대(`hold=`)는 계좌 보유 대신 이것에 기댄다.
-- **주문 의도** (order intent): 최종 목표 + 계좌 상태로 계산한 고정 주식 수 주문.
+- **주문 의도** (order intent): 최종 목표 + 계좌 상태로 계산한 고정 주식 수 주문, 또는 `decide` 블록이 돌려주고 그것이 남길 비중으로 검사한 주문.
 - **주문 상태**: NEW → ACCEPTED → (TRIGGERED) → PARTIALLY_FILLED → FILLED, 또는 CANCELLED / EXPIRED / REJECTED. 발동은 지속되는 상태이고 수량은 늘 `requested = filled + cancelled + remaining`. "막힘"(blocked)은 상태가 아니라 세션 사건.
 - **주문 종류**: 시장가, 지정가, 손절, 손절지정가. 유효기간 day / GTC.
 - **탈출 주문** (exit order): 진입 체결 직후 생기고 보유가 바뀔 때마다 크기를 다시 맞추는 만료 없는 보호 주문. 보유가 0일 때만 취소. 손절·트레일링 손절·기간 손절(time stop)이 있다.
@@ -96,6 +96,6 @@
 - **ML 팩터** (`ml.factor`): 엔진이 앞쪽만(정답 공개 + 엠바고 ≤ 재학습 시각) 학습하고 판단마다 예측하는 Pipeline 노드. 모형 객체는 저장하지 않고 예측·학습 표를 남긴다.
 - **사전학습 모형** (`ml.pretrained`): `training_cutoff`를 밝힌 예측 전용 모형. 마감 + 엠바고 전 판단은 막고(E48), `allow_overlap=True`면 표시하고 돈다(E49).
 - **대조 기준** (oracle): 손으로 쓴 세션별 산수(golden), 느린 참조 구현, 생산자 해석 출력, 고정 zipline-reloaded 3.2.1(흉내 설정으로만).
-- **블록 / 칸** (block / slot): 전략의 아홉 칸에 끼우는 값. 칸마다 입력·출력·읽을 수 있는 것이 정해져 있다.
+- **블록 / 칸** (block / slot): 전략의 열 칸에 끼우는 값. 칸마다 입력·출력·읽을 수 있는 것이 정해져 있다.
 - **오류 층** (layer): 모든 오류의 둘째 줄: `data`, `your code`, `config`, `engine bug`.
 - **미리보기** (preview): `backtest --preview`는 짧은 기간을 돌려 전체 실행이 무엇을 할지 보인다.

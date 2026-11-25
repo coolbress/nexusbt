@@ -108,7 +108,7 @@ NexusBT는 이 다섯을 한 엔진에 모은다. 각 엔진에서 가져온 장
 **무엇을 추구하나.**
 - **현실과 가장 가까운 거래 환경**: 매매는 이벤트 기반의 정확성(판단 다음 시가 체결, 일봉 안 순서를 모르면 불리한 쪽, 거래량 상한, 상·하한가, 정지, 호가 단위, 비용·세금, 기업행동, 상장폐지, 숏 차입 비용, 환율, 실제 장부 대조) — 계좌는 거래일마다 사건 순서대로 움직인다.
 - **대용량 패널을 빠르게**: 팩터·필터·분류자는 전 종목 × 기간을 배열로 한 번에(같은 항은 한 번, 필요한 칼럼·날짜만, 연도 조각 캐시), 시뮬레이터는 거래일마다 한 칸씩이되 그날 전 종목을 한꺼번에.
-- **사용자는 이 구분을 몰라도 된다**: 전략은 아홉 칸 블록(일정 · 유니버스 · 신호 · 구성 · 자금 관리 · 위험 관리 · 집행 · 탈출 · 비용)을 끼워 만들고, 내 팩터·자금 관리·위험 관리는 함수 하나로 블록이 된다.
+- **사용자는 이 구분을 몰라도 된다**: 전략은 열 칸 블록(일정 · 유니버스 · 신호 · 구성 · 자금 관리 · 위험 관리 · 결정 블록 · 집행 · 탈출 · 비용)을 끼워 만들고, 내 팩터·자금 관리·위험 관리는 함수 하나로 블록이 된다.
 - **같은 파일로 끝까지**: 팩터 검증 → 백테스트 → 오늘의 스크린 → 실운용이 같은 전략 파일 하나, 데이터는 스냅숏 경로 하나.
 - **ML 팩터도 블록**, **한 번이 아니라 여러 번 검증**(walk-forward·CPCV·PBO·DSR을 엔진 안에서), **틀리면 바로 안다**(무엇이·어디서·왜·어떻게 고치나 + 데이터·코드·설정·엔진 구분, 미래 정보는 계산 전에 막음).
 
@@ -132,7 +132,7 @@ NexusBT는 이 다섯을 한 엔진에 모은다. 각 엔진에서 가져온 장
 
 ### 1.1 v1에 넣는 것 / 넣지 않는 것
 
-**한 문장으로 본 전략 형태**(사용자 결정 2026-11-03): v1은 세션 종가에서 판단하고 다음 시가에 체결하는 체계적 전략을 지원한다. 봉마다 도는 명령형 처리기, 재량에 따른 장중 판단, 틱 단위 사건은 v1이 아니다(경계는 3.7 아홉 슬롯의 "읽어도 되는 것" 표, E41; 확장 지점은 11장이 적는다).
+**한 문장으로 본 전략 형태**(사용자 결정 2026-11-03): v1은 세션 종가에서 판단하고 다음 시가에 체결하는 체계적 전략을, 판단 세션마다 한 번 불리고 계좌를 읽을 수 있는 사용자 블록(`decide`, 3.7)과 함께 지원한다 [#725 결정 236, 2026-11-03의 "봉마다 도는 명령형 처리기는 v1이 아니다"를 대신함]. 재량에 따른 장중 판단, 틱 단위 사건은 v1이 아니다(경계는 3.7 열 슬롯의 "읽어도 되는 것" 표, E41; 확장 지점은 11장이 적는다).
 
 | 영역 | v1에 넣음 | v1에 넣지 않음 (언제) |
 |---|---|---|
@@ -210,7 +210,7 @@ NexusBT는 이 다섯을 한 엔진에 모은다. 각 엔진에서 가져온 장
 | INV-05 | **캐시 불변**: 캐시(L0 원 블록, L1 항 값) 적중과 미적중의 결과가 비트 단위로 같음. 열쇠는 결과가 기대는 모든 것(파일 sha256, 기업행동 사슬의 모든 판과 공개 시각, 블록의 축 행, 전파된 입력 행, 학습 노드의 학습 맥락, 절대 세션 번호를 읽는 노드의 첫 `session_ord`)을 담는다(5.3.9의 열쇠) [C9, SC-15, R3-04] | P-CACHE |
 | INV-06 | **회계 맞춤**: 돈은 정수 최소 단위(int64)로 기입한다. 매일 `nav_economic = 현금 + Σ 보유×평가가 + 미수금 + 미확정 권리(사후 금액)`, 차이 0(최소 단위). **NAV·손익 다리**: 통화별 매일 `NAV_t − NAV_{t−1} = 가격 변화 손익 + 분배(배당·자본 반환·현금 대가) + 기업행동 현금(단주) − 비용 + 환전·환율 효과 + 반올림 잔여`이고 다리 행 합이 0 차이로 닫힌다(외부 입출금은 다리의 `external_flows` 행 — 장부만, 백테스트는 0 [V31-19]; 대차 비용·리베이트·현금 이자·증거금 대출 이자(`margin_interest`)는 `financing` 행 [R3-09, R3-25, R4G-MG-04]). 꼭 내야 하는 의무(대차 비용·숏 배당·종료 의무·세금 납부)는 현금이 모자라도 음수 현금으로 기입하고(`shortfall`), 현금 계좌에서 주문 체결은 음수 현금을 만들지 않는다 [R3-09](증거금 계좌의 대출은 5.6.7a; 다리 식은 같음). 평가가는 같은 시점 수량과 같은 기업행동 기준이다(거래 없는 날의 묵은 평가가도 그 뒤 사건의 가격 계수를 곱함, 5.6.3 [V31-02]). 보유 수량은 부호가 있고(숏 = 음수) 같은 식이 숏에도 그대로 선다(숏 배당 지급·대차 비용 행 포함) [V31-LS-08]. v2의 "현금 흐름 합 = NAV 변화"는 평가 이익을 빠뜨린 거짓 식이라 뺐다 [11.4.3, 청사진 9장 6번, RV-C07] | P-NAV, P-BRIDGE, 손계산 G-48·G-49·G-54·G-65·G-72, 보고서 `reconciled: yes` |
 | INV-07 | **중복 없음**: 재실행·이어 돌리기 뒤에도 사건·지급·체결이 중복되지 않음 [11.8] | P-RESUME |
-| INV-08 | **screen = backtest**: 같은 전략·스냅숏·정책·**기준점(anchor)**·`DecisionContext`면 같은 정규 목표. 계좌 상태까지 같으면 같은 주문 의도. 목표는 판단 시점 정보와 앞 판단의 정규 목표 상태(목표 상태 재귀)만의 함수이고 계좌 상태를 받지 않는다 [R-13, 11.4.6, SC-02] | P-PARITY13 |
+| INV-08 | **screen = backtest**: 같은 전략·스냅숏·정책·**기준점(anchor)**·`DecisionContext`면 같은 정규 목표. 계좌 상태까지 같으면 같은 주문 의도. 목표는 판단 시점 정보와 앞 판단의 정규 목표 상태(목표 상태 재귀)만의 함수이고 계좌 상태를 받지 않는다 [R-13, 11.4.6, SC-02]. `decide` 블록(3.7)이 있는 전략에서는 Pipeline 값까지만 약속한다; 블록이 돌려준 것과 그 뒤의 모든 것은 계좌 상태와 블록 상태가 같을 때만 같다 [#725 결정 241] | P-PARITY13 |
 | INV-09 | **결정성**: 같은 고정 환경, 같은 입력(같은 의미 해시)이면 출력 Parquet 바이트 동일, 값 해시 동일 [R-31, 11.7]. 결정 경로는 벽시계·난수·해시 집합 순회 순서에 기대지 않으므로 `PYTHONHASHSEED`가 다른 **새 프로세스 둘**에서도 같다(2.5) [V31-08] | rerun 시험, P-DET(새 프로세스 둘) |
 | INV-10 | **이어 돌리기 = 한 번에**: 상태 체크포인트에서 이어 돌린 결과 = 끊김 없이 돌린 결과. 모의 장부 대조(`reconcile`)는 이것의 운영판이다 [11.8 M3, SC-14] | P-RESUME, P-RECON |
 | INV-11 | **조정 일치**: 등록 커널의 지름길 값 = 참조 구현 값(상대 1e-12; 대수적으로 같은 변환이라 비트 같음을 약속하지 않음) [C2, RV-C11] | P-ADJ |
@@ -225,7 +225,7 @@ NexusBT는 이 다섯을 한 엔진에 모은다. 각 엔진에서 가져온 장
 | INV-20 | **가격 격자**: 모든 지정가·손절가와 그것으로 정한 체결 가격은 그 세션 가격 격자 위에 있다(시가·종가 체결은 자료 값 그대로). 가격 비교는 시장 최소 단위 정수(`[grid] base_unit`)로 한다 — 가격대마다 다른 틱 수로 비교하지 않는다; 그 정수에 맞지 않는 관측 봉 가격은 옮기지 않고 그 봉만 실수 비교(`off_grid_bar`) [V31-05, R3-02] | P-GRID, G-57 |
 | INV-21 | **슬리브 독립**: 목표가 정해진 뒤 슬리브는 서로 독립이다 — 슬리브마다 따로 재생한 결과 = 함께 재생한 결과(예외: 여러 시장을 묶은 `[taxes] pay = "cash"`) [V31-11] | P-SLEEVE-ISO |
 | INV-22 | **공매도 꺼짐 = 롱 전용**: `[shorting] enabled = false`(기본)면 노출 상한 단계를 부르지 않고 숏 사건·담보가 0건이며, 핵심 표 넷(`targets`, `orders`, `account_events`, `daily`)의 값 해시가 공매도 티켓 전 기준선과 같다. 켜도 음수 목표가 없고 `max_gross ≥ 1`·`max_net ⊇ [0, 1]`이면 같은 빌드의 꺼진 실행과 모든 표 값 해시가 같다(대차 비용 0, 담보 계산은 숏이 있을 때만; 사용자가 더 좁은 노출 상한을 주면 롱도 줄 수 있어 같지 않다) [V31-LS-09, R3-07, R3-11] | P-SHORT-OFF(차등 + 기준선) |
-| INV-23 | **위험 꺼짐 = 정규** [R4-04]: 계좌를 읽는 위험 규칙(`reads_account=True`)이 없으면 계좌 층(5.5.2a)을 부르지 않고 `targets.final_weight`가 `target_weight`(정규 목표)와 비트 단위로 같으며 `risk_state` 표는 비어 있다. 계좌 규칙이 있어도 늘 `m = 1`을 내면 다음을 **뺀** 모든 출력 표(`targets`, `orders`, `fills`, `account_events`, `daily`, `bridge`, `coverage`, `skips`)의 값 해시가 규칙 없는 실행과 같다: `risk_state`, `waterfall`의 `step LIKE 'account:%'` 행, 매니페스트의 `graph_hash`·`settings_hash`·`run_id`(규칙 순서가 `graph_hash`에 듦, 14.5), 보고서 머리의 "risk order" 줄 [R4F-08]. 자금 관리 칸과 시장만 읽는 위험 규칙은 계좌를 받지 않아 정규 목표에 들고 INV-08이 그대로 선다; 계좌 규칙의 결과(`final_weight`)는 주문 의도처럼 계좌 상태까지 같을 때만 screen = backtest다 | P-RISK-OFF, P-SIZE-PURE, P-RISK-SHRINK |
+| INV-23 | **위험 꺼짐 = 정규** [R4-04]: 계좌를 읽는 위험 규칙(`reads_account=True`)이 없으면 계좌 층(5.5.2a)을 부르지 않고 `targets.final_weight`가 `target_weight`(정규 목표)와 비트 단위로 같으며 `risk_state` 표는 비어 있다. 계좌 규칙이 있어도 늘 `m = 1`을 내면 다음을 **뺀** 모든 출력 표(`targets`, `orders`, `fills`, `account_events`, `daily`, `bridge`, `coverage`, `skips`)의 값 해시가 규칙 없는 실행과 같다: `risk_state`, `waterfall`의 `step LIKE 'account:%'` 행, 매니페스트의 `graph_hash`·`settings_hash`·`run_id`(규칙 순서가 `graph_hash`에 듦, 14.5), 보고서 머리의 "risk order" 줄 [R4F-08]. 자금 관리 칸과 시장만 읽는 위험 규칙은 계좌를 받지 않아 정규 목표에 들고 INV-08이 그대로 선다; 계좌 규칙의 결과(`final_weight`)는 주문 의도처럼 계좌 상태까지 같을 때만 screen = backtest다. `decide` 블록(3.7)이 있으면 이 불변식에서 `decided_weight`가 `target_weight`의 자리를 맡는다: 계좌 규칙이 없으면 `final_weight`는 `decided_weight`와 비트까지 같다 | P-RISK-OFF, P-SIZE-PURE, P-RISK-SHRINK |
 
 ### 1.4 이 명세가 새로 붙인 요구 번호
 
@@ -577,10 +577,10 @@ nx.Strategy(*, universe: Filter, signal: Factor, rebalance: Schedule, portfolio:
 - `sizing`(기본 `None` = 구성 규칙의 `weight=`·`max_weight=` 줄임, 아래): 자금 관리 칸(5.5.1a). 목록이면 첫째가 기본 사이저, 나머지는 꾸밈(`vol_target`, `cash_floor`)이고 적힌 순서대로 [R4-02].
 - `risk`(기본 `None` = 규칙 없음 = `nx.risk.none()`): 위험 관리 목록 칸(5.5.2). 규칙 하나 또는 목록, **적힌 순서대로** 하나씩 적용하고 순서는 `graph_hash`와 매니페스트에 든다 [R4-04, SC-01, OQ-2].
 - `strategy.replace(**slots) -> Strategy` [R4-11]: 칸 하나 이상을 바꾼 새 값 객체(나머지 칸·이름 그대로, 이름 뒤에 `~{바뀐 칸}` 표시). 기법 비교(`nx.compare`, 3.8)의 기본 도구다. 예: `base.replace(sizing=nx.size.erc())`, `base.replace(risk=[nx.risk.drawdown_brake()])`.
-- 보유를 읽는 콜백(`on_rebalance`)은 v1에 없다 [C6, A-10].
-- 칸의 읽는 순서는 bt·LEAN과 같다: `rebalance`(언제) → `universe`·`signal`(무엇) → `portfolio`(누구를, 어느 쪽) → `sizing`(얼마나) → `risk`(줄이기) → `execution`·`exits`·`costs`(어떻게). 단계 함수는 앞 단계 산출물(표)과 판단 시점 정보만 받는다; 계좌 상태는 `reads_account=True`인 위험 규칙(읽기만, 5.5.2a)과 집행 단계에서만 [청사진 E-1, R4-01, R4-04].
+- 보유를 읽는 블록은 아래의 `decide` 칸이고, 판단 세션마다 한 번 불린다; `on_rebalance` 콜백은 여전히 없다 [#725 결정 236, C6·A-10의 제외를 대신함].
+- 칸의 읽는 순서는 bt·LEAN과 같다: `rebalance`(언제) → `universe`·`signal`(무엇) → `portfolio`(누구를, 어느 쪽) → `sizing`(얼마나) → `risk`(줄이기) → `decide`(사용자의 변경, 자금 관리 출력의 자리에서, 그다음 `risk`를 한 번) → `execution`·`exits`·`costs`(어떻게). 단계 함수는 앞 단계 산출물(표)과 판단 시점 정보만 받는다; 계좌 상태는 `reads_account=True`인 위험 규칙(읽기만, 5.5.2a), `decide`(읽기만), 집행 단계에서만 [청사진 E-1, R4-01, R4-04].
 
-**아홉 칸 블록 계약** [R4-01]. 사용자는 칸에 블록을 끼운다. 표의 "읽을 수 있는 것" 밖을 읽으려 하면 실행 전 오류다(계좌 접근은 E41, 미래 칸은 구조상 없음).
+**열 칸 블록 계약** [R4-01]. 사용자는 칸에 블록을 끼운다. 표의 "읽을 수 있는 것" 밖을 읽으려 하면 실행 전 오류다(계좌 접근은 E41, 미래 칸은 구조상 없음).
 
 | 칸 (인자) | 입력 → 출력 | 읽을 수 있는 것 | 내장 블록 | 사용자 블록 |
 |---|---|---|---|---|
@@ -590,11 +590,14 @@ nx.Strategy(*, universe: Filter, signal: Factor, rebalance: Schedule, portfolio:
 | 구성 (`portfolio=`) | 점수·유니버스·앞 정규 목표 상태 → 선택 표(id, 쪽, 순위) | 판단 시점 항 값, 앞 판단 `TargetState`(읽기만) | `top`, `bottom`, `long_short` | `@nx.portfolio` (3.8) |
 | 자금 관리 (`sizing=`) | 선택 표 + 시장 창 → 부호 있는 비중, 쪽마다 `Σ|w| ≤ 1` | 판단 시점 시장 창(가격·거래대금·시총)만, **계좌 없음** | `size.equal`·`value`·`inverse_vol`·`score`·`erc`·`vol_parity`·`stop_risk`, 꾸밈 `vol_target`·`cash_floor` (5.5.1a; `kelly` v1.x [R4F-02]) | `@nx.sizer` (3.8) |
 | 위험 관리 (`risk=[…]`) | 비중 → 비중 × m, `m ∈ [0, 1]`(0 쪽으로만) | 시장 정보; `reads_account=True`면 계좌(판단 시점까지, 읽기만) | `risk.group_caps`·`regime`·`vol_cap`·`liquidity_cap`·`drawdown_brake`·`portfolio_stop`·`no_reentry`, 노출 상한 맞춤 (5.5.2, 5.5.2a) | `@nx.risk_rule(reads_account=…)` (3.8) |
+| 결정 블록 (`decide=`) | 정규 목표 + 계좌 → 목표 비중이나 주문 의도(자기 주문의 취소·교체 포함), 수량·보유 한도와 판단마다의 기록 | 판단 시점까지의 계좌(읽기만; 아직 공개되지 않은 배당 금액은 보지 못함), 자기 상태, 밝힌 Pipeline 칼럼; 체결 세션의 거래량은 결코 아님 [#725 결정 235, 237] | 없음(기본 `None` = 꺼짐) | `@nx.decide(columns=[…])`, `fn(ctx) -> Decision`, 배열을 받고 배열을 냄 [#725 결정 236~240; #752] |
 | 집행 (`execution=`) | 최종 비중 + 계좌 → 주문 의도 | 계좌(엔진) | `execution.market`, `execution.limit` | 없음(v1; 체결 의미는 회계 계약이라 바꿔 끼우지 않음) |
 | 탈출 (`exits=[…]`) | 체결 → 보유마다 만료 없는 탈출 주문 | 보유의 `avg_cost`·진입 세션·진입 뒤 종가 | `stop_loss`, `stop_limit_loss`, `take_profit`, `trailing_stop`, `time_stop` | 없음(v1) |
 | 비용 (`costs=`) | 체결 → 비용 구성요소 | 체결·판단 시점 ADV·사용자 표 | `provisional`, `realistic`, `bps`, `per_share`, `none` | 사용자 표(`provisional(table=)`, `realistic(table=)`) |
 
-**블록 약속 넷** [R4-01]: (1) **미래를 못 본다** — 모든 블록 입력 창의 끝은 판단 시각이다(INV-01). (2) **같은 입력, 같은 출력** — 블록 안 난수·숨은 상태가 없다; 상태가 필요한 위험 규칙은 엔진이 저장하는 `risk_state` 표로만 상태를 넘긴다(5.5.2a). (3) **계좌는 위험 칸부터, 읽기만** — 자금 관리 칸은 계좌를 받지 않고, 위험 칸은 `reads_account=True`일 때만 읽기 전용 보기를 받는다. (4) **효과가 보인다** — 칸마다 바꾼 비중 합·종목 수·이유가 `waterfall.parquet`·`targets.reason`에, 건너뛴 종목·블록은 `skips.parquet`(6.6 "조용한 실패 금지")에 남는다.
+**블록 약속 넷** [R4-01]: (1) **미래를 못 본다** — 모든 블록 입력 창의 끝은 판단 시각이다(INV-01). (2) **같은 입력, 같은 출력** — 블록 안 난수·숨은 상태가 없다; 상태가 필요한 위험 규칙은 엔진이 저장하는 `risk_state` 표로만 상태를 넘긴다(5.5.2a). (3) **계좌는 위험 칸부터, 읽기만** — 자금 관리 칸은 계좌를 받지 않고, 위험 칸은 `reads_account=True`일 때만 읽기 전용 보기를 받으며, `decide`는 읽기 전용 보기를 받는다. (4) **효과가 보인다** — 칸마다 바꾼 비중 합·종목 수·이유가 `waterfall.parquet`·`targets.reason`에, 건너뛴 종목·블록은 `skips.parquet`(6.6 "조용한 실패 금지")에 남는다.
+
+**`decide` 블록** [#725 결정 235~241; #752, 칸 이름과 배열을 받고 내는 `fn(ctx) -> Decision`]. `@nx.decide` 함수는 판단 세션마다 한 번(일정 칸이 언제인지 정한다), 5.6.3 판단 단계에서 정규 목표 다음에 불린다. 그 `ctx`에는 자금 관리 칸의 출력(`pre_risk_weight`)과 정규 목표(`target_weight`), 판단 시점까지의 계좌를 읽기 전용 배열로(NAV 계열, 보유 수량, `avg_cost`, 진입 세션, 대기·탈출 주문; 아직 공개되지 않은 배당 금액은 보이지 않음), 자기 상태, `columns=`에 밝힌 Pipeline 칼럼이 있다; 그 밖을 읽으면 `@nx.risk_rule`처럼 E41이다. 체결 세션의 거래량은 결코 들어 있지 않다: 판단의 입력은 그 판단을 체결하는 세션에서 오지 않는다 [#725 결정 235]. 돌려주는 것은 `Decision`이다: 목표 비중, 또는 주문 의도(시장가나 지정가, 수량, 자기가 낸 주문의 취소나 교체)이고, 각각 선택인 수량·보유 한도와, `decide_log.parquet`에 간직되는 그 판단의 기록을 단다. 주문이 어떻게 체결되고 비용이 들고 결제되는지는 바꾸지 못한다(5.6). 돌려준 것은 자금 관리 칸 출력의 자리를 대신하고, 5.5.2의 순서대로 위험 칸의 시장 규칙과 노출 상한 맞춤을 한 번 지나 결정 목표 `decided_weight`가 된다; 그다음 계좌 층(5.5.2a: `no_reentry`, `drawdown_brake`를 포함한 계좌 규칙, 적힌 순서), 마지막 검사(5.5.2b), 공매도를 지난다. 각각은 줄이기만 한다; 공매도가 꺼져 있을 때 숏 의도나 음수 비중은 E16이다 [#725 결정 239]. `pre_risk_weight`를 그대로 돌려주는 블록은 `decided_weight = target_weight`를 비트까지 같게 준다. 이 검사들에서 주문 의도는 그것이 남길 비중으로 읽는다: 모든 의도와 블록이 내고 그대로 남긴 모든 주문은 판단의 평가 가격 `P_i`(5.6.7)에 전량 체결된 것으로, 취소한 주문은 없어진 것으로 보고, 탈출 주문은 어느 목표에서처럼 세지 않는다; 검사가 그 비중을 줄이면 의도의 수량은 0 쪽으로 깎이고 늘지는 않는다. 블록의 주문은 리밸런싱 주문처럼 다음 판단에서 `CANCELLED(replaced)`되지 않는다: 체결되거나, 블록이 취소하거나, 유효 기간이 끝날 때까지 남는다. 손절을 포함한 탈출 주문은 체결 때 만들고(5.6.2a) 그 세션의 판단 앞 단계들에서 체결되므로(5.6.3) 블록은 그 결과를 읽는다; 재진입 금지와 낙폭 브레이크는 계좌 규칙이라 블록 뒤에 온다. 상태는 엔진이 주는 표로 `instrument_id`를 열쇠로 하고 symbol로 읽으며, 실행 기록에 간직되고 이어 돌린 실행에서 같게 되살아난다(체크포인트, 5.6.1); `risk_state`처럼 계좌와 함께 시작하고 이어진다(6.3a, 거래 상태). 소스는 `@nx.factor`처럼 `graph_hash`에 들고, 6.5의 검사 6과 E8이 적용된다. 이 계약 밖의 출력(유니버스 밖의 id, 유한하지 않은 비중이나 수량, 자기가 내지 않은 주문의 취소·교체)은 E41이다. `waterfall.parquet`은 그 행을 `step = 'decide'`로 받는다.
 
 **일정** (판단 날짜, 기준 달력은 5.1.3). 모든 일정은 달력에 닻을 내리고 실행 시작일에 기대지 않는다(INV-14):
 
@@ -789,7 +792,7 @@ nx.open(path: str | Path) -> Snapshot   # 패키지 경로 하나(또는 `LATEST
 - **`preview=True`** [R4-12] (CLI `--preview`): 기간 = 먼저 `I` = 선택 구간(`segment=`, 기본 train) ∩ 명시 `start`/`end` ∩ 스냅숏 기간을 정하고, `I`의 마지막 판단에서 거꾸로 1년(`[preview] years`, 기본 1; `I`가 더 짧으면 `I` 전체) — 그 결과가 노출로 기록되는 구간이다 [R4F-16], 유니버스 = 전략 유니버스 ∩ 시장마다 판단 시점 20세션 평균 거래대금 상위 `[preview] max_names`(기본 200), 시나리오·탐침·용량 끔, 저장은 `kind="preview"`, 시도로 센다(6.2 [R4F-15]). 첫 줄 "PREVIEW — 1y, top 200 by traded value per market; not a research result". 목표: 합성 `small`에서 5초 안(측정 보고, 관문 아님).
 - **`compare`** [R4-11]: 실행 id·`Run`이면 지금처럼 비교 표. `Strategy`를 주면 각각을 `backtest(**backtest_kwargs)`로 돌린 뒤 **변형 표**를 낸다: 행 = 변형, 칸 = 기준 전략과 다른 칸 이름(`replace`의 표시), 지표(기본 CAGR·Sharpe·MDD·회전율·평균 `Σ|w|`·비용), 위험 waterfall 요약(칸별 줄인 몫 평균), DSR(집단). 같은 Pipeline 값을 재사용한다(L1). 변형은 후보로 센다.
 - **사용자 블록** [R4-07]: `@nx.portfolio` 함수는 선택만 낸다(비중은 자금 관리 칸). 출력 id가 유니버스 밖이거나 쪽 값이 `side`와 다르면 E41. v1 사용자 구성은 **한쪽만**이다(`side="long"` 또는 `"short"`): 두 쪽은 `nx.long_short(my_long, my_short, long_weight=, short_weight=)`로 합쳐 L/S 예산과 가능 영역 검사(3.7)를 그대로 받는다; `side="both"`는 실행 전 E16("combine two one-sided blocks with nx.long_short") [R4F-17]. `@nx.sizer(returns="weights")`의 출력은 쪽과 부호가 같고 쪽마다 `Σ|w| ≤ 1`이어야 하며 아니면 E41 [R4F-38]. `@nx.sizer` 함수는 `SizingContext`(선택 id·쪽·점수·순위, `inputs` 창 배열 `(window, n)` — 마지막 행 = 판단 행, `params`)만 받고 계좌 속성이 없다. 반환이 유한하지 않거나 음수면 E41. `@nx.risk_rule`은 `RiskContext`(같은 창 + `reads_account=True`일 때만 `ctx.account`: 판단 시각까지의 NAV 계열, 보유 수량, `avg_cost`, 진입 세션, 탈출 사건 — 모두 읽기 전용 배열)와 지금 비중 보기 `TargetView`, 앞 판단의 자기 상태를 받아 `RiskDecision`을 낸다; `mult` 범위 밖·유한하지 않음 → E41, `reads_account=False`인데 `ctx.account`에 닿으면 E41("this rule reads the account; declare @nx.risk_rule(reads_account=True)"). 상태 값은 JSON 스칼라만이고 엔진이 `risk_state.parquet`에 저장한다. 세 데코레이터 모두 6.5 검사 6(순수성·잡힌 상수)과 E8(창)을 그대로 받는다.
-- `scenarios`: `True` = 기본(`gross`(= `cost0x`, 비용 0 재생 **한 번**), `cost2x`, `delist_lo`, `delist_hi` — 재생 4번; 기본 실행에 `ca_unverified_exit`가 하나라도 있을 때만 `ca_exit_lo` — 1번 더(`ca_exit_hi`는 기본 실행의 값 그대로), 5.6.1 [#150]), `False` = 없음, 목록 = 그 이름들(`gross`와 `cost0x`를 함께 주어도 재생은 한 번이고 같은 계열을 두 이름으로 저장하지 않는다) [RV-Q02]. `"capacity"`는 기본에 없다(P5 예산) [SC-06, OQ-4]; `sweep`의 최종 후보 보고에는 켠다. 모든 시나리오는 그 실행의 정규 목표를 지킨다(Pipeline·목표 재사용, 다시 정하지 않음); 비용·상장폐지·`ca_exit_lo` 시나리오는 계좌층과 집행을 자기 비용·정책으로 다시 돌리고, `capacity`는 집행만 다시 돈다(5.7 "시나리오마다 다시 도는 것", #207). `capacity`의 정의는 5.7.
+- `scenarios`: `True` = 기본(`gross`(= `cost0x`, 비용 0 재생 **한 번**), `cost2x`, `delist_lo`, `delist_hi` — 재생 4번; 기본 실행에 `ca_unverified_exit`가 하나라도 있을 때만 `ca_exit_lo` — 1번 더(`ca_exit_hi`는 기본 실행의 값 그대로), 5.6.1 [#150]), `False` = 없음, 목록 = 그 이름들(`gross`와 `cost0x`를 함께 주어도 재생은 한 번이고 같은 계열을 두 이름으로 저장하지 않는다) [RV-Q02]. `"capacity"`는 기본에 없다(P5 예산) [SC-06, OQ-4]; `sweep`의 최종 후보 보고에는 켠다. 모든 시나리오는 그 실행의 정규 목표를 지킨다(Pipeline·목표 재사용, 다시 정하지 않음); `decide` 블록이 있는 전략은 계좌 층을 다시 돌리는 시나리오마다 그 시나리오의 계좌 위에서 블록을 다시 부른다(3.7, 5.7) [#725 결정 241]; 비용·상장폐지·`ca_exit_lo` 시나리오는 계좌층과 집행을 자기 비용·정책으로 다시 돌리고, `capacity`는 집행만 다시 돈다(5.7 "시나리오마다 다시 도는 것", #207). `capacity`의 정의는 5.7.
 - `anchor`(screen): 목표 상태 재귀(5.5.3)를 시작할 판단 날짜. 기본 = toml `[portfolio] anchor_date`. 재귀를 쓰지 않는 전략에서는 무시한다. `backtest`의 기준점은 그 실행의 첫 판단, `live`는 장부를 만든 판단이다.
 - `explain(strategy, id, date)`: 그 판단에서 그 종목의 경로를 보인다(5.9.9): 유니버스 Filter 각각의 참/거짓 → 점수·순위 → 선택/상한/위험 덮개 → 주문 의도 → (스냅숏에 집행 세션이 있으면) 체결 또는 `blocked(reason)`. 다시 계산하므로 저장된 실행이 필요 없다. 저장된 실행에서는 `Run.why(id, date)`가 다시 계산 없이 같은 모양을 낸다 [SC-13].
 - `reconcile(book)`: 5.9.7 [SC-14]. 기본은 결정적 재생(장부가 판단·체결마다 기록한 스냅숏), `restate=True`는 새 자료로 다시 계산한 "재진술" 비교이고 보고서에 그렇게 이름 붙인다 [RV-C13].
@@ -1629,7 +1632,8 @@ Arrow 표, 정렬 `(decision_id, selected_rank, instrument_id)`:
 | stage | string | `construction`(구성) / `sizing`(자금 관리) / `risk`(위험, 정규 최종) [R4-02]. 실행 산출물 `targets.parquet`에는 정규 최종(`risk`) 행만(그 행에 `final_weight`), `save_signal=True`면 모든 단계 |
 | pre_risk_weight | float64 | 자금 관리 칸 출력 비중(위험 칸 전) [R4-02] |
 | target_weight | float64 | 정규 최종 슬리브 안 비중(시장 정보만, INV-08 [R4-04]), **부호 있음**(+ 롱, − 숏) [V31-LS-02]. 롱만이면 합 ≤ 1, 롱숏이면 Σ|w| ≤ `max_gross` |
-| final_weight | float64 | 최종 목표 = `target_weight` × 계좌 규칙 배수(5.5.2a). 계좌 규칙이 없으면 `target_weight`와 비트 같음 [INV-23, R4-04]. 주문 의도(5.6.7)가 쓰는 값 |
+| decided_weight | float64 | `decide` 블록이 있을 때만(아니면 null): 블록이 돌려준 것이 위험 목록과 상한 맞춤을 한 번 지난 것(3.7, 5.5.2) [#725 결정 239] |
+| final_weight | float64 | 최종 목표 = `target_weight`(`decide` 블록이 있으면 `decided_weight`) × 계좌 규칙 배수(5.5.2a). 계좌 규칙이 없으면 그 비중과 비트 같음 [INV-23, R4-04]. 주문 의도(5.6.7)가 쓰는 값 |
 | side | string | `long` / `short` [V31-LS-02] |
 | reason | string | selected / selected_short / capped / risk_capped / held_by_band / held_missing_score [V31-17] / conflict_long_kept [V31-LS-02] / not_selected(보유 중이지만 목표 0) / `risk:{rule}`(시장 규칙이 줄임) / `account:{rule}`(계좌 규칙이 줄임) [R4-04] |
 
@@ -1660,7 +1664,7 @@ Arrow 표, 정렬 `(decision_id, selected_rank, instrument_id)`:
 
 #### 5.5.2 위험 관리 칸 (`risk=[…]`) [SC-01, OQ-2, R4-04, R4-05]
 
-- **순서**: 자금 관리(5.5.1a) → **위험 규칙 목록**(시장만 읽는 규칙, 적힌 순서) → 노출 상한 맞춤(공매도 켜짐일 때만) → 정규 최종 `target_weight` → 계좌 층(5.5.2a: 계좌 규칙, 적힌 순서) → 최종 제약 점검(5.5.2b) → 주문 의도(5.6.7). LEAN 프레임워크의 Portfolio Construction → Risk Management와 같은 자리다. 목록에서 계좌 규칙은 모든 시장 규칙 **뒤**에 적어야 한다 — 앞에 적으면 실행 전 E16(layer config, fix "account rules run after market rules; move drawdown_brake after vol_cap"; 몰래 순서를 바꾸지 않음 — 조용한 실패 금지) [R4F-26]. 보고서 머리에 실제 순서 "risk order: group_caps → vol_cap → [account] drawdown_brake"를 적는다.
+- **순서**: 자금 관리(5.5.1a) → **위험 규칙 목록**(시장만 읽는 규칙, 적힌 순서) → 노출 상한 맞춤(공매도 켜짐일 때만) → 정규 최종 `target_weight` → `decide` 블록이 있으면(3.7) 그것이 돌려준 것이 자금 관리 출력의 자리에서 같은 목록과 상한 맞춤을 한 번 지남 → `decided_weight` → 계좌 층(5.5.2a: 계좌 규칙, 적힌 순서) → 최종 제약 점검(5.5.2b) → 주문 의도(5.6.7). LEAN 프레임워크의 Portfolio Construction → Risk Management와 같은 자리다. 목록에서 계좌 규칙은 모든 시장 규칙 **뒤**에 적어야 한다 — 앞에 적으면 실행 전 E16(layer config, fix "account rules run after market rules; move drawdown_brake after vol_cap"; 몰래 순서를 바꾸지 않음 — 조용한 실패 금지) [R4F-26]. 보고서 머리에 실제 순서 "risk order: group_caps → vol_cap → [account] drawdown_brake"를 적는다.
 - **규칙 하나의 뜻**: 판단마다 종목별 배수 `m_i ∈ [0, 1]`(빠진 id = 1)을 내고 엔진이 `w_i ← m_i·w_i`(부호 유지, 재분배 없음, 줄인 몫은 현금)를 한다. 크기를 키우거나 부호를 바꾸지 않는다(롱은 줄이고 숏은 0 쪽으로) [V31-LS-03]. 범위 밖·유한하지 않은 배수는 E41(layer your code). 바뀐 행은 `reason = risk:{rule}`, 칸별 효과는 `waterfall.parquet`(5.5.2a). "0 쪽으로"는 위험이 아니라 종목 단위다: 롱–숏 책에서 한 다리를 줄이면 헤지 일부가 사라져 순 노출이나 `σ_p`가 오를 수 있고, 최종 제약 점검(5.5.2b)이 그것을 기록한다.
 - **우선순위** [#151]: 시장 규칙을 적힌 순서로, 그다음 계좌 규칙을 적힌 순서로. 줄이는 규칙은 비중을 키우지 않으므로 앞 규칙이 맞춘 총 노출·그룹·`max_weight` 상한을 깰 수 없다; 깰 수 있는 것은 롱–숏 책의 순 노출 경계와 `vol_cap`뿐이며 5.5.2b가 기록한다.
 - 시장만 읽는 규칙은 `RiskRule.apply(targets, inputs)`처럼 정규 목표 단계의 표와 판단 시점 정보(Pipeline 항 값, `Meta.*`, `Market.series`)만 받고 **계좌 상태를 받지 않는다**(INV-08 그대로). 계좌를 읽는 규칙은 5.5.2a.
@@ -1682,13 +1686,13 @@ Arrow 표, 정렬 `(decision_id, selected_rank, instrument_id)`:
 
 #### 5.5.2a 계좌 층: 계좌를 읽는 위험 규칙과 최종 목표 [R4-04, R4-06, R4-09, INV-23]
 
-- **자리**: 정규 최종 `target_weight` 뒤, 주문 의도(5.6.7) 앞. `final_weight_i = target_weight_i × Π_k m_{k,i}`(계좌 규칙 k를 적힌 순서로 하나씩 곱함, 부호 유지). 계좌 규칙이 없으면 이 층을 **부르지 않고** `final_weight`에 `target_weight`를 그대로 복사한다(곱셈 없음, INV-23). 곱한 결과와 위험 칸 결과의 −0.0은 +0.0으로 고쳐 쓴다(`0 × 음수`; 해시 안정) [R4F-08]. 파산(`ruined`, 5.6.7) 슬리브는 이 층을 부르지 않는다(주문 의도 없음); 파산 판단에 규칙마다 마지막 `risk_state` 행 `key = "suspended"`, `value = "ruined"`를 쓰고 보고서 규칙 줄에 "suspended at ruin {date}"를 적는다(기록이 몰래 끊기지 않음) [R4F-06].
+- **자리**: 정규 최종 `target_weight` 뒤(`decide` 블록이 있으면 `decided_weight` 뒤, 3.7), 주문 의도(5.6.7) 앞. `final_weight_i = w_i × Π_k m_{k,i}`, `w` = `target_weight`, `decide` 블록이 있으면 `decided_weight`(계좌 규칙 k를 적힌 순서로 하나씩 곱함, 부호 유지). 계좌 규칙이 없으면 이 층을 **부르지 않고** `final_weight`에 `w`를 그대로 복사한다(곱셈 없음, INV-23). 곱한 결과와 위험 칸 결과의 −0.0은 +0.0으로 고쳐 쓴다(`0 × 음수`; 해시 안정) [R4F-08]. 파산(`ruined`, 5.6.7) 슬리브는 이 층을 부르지 않는다(주문 의도 없음); 파산 판단에 규칙마다 마지막 `risk_state` 행 `key = "suspended"`, `value = "ruined"`를 쓰고 보고서 규칙 줄에 "suspended at ruin {date}"를 적는다(기록이 몰래 끊기지 않음) [R4F-06].
 - **읽기**: 판단 시각까지의 계좌 보기(읽기 전용 배열): NAV 계열(5.6.9의 일별 `nav_decision`, 판단 세션에서는 `decision_value`; `nav_economic`은 읽지 않음), 보유 수량·`avg_cost`·첫 진입 세션, 탈출 체결 사건. 판단 뒤 값은 없다(INV-01).
 - **상태**: 규칙은 자기 객체에 상태를 두지 않는다(LEAN `_portfolioHigh`·backtrader `p.stake` 고쳐 쓰기 버림). `(ctx, w, state_{d−1}) → (m, state_d, reason)`이고 엔진이 `risk_state.parquet`(decision_id, sleeve_id, rule_index, rule, key, value_json)에 판단마다 쓴다. 체크포인트(5.6.1)와 장부(5.9.6)가 이 표를 담아 이어 돌리기 = 한 번에(INV-10)와 재생이 선다.
 - 완충대의 `prior`(5.5.3)는 정규 목표만 쓴다 — 브레이크가 완충대 상태를 바꾸지 않는다.
 - **낙폭 브레이크** `drawdown_brake(off, on, floor, mode)` [R4-06]:
   - NAV 낙폭 `DD_d = 1 − V_d/P_d`. `V_d` = 판단 d의 슬리브 `decision_value`(비용·이자·대차 포함), `P_d` = 기준점(또는 마지막 재진입) 이후 일별 `nav_decision`과 `V_d`의 최댓값 — 그래서 판단의 고점은 그 기간의 금액이 알려지기 전에 돌리든 뒤에 돌리든 같다.
-  - **그림자 지수** S(계좌가 아니라 시장 정보와 정규 목표만): 기준점 판단에서 `S = 1`. 판단 d의 정규 목표 `target_weight`를 판단 세션 종가에 사서 다음 판단 세션 종가까지 비용 없이 들고 간다(현금 0%, 숏은 부호대로): `S_t = S_{t−1}·(1 + Σ_i w̃_{i,t−1}·r_{i,t})`, `w̃` = 판단 뒤 가격으로 흘러간 비중, `r` = 일간 총수익(`close_tr`; 결측은 0 + 건수). **상장폐지**: 그림자에 든 종목이 폐지되면 종료 세션에 5.6.13의 공용 종료가치 함수(정답 `fwd_return`·회계와 같은 함수, R4F-04)로 그 종목의 마지막 수익(−100% 포함)을 한 번 반영하고 그 뒤 비중은 0(현금 0%라 사라짐); 종료가치가 판단 시각에 아직 공개 전(`ts_value_available` 뒤)이면 마지막 `close_tr` 기준 0 + 건수로 두고 공개된 첫 판단에 반영한다(INV-01; 결측 0이 폐지 손실을 빠뜨려 하락장 회복을 빨라 보이게 하던 것을 막음) [R4F-09]. `DDs_d = 1 − S_d / max_{d' ≤ d} S_{d'}`; `S_d ≤ 0`(숏 비중 그림자)이면 `DDs_d = 1`(재진입 없음)로 두고 skips(reason `shadow_ruined`)에 남긴다 [R4F-28].
+  - **그림자 지수** S(계좌가 아니라 시장 정보와 정규 목표만; `decide` 블록이 있으면 그 앞의 정규 목표, 3.7): 기준점 판단에서 `S = 1`. 판단 d의 정규 목표 `target_weight`를 판단 세션 종가에 사서 다음 판단 세션 종가까지 비용 없이 들고 간다(현금 0%, 숏은 부호대로): `S_t = S_{t−1}·(1 + Σ_i w̃_{i,t−1}·r_{i,t})`, `w̃` = 판단 뒤 가격으로 흘러간 비중, `r` = 일간 총수익(`close_tr`; 결측은 0 + 건수). **상장폐지**: 그림자에 든 종목이 폐지되면 종료 세션에 5.6.13의 공용 종료가치 함수(정답 `fwd_return`·회계와 같은 함수, R4F-04)로 그 종목의 마지막 수익(−100% 포함)을 한 번 반영하고 그 뒤 비중은 0(현금 0%라 사라짐); 종료가치가 판단 시각에 아직 공개 전(`ts_value_available` 뒤)이면 마지막 `close_tr` 기준 0 + 건수로 두고 공개된 첫 판단에 반영한다(INV-01; 결측 0이 폐지 손실을 빠뜨려 하락장 회복을 빨라 보이게 하던 것을 막음) [R4F-09]. `DDs_d = 1 − S_d / max_{d' ≤ d} S_{d'}`; `S_d ≤ 0`(숏 비중 그림자)이면 `DDs_d = 1`(재진입 없음)로 두고 skips(reason `shadow_ruined`)에 남긴다 [R4F-28].
   - `mode="brake"`(상태 normal/braked): normal에서 `DD_d ≥ off`면 braked가 되고 **이 판단부터** `m = floor`(다음 세션 시가에 청산 주문). braked에서 `DDs_d ≤ on`이면 normal로 돌아가 이 판단부터 `m = 1`, 그 순간 `P := V_d`(NAV 고점을 다시 잡음; 안 그러면 바로 다시 걸림). NAV가 아니라 그림자로 돌아오는 이유: 현금으로 빠진 동안 NAV는 멈춰 회복을 볼 수 없다(LEAN은 고점을 즉시 다시 잡아 다음 재조정에 다시 사고, Nautilus에는 규칙이 없다 — 해부 F 교훈 4).
   - `mode="linear"`(상태 없음): `m = clip(1 − (DD_d − on)/(off − on), floor, 1)`.
   - `0 < on < off < 1`이 아니면 E16. 보고: 발동 판단 수/판단 수, 브레이크 구간들, 왕복 수, `brakes_with_shadow_ok n/m`(발동 판단에 이미 `DDs ≤ on`이었던 건수 — 비용·숏·이탈 때문의 낙폭으로 곧 재진입해 왕복 비용만 낸 경우를 보이게; 재진입 검사는 발동 다음 판단부터) [R4F-28]. `risk_state`에 재진입 때 `peak_source = "reentry"`를 남기고, `value_json`의 float는 최단 왕복 표기(`repr`)로 쓰며 NaN·무한은 E41(이어 돌리기 = 한 번에가 비트로 섬) [R4F-28].
@@ -1707,9 +1711,10 @@ Arrow 표, 정렬 `(decision_id, selected_rank, instrument_id)`:
 v1은 이 절의 정의를 규범으로 고정하고(INV-08 문구, `DecisionContext.anchor_decision_id`, `build_targets(..., prior=)` 서명), T7.1이 들어가기 전까지는 `hold`가 `None`이 아니면 E18을 낸다(3.7, 6.6의 E18 행). 구현은 v1의 M6 마지막 티켓 T7.1이다(사용자 결정 2026-10-28: v1에 포함). 기본은 꺼짐.
 
 - **목표 상태** `TargetState_d = (S_long, S_short, missing_streak)` [R3-22]: `S_long`(아래 `S_d`) = 판단 d의 최종 정규 목표에서 `target_weight > 0`인 종목 집합, `S_short` = `< 0`인 종목 집합(슬리브마다, `per=`가 있으면 그룹마다), `missing_streak` = `held_missing_score`로 남은 종목마다 연속 결측 판단 수. 계좌 보유가 아니다(체결·정지·현금과 무관). 체크포인트(5.6.1), 장부 매니페스트(5.9.6), `targets.parquet` 이어받기가 이 셋을 모두 담는다(집합만으로는 결측 상한을 재생할 수 없음).
-- **전략 상태 기록**(결정 2026-11-04, #152): 한 판단이 다음 판단에 넘기는 것은 슬리브마다 기록 하나이고, 두 부분을 함께 저장·복원한다. 기억이 필요한 기능(보유 띠, 수명이 있는 사건 목표, 계좌 규칙)은 모두 이 기록만 읽고 쓴다.
+- **전략 상태 기록**(결정 2026-11-04, #152): 한 판단이 다음 판단에 넘기는 것은 슬리브마다 기록 하나이고, 두 부분(`decide` 블록이 있으면 세 부분)을 함께 저장·복원한다. 기억이 필요한 기능(보유 띠, 수명이 있는 사건 목표, 계좌 규칙, `decide` 블록)은 모두 이 기록만 읽고 쓴다.
   - `target_state`: 정규 목표가 0이 아니거나 `missing_streak`가 0이 아닌 종목마다 한 행, 열쇠 (`sleeve_id`, `instrument_id`), 열 `target_weight`(float64, 유효한 정규 목표), `set_by`(그 비중을 정한 `decision_id`), `missing_streak`(int32)(사건 목표를 위한 `origin`·`expires_session`은 2026-11-24에 뺐다, #752). 위의 `TargetState_d`는 이 표를 본 것이다(`S_long`, `S_short` = 비중 > 0, < 0인 행).
   - `risk_state`: `risk_state.parquet`(5.5.2a)의 행, 열쇠 (`sleeve_id`, `rule_index`, `key`), 열 `value_json`.
+  - `decide_state`: `decide` 블록의 상태 표(3.7), `decide_state.parquet`의 행, 열쇠 (`sleeve_id`, `instrument_id`), 블록이 간직하는 열 [#725 결정 240].
   - 직렬화: 각 부분은 열쇠로 정렬한 Arrow 표이고, 체크포인트(5.6.1), 장부 매니페스트(5.9.6), `targets.parquet` 옆에 쓴다. 복원하고 다음 판단을 내리면 멈추지 않았을 때와 같은 정규·최종 목표가 비트까지 같게 나온다(P-RESUME).
 - **재귀**: `S_d = f(점수_d, 유니버스_d, S_{d−1})`. 후보 = `signal`이 유한하고 `universe`가 참인 종목, 순위 = 점수 내림차순 + 3.7의 동률 깨기 열쇠(`tiebreak`) [V31-29]. 숏 쪽(`bottom(n, hold=m)`)은 같은 재귀를 점수 오름차순으로 따로 돈다(롱의 거울) [V31-LS-02].
 - **결측 점수** [V31-17]: `on_missing = "drop"`(기본)이면 점수가 유한하지 않은 `S_{d−1}` 종목은 후보가 아니어서 빠진다(v3 그대로; 결측 하나가 왕복 거래 둘을 만듦). `"hold"`이면 `i ∈ S_{d−1}`이고 `universe_d(i)`가 참인데 점수만 유한하지 않으면 `K`에 남기고 `reason = held_missing_score`(순위는 n+1로 봄), 연속 결측 판단 수(`missing_streak`)가 `[portfolio] max_missing_decisions`(기본 1)를 넘으면 뺀다. `held_missing_score` 종목은 순위 m과 무관하게 K에 남는다(`hold = n`이어도; 상한은 연속 결측 수뿐) [R3-22]. 그 종목의 가중 입력(`value`의 시총, `inverse_vol`의 변동성)도 결측이면 그 판단·같은 쪽에서 선택된 다른 종목들의 가중 입력 `u`의 **중앙값**을 쓰고(모두 결측이면 그 쪽 전체를 equal로) E30 건수로 남긴다(v3.1의 "equal 몫 1"은 `u`와 단위가 달라 섞을 수 없었다) [R3-22]. 목표 상태만 쓰므로 순수 함수(INV-08) 그대로다(PyBroker "봉 없는 보유 종목은 칸 유지", pysystemtrade "입력 NaN이면 앞 포지션 유지"). (1) `K = {i ∈ S_{d−1} : rank_d(i) ≤ m}`를 남긴다(`reason = held_by_band`, 단 순위 n 안이면 `selected`). (2) 순위 순서로 `K`에 없는 후보를 더해 `|S_d| = n`이 될 때까지 채운다. `|S_{d−1}| ≤ n`이므로 `|K| ≤ n`. (3) 비중은 `S_d`에 자금 관리 칸(5.5.1a; 줄임이면 3.7의 가중 규칙)을 적용한다. 위험 단계는 그 뒤. 재귀의 `prior`는 정규 목표만 쓰고 계좌 층(`final_weight`, 5.5.2a)은 쓰지 않는다 [R4-04].
@@ -1772,7 +1777,7 @@ v1은 이 절의 정의를 규범으로 고정하고(INV-08 문구, `DecisionCon
 4. **`close_fill`**: 시장가 `at=close` 주문을 종가로(네 무리 순서 [R3-10]). 장중 매도 대금은 여기서부터 쓸 수 있다.
 5. 체결마다 비용을 한 번 계산하고 정수 최소 단위로 기입(5.6.8) [11.4.2].
 6. **`close_mark`**: 보유 × 원 종가. 종가가 없으면 **묵은 평가가** = 마지막 유효 원 종가(세션 s0) × Π(s0 뒤부터 이 세션까지 효력이 생기고 해석기가 이 시각에 아는 사건의 가격 계수 `m_e`, 5.3.3의 `C[t]/C[s0]`), `mark_status = stale_adjusted`(사건이 없으면 `stale`) [V31-02]. 그래서 정지 중 2:1 분할은 NAV를 두 배로 만들지 않고(20주 × 50, G-54), 정지 중 배당락은 가격 계수만큼 내려 미수금과 두 번 세지 않는다(LEAN#9819 MACK 사례, bt#570). 같은 값을 `decision_value`의 `mark`(5.6.9), 목표 주식 수의 `P_i`(5.6.7), 종료 권리의 기준(5.6.13)이 쓴다. 숏 보유는 같은 평가가에 음수 수량을 곱한다. 대차 비용·리베이트·현금 이자는 다음 세션 시작에 이 평가로 발생한다((1)의 (0); v3.1의 "이 세션 끝 수량 × 앞 평가부터의 일수"는 들고 있지 않던 밤을 매기고 들고 있던 밤을 빠뜨렸다) [V31-LS-04, R3-09]. 트레일링 기준 갱신 — 롱 `high_water_close = max(high_water_close, close)`, 숏 `low_water_close = min(low_water_close, close)` [R3-10] — 과 탈출 가격 재계산, 파산 확인(5.6.7) [R3-09], 그다음 **만료**: day 주문의 남은 몫 → EXPIRED. 리밸런싱 GTC는 `age_sessions += 1`, `max_age_sessions` 도달 → EXPIRED(탈출 주문 제외).
-7. **`decision`**: 이 시각이 이 슬리브의 `decision_ts`면 먼저 파산 확인(5.6.7)을 다시 하고(`T_i` 전), 그다음 신호 → 정규 목표 → 최종 목표(5.5.2a) → 주문 의도(5.6.7; 크기 정하기 입력은 `decision_ts`에 알 수 있는 값만, 5.6.9; `ruined` 슬리브는 주문 의도를 만들지 않음 [R3-09]). 남은 리밸런싱 주문은 `CANCELLED(replaced)`, 탈출 주문은 유지.
+7. **`decision`**: 이 시각이 이 슬리브의 `decision_ts`면 먼저 파산 확인(5.6.7)을 다시 하고(`T_i` 전), 그다음 신호 → 정규 목표 → 있으면 `decide`(3.7; 돌려준 것이 위험 목록과 상한 맞춤을 한 번 지남, `decided_weight`) → 최종 목표(5.5.2a) → 주문 의도(5.6.7; 크기 정하기 입력은 `decision_ts`에 알 수 있는 값만, 5.6.9; `ruined` 슬리브는 주문 의도를 만들지 않음 [R3-09]). 남은 리밸런싱 주문은 `CANCELLED(replaced)`, 탈출 주문과 `decide` 블록의 주문은 유지(3.7).
 8. **`session_end`**: 상태 기록(체크포인트 후보 지점).
 
 #### 5.6.4 일봉 체결 규칙 [9.0 주문, R-56]
@@ -1840,7 +1845,7 @@ v1은 이 절의 정의를 규범으로 고정하고(INV-08 문구, `DecisionCon
 
 #### 5.6.7 주문 수량과 현금 [11.4.2]
 - **파산 확인** [R3-09, 사용자 결정 2026-10-28]: 숏이 있는 슬리브의 `decision_value`(5.6.9)가 0 이하가 되는 순간(`close_mark`마다 확인하고, 판단마다 그 직전(`T_i` 전)에 다시 확인; 5.6.3 6·7단계) 그 슬리브는 `ruined`가 되고 되돌리지 않는다. 그 뒤 그 슬리브는 새 주문 의도를 만들지 않고(판단 단계 건너뜀, `order_suppressed(ruined)`), 남은 리밸런싱 주문은 `CANCELLED(ruined)`, 탈출 주문(보유를 줄이기만 함)은 남아 아래 "탈출 주문과 현금" 규칙대로 체결된다 [R4F-06]. 꼭 내야 하는 의무(대차 비용·숏 배당·합병 현금·종료 의무·세금 납부)는 계속 기입한다(아래 음수 현금). 확인은 `T_i` 계산 **전**이라 `V ≤ 0`이 목표 부호를 뒤집지 않는다. 다른 슬리브는 그대로 돈다(합친 NAV는 합). 보고서 머리 줄 "ruined {sleeve} on {date}", 장부 `status.json`의 `ruined`·`warnings`, E38 요약; 양의 부를 전제하는 지표(CAGR·Sharpe·Sortino·MDD·PSR·DSR)는 그 슬리브와 합친 계열에서 "n/a (ruin)"; NAV 계열은 자르지 않는다(숏 책은 처음 자본보다 더 잃을 수 있음). 현금 계좌(기본)에서는 강제 청산을 모의하지 않는다(증거금 계좌는 5.6.7a의 마진 콜 축소·음수 자본 전부 청산 [R4H-02, R6-07]).
-- **판단 시점 수량 고정**: 슬리브 판단 가치 `V = decision_value`(5.6.9; 판단 시점에 알 수 있는 값만). 집행 가능 비중 `w'_i = w_i·(1 − cost_reserve_bps/1e4)`(`w_i` = 최종 목표 `final_weight`, 5.5.2a; 계좌 규칙이 없으면 정규 목표와 비트 같음 [R4-04])(기본 reserve 0, 매니페스트 기록) [RV-Q07]. 목표 주식 수 `T_i = sign(w_i)·floor_lot(|w'_i|·V / P_i)`(정수 산술 5.6.1 [V31-01]; 부호 있음 [V31-LS-02]), `P_i` = `row_m(d)`의 원 종가(없으면 5.6.3의 묵은 평가가 [V31-02]). 주문 수량 `Δ_i = T_i − q_i`(보유가 목표에 없으면 `T_i = 0`). `Δ_i > 0` 매수(숏이면 환매), `< 0` 매도(롱이 0 밑으로 가면 그 몫은 공매도), 0이면 주문 없음. 보유 부호를 넘는 Δ는 두 주문(줄이기 + 반대쪽 열기)으로 나누고 같은 판단에서 함께 낸다 [V31-LS-06]. 여는 쪽(공매도 또는 롱 매수)은 체결 순간 보유가 0이 된 뒤에만(공매도는 `q ≤ 0`, 롱 매수는 `q ≥ 0`) 체결하고, 아니면 그 단계에서 `blocked(closing_leg_pending)`으로 이월한다(줄이는 쪽이 상한·정지·잠김으로 일부만 체결된 경우) [R3-10].
+- **판단 시점 수량 고정**: 슬리브 판단 가치 `V = decision_value`(5.6.9; 판단 시점에 알 수 있는 값만). 집행 가능 비중 `w'_i = w_i·(1 − cost_reserve_bps/1e4)`(`w_i` = 최종 목표 `final_weight`, 5.5.2a; 계좌 규칙이 없으면 정규 목표와, `decide` 블록이 있으면 `decided_weight`와 비트 같음, 3.7 [R4-04]; 블록이 돌려준 주문 의도는 3.7의 검사를 지난 뒤 돌려준 대로 만든다)(기본 reserve 0, 매니페스트 기록) [RV-Q07]. 목표 주식 수 `T_i = sign(w_i)·floor_lot(|w'_i|·V / P_i)`(정수 산술 5.6.1 [V31-01]; 부호 있음 [V31-LS-02]), `P_i` = `row_m(d)`의 원 종가(없으면 5.6.3의 묵은 평가가 [V31-02]). 주문 수량 `Δ_i = T_i − q_i`(보유가 목표에 없으면 `T_i = 0`). `Δ_i > 0` 매수(숏이면 환매), `< 0` 매도(롱이 0 밑으로 가면 그 몫은 공매도), 0이면 주문 없음. 보유 부호를 넘는 Δ는 두 주문(줄이기 + 반대쪽 열기)으로 나누고 같은 판단에서 함께 낸다 [V31-LS-06]. 여는 쪽(공매도 또는 롱 매수)은 체결 순간 보유가 0이 된 뒤에만(공매도는 `q ≤ 0`, 롱 매수는 `q ≥ 0`) 체결하고, 아니면 그 단계에서 `blocked(closing_leg_pending)`으로 이월한다(줄이는 쪽이 상한·정지·잠김으로 일부만 체결된 경우) [R3-10].
 - **작은 주문 거르기** [V31-06]: 판단 시점 값으로 (a) `|Δ_i|·P_i < max(min_trade_value, min_trade_weight·V)`이면 그 주문 의도를 만들지 않는다(`order_suppressed(small)`); (b) `rebalance_band = b`가 있으면 보유 중이고 목표에도 같은 부호로 있는 종목에서 `|w_held − w_target| ≤ b·|w_target|`이면 만들지 않고(`order_suppressed(band)`), 밖이면 `band_mode = "edge"`(기본)는 띠 가장자리 `w_target·(1 ± b)`(가까운 쪽)까지만, `"target"`은 목표까지 거래한다(pysystemtrade `buffer_trade_to_edge`). **새 진입·완전 청산(목표 0)·부호 바뀜은 둘 다 적용하지 않는다.** 목표 표는 그대로라 INV-08이 선다. 기본은 모두 꺼짐(v3와 같은 결과)이고 손잡이는 `settings_hash`에 든다. 보고서 orders 줄에 "suppressed: small {m}, band {n}"(꺼져 있어도 "orders below 0.1% of sleeve: n (cost x)"를 보임). zipline 프리셋은 끔.
 - **완충대 진입·수동 지시**: `band_entries = "skip"`(5.5.3) [V31-17], 장부 수동 지시(5.9.6) [V31-18]는 여기서 주문 의도를 자른다(사건 `order_suppressed`).
 - **목표 차이 기록** [V31-14]: 판단마다 `rounding_gap = Σ|w'_i| − Σ|T_i|·P_i/V`(의도한 집행 총배분 − 반올림 뒤 총배분; 롱숏 포함, 의도한 현금·상한 잔여는 반올림으로 세지 않음 — v3.1의 `rounding_cash_weight = 1 − Σ…`는 덜 투자한 롱 책과 롱숏 책에서 뜻이 틀렸다 [R3-20]), `n_zero_lot_targets`(목표 > 0인데 `T_i = 0`), 반올림 뒤 비중 차이 `½Σ|w_i − T_i·P_i/V|`를 `coverage.parquet`에 남긴다. `rounding_gap > 0.05`이면 `LotRoundingWarning`(E37, 판단 수·중앙값). 기다리는 동안 날마다 다시 맞추지 않는다. 분할은 수량을 조정한다 [11.4.2].
@@ -2016,7 +2021,7 @@ v1은 이 절의 정의를 규범으로 고정하고(INV-08 문구, `DecisionCon
 | N_eff, DSR(N_eff) | v1.x [SC-10]: study 후보의 일간 순수익 상관행렬을 거리 `1 − ρ`, 평균 연결 계층 군집 + 실루엣 최대로 묶은 군집 수(방법 이름 기록). DSR 기본은 N 유지 [OQ-6]. 군집 수만 센다: 군집 수준 수익 시계열과 군집 사이 Sharpe 분산은 여기서 정의하지 않으며, ONC(OI-17)와 다른 방법이므로 둘을 같은 이름으로 부르지 않는다. T7.2를 만들기 전에 이 행이 군집 수준 수익 시계열, 군집 사이 Sharpe 분산 추정, 기간·빈도가 다른 후보의 정렬을 정의한다(#197) |
 | 로그 손실·Brier(ML 분류 팩터) [#197] | 분류 라벨을 쓰는 `nx.ml.factor`의 `evaluate`에서, 채점한 예측(판단이 그 fit의 학습 표본에 들지 않는 판단 × 종목; 나머지는 세기만 하고 채점하지 않음)에 대해: **로그 손실** `= −mean ln max(p(y), 1e-15)`, p(y) = 예측의 `probs`가 실현된 클래스 y에 준 확률, 라벨이 선언한 클래스 위에서(fit에 없던 선언 클래스의 확률은 0, 5.3.11); **Brier**는 고른 `score=` 위에서 `= mean (s − t)²`, t = `p_up`이면 1[y = +1], `p_down`이면 1[y = −1], `p_up_minus_down`이면 y, 두 클래스에 `score=None`이면 1[y = 큰 클래스]. `p_up_minus_down`에서 이것은 y ∈ {−1, 0, +1}에 대한 점수의 평균 제곱 오차이며 고전적 Brier 점수가 아니다. 줄 이름은 그대로 두고 이 문장이 독자에게 알린다. FactorReport 줄 `log-loss {x:.3f} · Brier ({score}) {y:.3f} · scored {a}/{b} (model fit out of sample)` |
 
-**시나리오마다 다시 도는 것**(결정 2026-11-04, #207): 모든 시나리오는 그 실행의 **정규** 목표(`target_weight`, 전략의 판단; Pipeline과 목표는 다시 쓰고 다시 정하지 않음)를 지키고, 자기 상태를 가진 자기 열로 돈다(5.3.8). 비용·상장폐지·`ca_exit_lo` 시나리오는 계좌층(5.5.2a)과 집행(5.6)을 자기 비용·정책으로 다시 돌린다. 그래서 낙폭 브레이크 같은 계좌 규칙이 2× 비용에서 다르게 작동할 수 있고, 그 차이도 시나리오가 보여 주는 것의 일부다. 용량은 집행만 다시 돈다: 기본 실행의 최종 목표에 자본을 늘려서. 어떤 시나리오도 두 번째의 간소한 장부를 두지 않는다(ADR-0041).
+**시나리오마다 다시 도는 것**(결정 2026-11-04, #207): 모든 시나리오는 그 실행의 **정규** 목표(`target_weight`, 전략의 판단; Pipeline과 목표는 다시 쓰고 다시 정하지 않음)를 지키고, 자기 상태를 가진 자기 열로 돈다(5.3.8). 비용·상장폐지·`ca_exit_lo` 시나리오는 계좌층(5.5.2a)과 집행(5.6)을 자기 비용·정책으로 다시 돌린다. 그래서 낙폭 브레이크 같은 계좌 규칙이 2× 비용에서 다르게 작동할 수 있고, 그 차이도 시나리오가 보여 주는 것의 일부다. `decide` 블록(3.7)은 계좌를 읽으므로 그런 시나리오마다 그 계좌 층 앞에서 다시 불리고, 시나리오의 목표는 `decided_weight`부터 기본 실행과 다를 수 있다; 기본 실행의 값이나 최종 목표를 다시 쓰는 `ca_exit_hi`와 `capacity`는 블록을 부르지 않는다 [#725 결정 241]. 용량은 집행만 다시 돈다: 기본 실행의 최종 목표에 자본을 늘려서. 어떤 시나리오도 두 번째의 간소한 장부를 두지 않는다(ADR-0041).
 
 | 시나리오 | 목표를 다시 정함 | 계좌층(5.5.2a) | 집행(5.6) |
 |---|---|---|---|
@@ -2081,6 +2086,8 @@ runs/<run_id>/
   offsets.parquet          (offsets일 때만) offset, cagr, sharpe, mdd, turnover  [V31-26]
   waterfall.parquet        판단 × 칸별 Σ|w| 변화 (5.5.2a) [R4-09]
   risk_state.parquet       계좌 규칙 상태 (5.5.2a; 계좌 규칙이 없으면 0행) [R4-04]
+  decide_state.parquet     decide 블록의 상태 (3.7, 5.5.3; decide 블록이 있을 때만)
+  decide_log.parquet       decide 블록의 판단마다의 기록 (3.7; decide 블록이 있을 때만)
   skips.parquet            건너뛴 종목·블록·규칙: decision_id, sleeve_id, stage, instrument_id(null 가능), block, reason, n (6.6) [R4-17]
   predictions.parquet      (ml.factor가 있을 때) 5.3.11 [R4-23]
   fits.parquet             (ml.factor가 있을 때) 5.3.11 [R4-23]
@@ -2316,8 +2323,8 @@ SQLite(WAL). 덧붙이기만: 아래 표는 `BEFORE UPDATE/DELETE` 트리거가 
 **무엇을 고르나**: (a) 전략 안 ML 팩터 — 5.3.11 규칙(앞쪽만; CPCV는 시험 묶음 제외) [R4F-03], (b) `grid`가 있으면 폴드 훈련 범위의 IS 성과(`select`, 기본 순 Sharpe)로 1등 파라미터(동률은 `candidate_key` 오름차순)를 골라 그 폴드 시험 범위에 적용("창 안에서 고르고 창 밖에 적용"). `select`는 그 폴드 IS 수익 계열(위의 조각, 5.7의 TWR 누적 지수 `I`로)의 숫자 하나를 읽는다: `"net_sharpe"` = Sharpe 행, `"cagr"` = D를 조각의 첫 평가일부터 끝 평가일까지의 달력일로 한 CAGR 행(빠진 구간은 건너뛰어 세지 않고 가로지른다), `"calmar"` = Calmar 행; "n/a" 값은 모든 유한한 값 아래에 둔다(#310). 둘 다 없으면 고를 것이 없다: walk-forward의 이어 붙인 OOS 계열·모든 표는 **`backtest(start=t_1, method="linear")`**(첫 시험 판단에서 자본 K로 새로 시작한 선형 실행; INV-14 달력 닻이라 같은 목표)와 비트 같고(P-WF-STITCH; D 첫 판단부터 쌓은 선형 실행을 자른 것과는 진입 비용·끝수·손절 기준·`time_stop` 셈이 달라 같지 않다) [R4F-10], CPCV는 모든 경로가 같으므로 알림 E40 후 경로 1개로 줄인다.
 
 **계좌**(사용자 결정 2026-10-28):
-- **walk-forward: 계좌 하나가 시험 창들을 이어 간다.** 첫 시험 창 시작에 자본 K; 창 경계에서 보유·현금·대기 주문·탈출 주문·`risk_state`·`target_state`(5.5.3; 결정 2026-11-04, #152)가 그대로 넘어가고 다음 창의 목표만 새 파라미터·새 모형으로 만든다(경계의 가짜 회전·비용 없음; 모의 장부와 대조할 수 있는 유일한 모양). 결과 = 이어 붙인 OOS 계열 하나.
-- **CPCV: 경로마다 새 자본, 경로 안에서는 이어 간다.** 경로 p의 목표 = 묶음마다 그 묶음을 시험한 분할의 `TargetFrame`을 이어 붙인 것; 상태 기계를 경로마다 한 번(D 전체) 돈다. 묶음 경계에서 모형·파라미터만 바뀌고 보유는 이어진다. 보고서 경로 줄에 해석 문장 "paths carry holdings across group boundaries; the model/params that created them change at each boundary — a synthetic OOS path, not one live strategy"를 늘 붙인다 [R4F-29]. 경로의 목표 상태 재귀(5.5.3)와 `risk_state`는 경로의 첫 판단에서 시작해 경로 안에서 이어 간다; 경로는 다른 경로나 선형 실행의 상태를 읽지 않으므로 보유 띠는 경로마다 새로 시작하고, 해석 문장에 "hold band and account rules start at the path's first decision"을 더한다(결정 2026-11-04, #152).
+- **walk-forward: 계좌 하나가 시험 창들을 이어 간다.** 첫 시험 창 시작에 자본 K; 창 경계에서 보유·현금·대기 주문·탈출 주문·`risk_state`·`target_state`·`decide` 블록의 상태(5.5.3; 결정 2026-11-04, #152; #725 결정 241)가 그대로 넘어가고 다음 창의 목표만 새 파라미터·새 모형으로 만든다(경계의 가짜 회전·비용 없음; 모의 장부와 대조할 수 있는 유일한 모양). 결과 = 이어 붙인 OOS 계열 하나.
+- **CPCV: 경로마다 새 자본, 경로 안에서는 이어 간다.** 경로 p의 목표 = 묶음마다 그 묶음을 시험한 분할의 `TargetFrame`을 이어 붙인 것; 상태 기계를 경로마다 한 번(D 전체) 돈다. 묶음 경계에서 모형·파라미터만 바뀌고 보유는 이어진다. 보고서 경로 줄에 해석 문장 "paths carry holdings across group boundaries; the model/params that created them change at each boundary — a synthetic OOS path, not one live strategy"를 늘 붙인다 [R4F-29]. 경로의 목표 상태 재귀(5.5.3), `risk_state`, `decide` 블록의 상태는 경로의 첫 판단에서 시작해 경로 안에서 이어 간다; 경로는 다른 경로나 선형 실행의 상태를 읽지 않으므로 보유 띠는 경로마다 새로 시작하고, 해석 문장에 "hold band and account rules start at the path's first decision"을 더한다(결정 2026-11-04, #152).
 - **홀드아웃 구간: 구간마다 새 자본**(6.1 그대로).
 - 진단 옵션 `method=splits.walk_forward(..., account="per_fold")`(폴드마다 새 자본)만 둔다; 기본은 위 결정. `per_fold` 폴드에서는 아래 표의 거래 상태가 모두 자본 K와 함께 비어서 시작하고, 목표 상태 재귀와 계좌 규칙의 기준점(5.5.3, 5.5.2a)은 그 폴드의 첫 판단이다(결정 2026-11-04, #152).
 - 시나리오(`cost2x` 등)·용량은 선형 실행에만 돈다(경로 수 × 시나리오 수 폭발 방지); 경로는 순 수익과 `gross` 둘만.
@@ -2328,7 +2335,7 @@ SQLite(WAL). 덧붙이기만: 아래 표는 `BEFORE UPDATE/DELETE` 트리거가 
 |---|---|---|---|---|
 | 계산값(항 값, Pipeline 출력, L0·L1 항목) | 노드 구조 해시·입력 열쇠·행마다 한 번 | 읽기 전용으로, 실행·후보·폴드·경로·시나리오 사이에 | 없음: 값은 그보다 먼저 계산된 것에 기대지 않는다(INV-14) | 없음; 캐시 항목은 버려질 뿐 초기화되지 않는다 |
 | 학습 상태(스케일러, 고른 피처, 모형, 공분산, 고른 격자 점) | 적합(`fit_id`)마다, 늘 새 객체(5.3.11) | 같은 `fit_id`·seed를 쓰는 곳 사이에서만(5.3.9) | 재적합에서 다음 재적합으로는 선언한 창이 읽는 것으로만; 모형 객체는 다른 적합으로 넘어가지 않는다 | 적합마다 |
-| 거래 상태(현금, 보유, 원가, 대기·탈출 주문, 손절 기준, `time_stop` 수, `risk_state`, `target_state`) | 계좌가 시작할 때마다: 선형 실행, 워크포워드 첫 시험 창, CPCV 경로마다, 홀드아웃 구간마다, `per_fold` 폴드마다, 엄격한 IS 다시 돌리기의 연속 훈련 블록마다(#215) | 계좌 사이에는 없음 | 한 계좌 안에서 세션마다 | 다음 계좌 시작에서 |
+| 거래 상태(현금, 보유, 원가, 대기·탈출 주문, 손절 기준, `time_stop` 수, `risk_state`, `target_state`, `decide` 블록의 상태 [#725 결정 241]) | 계좌가 시작할 때마다: 선형 실행, 워크포워드 첫 시험 창, CPCV 경로마다, 홀드아웃 구간마다, `per_fold` 폴드마다, 엄격한 IS 다시 돌리기의 연속 훈련 블록마다(#215) | 계좌 사이에는 없음 | 한 계좌 안에서 세션마다 | 다음 계좌 시작에서 |
 | 연구 상태(study, 후보, 시도, 코호트, 구간 노출, 선택, 판) | study마다(6.2) | 그 study의 모든 실행 사이에 | 실행 순서대로 덧붙임 | study 안에서는 없음 |
 
 warm-up: 계산값은 자기 창이 필요로 하는 시작 전 자료를 읽는다(INV-14); 학습 상태는 5.3.11 창 안에서 시작 전 표본으로 학습할 수 있다; 거래 상태는 warm-up이 없다 — 계좌는 첫 판단에서 자본 K로 비어서 시작한다(P-WF-STITCH). 경계에서 어떤 상태가 초기화·재구성됐는지 엔진이 말할 수 없는 곳(위의, 선형 실행에서 잘라 낸 IS 수익: `approximate`와 `slice` 방식)에서는 보고서가 결과를 엄격한 표본 밖이라 부르지 않고 그 해석 문장을 유지한다; `strict` 방식에서는 훈련 블록마다 빈 계좌에서 시작하므로 상태가 정해져 있다(#215).
@@ -2463,7 +2470,7 @@ primary, reference, diagnostics의 모든 값은 평가 기간과 `n_valid`/`n_t
 | E13 | `AccountingDataError` | 실패 | 필요한 회계 자료 없음(정책값 null, 합병 대상 없음, 지급일 fail), 정확 비율 없음·f64 칼럼과 어긋남(#188)·잘못됨(4.4-4; fix "ask the producer for ratio_num/ratio_den, or use the default [corporate_actions] decimal_ratio = 'exclude_instrument' (5.6.1 "정확 비율이 없는 사건"), or 'literal' (recorded)"; E13 for the missing and disagreeing causes only when decimal_ratio = 'require_exact', or under 'literal' for an event with no f64 value to read (5.6.1) [#446]) [R4F-01], 폐지 분배 포함 여부 모름 + `[delisting] unknown_inclusion = "error"`(5.6.13) [R4F-05], 세전 금액을 정할 수 없는 숏 net 배당(5.6.11) [R3-06, R3-09] | 표·열쇠·칼럼 / "the snapshot lacks {column} for {key}; choose a policy ({fix}) or use a snapshot that provides it" (+ `producer.hints`가 있으면 그 문장) |
 | E14 | `SnapshotError` | 실패 | 4.4 검사 실패(TDS 오류 코드), 경로 안전 위반, 지원 안 하는 필수 해석 규칙·닫힌 열거값(M014), 스냅숏 없음, 요구 프로필 모자람 + `fallbacks = "fail"` | 첫 TDS 코드·데이터셋·파일·열쇠·힌트, 코드별 건수, `producer.hints`의 그 코드 문장(있으면) / "tds check PATH --level full; nexusbt doctor --full" |
 | E15 | `ReplayError` | 실패 | rerun 의존(스냅숏·소스·잠금) 없음 | "snapshot {id} is not available" / "nx.rerun(id, new_snapshot=True) creates a new run" |
-| E16 | `ConfigError` | 실패 | toml·인자 검증 실패 | 키·값·허용 값 / 비슷한 키 |
+| E16 | `ConfigError` | 실패 | toml·인자 검증 실패; 공매도가 꺼져 있을 때 `decide` 블록의 숏 의도나 음수 비중(3.7) [#725 결정 239] | 키·값·허용 값 / 비슷한 키 |
 | E17 | `TermDomainError` | 실패 | `across_markets` 항을 창·shift 입력으로; 차수(3.4)가 알려져 있고 0이 아닌 항을 `shift(k ≥ 1)`이나 두 행 이상의 창 입력으로; 상수배 검사에서 `adjustment` 선언이 맞지 않는 사용자 함수(3.3); 값 표를 읽는 시장 간 항(5.1.2) [#752] | "{term} is a cross-market term and cannot feed a window"; "{term} reads value table {item} of market {m} across markets"; "Price.close.latest is a split-adjusted price level and cannot feed shift(1)"; "{f} is declared adjustment='degree 0' but its result for {id} went from {a} to {b} when {id}'s prices were scaled by 2" / "remove adjustment=..., or declare 'degree 1' if that is what {f} is"; "Returns(2, inputs=[Price.close]) for a return; @nx.factor(window=2, inputs=[Price.close]) to read the earlier price on today's basis; Price.close_unadjusted.latest.shift(1) for the price as it traded that day" |
 | E18 | `CapabilityError` | 실패 | v1 밖 기능(`engine="event"`, 기간 창, `style="panel"`, `history_mode="system"`, `downsample`, 예약 이름: `hold=`(T7.1 전), `size.kelly` [R4F-02], `portfolio.optimize`, `risk.ledoit_wolf`, `ml.importance`, `clock="utc:…"` (v3.3에서 `risk.group_caps`·`splits`·`time_stop`·`labels.triple_barrier`는 열림 [R4-28]), `[settlement]`의 다른 값), 스냅숏에 없는 자료 기능(4.3·4.5: 값 표에 없는 `nx.Item`, 시가 없는 시장의 `at="open"`, 조정가 패키지의 backtest·경제 정답, `price_basis`가 `raw`가 아닌 패키지에서 조정된 칼럼을 읽되 0차가 아닌 Filter나 출력(항, 까닭, 4.3의 고칠 방법 셋을 말함) [#725 결정 218; #752], 배당 행에 `pay_date`가 없고 현금 날짜 규칙을 선언하지 않은 패키지의 `backtest`·전략 `screen`·`live`(5.6.11) [#752] 등), 규칙 팩 없는 시장(`allow_untested` 없이), 값 표를 읽는 그래프에서 `label_entry = "close"`(5.1.4) [#752] | "{feature} is not available in v1" 또는 "{dataset} not in snapshot; needed for {feature}" 또는 "no market rules pack for {market}; supported: {list}" / 대안 |
 | E19 | `DataAvailabilityError` | 실패(live) | 체결 세션이 워터마크 밖; 전략이 읽는 데이터셋이 판단 세션에 못 미침(5.9.6 규칙 4) | "the execution session {d} for {market} is not in snapshot {id} (complete through {w})" · 못 미치는 데이터셋마다 한 줄: "{dataset} for {market} ends at session {s}, before decision session {d} in snapshot {id}", 그 아래에 그래프가 그 데이터셋에서 읽는 항목·사건 종류마다 "  read by the strategy: {item}" / "run again after the next data refresh" |
@@ -2488,8 +2495,8 @@ primary, reference, diagnostics의 모든 값은 평가 기간과 `n_valid`/`n_t
 | E38 | `CollateralWarning` | 경고 | 숏 담보가 모자라 새 공매도·롱 매수를 막은 세션이 있음(현금 계좌: 강제 청산 모형 없음; 증거금 계좌는 5.6.7a [R6-07]) [V31-LS-04]; 꼭 내야 하는 의무로 음수 현금이 된 세션(`shortfall`); 슬리브 파산 `ruined` [R3-09] | "collateral short by {amt} {ccy} on {d} sessions (max {x})" · "mandatory debits left cash negative on {d} sessions (min {x})" · "sleeve {m} ruined on {date}: new orders stopped" / "lower [shorting] max_gross or collateral_ratio; forced buy-ins are not modeled" |
 | E39 | `UnknownFilterNotice` | 알림 | 실행 중 한 판단·시장에서 유니버스 Filter의 모름 비율 > 50%(5.4.1) [R3-13] | "{p}% of listed names are unknown for universe filter {leaf} on {n} decisions (input NaN: {column})" / "make the fallback explicit: ({leaf}).fillna(True) or .fillna(False)" |
 | E40 | `ValidationNotice` | 알림 | 고를 것이 없는 CPCV를 경로 1개로 줄임, 학습 수가 `[validate] max_fits`를 넘음, 폴드의 훈련 표본이 `min_samples`(기본 100)보다 적음(6.3a) [R4-20, R4-22], 훈련 정답이 한 클래스뿐이라 하지 않은 학습(5.3.11) | "cpcv has nothing to fit or select; all paths are identical, showing 1 path" · "{n} model fits and {p} state-machine passes planned (> max_fits {m}){; IS scores {mode}}"(학습 수로만 낸다; 이 수에는 엄격한 IS 점수의 학습과 블록 다시 돌리기가 들어가고, `grid`가 있으면 메시지가 방식을 밝힌다; 그때 `fix`에 "or is_scores='approximate' (cheaper, labelled approximate)"가 붙는다; 6.3a, #215) · "{n} fits skipped: one class in the training labels (ml_single_class)" / "add grid= or an ml.factor, or use method='walk_forward'" |
-| E41 | `BlockOutputError` | 실패 | 사용자 블록 출력이 계약 밖: 배수가 `[0, 1]` 밖·유한하지 않음, 사이저 출력 음수·무한, 선택 id가 유니버스 밖, `reads_account=False` 규칙의 계좌 접근, 상태 값이 JSON 스칼라 아님(3.8, 5.5.2) [R4-07]; 모형의 `classes_` 값이 정답 클래스 밖, `predict_proba` 출력이 계약 밖(모양, [0, 1] 밖이거나 유한하지 않은 값, 합이 1e-6 안에서 1이 아닌 행, `classes_`의 겹침), 팩토리나 복제가 실행 안에서 이미 학습한 모형을 돌려줌(5.3.11) | "{block} returned mult {x} for {id} on {d}; risk rules may only scale toward zero (0 ≤ m ≤ 1)" / "clip in your rule, or declare @nx.risk_rule(reads_account=True)" |
-| E42 | `AccountNotEvaluatedNotice` | 알림 | `screen`이 계좌 없이 계좌 규칙을 만남(m = 1로 둠) [R4-08] | "{rule}: not evaluated (no account)" / "use --ledger BOOK or --as-backtest" |
+| E41 | `BlockOutputError` | 실패 | 사용자 블록 출력이 계약 밖: 배수가 `[0, 1]` 밖·유한하지 않음, 사이저 출력 음수·무한, 선택 id가 유니버스 밖, `reads_account=False` 규칙의 계좌 접근, 상태 값이 JSON 스칼라 아님(3.8, 5.5.2) [R4-07]; `decide` 블록이 `ctx` 밖을 읽거나, 유니버스 밖의 id, 유한하지 않은 비중이나 수량, 자기가 내지 않은 주문의 취소·교체를 돌려줌(3.7) [#725 결정 237, 238]; 모형의 `classes_` 값이 정답 클래스 밖, `predict_proba` 출력이 계약 밖(모양, [0, 1] 밖이거나 유한하지 않은 값, 합이 1e-6 안에서 1이 아닌 행, `classes_`의 겹침), 팩토리나 복제가 실행 안에서 이미 학습한 모형을 돌려줌(5.3.11) | "{block} returned mult {x} for {id} on {d}; risk rules may only scale toward zero (0 ≤ m ≤ 1)" / "clip in your rule, or declare @nx.risk_rule(reads_account=True)" |
+| E42 | `AccountNotEvaluatedNotice` | 알림 | `screen`이 계좌 없이 계좌 규칙을 만남(m = 1로 둠) [R4-08], 또는 계좌 없이 `decide` 블록을 만남(블록을 부르지 않고 정규 목표를 보임, 3.7) | "{rule}: not evaluated (no account)" / "use --ledger BOOK or --as-backtest" |
 | E43 | `SolverFallbackNotice` | 알림 | ERC 대체·`vol_target` 계산 불가(5.5.1a) [R4-03] | "erc did not converge on {n} of {m} decisions; inverse_vol used (reasons a/b/c: …)" / "raise lookback, add shrink=0.1, or use size.inverse_vol" |
 | E44 | `MLDeterminismWarning` | 경고 | `[ml] threads ≠ 1`, 알려진 비결정 모형·GPU(5.3.11) [R4-23] | "fits used {k} threads; rerun compares predictions with tolerance 1e-9" / "[ml] threads = 1 for bit-identical reruns" |
 | E45 | `SkippedWorkNotice` | 알림 | 정해진 E 코드가 없는 건너뜀 이유(6.6 조용한 실패 금지) [R4-17] | "skipped {n} {what} for reason {r}" / 이유 코드 문서 |
@@ -2914,7 +2921,7 @@ pytest 표시: `unit`, `golden`, `property`, `docs`, `examples`, `parity`, `perf
 ## 사용자가 아는 명사 다섯
 - **데이터 칼럼** (`Price.close`, `Meta.category`, `Trad.*`): 스냅숏 칼럼 사전에서 만든 import 가능한 속성. 값 표의 항목은 `nx.Item.<name>`으로 읽는다.
 - **항** (Term: `Factor`, `Filter`, `Classifier`): 칼럼에서 만들고 서로 조합하는 계산 그래프 노드. zipline Pipeline과 같은 이름·뜻.
-- **전략** (`Strategy`): 아홉 칸(일정·유니버스·신호·구성·자금 관리·위험 관리·집행·탈출·비용)을 가진 값 객체.
+- **전략** (`Strategy`): 열 칸(일정·유니버스·신호·구성·자금 관리·위험 관리·결정 블록·집행·탈출·비용)을 가진 값 객체.
 - **실행** (Run): evaluate/backtest/screen/sweep/live 한 번. `runs/<run_id>/`에 봉인된 폴더.
 - **설정** (`nexusbt.toml`): 프로젝트 기본값. 데이터 위치, 판, 기준 통화, 기준 시계, 구간, 비용.
 
@@ -2949,7 +2956,7 @@ pytest 표시: `unit`, `golden`, `property`, `docs`, `examples`, `parity`, `perf
 - **자격 / 거래 가능**: 자격 = 판단 때 고를 수 있나(유니버스). 거래 가능 = 집행 세션에 체결되나(상태 기계).
 - **정규 목표** (canonical target): 판단의 `(instrument_id, target_weight)` 표. 계좌 상태와 무관한 순수 함수의 결과. screen과 backtest가 같아야 하는 것. 세 단계: 구성(`portfolio=`) → 자금 관리(`sizing=`) → 시장 정보만 읽는 위험 규칙(`risk=`).
 - **목표 상태·기준점** (target state, anchor): 앞 판단의 정규 목표 집합과 그 재귀가 시작한 판단. 완충대(`hold=`, v1 마지막 티켓 T7.1)가 계좌 보유 대신 이것에 기댄다 [R6-12].
-- **주문 의도** (order intent): 최종 목표 + 계좌 상태로 계산한 고정 주식 수 주문.
+- **주문 의도** (order intent): 최종 목표 + 계좌 상태로 계산한 고정 주식 수 주문, 또는 `decide` 블록이 돌려주고 그것이 남길 비중으로 검사한 주문(3.7).
 - **주문 상태**: NEW → ACCEPTED → (TRIGGERED) → PARTIALLY_FILLED → FILLED, 또는 CANCELLED / EXPIRED / REJECTED. 발동(trigger)은 따로 지속되는 상태이고, 수량은 늘 `requested = filled + cancelled + remaining`. "막힘"(blocked)은 상태가 아니라 세션 사건.
 - **탈출 주문** (exit order): 진입 체결 직후 생기고 보유가 바뀔 때마다 크기를 다시 맞추는, 만료 없는 보호 청산 주문(롱은 매도, 숏은 되사기(cover) 매수). 보유가 0이 될 때만 취소.
 - **주문 종류**: 시장가(market), 지정가(limit), 손절(stop), 손절지정가(stop-limit). 유효기간 day / gtc.
@@ -2981,10 +2988,10 @@ pytest 표시: `unit`, `golden`, `property`, `docs`, `examples`, `parity`, `perf
 - **MinTRL, BHY, 단순 폭·기대 IR, 신호-비중 상관**: 이 Sharpe를 믿는 데 필요한 최소 기간, 다중 검정 보정 p, 단순 기회 수와 IC·√폭(독립 베팅 수가 아님), 신호가 비중으로 옮겨진 정도(위험 조정 없음). 표시만.
 - **정답** (label): 기본 `fwd_return` = 배당을 배당락일 종가에 재투자한 보유 수익, 비교용 `fwd_return_adj` = 조정가 비율. 정답 시각 셋(시작·끝·알 수 있는 시각)으로 구간 끝에서 정화.
 - **대조 기준** (oracle): 손으로 쓴 세션별 산수(golden), 느린 참조 구현, 생산자 해석 출력, 고정 zipline-reloaded 3.2.1(흉내 설정으로만).
-- **블록 / 칸** (block / slot): 전략의 아홉 칸(일정·유니버스·신호·구성·자금 관리·위험 관리·집행·탈출·비용)에 끼우는 값. 칸마다 입력·출력·읽을 수 있는 것이 정해져 있다.
+- **블록 / 칸** (block / slot): 전략의 열 칸(일정·유니버스·신호·구성·자금 관리·위험 관리·결정 블록·집행·탈출·비용)에 끼우는 값. 칸마다 입력·출력·읽을 수 있는 것이 정해져 있다.
 - **자금 관리 칸** (sizing): 선택된 종목의 비중을 정하는 순수 함수. 계좌를 읽지 않는다.
 - **위험 관리 칸** (risk): 비중을 0 쪽으로만 줄이는 규칙 목록. 계좌를 읽는 규칙(`reads_account=True`)은 **최종 목표** 층에서만 돈다.
-- **최종 목표** (`final_weight`): 정규 목표에 계좌 규칙 배수를 곱한 것(주문이 쓰는 값).
+- **최종 목표** (`final_weight`): 정규 목표, `decide` 블록이 있으면 결정 목표 `decided_weight`에 계좌 규칙 배수를 곱한 것(주문이 쓰는 값).
 - **그림자 지수** (shadow index): 정규 목표를 비용 없이 들고 간 지수. 낙폭 브레이크가 다시 들어갈 때를 정한다.
 - **검증 방법 / 분할기 / 경로** (method / splitter / path): `backtest(method=…)`의 값. 폴드·경로는 진단이고 시도 수에 들지 않는다. 정화 = 정답 구간(공개 시각까지)이 시험 묶음과 겹치는 훈련 표본 빼기, 엠바고 = 시험 묶음 뒤 훈련 표본 빼기.
 - **ML 팩터** (`ml.factor`): 엔진이 학습 창을 강제해 판단마다 예측을 내는 Pipeline 노드. 모형 객체는 저장하지 않고 예측·학습 표를 남긴다.
@@ -4437,7 +4444,7 @@ v1 명세의 O1~O11, 청사진 OQ-1~OQ-15, TDS Q1~Q16을 하나로 모았고, v3
 | A-07 | 홀드아웃 2022-01-01 + `HoldoutError` 막기(원본) vs 전향적 잠금(Codex) | 9.3 Q26, R-36 | 사용자 결정 9.0: 잠그지 않음. 구간(train/validation/test) 설정 + 노출 기록 + DSR. 검증 시작 2022-01-01은 기본값. E10은 알림 | 사용자 |
 | A-08 | 지급일 결측: 확정 공시 다음 날(원본) vs 멈춤(Codex) | 9.3 Q29 | 사용자 결정 9.0: 나라별 보통 간격 추정 + "estimated" 표시, `fail` 선택 가능; 2026-11-24 대체(#752): 사용자가 지급일 규칙을 선언하고, 없으면 도구가 멈추고 묻는다(5.6.11) | 사용자 |
 | A-09 | 현금 부족 "비례 축소"(설계 3.6) vs "정해진 순서로 줄임, 재분배 없음"(Codex) | 11.4.2 | 비례 축소(결정적) 뒤 반올림 잔여만 정해진 순서로 줄임, 남는 현금 재분배 없음 — 둘을 함께 만족. **v3**: 금액은 실제 비용 함수, 줄이는 순서는 체결 비율 높은 후보부터(A-108) | Codex 문구 안에서 본문 |
-| A-10 | `on_rebalance` 콜백·완충대(UX, Q6 "portfolio 옵션") vs v1 제외(Codex) | 9.3 Q32, C6 | v1에서 뺀다(R-13 순수 목표 보장). 완충대는 v1 뒤 `top(..., band=)`로(지금은 `hold=`, A-47) — Q6 결정의 핵심(비용 표·0·1·2배)은 v1에 있음 | Codex (사용자 결정 충돌 없음) |
+| A-10 | `on_rebalance` 콜백·완충대(UX, Q6 "portfolio 옵션") vs v1 제외(Codex) | 9.3 Q32, C6 | v1에서 뺀다(R-13 순수 목표 보장); 2026-11-24에 일부 대체(#752): 계좌를 읽는 판단마다의 블록은 `decide`(3.7)로 v1이고, `on_rebalance`는 여전히 없다. 완충대는 v1 뒤 `top(..., band=)`로(지금은 `hold=`, A-47) — Q6 결정의 핵심(비용 표·0·1·2배)은 v1에 있음 | Codex (사용자 결정 충돌 없음) |
 | A-11 | 탈출 손절 일간 규칙만(설계 Q21 추천) vs 주문 종류 v1 구현(사용자 9.0) | 9.1 Q21, 9.0 | 사용자 결정: 손절·지정가·손절지정가·TIF·부분 체결을 v1 상태 기계에 구현, 일봉 불리한 쪽 규칙, 장중 순서는 E4 | 사용자 > Codex |
 | A-12 | `fill="same_close"`(UX E11) vs 운용에 같은 종가 없음(Codex) | 11.4.1 | 같은 종가 체결 없음. E11은 일봉 지정가·손절 근사 경고로 다시 씀 | Codex |
 | A-13 | 시가 체결 가능 여부를 종가 상하한 표시로(원본) vs 다른 시간 구간(Codex) | C4 | 시가 단계는 시가와 상·하한 가격(허용 0.5%)으로, 장중은 하루 묶임(`locked_*`)으로 판단 | Codex |
@@ -4580,13 +4587,13 @@ v1 명세의 O1~O11, 청사진 OQ-1~OQ-15, TDS Q1~Q16을 하나로 모았고, v3
 | R-04 칼럼 속성·스텁·오타 | 3.2 | M1 | v1 | T1.6 |
 | R-05 사용자 함수 두 방식 | 3.3 | M1 | 바뀜(창 방식만; 패널 뒤, A-37) | T1.12 |
 | R-06 zipline 호환 층 | 3.4 | M1 | v1 | T1.16 |
-| R-07 선언형 Strategy | 3.7 | M3 | 바뀜(`on_rebalance` 없음, `risk=` 칸, A-10, A-46) | T3.2 |
+| R-07 선언형 Strategy | 3.7 | M3 | 바뀜(`on_rebalance` 없음, `risk=` 칸, A-10, A-46; `decide` 칸, 2026-11-24, #752) | T3.2 |
 | R-08 `nx.param` | 3.7 | M3 | v1 | T3.2 |
 | R-09 함수·CLI 목록 | 3.8, 3.10 | M5 | v1 | T5.4 |
 | R-10 결과 객체 표시 | 3.9 | M2 | v1 | T2.10a, T3.13a |
 | R-11 비율 옆 건수 | 3.9 | M2 | v1 | T2.10a |
 | R-12 구조 해시·재사용 | 5.3.9 (L0·L1) | M6 | 바뀜(의미 열쇠, A-42) | T1.5, T6.4, T6.12 |
-| R-13 screen = backtest | 5.5, INV-08(기준점) | M3 | 바뀜(A-38) | T3.1, T3.16, T7.1 |
+| R-13 screen = backtest | 5.5, INV-08(기준점) | M3 | 바뀜(A-38; `decide`가 있으면 Pipeline 값까지, 2026-11-24, #752) | T3.1, T3.16, T7.1 |
 | R-14 일정 가지치기 | 5.3.2 | M1 | v1 | T1.7a/b |
 | R-15 자르기 시험 | 6.5 | M6 | 바뀜(진단, 날짜 우선순위 SC-05, A-25, A-50) | T6.9 |
 | R-16 정답은 target만 | 6.5 | M2 | v1 | T2.6 |
@@ -4840,7 +4847,7 @@ v1 명세의 O1~O11, 청사진 OQ-1~OQ-15, TDS Q1~Q16을 하나로 모았고, v3
 
 | R4 | 우선 | 반영한 곳 | 티켓 |
 |---|---|---|---|
-| 01 아홉 칸 블록 계약 표·약속 넷 | P0 | 3.7 | T3.27, T3.29, T3.31 |
+| 01 열 칸 블록 계약 표(2026-11-24까지 아홉 칸, #752)·약속 넷 | P0 | 3.7 | T3.27, T3.29, T3.31 |
 | 02 자금 관리 칸·내장 사이저·`top(weight=)` 줄임 | P0 | 1.1, 2.3, 3.1, 3.7, 5.5.1, 5.5.1a | T3.27 |
 | 03 ERC 고정 순서 좌표 하강·정해진 대체 | P1 | 5.5.1a, 6.6 E43 | T3.28 |
 | 04 위험 목록 칸·정규/최종 두 층·INV-23 | P0 | 1.3, 5.5.1, 5.5.2, 5.5.2a, 5.5.3, 5.6.7, 8.3 | T3.29, T3.30 |

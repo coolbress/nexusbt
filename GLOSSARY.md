@@ -8,7 +8,7 @@ This file holds the terms of the spec's glossary (spec §1.2 and §9.2) and noth
 
 - **Data column** (`Price.close`, `Meta.category`, `Trad.*`): an importable attribute built from the snapshot's column dictionary. An item of the value tables is read as `nx.Item.<name>`.
 - **Term** (`Factor`, `Filter`, `Classifier`): a node of the computation graph, built from columns and combined with other terms. Same names and meanings as the zipline Pipeline.
-- **Strategy** (`Strategy`): a value object with nine slots — schedule, universe, signal, construction, sizing, risk, execution, exits, costs.
+- **Strategy** (`Strategy`): a value object with ten slots — schedule, universe, signal, construction, sizing, risk, decide, execution, exits, costs.
 - **Run**: one call of `evaluate`, `backtest`, `screen`, `sweep` or `live`. Sealed into `runs/<run_id>/`.
 - **Config** (`nexusbt.toml`): project defaults in two parts. Part 1 is what changes results most (data path, edition, capital, base currency, sleeves, account type, shorting, costs, taxes, segments); part 2 is advanced. `nexusbt config check` and `nexusbt config show` explain it.
 
@@ -50,12 +50,12 @@ This file holds the terms of the spec's glossary (spec §1.2 and §9.2) and noth
 - **Schedule**: when decisions happen (`nx.monthly()`, …). A decision after an event is an ordinary schedule with a Filter on `nx.Item.<name>.age()`.
 - **Eligibility / tradability**: eligibility = can it be chosen at the decision (universe); tradability = can it fill in the execution session (state machine).
 - **Canonical target** (`target_weight`): the decision's `(instrument_id, target_weight)` table, from market information only — a pure function, identical in `screen` and `backtest`. Built by construction (`portfolio=`) → sizing (`sizing=`) → market-only risk rules (`risk=`).
-- **Final target** (`final_weight`): the canonical target times the multipliers of account-reading risk rules (drawdown brake, portfolio stop, no-reentry). Orders use this value.
+- **Final target** (`final_weight`): the canonical target, or with a `decide` block the decided target `decided_weight`, times the multipliers of account-reading risk rules (drawdown brake, portfolio stop, no-reentry). Orders use this value.
 - **Sizing slot**: a pure function that sets weights for the chosen names (equal, inverse volatility, ERC, volatility target, …). Never reads the account.
 - **Risk slot**: an ordered list of rules that only scale weights toward zero. Rules that read the account run only in the final-target layer.
 - **Shadow index**: the canonical target held without costs. The drawdown brake uses it to decide re-entry.
 - **Target state / anchor**: the previous decision's canonical target set and the decision where that recursion starts. The hold band (`hold=`) relies on it instead of account holdings.
-- **Order intent**: a fixed share quantity computed from the final target and the account state.
+- **Order intent**: a fixed share quantity computed from the final target and the account state, or returned by a `decide` block and checked as the weight it would leave.
 - **Order status**: NEW → ACCEPTED → (TRIGGERED) → PARTIALLY_FILLED → FILLED, or CANCELLED / EXPIRED / REJECTED. A trigger persists; quantities always satisfy `requested = filled + cancelled + remaining`. "Blocked" is a session event, not a status.
 - **Order types**: market, limit, stop, stop-limit; time in force day or GTC.
 - **Exit order**: a protective order created right after the entry fill, resized on every holding change, never expiring; cancelled only when the holding is zero. Exits include stop, trailing stop and time stop.
@@ -96,6 +96,6 @@ This file holds the terms of the spec's glossary (spec §1.2 and §9.2) and noth
 - **ML factor** (`ml.factor`): a Pipeline node that the engine trains forward-only (label availability + embargo ≤ refit time) and that predicts at every decision. Model objects are not saved; prediction and fit tables are.
 - **Pretrained model** (`ml.pretrained`): a predict-only model with a declared `training_cutoff`. Decisions before cutoff + embargo are blocked (E48) unless `allow_overlap=True`, which is marked (E49).
 - **Oracle**: what a result is checked against — hand-written per-session arithmetic (golden cases), slow reference implementations, producer-resolved outputs, and a pinned zipline-reloaded 3.2.1 (through an imitation preset only).
-- **Block / slot**: a value plugged into one of the strategy's nine slots. Each slot has fixed inputs, outputs and what it may read.
+- **Block / slot**: a value plugged into one of the strategy's ten slots. Each slot has fixed inputs, outputs and what it may read.
 - **Error layer**: the second line of every error: `data`, `your code`, `config` or `engine bug`.
 - **Preview**: `backtest --preview` runs a short period and shows what the full run would do.
