@@ -10,7 +10,7 @@ that the new edition is the base with only these spans removed or replaced, and 
 first and last line of each, and the replaced lines in full:
 
 1. the header's Status line, without the history of each version and "No code.";
-2. the header's Inputs line, keeping only the definitions the body still uses;
+2. the header's Inputs line, keeping only "the blueprint", "TDS" and "the design";
 3. the tracing legend's lines for the removed tag families, replaced by one line naming BASE;
 4. the contents lines of appendices D to I;
 5. from the blank line before the rule above appendix D to the end of the file.
@@ -122,8 +122,8 @@ def cut(base: list[str], commit: str, lang: str) -> list[str]:
     return out + base[pos:]
 
 
-def check(base: list[str], new: list[str], commit: str) -> list[str]:
-    """Each line outside the spans is unchanged; print each span."""
+def check(base: list[str], new: list[str], commit: str, lang: str) -> list[str]:
+    """Each line outside the spans is unchanged, each replaced line is what `cut` makes."""
     found, pos, at = [], 0, 0
     for name, start, end, takes in spans(base):
         keep = base[pos:start]
@@ -138,8 +138,8 @@ def check(base: list[str], new: list[str], commit: str) -> list[str]:
         pos = end
     if new[at:] != base[pos:]:
         found.append("the lines after the last span differ")
-    if commit not in "".join(new[: at + 1]):
-        found.append(f"the legend does not name {commit}")
+    if not found and new != cut(base, commit, lang):
+        found.append("a replaced line is not what the cut makes of the base (printed above)")
     return found
 
 
@@ -152,7 +152,7 @@ def main(argv: list[str]) -> int:
         Path(argv[1]).write_text("".join(cut(base, argv[2], lang)), encoding="utf-8")
         return 0
     new = Path(argv[1]).read_text(encoding="utf-8").splitlines(keepends=True)
-    if found := check(base, new, argv[2]):
+    if found := check(base, new, argv[2], lang):
         print("\n".join(f"FAIL: {line}" for line in found))
         return 1
     print(f"OK: {argv[1]} = {argv[0]} with only the spans above removed or replaced")
