@@ -1,7 +1,7 @@
-"""The "Blocked by" graph of spec chapter 10 is acyclic and never points forward (T0.12, #46).
+"""The "Blocked by" graph of the plan is acyclic and never points forward (T0.12, #46).
 
-The chapter here is a small made-up one in the spec's ticket-line shape; the spec itself
-is checked in the last test.
+The chapter here is a small made-up one in the plan's ticket-line shape; the plan document
+`docs/plan/plan.md` itself is checked in the last test.
 """
 
 from __future__ import annotations
@@ -75,13 +75,15 @@ def test_a_cycle_is_a_problem_reported_as_its_path() -> None:
     assert check(found, ORDER) == ["cycle: T0.1 → T0.3 → T0.2 → T0.1"]
 
 
-SPEC = Path(__file__).resolve().parents[2] / "docs" / "spec" / "engine-spec-v3.4.md"
+PLAN = Path(__file__).resolve().parents[2] / "docs" / "plan" / "plan.md"
 
 
 def test_acyclic_and_milestone_order() -> None:
-    """The spec's ticket graph (10.1) holds the rule of 10.0 "Ticket rules". A problem here
-    is a spec defect: it stops and proposes a spec pull request (#46, "Not building")."""
-    text = SPEC.read_text(encoding="utf-8")
+    """The plan's ticket graph (10.1) holds the rule of 10.0 "Ticket rules". A problem here
+    is a plan defect: it stops and proposes a pull request (#46, "Not building")."""
+    text = PLAN.read_text(encoding="utf-8")
     found = tickets(text)
-    assert len(found) >= 219, "SPEC-INDEX.md counts 219 engine tickets; fewer means lines were lost"
+    assert len(found) >= 224, (
+        "the plan held 224 tickets when it left the spec; fewer means lines were lost"
+    )
     assert check(found, milestones(text)) == []
