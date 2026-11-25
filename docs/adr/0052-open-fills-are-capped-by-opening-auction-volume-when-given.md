@@ -11,7 +11,7 @@ ADR 0006 approximates capacity by the past 20-session average volume and says it
 
 ## Decision
 
-When the bars hold the optional column `open_auction_volume` (added to TDS with #752), an open fill's second term is `ψ_open · open_auction_volume_t`, `ψ_open = [execution] max_open_auction_participation`, default 0.10, a ratio of its own (#752's Decisions, 2026-11-25). The column has `volume`'s unit and adjustment; only the fill reads it, never a term or a decision (235). Without it, `ψ · volume_t` stays as a ceiling only, and the label reports the fills it bound (242).
+When the bars hold the optional column `open_auction_volume` (TDS gains it in #752's V1), an open fill's second term is `ψ_open · open_auction_volume_t`, `ψ_open = [execution] max_open_auction_participation`, default 0.10, a ratio of its own (#752's Decisions, 2026-11-25). The column has `volume`'s unit and adjustment; only the fill reads it, never a term or a decision (235). Without it, `ψ · volume_t` stays as a ceiling only, and the label reports the fills it bound (242).
 
 `[execution] volume_cap = "prior"` is a comparison mode that keeps only the first term, data before the fill session alone; the default `"session"` keeps both, and the label says which ran and how many fills the session term bound (243).
 
