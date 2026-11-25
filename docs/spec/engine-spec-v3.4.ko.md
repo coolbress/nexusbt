@@ -1479,7 +1479,7 @@ class DecisionContext:
    - 결제: `pay_date`(`pay_date_status`), 없을 때는 사용자의 선언(5.6.11).
 6. **효과의 시점**: 가격·수량 효과는 `ts_effective`(효력 세션 e 시작)부터. 단 수량을 바꾸는 사건(`affects = split_and_total`)의 조건이 효력 뒤에 공개되면(TDS-A008 경고) 회계는 조건이 공개된 뒤 첫 세션 시작에 수량을 바꾸고(그 사이 주문은 옛 수량 기준), 가격 조정은 5.3.4처럼 공개 뒤부터 넣는다.
 7. **이미 기입한 금액의 정정**: 회계가 기준 시각 c1에서 판 r1로 미수금·현금을 기입했고, 나중 기준 시각 c2(> c1)에서 해석기가 다른 판 r2(금액·비율이 다름 또는 `cancelled`)를 내면, 회계는 c2 뒤 첫 세션 시작에 **정정 기입**(`account_events.kind = action_correction`, 금액 = r2 효과 − r1 효과, 정수 최소 단위; 지급 전이면 미수금 정정, 지급 뒤면 현금 정정)을 한다. 과거 기입은 고치지 않는다(사건 정본, INV-16).
-8. **A001**(2026-11-22 은퇴, #705): 검사기는 같은 해석기를 `c = +∞`로 불러 패키지의 `cum_factor_*` 비를 대조했다. TDS에서 빠지는 칼럼이다(TDS 5.5). 합성 생성기의 가격이 그 사건과 맞는지는 생성기 테스트에서 이 해석기와 비교한다(4.8).
+8. **A001**(2026-11-22 은퇴, #705): 검사기는 같은 해석기를 `c = +∞`로 불러 패키지의 `cum_factor_*` 비를 대조했다. TDS에서 빠진 칼럼이다(TDS 5.5). 합성 생성기의 가격이 그 사건과 맞는지는 생성기 테스트에서 이 해석기와 비교한다(4.8).
 9. **시험**: `tds/tests/test_actions.py::test_resolver_at_cutoffs`(해석기는 `nexusbt_tds.actions`, T0.15a; 엔진 쪽 소비는 `tests/unit/compute/test_adjust.py`·golden) — 정정된 분할 비율, 발표 뒤 취소된 배당, 지급 뒤 금액 정정, 같은 날 분할 + 현금배당, 권리 소멸(수량 불변), 계수 없음을 각각 세 기준 시각(첫 공개 전·첫 판 뒤·정정 뒤)에서; v3.2: 존재는 알고 조건은 늦은 판(`::test_late_terms_revision_visible_at_ex_date`), 발표 시각이 있는 사건이 효력 순간에 먼저 보이지 않음(`::test_existence_time_ignores_effective_when_announced`) [R3-01]. 손계산 G-43~G-47, G-20 변형.
 10. **늦게 알게 된 사건** [R3-01]: 사슬의 첫 판의 `ts_known`이 효력 세션 e 뒤면(사후 공시), 회계는 `ts_known` 뒤 첫 세션 시작에 **e 시작 보유**(정본 사건 `account_events`에서 다시 계산)로 권리·의무를 덧붙여 기입한다(과거 기입은 고치지 않음, INV-16). 가격 조정은 5.3.4처럼 `ts_terms` 뒤부터.
 
@@ -3580,7 +3580,7 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 - Acceptance: `test_handcalc_self.py::test_cases_market_execution_expected_present`.
 
 **T3.Gc `test(golden): accounting cases (G-16..G-26, G-30, G-34, G-35, G-42..G-49, G-111, G-115)`** **[v3]** · `M3a` `golden` · M · Blocked by: T0.9, T0.15a · §5.3.3a, §5.6.9–5.6.14, §8.2 *(v3.2: G-20 변형(배당락 뒤·조건 공개 전 매도) [R3-01])* *(v3: 해석기 정정·취소, 늦은 회수, 다리)*
-- Context: 분할·역분할·주식배당·현금배당·금액 미공개·지급일 추정·폐지·합병·지원 안 함·권리 소멸·실행 끝·무상증자·자본 반환, 늦은 회수(G-42), 정정·취소(G-43~G-45), 분할 + 배당 같은 날(G-46), 권리 수량 불변(G-47), 다리(G-48·G-49). 소비 티켓 T3.3·T3.9~T3.11 전에 병합.
+- Context: 분할·역분할·주식배당·현금배당·금액 미공개·지급일 선언·폐지·합병·지원 안 함·권리 소멸·실행 끝·무상증자·자본 반환, 늦은 회수(G-42), 정정·취소(G-43~G-45), 분할 + 배당 같은 날(G-46), 권리 수량 불변(G-47), 다리(G-48·G-49). 소비 티켓 T3.3·T3.9~T3.11 전에 병합.
 - Done means: `uv run python tests/golden/check/G-42.py`가 10·11월 `decision_value`(회수 제외)와 12월 미수금 전환을 출력.
 - Acceptance: `test_handcalc_self.py::test_cases_accounting_expected_present`.
 
@@ -4985,7 +4985,7 @@ v1 명세의 O1~O11, 청사진 OQ-1~OQ-15, TDS Q1~Q16을 하나로 모았고, v3
 |---|---|---|
 | 기준 문서 | 명세 v2 + TDS v1, "명세를 더 고칠 일 없음" | 명세 v3 + TDS v1.1, 3자 검토 합의(`review/consensus.md`)의 P0·P1과 값싼 P2 반영, "더 고칠 일 없음" 문장 삭제 |
 | 공개 준비 | `KR`·`US`·`XKRX`·`XNYS`가 코드·설정 키에, 오류 문장에 참조 생산자 티켓 | 시장 이름은 `tds.json`에서, 시장 규칙 팩(`resources/markets/<M>.toml`), 팩 없는 시장 E18 / `allow_untested`; 오류는 TDS 코드 + `producer.hints`; 비공개 주석 표시; `security_id` 별칭 삭제; 검사기 import `nexusbt_tds`; 영어 빠른 시작·CONTRIBUTING·출시 관문 |
-| 입력 계약 | 고정 4프로필 요구, `minimal-daily`는 범위 밖(TDS와 모순) | 그래프 의존 능력 계약, 프로필 세 결과(선언·검사 단계·지원), 프로필 판 `@1.0`, 경로 안전, `minimal-daily`는 분석 경로만, `cum_factor_*`는 모든 프로필에서 선택, 모르는 필수 해석 규칙 E14 |
+| 입력 계약 | 고정 4프로필 요구, `minimal-daily`는 범위 밖(TDS와 모순) | 그래프 의존 능력 계약, 프로필 세 결과(선언·검사 단계·지원), 프로필 판 `@1.0`, 경로 안전, `minimal-daily`는 분석 경로만, `cum_factor_*`는 모든 프로필에서 선택(2026-11-25부터 TDS 밖, TDS 5.5), 모르는 필수 해석 규칙 E14 |
 | 해시 | 논리 해시 = Arrow IPC 바이트 | 물리·값(언어 무관 정규 직렬화, 시험 벡터)·의미(값 + 해석 메타) 셋, 엔진은 의미 해시 |
 | 시간 | 같은 시각 `open < decision < close`(처리 단계와 모순), 늦은 봉 미정 | 단계 순서 `session_start < open < intraday < close_fill < close_mark < decision < session_end`, 행이 굳는 시각 `ready(s) = ts_close + 선언된 지연` |
 | PIT 조회 | `ts_known_from` searchsorted 한 번, 자격 이월, 분류 열쇠에 level 없음 | 직사각형 조회(예시 5개), 자격 행 없음 = 거짓, 분류 열쇠에 level·edition, 기호 표에 `ts_known_to`, `instruments` 사후 속성 표시 |
