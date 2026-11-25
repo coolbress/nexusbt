@@ -67,7 +67,7 @@ def condition_of(err: NexusBTError) -> str:
 
 def spec_layers() -> dict[str, set[str]]:
     """The 6.6 "Layers" paragraph: code → its layers (E45's "that skip reason" is `*`)."""
-    paragraph = re.search(r"^Layers \(`layers\.toml`, \[R4-15\]\): (.+)\.$", SPEC, re.MULTILINE)
+    paragraph = re.search(r"^Layers \(`layers\.toml`\): (.+)\.$", SPEC, re.MULTILINE)
     assert paragraph
     found: dict[str, set[str]] = {}
     for item in paragraph[1].split("; "):

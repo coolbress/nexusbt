@@ -9,8 +9,9 @@ comes from the second's name. `--write` makes the new document: the places chang
 (`HAND`) first, then the rules. Without it the program proves three things and exits 0 or 1:
 
 1. the new document is what `--write` makes of the base;
-2. once every removable mark is erased from both (`erase`), the base with the hand changes
-   applied and the new document are the same text, and appendix A is unchanged;
+2. once every removable mark, every space and each of `, ; : ( ) [ ] * | →` is erased from both
+   (`erase`; check 1 pins the punctuation), the base with the hand changes applied and the new
+   document are the same text, and appendix A is unchanged;
 3. no tag of the ten families is left outside the kept set: an id naming a row of chapter 12's
    tables (or a range covering one), appendix A, and the places `KEPT` lists.
 
@@ -18,10 +19,11 @@ It prints the counts, each hand change old and new, and the tags left in appendi
 
 The rules, applied outside code spans and appendix A (a tag is removable when it is not kept):
 1. a bracket of removable tags goes with the space before it (after it at a line's start);
-   inside a parenthesis it takes the parenthesis, before a closing one the comma before it;
-2. a bracket with other items loses its removable tags and one separator each;
+   inside a parenthesis it takes the parenthesis, before a closing one or a line's end the comma;
+2. a bracket with other items loses its removable tags and `vX` items, one separator each, and
+   a bare number right after a removed tag (`RV-I03, Q03`) goes with it;
 3. so do a parenthesis and a table cell whose items are lone tags; a cell may end empty;
-4. inside fenced code only rules 1 and 2 apply;
+4. inside fenced code only rules 1 and 2 apply, and the spaces they leave at a line's end go;
 5. `*(vX: ...)*`, `(vX: ...)` and `(vX)` go with the space before them; a note holding a date or
    an issue number stays and loses its `vX: ` only;
 6. a clause's leading `vX: `, `Added in vX: ` or `vX 추가: ` goes, its content stays;
@@ -85,6 +87,8 @@ HAND: dict[str, list[tuple[str, str]]] = {
         ),
         ("HTML sections added in v3.1: ", "HTML sections: "),
         ("[the seam is v3.2; the P11", "[the P11"),
+        ("). v3.2 [R3-09, R3-10]: accrual", "). Accrual"),
+        ("plan). v3.1: missing scores", "plan). Missing scores"),
         (
             "how each version was made were removed",
             "how each version was made, the review-round tags and the version notes were removed",
@@ -125,6 +129,9 @@ HAND: dict[str, list[tuple[str, str]]] = {
     ],
     "plan.en": [
         (" (appendix E)", ""),
+        ("numbers. v3.1: together", "numbers. Together"),
+        ("exists). v3.2: in the release", "exists). In the release"),
+        ("day by day; (v3.3: `time_stop` is T3.33 [R4-10]).", "day by day."),
         (
             " Tickets changed from v1 carry *(v2: …)*, tickets changed in v3 carry *(v3: …)*, new "
             "tickets in v2 carry **[new]**, and new·split tickets in v3 carry **[v3]**.",
@@ -149,6 +156,7 @@ HAND: dict[str, list[tuple[str, str]]] = {
     ],
     "plan.ko": [
         ("(부록 E)", ""),
+        ("표 출력; (v3.3: `time_stop`은 T3.33 [R4-10]).", "표 출력."),
         (
             " v1에서 바뀐 티켓은 *(v2: …)*, v3에서 바뀐 티켓은 *(v3: …)*, "
             "v2의 새 티켓은 **[new]**, v3의 새 티켓·나눈 티켓은 **[v3]** 를 붙였다.",
@@ -173,19 +181,9 @@ HAND: dict[str, list[tuple[str, str]]] = {
     ],
 }
 #: Places where a removable tag stays, by a snippet of the line that holds it.
-KEPT: dict[str, list[str]] = {
-    "spec.en": ["V31-47"],
-    "spec.ko": ["V31-47"],
-    "plan.en": [],
-    "plan.ko": [],
-}
+KEPT = {"spec.en": ["V31-47"], "spec.ko": ["V31-47"]}
 #: Lines no rule touches, by a snippet: T0.12 lists the requirement map's ids as data.
-PROTECT = {
-    "spec.en": [],
-    "spec.ko": [],
-    "plan.en": ["V31-LS-01~V31-LS-11; appendix B.5"],
-    "plan.ko": ["V31-LS-01~V31-LS-11"],
-}
+PROTECT = {"plan.en": ["V31-LS-01~V31-LS-11; appendix B.5"], "plan.ko": ["V31-LS-01~V31-LS-11"]}
 
 
 def at(text: str, letter: str) -> int:
@@ -314,7 +312,8 @@ class Marks:
             if line.startswith("```"):
                 fenced = not fenced
             elif fenced:
-                line = self.brackets(line, code=True)
+                new = self.brackets(line, code=True)
+                line = new.rstrip() if new != line else line
             elif not zone and not any(k in line for k in self.keep):
                 line = self.notes(self.lists(self.brackets(line, code=False)))
             out.append(line)
@@ -359,7 +358,7 @@ def main(argv: list[str]) -> int:
     doc = which(argv[1])
     base = Path(argv[0]).read_text(encoding="utf-8")
     spec = base if doc.startswith("spec") else Path(SPEC).read_text(encoding="utf-8")
-    marks = Marks(live_ids(spec), tuple(PROTECT[doc]))
+    marks = Marks(live_ids(spec), tuple(PROTECT.get(doc, [])))
     made = marks.run(hand(base, doc))
     if argv[2:]:
         Path(argv[1]).write_text(made, encoding="utf-8")
@@ -375,7 +374,7 @@ def main(argv: list[str]) -> int:
     rest = re.sub(r"\n## (?:Appendix|부록) A\.[\s\S]*?(?=\n## (?:Appendix|부록) B\.)", "\n", new)
     for line in rest.split("\n"):
         left = [t for t in TAG.findall(line) if not marks.kept(t)]
-        if left and not any(k in line for k in KEPT[doc] + PROTECT[doc]):
+        if left and not any(k in line for k in KEPT.get(doc, []) + PROTECT.get(doc, [])):
             found.append(f"tag left {left}: {line[:120]}")
     print(f"{doc}: {dict(marks.count)}; ids kept as row names: {len(marks.live)}")
     print(

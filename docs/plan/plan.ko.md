@@ -662,7 +662,7 @@ v3는 3자 검토 합의대로 **M0을 계약만으로 줄이고**, 검사기 fu
 - Acceptance: `test_execution.py::test_G02` … `::test_G06`, `::test_G32`, `::test_G33`, `::test_G37_stop_stays_triggered_after_partial`, `::test_G40_intraday_sale_cannot_fund_same_bar_buy`, `tests/unit/execution/test_fill_rules.py::test_through_vs_touch_table`, `::test_stop_limit_equal_boundary`, `::test_fill_rule_names`.
 
 **T3.7 `feat(execution): exit order lifecycle, resizing and OCO`** · `M3b` `execution` · M · Blocked by: T3.6 · §3.7 탈출, §5.6.2a, §5.6.4
-- Done means: G-07~G-09, G-38, G-39 통과; 트레일링 손절가가 날마다 오르는 표 출력;.
+- Done means: G-07~G-09, G-38, G-39 통과; 트레일링 손절가가 날마다 오르는 표 출력.
 - Acceptance: `test_execution.py::test_G07`, `::test_G08`, `::test_G09`, `::test_G38_partial_oco_keeps_protection`, `::test_G39_exit_never_expires`, `tests/unit/execution/test_exits.py::test_created_after_entry_fill`, `::test_resized_on_position_change`, `::test_trailing_updates_at_close`, `::test_time_stop_reserved`, `::test_partial_adverse_oco_keeps_remaining_protection`.
 
 **T3.17b `test(parity): L2-d order types against zipline semantics`** · `M3b` `parity` · S · Blocked by: T3.15b, T3.17a · §8.1 [SC-12]

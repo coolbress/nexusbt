@@ -834,7 +834,7 @@ saved  runs/{run_id}/report.html
 data {snapshot_id} · {edition} · code {graph_hash6} (git {sha}, {clean|dirty}) · params {k=v, …}
 period {start} → {end} · segment {segment} · base {base_ccy} · clock {clock} · sleeves KR {w}/US {w}
 execution {order} at next {open|close} · costs {profile}{ (provisional) } · markets {KR: rules KR@1 | ZZ: untested market rules}
-benchmark {index} ({TR|PR}, {cap|equal|…}-weighted) · portfolio weighting {equal|value|inverse_vol}  
+benchmark {index} ({TR|PR}, {cap|equal|…}-weighted) · portfolio weighting {equal|value|inverse_vol}
 {shorting: on · borrow {bp}/yr KR {a} US {b} · collateral {m} · no borrow-availability data; uptick rule not modeled}   (공매도 켰을 때만)
 assumptions  {cash: series {name} ({first date}..{last date}) | cash earns {r}%} · dividends pre-withholding · immediate settlement · fill qty capped by {realized session volume (ex-post){; open fills by opening-auction volume} | past volume only (volume_cap = "prior")} · gross = zero-cost replay (includes path effects)   (현금 항목은 통화마다: 그 통화의 `[account] cash_rate` 시계열을 쓰면 시계열 꼴, `cash_rate_bps`를 쓰면 상수 꼴; #313, 결정 2026-11-10)
 {ruined: {sleeve} on {date} — new orders stopped; obligations booked as negative cash}   (파산 슬리브가 있을 때만)
@@ -853,15 +853,15 @@ cost drag / year      {p}%  (direct {d}% · path {p2}%; commission · tax · spr
 cost sensitivity      0x {cagr} · 1x {cagr} · 2x {cagr}
 holdings (median)     {n} (KR {a} / US {b}) · sleeve weight now KR {p}% / US {p}% (start 50/50)
 {exposure (median)    long {l}% · short {s}% · gross {g}% · net {n}%   borrow cost {c}%/yr · short dividends paid {d}}   (숏이 있을 때만)
-vs benchmark          excess {x}%/yr (arith) · {y}%/yr (geom) · tracking error {te}% · IR {ir:.2f} · excess MDD {m}%  
-target gap (median)   {g}% (blocked {a} · cash {b} · cap {c} · lot rounding {d} · small/band {e}) · slip vs decision {s} bp  
+vs benchmark          excess {x}%/yr (arith) · {y}%/yr (geom) · tracking error {te}% · IR {ir:.2f} · excess MDD {m}%
+target gap (median)   {g}% (blocked {a} · cash {b} · cap {c} · lot rounding {d} · small/band {e}) · slip vs decision {s} bp
 fx contribution       US sleeve {p}%/yr (local {a}%/yr · fx {b}%/yr · cross {c}%/yr)
 signal-weight corr   median {tc:.2f} over {n} decisions   (not risk-adjusted)
 {capacity: participation cap binds at ≈ {K} {ccy} (x10 CAGR {a}, x100 CAGR {b})}   ("capacity" 시나리오일 때만)
 
 exits while held      {n}: observed {a}, policy {b}, unobserved {c} · scenario lo/hi CAGR {x}/{y}
 hypothetical exits   {n}: P&L {x} {ccy} ({p}% of total P&L), causes missing {a} · unverified {b} · disagrees {c}{, short {k}: bound open} · {ca_exit lo/hi CAGR {x}/{y} · MDD {m}/{m2} | ca sensitivity: n/a (scenarios off)} | ca sensitivity: n/a (0 hypothetical exits)   (n = 0이면 마지막 형태, 5.6.1) [#150]
-orders                filled {a} · partial {b} · expired {c} · cancelled {d} (insufficient cash {k}, {amt} {ccy}) · blocked-days: halt {e}, limit {f}, capacity {g} (bar volume {g2}; ψ-bound fills {b}/{n}{; auction-bound open fills {o}/{n}}), unknown-tradability {h}{, short ban {sb}} · suppressed: small {m}, band {n}  
+orders                filled {a} · partial {b} · expired {c} · cancelled {d} (insufficient cash {k}, {amt} {ccy}) · blocked-days: halt {e}, limit {f}, capacity {g} (bar volume {g2}; ψ-bound fills {b}/{n}{; auction-bound open fills {o}/{n}}), unknown-tradability {h}{, short ban {sb}} · suppressed: small {m}, band {n}
 {rebalance-date luck  {k} offsets · CAGR min {a} / median {b} / max {c}}   (offsets일 때만)
 dividends             paid {n} · pay date declared {m}/{n} · estimated by the producer {k}/{n}
 PSR(0) {x:.2f} · DSR {x:.2f} (N={N} candidates in cohort {cohort6}, V[SR] from cohort) | DSR n/a ({reason}) · MinTRL(95%) {y:.1f}y{ · vs SR*_N {z:.1f}y (selection-adjusted reference)}{ · IID-based: dependence visible (Ljung–Box lags 1–10, p < 0.05; may also reflect changing volatility)}{ · fixed-sample statistic; {n} looks}   [#197] (마지막 부분은 확인 번호 n > 1일 때만, 6.2, #269)
@@ -1417,7 +1417,7 @@ class DecisionContext:
 ### 5.2 판단과 집행 요약
 
 ```
-세션 t (시장 m), 단계 순서 session_start < open < intraday < close_fill < close_mark < decision < session_end 
+세션 t (시장 m), 단계 순서 session_start < open < intraday < close_fill < close_mark < decision < session_end
  ts_open(t) ──► [session_start: 해석기 효과·지급·종료] ─► [open: 매도 → 매수 → 새 탈출 주문] ─► [intraday: 매도 → 매수(장중 매도 대금 미사용) → 새 탈출 주문(불리한 쪽만)]
             ─► [close_fill: 시장가 at=close, 매도 → 매수] ─► [close_mark: 종가 평가·트레일링·만료] ─► ts_close(t)
                                          │
@@ -2079,9 +2079,9 @@ runs/<run_id>/
   survivorship.parquet     year, market, n_universe, n_excluded_by_reason(json), n_microcap_excluded, n_delisted, n_delisted_held, n_observed, n_policy, n_unobserved, terminal_value_base, terminal_value_long_base, terminal_value_short_base, terminal_value_lo_base, terminal_value_hi_base, nav_share, nav_share_lo, nav_share_hi  (열은 아래) [#160, #394]
   coverage_fields.parquet  year, market, dataset, field, freq, required_by_universe, n_universe_rows, n_value, n_stale, n_not_yet_published, n_missing, share_value  (열은 아래) [#160]
   term_diagnostics.parquet market, session_date, term, diagnostic, n — 5.4.1의 건수, 그 절이 정한 표
-  trades.parquet           trade_id, sleeve, instrument_id, side(long|short), status(closed|open), ts_open, ts_close, qty_max, avg_entry, avg_exit, legs, realized_minor, unrealized_minor(open), costs_minor, distributions_minor, borrow_minor, exit_reason(rebalance|exit:<rule>|delisted|merger|override|ca_unverified_exit [#150]), sessions_held, mae, mfe(진입·청산 봉의 극값은 빼고 계산, "daily-bar approximation" 표시) 
+  trades.parquet           trade_id, sleeve, instrument_id, side(long|short), status(closed|open), ts_open, ts_close, qty_max, avg_entry, avg_exit, legs, realized_minor, unrealized_minor(open), costs_minor, distributions_minor, borrow_minor, exit_reason(rebalance|exit:<rule>|delisted|merger|override|ca_unverified_exit [#150]), sessions_held, mae, mfe(진입·청산 봉의 극값은 빼고 계산, "daily-bar approximation" 표시)
   ca_exclusions.parquet    (5.6.1이 종목을 뺐을 때만) sleeve_id, instrument_id, event_id, cause(ca_ratio_missing|ca_ratio_unverified|ca_ratio_disagrees), v_e, ts_effective, excluded_from, excluded_to, held_qty, price_basis(last_valid_close|null), basis_session, exit_price, pnl_minor, costs_minor, trade_id(nullable)  [#150]
-  offsets.parquet          (offsets일 때만) offset, cagr, sharpe, mdd, turnover 
+  offsets.parquet          (offsets일 때만) offset, cagr, sharpe, mdd, turnover
   waterfall.parquet        판단 × 칸별 Σ|w| 변화 (5.5.2a)
   risk_state.parquet       계좌 규칙 상태 (5.5.2a; 계좌 규칙이 없으면 0행)
   decide_state.parquet     decide 블록의 상태 (3.7, 5.5.3; decide 블록이 있을 때만)
