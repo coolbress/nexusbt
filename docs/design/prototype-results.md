@@ -6,7 +6,7 @@ Purpose: measured evidence for three of the spec's "10 points of evidence": perf
 
 ## 0. Measurement conditions
 
-- Two machines: a **laptop, M1 8 GB** (it used 6.5 GB of swap during the runs; read it as the worse case) and the **compute machine, M4 16 GB** (the reference machine of spec chapter 7). The gate verdict is taken again on the compute machine in T6.11.
+- Two machines: a **laptop, M1 8 GB** (it used 6.5 GB of swap during the runs; read it as the worse case) and the **compute machine, M4 16 GB** (spec chapter 7's reference machine until 2026-11-24, when no machine became a target and the measurements moved to an 8 GB machine; #725 Decisions 256). T6.11 measures again and compares; it judges no gate.
 - Environment: Python 3.12, numpy 2.5.4, numba 0.68.1, pyarrow 26.0.0, polars 2.1.0, psutil 7.2.2.
 - "cold" = a new process with the Numba cache and the L0 cache (.npy blocks) deleted. "warm" = both present. The OS file cache is warm even in cold runs (the same as the spec's P1 definition).
 - Repetitions: 5 per workload, each in a new process; p50/p95 are over the 5 (p95 ≈ the maximum). The output value hashes were equal across all 5, and between cold and warm.

@@ -15,7 +15,7 @@
 > **우선순위.** 규칙이 서로 다르면 **사용자 결정(설계 9.0, 이후 결정) > 이 명세 v3.4 = TDS v1.4(입력 형식에 대해서는 이 명세 4장보다 TDS가 우선) > 3자 검토 합의 > 청사진 > 설계 본문 > sources** 순이다. 어떻게 풀었는지는 부록 A(A-104부터 v3).
 >
 > **추적 표기.** 규범 문장 끝의 대괄호가 근거다.
-> - `[R-xx]`, `[P1]`~`[P10]`: 설계 8장 요구·성능 약속. `R-56`부터는 명세가 새로 붙인 번호(1.4).
+> - `[R-xx]`, `[P1]`~`[P10]`: 설계 8장 요구·성능 항목(성능 숫자는 2026-11-24부터 약속이 아니라 알림: 7장). `R-56`부터는 명세가 새로 붙인 번호(1.4).
 > - `[9.0 …]`: 사용자 결정 2차. `[Q6]` 같은 것은 설계 9.1 1차 결정.
 > - `[C1]`~`[C10]`, `[11.4.2]`: Codex 검토(설계 11장). `[D1]`~`[D8]`(대괄호 + D + 숫자 한 자리): E0 결정.
 > - `[SC-xx]`: 청사진 13장 명세 변경. `[OQ-x]`: 청사진 14장 열린 질문. `[TDS x.y]`: TDS 절. `[TDS-Dxx]`: TDS 12장 차이(이 문서에서는 E0의 D와 헷갈리지 않게 항상 `TDS-` 접두). `[TDS-Qx]`: TDS 13장 질문.
@@ -264,7 +264,7 @@ NexusBT는 이 다섯을 한 엔진에 모은다. 각 엔진에서 가져온 장
   6. 개발 전용 의존 hypothesis(MPL-2.0)는 배포물에 들어가지 않는다.
 - **저장소에 넣지 않는 것** (공개 저장소 규칙, 시험으로 강제 — 2.7): 참조 생산자 자료·스냅숏·그 일부, 공급사 자료에서 만든 정답 파일(fixture), 생산자 자료 경로(사용자 홈 아래 절대 경로 등)와 내부 호스트 이름·주소, 비밀값. 모든 시험 자료는 합성 생성기(4.8), 시험의 임시 폴더에 있는 매핑 파일로 가져오는 `nexusbt_tds.import_csv`, 또는 적합성 패키지를 만드는 `tds/conformance/build.py`로만 만든다(2.7). 맥미니 측정·실제 자료 대조의 증거 파일은 **요약 수치만**(행 수, 최대 오차, 통과 여부, `snapshot_id`) 담고 종목별 값·가격을 담지 않는다.
 - Python: **3.13** (`.python-version`). 패키지 관리 `uv`(workspace), 잠금 파일 `uv.lock`(plinth 필수). 대조 시험 환경은 따로 **Python 3.12**(`tests/parity/`, 8.1).
-- 실행 장소: 자료가 있는 사용자의 계산 기계(현재는 맥미니 M4 16 GB; 주소·계정은 저장소 밖 사용자 메모에만). 노트북 PC의 노트북은 그 기계의 Jupyter 커널에 SSH로 붙는다. 엔진은 원격 호출 기능을 만들지 않는다 [Q9, A-17]. 자료 위치는 설정(`[data] root`)이나 환경 변수 `NEXUSBT_DATA_ROOT`로만 받는다.
+- 실행 장소: 자료가 있는 사용자의 계산 기계(그 종류·주소·계정은 저장소 밖 사용자 메모에만; 어느 기계도 성능 목표가 아니고, 7장의 측정은 8 GB 기계에서 한다 [#725 결정 256]). 노트북 PC의 노트북은 그 기계의 Jupyter 커널에 SSH로 붙는다. 엔진은 원격 호출 기능을 만들지 않는다 [Q9, A-17]. 자료 위치는 설정(`[data] root`)이나 환경 변수 `NEXUSBT_DATA_ROOT`로만 받는다.
 
 ### 2.2 고정 버전 (첫 `uv.lock` 기준)
 
@@ -2519,11 +2519,13 @@ primary, reference, diagnostics의 모든 값은 평가 기간과 `n_valid`/`n_t
 
 ## 7. 성능 예산 [P1~P11, 11.8]
 
-**기계**: 사용자의 계산 기계 = Apple M4, 메모리 16 GB, 로컬 SSD, macOS, 수집기가 평소처럼 함께 도는 상태, 디스크 여유 20 GB 이상(주소는 저장소 밖, 2.7). **자료**: 고정 스냅숏 하나(E1 단계의 첫 실제 내보내기; 그 전에는 합성 `full` 프리셋 `synth-full-0001`). 결과에 스냅숏 id를 적는다.
+**기계** [#725 결정 256]: 어느 기계도 목표가 아니다. 측정은 측정 기계, 곧 관리자의 8 GB 기계에서 한다. 로컬 SSD, macOS, 디스크 여유 20 GB 이상, 평소 일이 함께 도는 상태다(주소는 저장소 밖, 2.7). 티켓이 측정을 "계산 기계에서" 돌린다고 하면 이 기계다. 명세와 문서는 잰 기록을 남기고 엔진이 무엇에서 잘 도는지 말할 뿐, 어느 기계에서의 시간도 약속하지 않는다. **자료**: 고정 스냅숏 하나(E1 단계의 첫 실제 내보내기; 그 전에는 합성 `full` 프리셋 `synth-full-0001`). 결과에 스냅숏 id를 적는다.
 
-**"대화형"**(사용자 결정 2026-11-03): 연구가 대화형이라는 것은 고치고 다시 돌리는 고리가 그렇다는 뜻이다: 사용자가 전략이나 팩터 파일을 고쳐 다시 돌리고 결과를 읽으며, P2 관문보다 오래 걸리는 호출은 돌고 있다는 표시를 보이고 취소할 수 있다. 숫자 하나가 아니다; 아래 예산은 그 고리 가운데 잴 수 있는 부분이다.
+**"대화형"**(사용자 결정 2026-11-03): 연구가 대화형이라는 것은 고치고 다시 돌리는 고리가 그렇다는 뜻이다: 사용자가 전략이나 팩터 파일을 고쳐 다시 돌리고 결과를 읽으며, 2 s(P2의 첫 숫자, 이 규칙으로 남김)보다 오래 걸리는 호출은 돌고 있다는 표시를 보이고 취소할 수 있다. 숫자 하나가 아니다; 아래 예산은 그 고리 가운데 잴 수 있는 부분이다.
 
-| # | 일 | 관문 (출시) | 목표 | 측정 정의 |
+**숫자의 뜻** [#725 결정 257; 주인, 2026-11-25]: 아래 P1~P9와 P11의 숫자는 첫 어림이고 첫 측정 뒤 다시 쓴다; 그 뒤로는 앞 측정보다 나쁜 측정이 알림을 내고, 그것은 고칠 회귀다. 어느 것도 통과·실패 관문이 아니다. P10은 정확성 관문으로 남는다(표 8.1). 엔진의 동작이 숫자를 읽는 곳에서는 그 숫자가 예산이 아니라 규칙이고 그대로 남는다: 프로세스 트리 메모리 예산 `[compute] memory_budget_gb`(기본 4.0, 3.11)로 묶음을 나누는 것(5.3.8); 위의 2 s 뒤 돌고 있다는 표시; P8의 순서, 곧 정적 검사가 무거운 계산보다 먼저(6.5). 이 장 끝의 CI 연기 시험 문턱은 그 시험 자신의 것이다.
+
+| # | 일 | 첫 숫자 (알림) | 목표 | 측정 정의 |
 |---|---|---|---|---|
 | P1 | `import nexusbt as nx` + `tds.json` 열기·검증(`verify="manifest"`, 프로필 판정 포함) | p95 ≤ 1.5 s | 1.0 s | 새 프로세스마다, OS 캐시 데움 |
 | P2 | `nx.screen(strategy)` 252세션 창, KR+US | p95 ≤ 2 s | 1 s | 데워진 프로세스, 같은 프로세스 11회 중 첫 회 버림 |
@@ -2532,13 +2534,13 @@ primary, reference, diagnostics의 모든 값은 평가 기간과 `n_valid`/`n_t
 | P5 | `nx.backtest` 월간 top-N(n=50/슬리브) 비용 포함 30년 KR+US, 회계·시나리오 5개·저장 포함 | p95 ≤ 30 s | **10 s** | 새 프로세스, 엔진 캐시 없음 |
 | P5-daily | `nx.backtest` 매일 판단, top-N(n=50/슬리브) 비용 포함, 30년 KR+US, 회계·저장 포함. 월간 P5에 없는 세 가지를 담는다: 매일의 회전율(세션마다 리밸런스 판단), 그래프 안의 사용자 함수(창 방식 `@nx.factor(window=…)` 하나), 부분 체결(5.6.6의 거래량 상한이 몇몇 세션에 걸리는 주문 크기, 남은 양은 이월) | 먼저 재고 예산은 그 뒤에 | 먼저 재고 예산은 그 뒤에 | 새 프로세스, 엔진 캐시 없음. 첫 측정(M3a 끝, 아래 표) 뒤에 사람이 p95 예산과 목표를 정하고 그때 이 행을 고친다 |
 | P6 | `nx.sweep` 27후보, 공통 항 공유 | p95 ≤ 120 s | 60 s | |
-| P7 | P5 동안 엔진 프로세스 트리(주 + 작업자) 최고 RSS 합 | ≤ 4 GB | 3 GB | psutil 50 ms 표본, 트리 전체 합. L0 메모리 매핑 페이지가 RSS에 잡히므로 **USS(익명 메모리)** 합 최고값도 한 줄 따로 보고하고, 관문은 USS ≤ 4 GB로도 판정한다(둘 다 보고). 1년 묶음이 예산을 넘으면 더 작게 나눈다(5.3.8) [SC-15, RV-I05] |
-| P8 | 정적 검사(6.5) | ≤ 1 s, 무거운 계산 전 | | 호출부터 계산 시작까지 |
+| P7 | P5 동안 엔진 프로세스 트리(주 + 작업자) 최고 RSS 합 | ≤ 4 GB | 3 GB | psutil 50 ms 표본, 트리 전체 합. L0 메모리 매핑 페이지가 RSS에 잡히므로 **USS(익명 메모리)** 합 최고값도 한 줄 따로 보고하고, 알림은 USS도 4 GB에 견주어 읽는다(둘 다 보고). 엔진이 따르는 규칙은 `[compute] memory_budget_gb`다: 1년 묶음이 그것을 넘겠으면 더 작게 나눈다(5.3.8) [SC-15, RV-I05] |
+| P8 | 정적 검사(6.5) | ≤ 1 s; 무거운 계산 전(규칙, 그대로) | | 호출부터 계산 시작까지 |
 | P9 | 자르기 탐침 | 관문 없음, 시간 보고 | | [C8] |
 | P10 | zipline 대조 허용 오차 | 8.1 표 | | 정확성 관문 |
-| P11 | **고차원** [R4-18]: 팩터 300개(기본 칼럼 약 40개에서 창·순위·합성으로 만든 것) × 30년 × KR+US, 월간 판단 — (a) `nx.evaluate({300개})`, (b) 300개 `ops.composite` 점수의 `backtest`(top-N, 비용·회계 포함), (c) (b)를 `method="walk_forward"` + `grid` 3점 | **목표만**(T6.26이 엔진에서 잰 뒤 관문을 ADR로 정함) | (a) ≤ 300 s, (b) ≤ 60 s, (c) ≤ 180 s; 엔진 트리 USS ≤ 6 GB | 새 프로세스, 엔진 캐시 없음/있음 둘; 읽은 칼럼 바이트·계산한 판단 행 수·노드 수·공유된 노드 수를 함께 보고 |
+| P11 | **고차원** [R4-18]: 팩터 300개(기본 칼럼 약 40개에서 창·순위·합성으로 만든 것) × 30년 × KR+US, 월간 판단 — (a) `nx.evaluate({300개})`, (b) 300개 `ops.composite` 점수의 `backtest`(top-N, 비용·회계 포함), (c) (b)를 `method="walk_forward"` + `grid` 3점 | **목표만**(관문 없음: 2026-11-24부터 T6.26이 잰 뒤의 첫 숫자는 다른 것처럼 알림) | (a) ≤ 300 s, (b) ≤ 60 s, (c) ≤ 180 s; 엔진 트리 USS ≤ 6 GB | 새 프로세스, 엔진 캐시 없음/있음 둘; 읽은 칼럼 바이트·계산한 판단 행 수·노드 수·공유된 노드 수를 함께 보고 |
 
-**이른 측정** [RV-I05]: 벤치 장치(T1.24)는 **M1**에 들어오고, 마일스톤마다 아래 표에 고정한 워크로드를 잰다. 구조의 실제 비용을 M6 관문이 아니라 M3a가 구조를 굳히기 전에 알기 위해서다. M6(T6.11)은 관문 판정이다. P7 메모리는 **프로세스 트리 전체**(주 + 작업자)의 합으로 잰다. "단계가 예산의 2배를 넘으면: 프로파일 → 원인 ADR" 규칙(아래 P11 밑)은 M1부터 재는 모든 단계에, 그 단계에 예산이 생기는 대로 적용한다.
+**이른 측정** [RV-I05]: 벤치 장치(T1.24)는 **M1**에 들어오고, 마일스톤마다 아래 표에 고정한 워크로드를 잰다. 구조의 실제 비용을 M6이 아니라 M3a가 구조를 굳히기 전에 알기 위해서다. M6(T6.11)은 모든 워크로드를 재서 기록하고 앞 측정과 견준다; M6의 정확성 관문은 그대로다(10.0) [#725 결정 257]. P7 메모리는 **프로세스 트리 전체**(주 + 작업자)의 합으로 잰다. "단계가 예산의 2배를 넘으면: 프로파일 → 원인 ADR" 규칙(아래 P11 밑)은 M1부터 재는 모든 단계에, 그 단계에 예산이 생기는 대로 적용한다.
 
 | 언제 | 티켓 | 스냅숏 | 워크로드 |
 |---|---|---|---|
@@ -2547,7 +2549,7 @@ primary, reference, diagnostics의 모든 값은 평가 기간과 `n_valid`/`n_t
 | M2 끝(T2.10a 뒤) | T2.24 | `synth-full-m1-0001` | P11 (a) **축소, M1 칼럼**: `bench/fixtures/p11.json`의 팩터 300개를 M1 데이터셋에 있는 기본 칼럼(가격·거래량·달력에서 나온 것)만으로 창·순위·합성을 거쳐 만들고, 월간 판단에서 판단 행만으로 `nx.evaluate`; cold와 warm, P11 보고 칼럼과 함께 |
 | M3a 끝 | T3.18 | CI는 `full_ci`(`full`의 1/50), 계산 기계는 `synth-full-0001` | 상태 기계를 포함한 한 시장 P5, 한 시장 P5-daily, P7; 계산 기계에서는 **전체** P11 (a)(`bench/fixtures/p11.json`의 기본 칼럼 40개)도 |
 | M4 끝 | T4.9 | `synth-full-0001` | P5 전체(두 슬리브, 시나리오 5개), KR+US P5-daily, P7 |
-| M6 | T6.11 | `synth-full-0001` 또는 첫 실제 내보내기 | 관문들, 그리고 P2b(T6.12의 L0 캐시와 T6.4의 L1 캐시가 필요하고, 둘 다 M6) |
+| M6 | T6.11 | `synth-full-0001` 또는 첫 실제 내보내기 | 모든 워크로드를 앞 측정 옆에, 그리고 P2b(T6.12의 L0 캐시와 T6.4의 L1 캐시가 필요하고, 둘 다 M6) |
 
 M6 전의 **cold와 warm**은 그 마일스톤에 있는 캐시로 정한다: cold = Numba 캐시를 비운 새 프로세스, warm = 그것이 채워진 새 프로세스(OS 파일 캐시는 둘 다 데워짐, P1과 같음). T6.12부터는 cold가 L0 폴더도 지운다(T6.4부터는 L1 폴더도). #144와 #148(L0·L1 열쇠가 무엇을 해시하는지)이 닫히기 전에 잰 warm 수치는 결과 JSON에 `provisional: true`를 단다.
 
@@ -3102,7 +3104,7 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 | M3b 주문 종류 | E3 | 지정가·손절·손절지정가·탈출 주문, `explain(strategy)`, MinTRL·신호-비중 상관 | G-02~G-09, G-32, G-33, G-37~G-40; P-STATE(탈출 만료 금지)·P-QTY; L2-d(프리셋 의미); (선택) 사용자가 한 전략 3개월을 손으로 재현한 요약 증거 [RV-D10] | `uv run nexusbt explain examples/strategies/mom_kr_exits.py KR:T00007 2019-06-28` → 판단 경로와 탈출 주문 사건 |
 | M4 다중 시장 | E3 | 여러 슬리브 백테스트·스크리닝, 통화 귀속, 시장 규칙 팩 | G-27~G-29, G-36, G-50~G-52; M-CCY·M-SLEEVE(전제·반례); 한국 판단이 나중 미국 종가를 못 씀; 환율 방향·묵음; 규칙 경계; `ZZ` 시장 E18/팩 넣으면 돎; 두 슬리브 단계 측정; 사람이 대표 롱숏 결과(`examples/strategies/long_short_kr.py --set shorting.enabled=true`)의 `report.html`을 열어 3.9 Run 목록에 대어 읽음; **요구사항 증거**: R2 — 7장의 M4 끝 조기 측정(T4.9); R5 — 그 눈 확인은 롱숏 결과를 3.9 전략 형태별 지표로 읽음, 대표 결과 셋 가운데 마지막 | `uv run nexusbt backtest examples/strategies/value_mom.py` → 시장별 열과 `fx contribution` 줄이 있는 Run 요약 |
 | M5 모의 운용 | E3 뒤(live) | `live`, 모의 장부(트랜잭션), `reconcile`(재생/재진술), `status.json`, `compare`, `Run.why`, 어댑터, CLI 전체 | 같은 판단·장부 → 같은 멱등 열쇠; `live → fill → live`에서 주문 한 번; 커밋 경계 강제 종료 복구(P-BOOK); 동시 작성자 E35; 자료 전 미래 시가 체결 없음; P-RECON; **요구사항 증거**: R1 — 설정 견본의 `[costs]` 부분(3.11, T5.21)에 증권사 US 수수료 줄이 있고 KR `provisional` 매수 5 bp(3.11)가 KR 증권사 수수료 7~25 bp에 비해 낙관적이라고 적음; R3 — T5.18의 전략 작성 시험(전략 셋, 단계마다 시간·도움·결과)이 M5 끝 증거에; R4 — P-LIVE(8.3), E19, `status.json`의 `last_reconcile`과 `first_divergence`(5.9.6), 수동 실운용 예외 규칙(5.9.6 규칙 1~4), 그리고 잰 대표 주문일 하루(주문, 주문 종류, 걸린 시간, 예외, 재진입; 5.9.7 (5)의 기록)가 M5 끝 증거에 | `uv run nexusbt live examples/strategies/value_mom.py --book paper:demo --fill next_open` 두 번 → 두 번째는 IdempotencyNotice; `uv run nexusbt reconcile --book paper:demo` → `reconciled: yes (replay)` |
-| M6 성능·연구 도구·출시 관문 | E3 성능 | `sweep`, DSR·PBO(집단), 탐침, 시작일 탐침, L0·L1 캐시, 용량 시나리오, 깨끗한 설치 | 빠른 커널 = 참조(같은 환경 비트); P-CACHE(L0·L1, 해석 메타·잡힌 상수); 프로세스 트리 RSS·USS ≤ 4 GB; P-STAT; 7장 관문 측정 JSON; `engine / release` 통과(깨끗한 wheel + 독립 생산자); **요구사항 증거**: R2 — T6.11 JSON에서 cold와 warm 출력 해시가 같음(R4F-18), P-CACHE-INCR 통과(8.3), 6.3a hygiene 칸의 시도 줄이 기록된 시도의 범위를 적음; R5 — `hygiene` 칸(3.9 질문 8, T6.22)과 대표 결과 셋을 모든 칸과 함께 눈으로 확인. M6은 아래 것 없이 합성 적합성에서 끝나고, 아래 것은 그 뒤의 출시 관문에 속함(OI-46): R1 — 실제 스냅숏 백테스트의 첫 화면이 비용 0×/1×/2×(5.7), 상장폐지 lo/hi(3.8 `scenarios`), `offsets=3`(V31-26)의 CAGR 범위를 보이고, 사건별 장부 검증 표가 체결 대 판단 bp를 모형의 기준(다음 시가, 맞춘 주문 시각·종류·수량)에 대어 잼(T6.28, T6.29와 8.4 표, #162); R2 — 그 스냅숏에서 보고서의 `skipped:` 줄(6.6)과 커버리지 출력(#160)이 연도별 빠짐을 보임 | `uv run nexusbt sweep examples/strategies/value_mom.py` → 후보 표 + PBO + DSR(cohort) + 최종 후보 capacity 줄 |
+| M6 성능·연구 도구·출시 관문 | E3 성능 | `sweep`, DSR·PBO(집단), 탐침, 시작일 탐침, L0·L1 캐시, 용량 시나리오, 깨끗한 설치 | 빠른 커널 = 참조(같은 환경 비트); P-CACHE(L0·L1, 해석 메타·잡힌 상수); 프로세스 트리 RSS·USS ≤ 4 GB; P-STAT; 7장 측정 JSON(앞 측정과 견줌; 성능 관문 없음, #725 결정 257); `engine / release` 통과(깨끗한 wheel + 독립 생산자); **요구사항 증거**: R2 — T6.11 JSON에서 cold와 warm 출력 해시가 같음(R4F-18), P-CACHE-INCR 통과(8.3), 6.3a hygiene 칸의 시도 줄이 기록된 시도의 범위를 적음; R5 — `hygiene` 칸(3.9 질문 8, T6.22)과 대표 결과 셋을 모든 칸과 함께 눈으로 확인. M6은 아래 것 없이 합성 적합성에서 끝나고, 아래 것은 그 뒤의 출시 관문에 속함(OI-46): R1 — 실제 스냅숏 백테스트의 첫 화면이 비용 0×/1×/2×(5.7), 상장폐지 lo/hi(3.8 `scenarios`), `offsets=3`(V31-26)의 CAGR 범위를 보이고, 사건별 장부 검증 표가 체결 대 판단 bp를 모형의 기준(다음 시가, 맞춘 주문 시각·종류·수량)에 대어 잼(T6.28, T6.29와 8.4 표, #162); R2 — 그 스냅숏에서 보고서의 `skipped:` 줄(6.6)과 커버리지 출력(#160)이 연도별 빠짐을 보임 | `uv run nexusbt sweep examples/strategies/value_mom.py` → 후보 표 + PBO + DSR(cohort) + 최종 후보 capacity 줄 |
 | v1.x | v1 직후 | N_eff, Brinson·`first_divergence` (v3.3: 그룹 상한 → T3.29, `time_stop` → T3.33, v1로 [R4-27]) | T7.x 각 티켓의 시험 | 티켓별 |
 | (M7) 이벤트 다리 | E4 | – | 11장 설계만, v1 티켓 없음 | – |
 | (M8) 옵션 | E5 | – | 11장 설계만 | – |
@@ -4058,7 +4060,7 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 - Done means: `memory_budget_gb=1`, `workers=2`에서 P5-small 프로세스 트리 RSS 합이 1 GB 근처로 출력되고 결과 동일; 시나리오 결과 순서·값 동일.
 - Acceptance: `tests/property/test_pipeline_invariants.py::test_P_CHUNK_budget`, `tests/perf/test_smoke.py::test_rss_bounded`, `tests/unit/compute/test_workers.py::test_parallel_scenarios_identical`.
 
-**T6.6 `perf(execution): numba session step over the columnar state (conditional)`** · `M6` `execution` · M · Blocked by: T1.24, T3.18, T4.7 · §5.6, §7 [RV-I10] *(v3.2: `nx.execution._step` 이음새 안에서만; Rust 교체는 이 측정과 프로파일 뒤 ADR-0016 [R3-26])* *(v3: 조건부 — M3a·M4 측정에서 P5 관문을 못 지킬 때만; 지킬 수 있으면 이 티켓은 "측정으로 불필요"로 닫는다)*
+**T6.6 `perf(execution): numba session step over the columnar state (conditional)`** · `M6` `execution` · M · Blocked by: T1.24, T3.18, T4.7 · §5.6, §7 [RV-I10] *(v3.2: `nx.execution._step` 이음새 안에서만; Rust 교체는 이 측정과 프로파일 뒤 ADR-0016 [R3-26])* *(v3: 조건부 — M3a·M4 측정에서 P5 시간의 대부분이 세션 단계에 있고 주인이 P5가 쓰기에 너무 느리다고 판단할 때만(2026-11-25부터 P5 관문은 없음, ADR 0054); 아니면 이 티켓은 "측정으로 불필요"로 닫는다)*
 - Done means: P5 측정 전후, 모든 golden 그대로(열 배열 상태 위의 `@njit`, 자료 구조 바꾸지 않음).
 - Acceptance: `tests/property/test_kernels.py::test_fast_step_equals_reference`.
 
@@ -4087,7 +4089,7 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 - Acceptance: `tests/unit/api/test_progress.py::test_progress_after_2s`.
 
 **T6.11 `perf: compute-host gate run and evidence`** · `M6` `bench` · S · Blocked by: T6.3, T6.5, T6.8, T6.12, T6.26 (T6.6을 했다면 그것도) · §7 *(v3.3: P11 목표 측정 포함 [R4-18])* — **사용자가 계산 기계에서 실행**
-- Done means: `bench/results/<date>-<sha>-m4.json`(요약만; `m4`는 마일스톤 M4가 아니라 7장의 계산 기계(Apple M4) 이름)이 커밋되고, P1~P8 관문 통과/실패가 표로 PR에 있으며, P11 (a)(b)(c) 결과를 목표와 견주어 보고한다. v3.1: 작업 P2b(어제 캐시 + 오늘 스냅숏 screen)의 시간·적중률과 열 묶음 켬/끔 두 값을 함께 [V31-11, V31-12]. P2b 적중률 > 0(워터마크가 열쇠에 없음, v3.2 [R3-04]). 실패 항목은 병목 프로파일 + ADR. (#270) `ml-factor` 예제 실행이 `fits` 묶음을 보고하고, PR이 `hash_seconds` 합이 `fit_seconds` 합의 10%를 넘는지 말한다(5.3.11 비용의 대체 발동 조건).
+- Done means: `bench/results/<date>-<sha>-<machine>.json`(요약만; `<machine>`은 `8gb`처럼 측정 기계의 종류를 나타내는 짧은 이름이고 호스트 이름이 아님, 2.7; 2026-11-25까지는 `-m4`)이 커밋되고, 모든 워크로드의 p50/p95·USS를 앞 측정 옆에 둔 표와 나빠진 것마다의 알림이 PR에 있으며(7장 "숫자의 뜻"), P11 (a)(b)(c) 결과를 첫 숫자와 견주어 보고한다. v3.1: 작업 P2b(어제 캐시 + 오늘 스냅숏 screen)의 시간·적중률과 열 묶음 켬/끔 두 값을 함께 [V31-11, V31-12]. P2b 적중률 > 0(워터마크가 열쇠에 없음, v3.2 [R3-04]). 알림이 난 항목은 병목 프로파일을 받고 그 회귀를 고친다(Rust로 다시 쓰는 것은 ADR 0054의 발동 조건으로만). (#270) `ml-factor` 예제 실행이 `fits` 묶음을 보고하고, PR이 `hash_seconds` 합이 `fit_seconds` 합의 10%를 넘는지 말한다(5.3.11 비용의 대체 발동 조건).
 - Acceptance: `tests/unit/bench/test_results_present.py::test_gate_file_for_release`.
 
 **T6.15 `chore(release): clean-install gate, independent producer acceptance, changelog and contributor docs`** **[v3]** · `M6` `release` · M · Blocked by: T2.17, T4.11, T5.4 · §2.3, §9.1 `engine / release`, R-70 [RV-I07, RV-Q05]
@@ -4156,7 +4158,7 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 
 **T6.26 `perf: P11 high-dimensional workload with decision-date-only evaluation, column pruning and batched reductions`** **[v3.3]** · `M6` `bench` · M · Blocked by: T2.24, T6.4, T6.5 · §7 P11, §5.3.2, §5.3.8 [R4-18] *(v3.4: 생성기와 fixture는 T2.24로 옮김 [#175])*
 - Context: T2.24의 생성기와 `bench/fixtures/p11.json` 위에서, 판단 행만 계산(행 마스크 거꾸로 전파), 칼럼 가지치기, `evaluate` 판단마다 줄이기(전체 값 행렬을 두지 않음), 합성 점수 판단 하나 행렬, (시장, 연도, 노드 묶음) 병렬; 측정 JSON(시간·USS·읽은 바이트·판단 행·공유 노드).
-- Done means: `uv run python bench/run.py --workload P11 --fixture bench/fixtures/p11.json --snapshot synth-full-0001`이 (a)(b)(c) 시간·단계별 시간·USS·`fixture_sha256`·출력 값 해시를 출력하고(cold·warm 둘, 해시 같음) ADR-0038에 관문 제안이 적힌다(측정 시제품; 사용자가 계산 기계에서) [R4F-18].
+- Done means: `uv run python bench/run.py --workload P11 --fixture bench/fixtures/p11.json --snapshot synth-full-0001`이 (a)(b)(c) 시간·단계별 시간·USS·`fixture_sha256`·출력 값 해시를 출력하고(cold·warm 둘, 해시 같음) 잰 첫 숫자를 목표 옆에 적는다(측정 시제품; 사용자가 측정 기계에서; 2026-11-24부터 관문 없음, ADR 0054) [R4F-18].
 - Acceptance: `tests/perf/test_p11_smoke.py::test_small_p11_runs_and_reports`, `tests/property/test_pipeline_invariants.py::test_decision_rows_only_equals_full`, `tests/unit/compute/test_memory.py::test_evaluate_does_not_hold_full_matrix`, `tests/perf/test_p11_smoke.py::test_cold_warm_output_hash_equal`.
 
 **T6.27 `docs(examples): walk-forward/CPCV and ML factor templates`** **[v3.3]** · `M6` `docs` · S · Blocked by: T6.24, T5.18, T6.8, T6.9, T6.20, T6.21, T6.24b, T6.22 · §3.10 템플릿, §8.5 [R4-13] *(2026-11-04: 8.5의 M6 실습 예제 넷과 사용 시나리오 3, 4, 7, 8, 9, D19, #219)*
@@ -4176,13 +4178,13 @@ v3는 3자 검토 합의(RV-I05)대로 **M0을 계약만으로 줄이고**, 검�
 - Acceptance: `tests/unit/portfolio/test_hold_band.py::test_keep_within_m`, `::test_fill_to_n_by_rank`, `::test_anchor_screen_equals_backtest`, `::test_missing_score_drop_default`, `::test_missing_score_hold`, `::test_bottom_hold_mirrors`, `tests/golden/test_portfolio.py::test_G63_band_edges`, `tests/property/test_execution_invariants.py::test_P_PARITY13_with_hold`, `tests/unit/portfolio/test_hold_band.py::test_held_missing_weight_uses_median_u`, `::test_hold_equals_n_keeps_missing_score`, `tests/docs/test_templates.py::test_template_runs[buffer-hold]`(v3.4: 템플릿 시험을 T5.18에서 옮김 [R4F-14]).
 
 **T7.V `verify: post-T7.1 release re-verification (no features)`** **[v3.2]** · `M6 (T7.1 뒤 확인 단계, 기능 아님)` `release` · S · Blocked by: T7.1 · §7, §8, §9.1 `engine / release`, R-70 [R3-23]
-- Context: T7.1이 목표 경로를 바꾼 뒤 출시 관문을 다시 돈다: `engine / release`(깨끗한 설치·빠른 시작·독립 생산자), 대조 L1·L2 전체, P-SHORT-OFF(차등 + 기준선), 성질 `deep` 프로필, 7장 성능 관문(사용자가 계산 기계에서), 규칙 검증 증거. 새 기능·명세 변경 없음(실패면 그 원인 티켓을 다시 연다).
+- Context: T7.1이 목표 경로를 바꾼 뒤 출시 관문을 다시 돈다: `engine / release`(깨끗한 설치·빠른 시작·독립 생산자), 대조 L1·L2 전체, P-SHORT-OFF(차등 + 기준선), 성질 `deep` 프로필, 7장 측정을 앞 측정과 견줌(사용자가 측정 기계에서), 규칙 검증 증거. 새 기능·명세 변경 없음(실패면 그 원인 티켓을 다시 연다).
 - Done means: `uv run python -m tests.repo.release_check --all`가 "release gate after T7.1: pass"와 각 묶음 통과 수를 출력하고 성능 JSON이 커밋된다.
 - Acceptance: `tests/repo/test_release.py::test_release_rerun_after_last_feature`.
 
 **T6.28 `perf: re-measure chapter 7 on a real snapshot (summary evidence)`** **[2026-11-11, #162]** · `M6 (T7.V 뒤 출시 증거, 기능 아님)` `bench` · S · Blocked by: T7.V, T6.15 · §7, §2.7, 12장 OI-46 — **사용자가 계산 기계에서 실행**
 - Context: OI-46 출시 정의의 공개 절반 중 첫째; M6의 끝(합성 적합성, 10.0)은 이것을 기다리지 않는다. 7장의 작업 P1~P7과 P5-daily를 T6.11과 같은 `bench/run.py` 명령·측정 규칙으로, 저장소 밖에 두는 실제 스냅숏에서 잰다. 공개 규칙(2.7)을 다시 적는다: 요약 숫자만. 결과 JSON은 7장 측정 규칙의 그것(작업마다 p50/p95, RSS와 USS, 캐시 상태, 거기 적힌 나머지 필드)이되 `snapshot_id` 자리에 스냅숏의 해시를 담고, 스냅숏의 다른 것은 담지 않는다: 경로·호스트·계정·생산자·종목 이름도, 행도 없다. `release_evidence.json`(T6.15)이 `real_data.measurement` 아래에 이 파일을 가리킨다.
-- Done means: `bench/results/<YYYYMMDD>-<git sha>-m4-real.json`이 커밋되고, PR에 작업마다 한 줄인 짧은 표가 있다: 합성 p50/p95와 USS(T7.V의 JSON) 옆에 실제 값.
+- Done means: `bench/results/<YYYYMMDD>-<git sha>-<machine>-real.json`(`<machine>`은 T6.11과 같음)이 커밋되고, PR에 작업마다 한 줄인 짧은 표가 있다: 합성 p50/p95와 USS(T7.V의 JSON) 옆에 실제 값.
 - Acceptance: `tests/unit/bench/test_results_present.py::test_real_snapshot_result_has_summary_fields_only`(이름이 `-real.json`인 결과 파일은 스냅숏 해시가 있고 `snapshot_id`와 7장 목록 밖의 키가 없다), `tests/repo/test_release.py::test_gate_summary_links_real_measurement`.
 
 **T6.29 `test(release): verify a real ledger event by event against the situation table`** **[2026-11-11, #162]** · `M6 (T7.V 뒤 출시 증거, 기능 아님)` `release` · S · Blocked by: T7.V, T6.15, T5.11b · §8.4 (LV-01..LV-08), §5.9.7, §2.7, 12장 OI-46 — **사용자가 자신의 장부로 실행**
@@ -4488,7 +4490,7 @@ v1 명세의 O1~O11, 청사진 OQ-1~OQ-15, TDS Q1~Q16을 하나로 모았고, v3
 | A-41 | 슬리브 설정 이름 `sleeves={"KR":0.5}` [추] | 설계 3.6 | `[sleeves] KR, US` toml + `backtest(sleeves=)` | 명세 결정 |
 | A-42 | 캐시 열쇠(원본 4개 요소) vs 의미 전체(Codex) | C9 | 5.3.9의 열쇠 | Codex |
 | A-43 | 색인 `runs/index.duckdb`(원본) vs SQLite(Codex) | 11.7 (8) | SQLite, 덧붙이기 트리거. DuckDB는 엔진 의존에서 뺌 | Codex |
-| A-44 | 성능 P5 10초(원본) vs 관문 30초(Codex) | 3.10, 11.8 | 관문 p95 ≤ 30초, 목표 10초. P6 관문 120초, 목표 60초 | Codex |
+| A-44 | 성능 P5 10초(원본) vs 관문 30초(Codex) | 3.10, 11.8 | 관문 p95 ≤ 30초, 목표 10초. P6 관문 120초, 목표 60초; 2026-11-24 대체(#725 결정 257): 숫자는 관문이 아니라 알림 | Codex |
 | A-45 | 사용자 결정 Q1 "보고서에 두 통화 모두" | 9.1 Q1 | Run 출력에 KR net(KRW)·US net(USD) 열과 기준 통화 합친 열 | 사용자 |
 | A-46 | `Strategy`에 위험 단계 칸이 없음(LEAN 구조) vs "명사 하나 더"·v1 범위 자르기 | SC-01, OQ-2, C6 | `risk=` 칸을 두되 기본 `None` = `nx.risk.none()`, 계좌 상태를 받지 않음, v1 구현은 항등뿐. `TargetFrame`에 `stage`·`pre_risk_weight` | 청사진 (사용자 확인 OI-13) |
 | A-47 | 완충대: 사용자 Q6 "portfolio 옵션" vs Codex v1 제외(A-10, 보유에 기대면 INV-08 깨짐) | SC-02, OQ-1, A-10 | 보유 대신 앞 판단의 정규 목표 집합에 기대는 목표 상태 재귀로 정의(순수 함수 유지), INV-08에 기준점 추가. 규범·서명은 v1, 구현은 T7.1(v1 M6 마지막 티켓; 2026-11-24에 자리가 바뀜, #725 결정 244), 기본 꺼짐. A-10의 완충대 부분을 대신함 | 사용자 Q6 + 청사진 |
@@ -4663,7 +4665,7 @@ v1 명세의 O1~O11, 청사진 OQ-1~OQ-15, TDS Q1~Q16을 하나로 모았고, v3
 | P2 screen 2 s | 7장 | M3/M6 | v1 | T6.11 |
 | P3 evaluate 5 s / 1 s | 7장 | M2/M6 | v1 | T6.11 |
 | P4 일간 IC 30 s | 7장 | M6 | v1 | T6.11 |
-| P5 backtest 30 s 관문 / 10 s 목표 | 7장 | M6 | 바뀜(A-44) | T6.11 |
+| P5 backtest 30 s 관문 / 10 s 목표 | 7장 | M6 | 바뀜(A-44; 관문이 아니라 알림, 2026-11-24, #752) | T6.11 |
 | P6 sweep 120 s / 60 s | 7장 | M6 | 바뀜(A-44) | T6.11 |
 | P7 RSS 4 GB | 7장 | M6 | v1 | T1.24, T6.11 |
 | P8 정적 검사 1 s | 7장 | M2 | v1 | T2.12 |

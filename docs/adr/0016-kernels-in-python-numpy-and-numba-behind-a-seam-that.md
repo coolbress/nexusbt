@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-28
+- Amended by: [ADR 0054](0054-performance-numbers-are-alerts-measured-on-an-8-gb-machine.md) (2026-11-25)
 - Spec: §2.4, §11.2
 
 ## Context
