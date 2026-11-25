@@ -98,7 +98,7 @@ The pull request that implements a ticket moves its rows to `implemented` and ad
 | Id | Class | Content | Section | Spec status | Status | Ticket |
 |---|---|---|---|---|---|---|
 | SC-01 | addition | `risk=` slot, `nx.risk.none`, `TargetFrame.stage/pre_risk_weight` | 1.1, 3.7, 5.5.1–5.5.2 | v1 | planned | T3.1, T3.2 (v1.x T7.3) |
-| SC-02 | normative | target-state recursion, anchor, `top(hold=)`, INV-08 wording | 1.3 INV-08, 3.7, 5.5.3, 5.1.3 `anchor_decision_id` | norm v1, implementation v1 (T7.1, the last ticket of M6) | planned | T3.1 (signature, E18), T3.2, **T7.1** |
+| SC-02 | normative | target-state recursion, anchor, `top(hold=)`, INV-08 wording | 1.3 INV-08, 3.7, 5.5.3, 5.1.3 `anchor_decision_id` | norm v1, implementation v1 (T7.1; its place set when stage (2) cuts its tickets, #725 Decisions 244) | planned | T3.1 (signature, E18), T3.2, **T7.1** |
 | SC-03 | normative | kernel numeric rules, INV-03·04 wording, INV-13 | 1.3, 3.4, 5.3.10, ADR-0019 | v1 | planned | T1.7a/b (#239, #240), T1.11 (#244), T1.19 (#254), T6.2, T6.3 |
 | SC-04 | addition | P-START, M-SCALE·DUMMY·SPLIT-NEUTRAL·CCY·SLEEVE, `check(start_probe=)`, E32 | 1.3 INV-14·15, 6.5, 8.3 | v1 | planned | **T1.21** (#255), T4.8, **T6.13** |
 | SC-05 | normative | probe date priority, comparison nodes, finite-cell report | 6.5 | v1 | planned | T6.9 |

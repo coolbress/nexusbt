@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-28
+- Amended by: [ADR 0053](0053-the-hold-band-is-v1-with-no-default-width-and-turnover-is-always-labelled.md) (2026-11-25)
 - Spec: §5.5.2, §5.5.3
 
 ## Context

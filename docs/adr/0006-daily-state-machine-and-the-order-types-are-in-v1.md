@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-28
+- Amended by: [ADR 0052](0052-open-fills-are-capped-by-opening-auction-volume-when-given.md) (2026-11-25)
 - Spec: §5.6
 
 ## Context
