@@ -65,7 +65,7 @@ def test_a_listed_column_missing_from_a_footer_is_S001(tmp_path: Path) -> None:
          f"trades/venue=XNYS/date={DAY}/p.parquet")
     ]  # fmt: skip
 
-    # on a kind V032 did not read, the key is ignored
+    # on a kind outside the three, the key is ignored (`check.SEQUENCED`)
     def bars(m: dict[str, Any], f: Any) -> None:
         m["datasets"][1]["params"]["sequence_consecutive_within"] = ["x_y"]
 

@@ -6,6 +6,11 @@ package version follows the `tds_version` it checks (`1.0.x`), tagged
 
 ## [Unreleased]
 
+### Removed
+- TDS-V031 (a crossed book after reconstruction) and TDS-V032 (a gap in `sequence` numbers) are
+  retired, their numbers not reused, before `trades`, `quotes` and `book_deltas` leave the
+  standard (#752); `tds check` lists neither as `unchecked` at any level
+
 ### Added
 - TDS-M010 at the `schema` level for an `instruments.market` not declared in `markets` (TDS 3.8,
   8.2), one finding per market naming its first instrument; until now M010 read only the
@@ -23,10 +28,6 @@ package version follows the `tds_version` it checks (`1.0.x`), tagged
   `YYYY-MM-DD` date is TDS-M001. It is not in the semantic hash
 - `actions.Resolution.affects`: the chosen version's `affects`, so the engine picks the events
   of `C_split` and `C_total` from the resolver's result (spec 5.3.3)
-- `tds check --level full` judges TDS-V032: a gap in `sequence` within each group a `trades`,
-  `quotes` or `book_deltas` dataset declares with `params.sequence_consecutive_within`, one
-  warning per group; a dataset with no declaration has nothing to judge, so V032 is no longer
-  `unchecked` at `full`
 - `params.sequence_consecutive_within` of `trades`, `quotes` and `book_deltas` (TDS 5.6~5.8):
   TDS-M001 when it is not an array of distinct strings or names `sequence`, and TDS-S001 at the
   `schema` level for a listed column absent from a file (a partition column excepted)

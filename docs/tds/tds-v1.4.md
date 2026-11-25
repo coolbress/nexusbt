@@ -611,7 +611,7 @@ Parameters (`params`): `freq` (`1d`, `1w`, `1mo`, `1h`, `30m`, `5m`, `1m`, `1s` 
 
 > The schemas of 5.6–5.9 and 5.22–5.24 are **experimental**: until lossless import and pinned replay cases exist they are outside the 1.x compatibility promise (10.2) and may change in the next MINOR. Their schema files say `status: experimental`, and the checker emits W (M015) for packages containing these datasets. Only the daily equity datasets (5.1–5.5, 5.10–5.21, 5.25–5.26) are `stable` [RV-I07].
 
-**Consecutive `sequence` numbers, V032 (`trades` 5.6, `quotes` 5.7, `book_deltas` 5.8)** [2026-11-13, #348]: a dataset of these three kinds declares with `params.sequence_consecutive_within` that its vendor promised consecutive `sequence` numbers. The value is a list of column names: present means the promise was made, absent means no promise; there is no `true`/`false` form. A group is the partition (`venue`, `date`) split further by the listed columns, so `[]` makes the whole partition one group (examples: `["instrument_id"]`, or `["x_dbn_channel_id"]` for a Databento channel feed, 9.4). The declaration means the group holds every message of its sequence, which is usually not true of `trades` and `quotes` that hold only some of the messages. The key on a dataset of any other kind is ignored.
+**Consecutive `sequence` numbers (`trades` 5.6, `quotes` 5.7, `book_deltas` 5.8; V032 retired)** [2026-11-13, #348]: a dataset of these three kinds declares with `params.sequence_consecutive_within` that its vendor promised consecutive `sequence` numbers. The value is a list of column names: present means the promise was made, absent means no promise; there is no `true`/`false` form. A group is the partition (`venue`, `date`) split further by the listed columns, so `[]` makes the whole partition one group (examples: `["instrument_id"]`, or `["x_dbn_channel_id"]` for a Databento channel feed, 9.4). The declaration means the group holds every message of its sequence, which is usually not true of `trades` and `quotes` that hold only some of the messages. The key on a dataset of any other kind is ignored.
 - Each listed column is required: one absent from a file's footer is TDS-S001 at the `schema` level; a listed partition column is not an error.
 - V032, which judged the gaps, is retired [2026-11-25, #752]; the declaration's shape and this S001 leave with the three kinds.
 
@@ -663,7 +663,7 @@ Columns: `instrument_id`, `session_date`, `ts_event`, `ts_recv`, `sequence`, `bi
 | flags | i32 | yes | Original bits |
 
 - Reconstruction rule: the start of a file (or date) is either a batch of `is_snapshot = true` rows after a `clear`, or declares with `params.continuity = "carry"` that it carries over the last state of the nearest earlier partition of the same `venue` in the package.
-- The engine reads the book only after rows with `is_last = true`. (V031, a crossed book after reconstruction, is retired [2026-11-25, #752]: `book_deltas` leaves the standard with the other out-of-scope kinds.) V032 (`sequence` gaps) is stated before 5.6's table, for the three datasets.
+- The engine reads the book only after rows with `is_last = true`. (V031, a crossed book after reconstruction, is retired [2026-11-25, #752]: `book_deltas` leaves the standard with the other out-of-scope kinds.) V032 (`sequence` gaps), stated before 5.6's table, is retired too.
 - How each row changes the book (decision 2026-11-12, #347); `is_snapshot` rows apply by the same table:
 
 | `action` | `mbp` (book of price levels) | `mbo` (book of orders) |
