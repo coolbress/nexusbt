@@ -103,14 +103,16 @@ All of them are tested in every milestone (§1.3). The ones that shape the archi
 | Packages, interfaces, import rules, security | §2.3–2.7 |
 | Public API, strategy slots, results, CLI, config | §3.1–3.11 |
 | Input data (TDS), fallbacks, rule packs, synthetic data | §4 |
-| Time and availability, Pipeline compute, caches, determinism | §5.1–5.4 |
-| Targets, sizing, risk, hold band | §5.5 |
-| Daily state machine, fills, costs, corporate actions, margin | §5.6 |
-| Metrics, evaluate, run records, paper book | §5.7–5.9 |
+| Time and availability, Pipeline compute, caches, determinism, missing values | §5.1–5.4 |
+| Targets, sizing, risk, account layer, hold band | §5.5 |
+| Daily state machine, fills, costs, corporate actions, delisting, margin | §5.6 |
+| Metrics, evaluate, run records, paper book, reconcile, explain | §5.7–5.9 |
 | Research hygiene, validation methods, errors | §6 |
 | Performance, tests | §7, §8 |
-| Milestones and tickets | [docs/plan/plan.md](docs/plan/plan.md) (spec §10 points there) and [SPEC-INDEX.md](SPEC-INDEX.md) |
+| Build order with plinth | §9 |
+| Milestones and tickets | [docs/plan/plan.md](docs/plan/plan.md) (spec §10 points there) |
 | Extension points | §11 |
+| Deferred items and their targets | §12.1 |
 | Decisions | [docs/adr/](docs/adr/) (§9.3 points there) |
 
 ## Not in v1 (on purpose)

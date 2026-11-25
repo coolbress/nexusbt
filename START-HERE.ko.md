@@ -1,6 +1,6 @@
 # 여기서 시작
 
-> **이 파일은 2026-10-29의 인계 문서이며, 그 뒤로 최신 상태로 고치지 않는다.** M0 이전의 저장소를 설명한다. 아래 단계는 저장소를 처음 갖출 때의 단계이고, 숫자는 그날의 숫자다. 지금 상태는 [README.ko.md](README.ko.md), [SPEC-INDEX.md](SPEC-INDEX.md), 열린 이슈에서 본다. 이 파일이 말하는 명세 검사기 `tools/spec_lint.py`는 이 저장소에 없다.
+> **이 파일은 2026-10-29의 인계 문서이며, 그 뒤로 최신 상태로 고치지 않는다.** M0 이전의 저장소를 설명한다. 아래 단계는 저장소를 처음 갖출 때의 단계이고, 숫자는 그날의 숫자다. 지금 상태는 [README.ko.md](README.ko.md), [docs/plan/plan.ko.md](docs/plan/plan.ko.md), 열린 이슈에서 본다. 이 파일이 말하는 명세 검사기 `tools/spec_lint.py`는 이 저장소에 없다.
 
 **매매는 이벤트처럼 정확하게, 계산은 벡터처럼 빠르게. 사용자는 블록만 끼운다.**
 
@@ -12,7 +12,7 @@
 |---|---|---|
 | 엔진 명세 v3.4 | [docs/spec/engine-spec-v3.4.md](docs/spec/engine-spec-v3.4.md)(영어 정본) · 한국어 번역 [engine-spec-v3.4.ko.md](docs/spec/engine-spec-v3.4.ko.md) | **유일한 기준.** 공개판. 다른 문서와 다르면 명세가 이긴다 |
 | 명세 검사기 | `tools/spec_lint.py`(아직 저장소에 없음: 인계 묶음에 들어 있지 않았다) | `python3 tools/spec_lint.py`(표준 라이브러리만): § 참조, 티켓 그래프, 번호. 명세를 고칠 때마다 돌린다 |
-| 티켓 색인 | [SPEC-INDEX.md](SPEC-INDEX.md) | 마일스톤 → 티켓 → 명세 절 → 시험 → 막는 티켓. 티켓 본문은 [docs/plan/plan.md](docs/plan/plan.md)의 10.1 |
+| 계획 | [docs/plan/plan.ko.md](docs/plan/plan.ko.md) | 마일스톤 표(10.0)와 명세 절·시험·막는 티켓을 적은 티켓 글(10.1) |
 | 자료 표준 TDS v1.4 | [docs/tds/tds-v1.4.md](docs/tds/tds-v1.4.md) (+ [한국어](docs/tds/tds-v1.4.ko.md)), [예시](docs/tds/tds-examples.md) | 명세 2.3과 T0.1은 `tds/spec/tds-v1.md` 자리를 쓴다. T0.1에서 옮기고 링크를 고친다 |
 | 용어집 | [GLOSSARY.md](GLOSSARY.md) (+ [한국어](GLOSSARY.ko.md)) | 이 프로젝트의 낱말. 명세가 쓰는 이름 `CONTEXT.md`·`CONTEXT.ko.md`는 이 둘을 가리키는 심볼릭 링크 |
 | 결정 기록 | [docs/adr/](docs/adr/) | 기록마다 Status 줄이 그 결정이 서 있는지, 무엇이 대신했는지를 말한다 |
@@ -27,7 +27,7 @@
 1. 이 파일.
 2. [ARCHITECTURE.md](ARCHITECTURE.md) ([한국어](ARCHITECTURE.ko.md)): 시스템 지도와 불변식.
 3. [GLOSSARY.md](GLOSSARY.md) ([한국어](GLOSSARY.ko.md)): 용어집.
-4. [SPEC-INDEX.md](SPEC-INDEX.md), 그다음 티켓이 적은 명세 절만.
+4. [docs/plan/plan.ko.md](docs/plan/plan.ko.md)에서 내 티켓의 글, 그다음 그 티켓이 적은 명세 절만.
 
 ## 일하는 순서
 
@@ -61,11 +61,11 @@
 
 ### (c) `/to-spec`
 
-명세 절을 가리키는 **계획 이슈 하나**를 만든다. 명세는 고쳐 쓰지 않는다. 마일스톤 표와 끝 조건(`docs/plan/plan.md`의 10.0), 만드는 순서(명세 9장), 명세·`SPEC-INDEX.md`·ADR 링크를 넣는다.
+명세 절을 가리키는 **계획 이슈 하나**를 만든다. 명세는 고쳐 쓰지 않는다. 마일스톤 표와 끝 조건(`docs/plan/plan.md`의 10.0), 만드는 순서(명세 9장), 명세·계획 문서·ADR 링크를 넣는다.
 
 ### (d) `/to-tickets`
 
-[SPEC-INDEX.md](SPEC-INDEX.md)에서 이슈를 만든다. 티켓은 마일스톤 순서(M0 → M6, 그다음 v1.x)로 만든다. 이슈 본문은 `docs/plan/plan.md` 10.1의 티켓 글을 그대로 옮긴다: 제목, 크기, Done means, Acceptance, Blocked by, § 절. 이슈 자체의 제목은 티켓이 무엇을 하는지 한 문장으로 쓰고, 티켓의 커밋 꼴 제목(`T6.16 ci(release): …`)은 쓰지 않는다. 티켓 id와 그 제목은 본문 `## Parent`에 둔다. 정답 티켓(`T<m>.G…`)이 그것을 쓰는 티켓보다 먼저다. `Blocked by`의 티켓 번호는 만들면서 이슈 번호로 바꾸고, 티켓 번호 → 이슈 번호 대응은 계획 이슈에 둔다.
+[docs/plan/plan.md](docs/plan/plan.md)의 10.1에서 이슈를 만든다. 티켓은 마일스톤 순서(M0 → M6, 그다음 v1.x)로 만든다. 이슈 본문은 `docs/plan/plan.md` 10.1의 티켓 글을 그대로 옮긴다: 제목, 크기, Done means, Acceptance, Blocked by, § 절. 이슈 자체의 제목은 티켓이 무엇을 하는지 한 문장으로 쓰고, 티켓의 커밋 꼴 제목(`T6.16 ci(release): …`)은 쓰지 않는다. 티켓 id와 그 제목은 본문 `## Parent`에 둔다. 정답 티켓(`T<m>.G…`)이 그것을 쓰는 티켓보다 먼저다. `Blocked by`의 티켓 번호는 만들면서 이슈 번호로 바꾸고, 티켓 번호 → 이슈 번호 대응은 계획 이슈에 둔다.
 
 ### (e) `/implement #N`
 
@@ -88,7 +88,7 @@
 - 주식 수를 바꾸는 기업행동은 정확한 정수비가 있어야 한다(TDS A010 = 오류). f64에서 분수를 추론하지 않는다. `decimal_ratio = "literal"`은 사용자가 골라야 쓴다.
 - `size.kelly`는 v1.x. 모든 검증 방법 안의 ML 학습은 앞쪽만 쓴다.
 - CPCV·walk-forward·CSCV/PBO·DSR은 v1에 넣고, 진입점은 `backtest(method=…)` 하나다. `nx.validate`는 없다. 최소 `nx.ml.factor` 블록은 v1에 넣고, pickle은 쓰지 않는다.
-- 경제 사건 투자도 같은 블록으로: `Macro.series`, `Events.<kind>`, `nx.on_event`, `from_parquet(shape=)`.
+- 경제 사건 투자도 같은 블록으로: 그런 값은 사용자의 값 표이고 `nx.Item.<name>`으로 읽는다(명세 5.3.5).
 - 엔진·명세·TDS는 공개한다. 비공개는 생산자의 자료뿐이다(2026-10-27).
 
 결정 기록은 [docs/adr/](docs/adr/)에 있다. 기록마다 Status 줄이 그 결정이 서 있는지, 무엇이 대신했는지를 말한다.
@@ -100,10 +100,10 @@
 
 ## 증거는 어디에
 
-[docs/design/prototype-results.md](docs/design/prototype-results.md): M4 16 GB 기계에서 P5는 cold p50 5.8 s / p95 6.8 s였다(그때의 관문 30 s, 목표 10 s; 2026-11-24부터 숫자는 8 GB 기계에서 재는 알림, ADR 0054). P11 (a)/(b)/(c)는 예산의 5분의 1 아래로 돌았다. 회계 손계산은 32/32 통과했다. 판단 행만 계산한 값은 전체 계산과 비트까지 같았다. 출력 해시는 두 기계에서 같았다. 명세 7장이 [R4H-05]~[R4H-08]로 인용한다.
+[docs/design/prototype-results.md](docs/design/prototype-results.md): M4 16 GB 기계에서 P5는 cold p50 5.8 s / p95 6.8 s였다(그때의 관문 30 s, 목표 10 s; 2026-11-24부터 숫자는 8 GB 기계에서 재는 알림, ADR 0054). P11 (a)/(b)/(c)는 예산의 5분의 1 아래로 돌았다. 회계 손계산은 32/32 통과했다. 판단 행만 계산한 값은 전체 계산과 비트까지 같았다. 출력 해시는 두 기계에서 같았다. 명세 7장이 인용한다.
 
 ## 첫 세션을 위한 메모
 
 - `review/…`, `teardown/…`, `sources/…`, `STORY.md` 같은 대괄호 근거는 저장소 밖 설계 기록을 가리킨다. 규칙이 왜 있는지를 말할 뿐이고, 규칙 자체는 명세에 다 적혀 있다.
 - 명세는 plinth 2.7.1을 말하지만, 설치된 plinth를 쓴다. GRILL-NOTES C5(공개 플래그 이름)는 답이 났다: GitHub 저장소는 `--private`를 붙이지 않으면 공개다.
-- 명세 [R6-11]: 면담 메모는 저장소에 넣지 않는다. `/grill-with-docs` 동안 `$PACK/GRILL-NOTES.md`에서 읽고, 답은 `CONTEXT.md`, ADR, 명세 PR로 남긴다.
+- 면담 메모는 저장소에 넣지 않는다. `/grill-with-docs` 동안 `$PACK/GRILL-NOTES.md`에서 읽고, 답은 `CONTEXT.md`, ADR, 명세 PR로 남긴다.
