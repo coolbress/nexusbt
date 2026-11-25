@@ -287,7 +287,6 @@ nexusbt/                                     (공개 저장소, Apache-2.0)
 ├── docs/spec/engine-spec-v3.4.md             (이 문서; 비공개 주석·개인 정보·호스트를 뺀 공개판)
 ├── docs/quickstart.md                        (영어 빠른 시작, 8.5 시험 대상)
 ├── docs/adr/0001-… .md                       (9.3)
-├── docs/requirements.md                      (부록 B를 상태와 함께 유지)
 ├── tds/                                      ★ 자료 표준 (따로 판 매김)
 │   ├── README.md  CHANGELOG.md
 │   ├── spec/tds-v1.md                         (TDS 문서 본문; engine-data-standard-v1.4.md에서 11장(생산자 대응)·개인 정보를 뺀 공개판)
@@ -2860,7 +2859,7 @@ README·`docs/`·`examples/`의 ```python 블록 중 `<!-- test -->` 표시가 �
 | 5 검사가 못 보는 것 확인 | 필수 검사 초록 + 티켓의 "Done means"를 `/run`으로 눈으로 | 사용자 | 9.6, 10장 마일스톤별 "보여 줄 명령" |
 | 6 병합 | 사용자가 "merge" | 사용자 | |
 | 7 고장 | `diagnosing-bugs`: 재현 명령 → 실패 시험 → 고침 | 에이전트 | 9.7 |
-| 8 멈추고 돌아오기 | 이슈·PR·`docs/requirements.md`에 상태, `/handoff` | 둘 다 | 9.8 |
+| 8 멈추고 돌아오기 | 이슈·PR에 상태, `/handoff` | 둘 다 | 9.8 |
 | 9 건강 유지 | 의존 갱신 하나씩, `/plinth:floor-check` | 사용자 | 9.8 |
 
 ### 9.1 단계 1: 저장소와 필수 검사
@@ -3059,7 +3058,7 @@ pytest 표시: `unit`, `golden`, `property`, `docs`, `examples`, `parity`, `perf
 - 시험 먼저(tdd): 티켓 "Acceptance tests"의 시험 이름을 그대로 만들고 실패를 본 뒤 구현. golden 사례(`tests/golden/cases/**`)는 앞선 golden 티켓이 이미 병합한 것을 쓰고 **고치지 않는다**(8.2); 사례가 명세와 다르면 멈추고 "spec deviation".
 - 깊은 모듈: 2.4의 공개 인터페이스만 바꾸거나 쓴다. 공개 API(3장)에 없는 이름을 공개하지 않는다. 다른 모듈의 `_` 내부를 import하지 않는다(import 규칙 시험).
 - 명세와 다르게 해야 하면 구현을 멈추고 PR 설명에 "spec deviation"으로 적고 ADR 초안을 같이 낸다. 허용 오차를 늘리거나 시험을 건너뛰어 초록을 만들지 않는다.
-- PR 설명: "Done means"에 대한 증거(명령과 출력 일부), 어떤 리뷰를 돌렸는지와 새 맥락 리뷰가 찾은 것을 보고한 그대로(diff, 이슈의 인정 기준, `AGENTS.md`의 Code Review Rules만 받은 새 하위 에이전트나 새 세션. `/implement`의 `/code-review`는 변경을 쓴 세션이 지시하므로 이 리뷰가 아니다), 확인 못 한 것, `Assisted-by` 줄. `docs/requirements.md`의 해당 R 상태를 고친다.
+- PR 설명: "Done means"에 대한 증거(명령과 출력 일부), 어떤 리뷰를 돌렸는지와 새 맥락 리뷰가 찾은 것을 보고한 그대로(diff, 이슈의 인정 기준, `AGENTS.md`의 Code Review Rules만 받은 새 하위 에이전트나 새 세션. `/implement`의 `/code-review`는 변경을 쓴 세션이 지시하므로 이 리뷰가 아니다), 확인 못 한 것, `Assisted-by` 줄.
 - 400줄을 넘을 것 같으면 티켓을 PR 여럿으로 나누고, 각 PR은 앞 PR이 병합된 뒤의 `main`에서 가지를 낸다(병합 안 된 PR 위에 쌓지 않는다; 10.0의 티켓 규칙) — 나누기는 날짜와 함께 이슈 본문의 `## Decisions`에 적는다.
 
 ### 9.6 단계 5~6: "초록 + 눈으로 봄"
@@ -3075,7 +3074,7 @@ pytest 표시: `unit`, `golden`, `property`, `docs`, `examples`, `parity`, `perf
 
 ### 9.8 단계 8~9: 멈추기, 돌아오기, 건강
 - 멈추기 전: 진행 중 PR 설명에 남은 일, 마일스톤 추적 이슈의 해당 마일스톤 줄 갱신(9.4), 결정은 ADR, `/handoff`.
-- 돌아올 때 "Where is this project, and what's next?"의 답 원천: 마일스톤 추적 이슈, 열린 티켓의 "Blocked by", `docs/requirements.md`(R마다 implemented/deferred/replaced + PR 번호), `bench/results/`, `tests/parity/evidence/`.
+- 돌아올 때 "Where is this project, and what's next?"의 답 원천: 마일스톤 추적 이슈, 열린 티켓의 "Blocked by", 요구마다 부록 B의 티켓, 계획 이슈의 티켓 지도(9.4)에서 그 티켓의 이슈, 그 이슈의 상태와 `## Outcome`이 적은 PR, `bench/results/`, `tests/parity/evidence/`.
 - 건강: numpy·numba·pyarrow·polars는 서로 묶여 있으니 한 PR에 하나씩(numba가 지원하는 numpy 범위 확인). zipline 고정판은 대조 기준이라 올리지 않는다(올리면 ADR + 대조 증거 다시). plinth 템플릿 갱신 뒤 `/plinth:floor-check`.
 
 ---
