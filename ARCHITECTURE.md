@@ -4,7 +4,7 @@
 
 This document describes the high-level architecture of NexusBT. Read it to find your way around the code and to learn which rules hold everywhere. It is a map, not the rules: the rules are in the [engine spec](docs/spec/engine-spec-v3.4.md) (the single source of truth; Korean translation: [engine-spec-v3.4.ko.md](docs/spec/engine-spec-v3.4.ko.md)). Section numbers below (§) point into the spec. Korean translation: [ARCHITECTURE.ko.md](ARCHITECTURE.ko.md).
 
-> Status: the design is complete and the code is not written yet. Every package and module named here is **planned** (spec §2.3, ticket T0.2a).
+> What runs today is in the README's "Status". The packages and modules named here are the layout of spec §2.3 (ticket T0.2a).
 
 ## Bird's-eye view
 
@@ -43,7 +43,7 @@ The split is the point of the design: the heavy, embarrassingly parallel part (t
 - **Research** (§5.7, §5.8, §6). `evaluate` (IC, quantiles, turnover, coverage, BHY), `backtest(method="linear" | "walk_forward" | "cpcv" | "cscv")` with purging and real fills on every fold (§6.3a), segments without a future lock (§6.1), an attempt log with PSR/DSR/PBO (§6.2–6.3), and look-ahead probes (§6.5). Every method calls the one execution and accounting layer above; methods only plan fold and path targets and where accounts start, and diagnostics read the run record without posting money (ADR-0041).
 - **Outputs** (§3.9, §5.9). Each run is a transaction that writes a sealed run folder (Parquet tables, `manifest.json`, captured sources, three hashes, SQLite index). Derived tables (`positions`, `daily`, `metrics`, `attribution`, `exposures`) are rebuilt from events. Result tables implement `__arrow_c_stream__`; a static HTML report, screens and paper books come from the same records.
 
-## Code map (planned)
+## Code map
 
 The repository is a uv workspace with two distributions: the engine `nexusbt` (`import nexusbt as nx`) and the data-standard checker `nexusbt-tds` (`import nexusbt_tds`, CLI `tds`). Layout from §2.3; public interfaces in §2.4; import rules in §2.5.
 
@@ -88,7 +88,7 @@ All of them are tested in every milestone (§1.3). The ones that shape the archi
 
 ## Cross-cutting concerns
 
-- **Errors that teach** (§6.6): every error names what, where, why and how to fix, and its layer (data, your code, config, engine bug). Error codes E1–E49.
+- **Errors that teach** (§6.6): every error names what, where, why and how to fix, and its layer (data, your code, config, engine bug). The error codes are listed in §6.6.
 - **Research hygiene** (§6): attempt counts, pre-registration, look-ahead blocked before computing.
 - **Security and public hygiene** (§2.6, §2.7): no pickle anywhere (Parquet, Arrow IPC, JSON only); no secrets in config; repository hygiene tests keep private data out.
 - **Market rules come from packs** (§4.7, ADR-0029, ADR-0035): market names come from the data; tick grids, limits, rounding and short bans come from versioned rule packs.
@@ -111,7 +111,7 @@ All of them are tested in every milestone (§1.3). The ones that shape the archi
 | Performance, tests | §7, §8 |
 | Milestones and tickets | [docs/plan/plan.md](docs/plan/plan.md) (spec §10 points there) and [SPEC-INDEX.md](SPEC-INDEX.md) |
 | Extension points | §11 |
-| Decisions | [docs/adr/](docs/adr/) (short form in §9.3) |
+| Decisions | [docs/adr/](docs/adr/) (§9.3 points there) |
 
 ## Not in v1 (on purpose)
 
