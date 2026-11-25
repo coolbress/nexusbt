@@ -81,12 +81,12 @@ This is the canonical English text; a Korean translation is in tds-v1.4.ko.md.
 | K6 | Changing classifications, universes and identifiers use **two time axes**: effective period (`effective_from/to`) and known time (`ts_known_from/to`) | "It was in that class then" differs from "we knew that then" (the backfill problem of industry histories filled in later) |
 | K7 | Price numbers: daily bars and event amounts = `float64`; ticks and quotes = `int64` fixed point (per-dataset exponent, default 1e-9) | Book levels must be exactly equal to be the same level (Databento 1e-9). For daily bars float64 is enough and easy to handle |
 | K8 | Package = folder + `tds.json` (a skeleton **inspired by** Frictionless Data Package v2; it does not implement the Data Package `resources` structure as is — v1.1 wording fix). Per file sha256, row count and statistics; per dataset value hash and coverage; per package physical, value and semantic hashes | Aligns ideas with Frictionless tools, while TDS defines the Arrow types and time rules |
-| K9 | **Profiles** (versioned, `@1.0`): from `tds:minimal-daily` (3 tables, analysis) to `tds:equity-daily-research` and `tds:l3-book` (experimental). A package declares the profiles it follows and the checker confirms them with three results (declared, check level, result). Consumer support is stated by the consumer | Small users start with 3–4 tables |
+| K9 | **Profiles** (versioned, `@1.0`): from `tds:minimal-daily` (3 tables, analysis) to `tds:equity-daily-research` and `tds:intraday-bars` (experimental). A package declares the profiles it follows and the checker confirms them with three results (declared, check level, result). Consumer support is stated by the consumer | Small users start with 3–4 tables |
 | K10 | Versions: standard `MAJOR.MINOR`, each dataset schema `MAJOR.MINOR`. Adding optional columns or open enum values = MINOR, everything else = MAJOR. Readers ignore unknown columns | Simplifies the Avro/Confluent compatibility rules and the idea of SchemaVer |
 | K11 | Deterministic writing: same content gives the same bytes and the same value hash (4.5 canonical serialisation — independent of writer tool and language). File and row order and row-group boundaries are fixed | Same as engine INV-09 and the producer build-fingerprint principle |
 | K12 | Conformance checker `tds check`: 3 levels (`manifest` / `schema` / `full`), error codes `TDS-<area><number>`, JSON output | The engine's `SnapshotError` (E14) carries these codes as is |
 
-**Relation to current work.** The v1 engine requires only the datasets needed by the features a graph uses (at the widest, `tds:equity-daily-research` + `panels` + `pit-fundamentals`: equity daily bars + fundamentals + panels). The rest (minute bars, ticks, quotes, futures, options, crypto) have their table shapes fixed as **experimental** (`experimental`) and are promoted to stable after lossless import and pinned replay cases exist (v1.1; the v1 promise "use without change" was premature).
+**Relation to current work.** The v1 engine requires only the datasets needed by the features a graph uses (at the widest, `tds:equity-daily-research` + `panels` + `pit-fundamentals`: equity daily bars + fundamentals + panels). Minute bars are shaped by `bars` and the `tds:intraday-bars` profile, which is experimental. Ticks, quotes, futures, options and crypto left the standard on 2026-11-25; a kind that comes later enters with an `experimental` schema and is promoted to stable after lossless import and pinned replay cases exist (5.6).
 
 ---
 
@@ -154,7 +154,7 @@ This is the canonical English text; a Korean translation is in tds-v1.4.ko.md.
 
 - **Goals**: (1) fully separate the data producer from the engine. (2) Anyone who follows this format can use the engine with their own data. (3) The format alone determines "what could be known when". (4) Same content gives the same hash.
 - **What the v1 engine uses**: Korean and US equity daily research (`tds:equity-daily-research`).
-- **What v1 only shapes**: minute and hour bars, trades, L1 quotes, L2/L3 books, futures (contracts, rolls), options (contracts, chains, Greek inputs), crypto (24/7, funding rates), FX, alternative and event data.
+- **What v1 only shapes**: minute and hour bars, FX, alternative and event data. Trades, quotes, books, futures, options and crypto left the standard on 2026-11-25 (5.6).
 - **Out of scope**: choice of storage engine (DuckDB, ArcticDB etc.), collection and cleaning methods, cost tables (engine resource files, specification 4.17), the engine's run record format (specification 5.9).
 
 ### 2.2 Decisions K1–K12 (reasons and rejected alternatives)
@@ -171,7 +171,7 @@ This is the canonical English text; a Korean translation is in tds-v1.4.ko.md.
 
 **K2. Time = UTC instant; the unit is fixed by the dataset kind.**
 - Instant column names start with `ts_` and their type is `timestamp[us, tz="UTC"]` or `timestamp[ns, tz="UTC"]`. Which unit is fixed once per dataset kind (no freedom to choose → guarantees hashes and determinism).
-  - `ns`: `trades`, `quotes`, `book_deltas`, `book_snapshots`, `trading_status_events`, and `bars` with a period below 1 second.
+  - `ns`: `bars` with a period below 1 second.
   - `us`: everything else (including daily and minute bars).
 - Local dates are `date32` with names ending in `_date` or `_on` (exceptions: `period_end`, `period_start`, `effective_from/to`). A date is a label and does not replace a time.
 - Local wall-clock time columns (timestamps without a time zone) are forbidden. Computations that need a time zone (session open and close) are already resolved by `calendar_sessions` as UTC instants.
@@ -318,7 +318,6 @@ One package = one immutable folder (snapshot).
   instrument_symbols/part-00000.parquet
   instrument_xref/part-00000.parquet
   calendar_sessions/part-00000.parquet
-  calendar_segments/part-00000.parquet
   bars/freq=1d/market=KR/year=2024/part-00000.parquet
   bars/freq=1m/market=US/date=2024-01-02/part-00000.parquet
   tradability_daily/market=KR/year=2024/part-00000.parquet
@@ -334,7 +333,6 @@ One package = one immutable folder (snapshot).
   eligibility_daily/market=KR/year=2024/part-00000.parquet
   feature_panels/name=factor_pit_monthly/edition=strict/year=2024/part-00000.parquet
   label_panels/name=label_monthly/year=2024/part-00000.parquet
-  trades/venue=XNAS/date=2024-01-02/<ts_min>_<ts_max>.parquet          (ticks, optional)
   ...
 ```
 
@@ -419,7 +417,7 @@ One package = one immutable folder (snapshot).
 | `markets` | ○ | 3.8. Per market: `calendar_id` (required), `currency` (required), `timezone` (required), each a non-empty string, a missing one TDS-M003 [2026-11-19, #567]; the watermark fields `complete_through_session` and `complete_through` are optional. The watermark fields change on every publish, so consumers SHOULD use only the stable fields (`calendar_id`, `currency`, `timezone`) in their partition cache keys [v1.3, R3-04] |
 | `editions` | ○ if any table uses editions | Edition names and meanings, default edition |
 | `policies` | optional | Producer rule names and versions (kept as is in the engine run record) |
-| `roll_rules` | ○ if there are futures continuous contracts | 5.22 |
+| `roll_rules` | ○; its shape left with futures on 2026-11-25, and the field stays in the semantic hash (4.5) | 5.6 |
 | `datasets[]` | ○ | Per dataset: `name` (required), `kind` (required), `schema_version` (required), `path` (required), `partitioning`, `key`, `sort`, `params` (kind-specific parameters), `availability` (a 6.2 rule, or one of the 6.2 forms that name the columns holding the instant: `{"column": "<name>"}`, `{"effect": …, "terms": …}` for `corporate_actions`, `{"exit": …, "value": …}` for `delistings`; anything else is TDS-M014), `pit_quality` (`native` / `backfilled` / `mixed`), `rows`, `value_sha256`, `partitions` (required where `partitioning` is declared, M003: per partition its `values` in `partitioning` order, an integer as a number and any other value as its 3.6 text, and its `value_sha256`, 4.5 step 6; the manifest level joins them into `value_sha256` without reading rows, H005 [2026-11-24, #705 B4]), `coverage`, `columns` (name, type, null, unit, description), `files[]` (required) (`path` (required), rows, `bytes` (required), sha256, min/max of main columns, **optional `value_sha256`** — the value hash of the 4.5 canonical value serialisation over that file's rows only, partition columns included; advisory for consumers — this value is at H004 warning level, so a wrong value does not block the package, and consumers therefore do not use an unverified `value_sha256` as a cache identity; per-partition cache identity is set by the file `sha256` [v1.2, V31-12; v1.3, R3-04]). **Required fields**: a missing field marked (required) is TDS-M003; the other dataset and file fields are optional at the manifest level, and the schema and full levels check what they read (`columns` against the schema, `rows` and `coverage` as D004, `sha256` as H001) [maintainer decision 2026-11-02]. **Path safety**: every `path` is relative to the package folder, and `..`, absolute paths and symbolic links leading outside are forbidden (M012); the same file path must not appear twice (M013) [v1.1] |
 | `hashes` | ○ | 4.5 (`physical_sha256`, `value_sha256`, `semantic_sha256`, `hash_spec`) |
 | `writer` | ○ | Writer tool, row-group row count |
@@ -569,7 +567,7 @@ Key (`calendar_id`, `session_date`). Sort same.
 - 24/7: `session_date` = UTC date, `ts_open` = 00:00Z, `ts_close` = 00:00Z of the next day.
 - Futures overnight trading: the session of trading day D may start on the evening of D−1 (`ts_open < session_date 00:00 local`). This is normal.
 
-`calendar_segments` (optional, intraday segments): key (`calendar_id`, `session_date`, `segment`, `ts_start`). Columns `calendar_id` id, `session_date` date, `segment` code (`pre`, `opening_auction`, `continuous`, `break`, `closing_auction`, `post`, `single_price_period` etc.), `ts_start` ts_us. Used by the intraday fill model (E4) and for Korean single-price periods.
+`calendar_segments` (intraday segments) left the standard on 2026-11-25 (5.6).
 
 ### 5.5 `bars` (bars, all periods)
 
@@ -589,14 +587,14 @@ Parameters (`params`): `freq` (`1d`, `1w`, `1mo`, `1h`, `30m`, `5m`, `1m`, `1s` 
 | value_traded | f64 | yes | Traded value (local currency) |
 | trade_count | i64 | yes | Number of trades (Massive `transactions`) |
 | vwap | f64 | yes | |
-| open_interest | f64 | yes | Futures and options open interest (as of the bar end; official values in `market_statistics`) |
+| open_interest | f64 | yes | Futures and options open interest (as of the bar end) |
 | obs_status | code (closed) | yes; no on every row where a declared profile requires it (chapter 7) | `traded` / `no_trade` (no trades) / `halted` (halted) / `missing` (no data, reason unknown) |
 | ts_available | ts_us | yes | Column or rule, always declared in `availability` (no default rule; a missing one is TDS-M003 [2026-11-23, #705 C5]; the usual rule `ts_end`; if vendor daily data arrives late, include the delay with rule `ts_end+P`) |
 | source | code | yes | |
 
 - `cum_factor_split` and `cum_factor_total` have left this table and the schema file [2026-11-25, #705 Decisions 35, 36]: a consumer computes adjustment from the events (K4). A package whose files still hold them, undeclared, gets TDS-S005 (W, an unknown column), the existing rule; an unknown column is not in the value hash (4.5), so hashes an earlier checker wrote over them do not match (TDS-H002, TDS-H003) until the package is written again. A package that declares them in its dataset's `columns` (4.2) keeps them as its own declared columns.
 
-- `obs_status = halted` [2026-11-22, #705]: the instrument was halted for the whole session (`tradability_daily.halted_full_day = true` where that dataset is present); open, high, low and close are null and a written `volume` is 0 (V004). A session halted for part of the day that still had trades is `traded`; its halts are counted in `tradability_daily.halt_count` and listed in `trading_status_events`.
+- `obs_status = halted` [2026-11-22, #705]: the instrument was halted for the whole session (`tradability_daily.halted_full_day = true` where that dataset is present); open, high, low and close are null and a written `volume` is 0 (V004). A session halted for part of the day that still had trades is `traded`; its halts are counted in `tradability_daily.halt_count`.
 - `obs_status` [2026-11-23, #705]: written only where the state is known. A row a writer fills on a session the instrument lacks is `missing`; a producer's row carries the producer's value. A row with values whose state was not given leaves it null: its state is not stated, and a consumer reads its values as stored and does not take it as `traded`. `tds:minimal-daily@1.0` allows that; `tds:equity-daily-core@1.0` and above require `obs_status` on every row (chapter 7, TDS-S003). A row with neither a value (`open`, `high`, `low`, `close`, `vwap`, `volume`, `value_traded`) nor `obs_status` does not say why it has none, so it is not accepted, in every profile (V004) [2026-11-23, #705].
 - Daily bars (`freq=1d`) are dense whatever `params.density` says [2026-11-23, #705]: per instrument exactly one row for every session of its calendar from `listed_on` to its end (D001). Its end is `last_session`; without it, the date of its market's `complete_through`, taken in the market's `timezone` (UTC when it names none); without that, the dataset's `coverage.by_market.<m>.processed_through_session`; without that, the last session any row of its market has in the dataset; never past its `delisted_on`, after which a row is D002's. An instrument with no `last_session` is one whose end is not known: its rows run to the end of what the package holds, a session with no observation being a `missing` row, and a writer never makes up a `last_session` or a `delisted_on` for it. Rows on dates outside sessions are forbidden (D002).
 - A bar of several sessions (`freq` `1w`, `1mo`, or any other that is neither `1d` nor `freq<1d`) [2026-11-23, #705]: its key is the daily one, (`instrument_id`, `session_date`), and its `session_date` is the last session the bar covers, since a bar is complete at its `ts_end` and its first session would date the row before it can be known. `ts_start` and `ts_end` are required. The rules written for one session (D001, D002, T005) do not judge it, and TDS names no partition form for it yet (9.5 imports `freq=1d` only).
@@ -604,81 +602,23 @@ Parameters (`params`): `freq` (`1d`, `1w`, `1mo`, `1h`, `30m`, `5m`, `1m`, `1s` 
 - Daily close = official close (Korean closing single-price auction, US official close). If different, use an `x_` column.
 - A daily bar, like `KR_close`, means the regular-session close; after-market trades are not included (specification 1.2, 4.6). For KR this close is the KRX regular-session close: trades on NXT (Nextrade, the alternative trading system) are not included in the close, the OHLC, the volume or `value_traded`, even those made during regular-session hours (maintainer decision 2026-11-01).
 - `shares_out` (specification 4.7) is removed from bars and moved to `share_counts` (because its availability time differs from prices; chapter 12 D9). A producer convenience column `x_<ns>_shares_out` is allowed.
-- Continuous contract bars: the `instrument_id` is a continuous instrument with `is_synthetic = true`, and `params.roll_rule` is stated (5.22).
 - Bars carry no versions in v1: a later snapshot that replaces a bar holds only the replacement, under the same key. TDS does not set which `ts_available` a replaced bar takes: under a rule it is the instant the rule derives, the same as before, and under the column rule it is what the producer writes. A consumer reads a replaced bar as it reads any bar (`ready_delay` above): with the same instant the row shows the new value, with a later instant the bar is missing in that row. Two snapshots that differ in a bar are two histories of that row, and the snapshot a run recorded is what reproduces it (4.1) [maintainer decision 2026-11-17, #494].
 
-### 5.6 `trades` (trade ticks) — `status: experimental` [v1.1]
+### 5.6 `trades` (trade ticks) — removed [2026-11-25, #752]
 
-> The schemas of 5.6–5.9 and 5.22–5.24 are **experimental**: until lossless import and pinned replay cases exist they are outside the 1.x compatibility promise (10.2) and may change in the next MINOR. Their schema files say `status: experimental`, and the checker emits W (M015) for packages containing these datasets. Only the daily equity datasets (5.1–5.5, 5.10–5.21, 5.25–5.26) are `stable` [RV-I07].
+> **Kinds outside equities** [#725 Decisions 252, 253]: `trades` (5.6), `quotes` (5.7), `book_deltas` and `book_snapshots` (5.8), `market_statistics` (5.9), `calendar_segments` (5.4), `trading_status_events` (5.10), `rates` (5.16), `roll_calendar` (5.22), `option_chain_snapshots` (5.23), `funding_rates` and `reference_prices` (5.24) left the standard on 2026-11-25, with their profiles (chapter 7) and their checks (V030, V031, V032, T008 and the `sequence_consecutive_within` declaration, retired, their numbers not reused, 8.3); `instrument_xref` (5.3) follows. Equities come first; such kinds may come later. A kind that comes later enters with a schema file whose `status` is `experimental`: outside the 1.x compatibility promise (10.2), it may change in the next MINOR, and the checker warns of a package holding it with TDS-M015. No schema is `experimental` now; the datasets this text keeps are `stable`.
 
-**Consecutive `sequence` numbers** [2026-11-13, #348; retired 2026-11-25, #752]: the declaration `params.sequence_consecutive_within` of `trades`, `quotes` and `book_deltas`, its shape in 4.2's JSON schema, its TDS-S001 on a listed column absent from a file, and V032, which judged the gaps, are retired before the three kinds leave the standard; no check reads the key.
+### 5.7 `quotes` (L1 quotes / BBO) — removed [2026-11-25, #752]
 
-Partition `venue=/date=` (date = `session_date`). Key (`instrument_id`, `ts_event`, `sequence`, `trade_id`) (if trade_id is nullable it drops out of the key and `sequence` must be unique). Sort (`instrument_id`, `ts_event`, `sequence`). Time unit ns. Parameters `price_exponent`, `size_exponent`.
+See 5.6.
 
-| Column | Type | Null | Meaning |
-|---|---|---|---|
-| instrument_id | id | no | |
-| session_date | date | no | |
-| ts_event | ts_ns | no | Exchange trade instant |
-| ts_recv | ts_ns | yes | Receive instant (collection system) |
-| sequence | i64 | no | Exchange or vendor sequence number (if absent, an in-file order number) |
-| price | fixed | no | |
-| size | fixed | no | |
-| aggressor_side | code | no | `buy` / `sell` / `none` (Databento B/A/N, Nautilus AggressorSide) |
-| trade_id | string | yes | |
-| venue_mic | code | yes | Actual venue in consolidated trade data |
-| conditions | list<code> | yes | Trade condition codes (original vendor codes, `dictionary/codes`) |
-| action | code | no | `new` / `cancel` / `correct` (corrected and cancelled trades) |
-| flags | i32 | yes | Vendor flag bits (to keep Databento values as is) |
+### 5.8 `book_deltas`, `book_snapshots` (L2/L3 books) — removed [2026-11-25, #752]
 
-Default availability rule: if `ts_recv` is present, `ts_recv`; otherwise `ts_event + params.assumed_latency` (declaration required). T008 (`ts_recv` before `ts_event`) is retired [2026-11-25, #752].
+See 5.6.
 
-### 5.7 `quotes` (L1 quotes / BBO) — `experimental`
+### 5.9 `market_statistics` (official statistics) — removed [2026-11-25, #752]
 
-Partitions and sort are the same as `trades`. Key (`instrument_id`, `ts_event`, `sequence`).
-
-Columns: `instrument_id`, `session_date`, `ts_event`, `ts_recv`, `sequence`, `bid_px` fixed null, `bid_sz` fixed null, `ask_px` fixed null, `ask_sz` fixed null, `bid_ct` i32 null, `ask_ct` i32 null, `venue_mic`, `conditions`, `flags`. The columns named here without a type are typed when the schema leaves `experimental`.
-- A row is "the best bid and offer state on both sides from that instant on". If one side is empty, that side is null. Ticks where only one side changed, as in LEAN, have the other side filled from the previous value at import (chapter 9).
-- V030 (a locked or crossed quote) is retired [2026-11-25, #752].
-
-### 5.8 `book_deltas`, `book_snapshots` (L2/L3 books) — `experimental`
-
-`book_deltas` — partition `venue=/date=`, sort (`instrument_id`, `ts_event`, `sequence`), time ns. Parameters `depth_kind` (`mbp` L2 by price level / `mbo` L3 by order), `max_depth` (for mbp). The columns the table leaves without a type are typed when the schema leaves `experimental`.
-
-| Column | Type | Null | Meaning |
-|---|---|---|---|
-| instrument_id, session_date | | no | |
-| ts_event, ts_recv | ts_ns | no / yes | |
-| sequence | i64 | no | |
-| action | code (closed) | no | `add`, `modify`, `cancel`, `clear`, `trade`, `fill`, `none` (Databento A/M/C/R/T/F/N) |
-| side | code | no | `bid` / `ask` / `none` |
-| price | fixed | yes | null for `clear` |
-| size | fixed | yes | mbp: new total size at that level (0 = level removed). mbo: size of that order |
-| order_id | i64 | yes | Required for mbo |
-| level | i16 | yes | Level number in mbp (optional) |
-| is_snapshot | bool | no | Row from a replay or snapshot (Databento F_SNAPSHOT) |
-| is_last | bool | no | Last row of the same event batch (F_LAST; the book is consistent only after this row) |
-| flags | i32 | yes | Original bits |
-
-- Reconstruction rule: the start of a file (or date) is either a batch of `is_snapshot = true` rows after a `clear`, or declares with `params.continuity = "carry"` that it carries over the last state of the nearest earlier partition of the same `venue` in the package.
-- The engine reads the book only after rows with `is_last = true`. (V031, a crossed book after reconstruction, is retired [2026-11-25, #752]: `book_deltas` leaves the standard with the other out-of-scope kinds.) V032 (`sequence` gaps), stated before 5.6's table, is retired too.
-- How each row changes the book (decision 2026-11-12, #347); `is_snapshot` rows apply by the same table:
-
-| `action` | `mbp` (book of price levels) | `mbo` (book of orders) |
-|---|---|---|
-| `add` | Set the level (`side`, `price`) to `size`, the new total; `size` 0 or null removes the level | Insert order `order_id` with `side`, `price`, `size` |
-| `modify` | Same as `add` | Replace the order's `price` and `size`; an unknown `order_id` is inserted as by `add` |
-| `cancel` | Same as `add`: `size` is the new total, and only `size` 0 or null removes the level | Reduce the order by `size`; remove it when `size` is null or at least the remaining size; an unknown `order_id` is ignored |
-| `clear` | Empty both sides, at the start of a file or in the middle of a day | Empty both sides, at the start of a file or in the middle of a day |
-| `trade`, `fill`, `none` | No change (the row's `size` is the traded size, not a level total) | No change |
-
-- How V031 was judged (#347, #430): retired 2026-11-25 (#752), with the checker's code.
-
-`book_snapshots` — depth-N state at fixed intervals or per event. Long shape: key (`instrument_id`, `ts_event`, `side`, `level`). Columns `ts_event`, `ts_recv`, `side`, `level` (0 = best), `price`, `size`, `order_count`. Databento MBP-10 and Nautilus OrderBookDepth unrolled into rows. The columns named here without a type are typed when the schema leaves `experimental`.
-
-### 5.9 `market_statistics` (official statistics) — `experimental`
-
-Key (`instrument_id`, `stat_type`, `ts_event`). Columns: `instrument_id`, `session_date`, `stat_type` (open: `settlement_price`, `open_interest`, `official_open`, `official_close`, `auction_price`, `auction_volume`, `high_limit`, `low_limit`, `vwap`, `reference_price` …), `value` f64, `unit`, `ts_event`, `ts_available`, `is_final` bool (preliminary/final), `source`. Corresponds to Databento Statistics and Nautilus InstrumentClose. The availability time of futures settlement prices and open interest (usually the next morning) is recorded exactly here. The columns named here without a type are typed when the schema leaves `experimental`.
+See 5.6.
 
 ### 5.10 Tradability: `tradability_daily`, `trading_status_events`
 
@@ -699,7 +639,7 @@ Key (`instrument_id`, `stat_type`, `ts_event`). Columns: `instrument_id`, `sessi
 | ts_available | ts_us | yes | Rules per column group, **`params.availability_by_column` required** (v1.1): prior information (`price_limit_ratio`, `up/down_limit_price`, `reference_price`, `admin_status`) is `session_open`, day results (`halted_full_day`, `halt_count`, `limit_up_close`, `limit_down_close`, `locked_up`, `locked_down`) are `session_close` [RV-Q10] |
 | source | code | yes | |
 
-`trading_status_events` — intraday status changes. Key (`instrument_id`, `ts_event`, `sequence`). Columns `instrument_id` id, `ts_event` ts_ns, `sequence` i64, `ts_recv` ts_ns, `status` code (`halted`, `resumed`, `auction`, `pre_open`, `closed`, `luld_pause` …), `reason` string (original code), `reason_group` code, `source` string, `source_record_id` string. Corresponds to Databento Status and Nautilus InstrumentStatus.
+`trading_status_events` (intraday status changes) left the standard on 2026-11-25 (5.6).
 
 ### 5.11 `corporate_actions` (corporate action events, including dividends)
 
@@ -802,11 +742,11 @@ Key (`base`, `quote`, `rate_kind`, `ts_event`, `source`). Sort same.
 | rate | f64 | no | > 0 (V005) |
 | source | code | no | |
 
-The engine takes the opposite direction as `1/rate`. When FX is used as a tradable object: `instruments(asset_class = fx_spot)` + `bars`/`quotes`.
+The engine takes the opposite direction as `1/rate`. When FX is used as a tradable object: `instruments(asset_class = fx_spot)` + `bars`.
 
-### 5.16 `rates` (rate curves, option Greek inputs)
+### 5.16 `rates` (rate curves) — removed [2026-11-25, #752]
 
-Key (`curve_id`, `tenor_days`, `ts_event`). Columns `curve_id` id (e.g. `USD-SOFR`, `USD-TBILL`, `KRW-CD91`), `currency` code, `tenor_days` i32, `rate` f64 (annualised, ratio), `compounding` code (`simple`/`annual`/`continuous`), `day_count` code (`ACT/360` etc.), `ts_event` ts_us, `ts_available` ts_us, `source` string.
+See 5.6.
 
 ### 5.17 `fundamentals_events` (fundamental facts, raw PIT events)
 
@@ -895,27 +835,17 @@ Columns: `instrument_id` id, `scheme` code (e.g. `gics`, `krx_sector`, `sic`, `i
 
 `series_observations` (macro and alternative time series, with vintages): key (`series_id`, `obs_period_end`, `ts_available`). Columns `series_id` id, `obs_period_start` date null, `obs_period_end` date, `value` f64, `unit` code, `ts_available` ts_us (release instant of that vintage — not the end of the observation period: September CPI is the October release instant), `is_revision` bool, `consensus` f64 null [v1.4], `frequency` code null (`D`/`W`/`M`/`Q`/`A`) [v1.4], `source` string. ALFRED-style vintage storage: a revision of the value for the same period is a new row; first-release vintage = the row with the earliest `ts_available` for that period [v1.4, R4F-EV-01].
 
-### 5.22 Futures: contracts, roll schedules, continuous contracts — `experimental`
+### 5.22 Futures: contracts, roll schedules, continuous contracts — removed [2026-11-25, #752]
 
-- Contract = a row in `instruments` (asset_class `future`). Recommended contract id `CME:ESZ2024` (4-digit year; `ESZ4` is reused every 10 years so it is not used as an id, but it stays in the symbol history).
-- `roll_calendar`: key (`roll_rule_id`, `root`, `session_date`, `rank`). Columns `roll_rule_id`, `root`, `session_date`, `rank` i16 (0 = front), `instrument_id`, `ts_available` (rolls based on OI or volume are determined by **the previous day's** data, so the publication instant of the previous day's statistics; Databento `.n.` and `.v.` are also based on the previous day [verified]). The columns named here without a type are typed when the schema leaves `experimental`.
-- Manifest `roll_rules`: `{"ES-c": {"mapping": "calendar", "offset_sessions": -5, "anchor": "last_trade"}, "CL-n": {"mapping": "open_interest"}}`. `mapping` ∈ {`calendar`, `last_trade`, `first_notice`, `open_interest`, `volume`}; `normalization` ∈ {`none`, `ratio`, `difference`} (only when producing continuous bars).
-- Continuous contract bars are an optional derivative: `instruments(is_synthetic = true, asset_class = future, root, x_roll_rule)` + `bars`. **For signals**; fills and P&L use actual contracts (specification 11.3).
-- Settlement prices and open interest are in `market_statistics`.
+See 5.6.
 
-### 5.23 Options: contracts, chain snapshots, Greek inputs — `experimental`
+### 5.23 Options: contracts, chain snapshots, Greek inputs — removed [2026-11-25, #752]
 
-- Contract = `instruments` (asset_class `option`; underlying, strike, right, exercise_style, ts_expiry, multiplier, settlement_type required). For US listed options the OCC symbol (OSI) goes in `instrument_xref.occ_osi`. Recommended id `OPRA:AAPL240621C00190000`.
-- `option_chain_snapshots`: partition `underlying=/date=`. Key (`instrument_id`, `ts_snapshot`). Columns `instrument_id`, `underlying_instrument_id`, `session_date`, `ts_snapshot` (ts_us), `ts_available`, `bid`, `ask`, `bid_size`, `ask_size`, `last`, `volume`, `open_interest`, `underlying_price`, `underlying_price_kind` (`mid`/`last`/`close`), `iv_vendor`, `delta_vendor`, `gamma_vendor`, `vega_vendor`, `theta_vendor`, `rho_vendor`, `greeks_model` (vendor model name) — **only vendor values are stored**. Values recomputed by the engine are not inputs (specification 11.3 "distinguish vendor values from recomputed values"). The columns named here without a type are typed when the schema leaves `experimental`.
-- Inputs for Greek recomputation: underlying price (column above or underlying `bars`/`quotes`), rates `rates`, dividends `corporate_actions` (announced future dividends) + optional `dividend_forecasts` (an `events` kind), borrow cost (optional `series_observations`).
-- Tick-level option quotes use `quotes` as is.
+See 5.6.
 
-### 5.24 Crypto: 24/7, perpetual contracts — `experimental`
+### 5.24 Crypto: 24/7, perpetual contracts — removed [2026-11-25, #752]
 
-- Calendar `CRYPTO-UTC` (5.4). Recommended instrument id `<exchange>:<symbol>` (`BINANCE:BTCUSDT`, `BINANCE:BTCUSDT-PERP`).
-- `funding_rates`: key (`instrument_id`, `ts_event`). Columns `ts_event` (payment instant), `rate` f64 (rate for that interval), `interval_hours` f64, `is_predicted` bool (predicted value), `ts_available`, `source`. Nautilus FundingRateUpdate. The columns named here without a type are typed when the schema leaves `experimental`.
-- `reference_prices`: key (`instrument_id`, `price_kind`, `ts_event`). `price_kind` ∈ {`mark`, `index`, `settlement`}. Nautilus MarkPriceUpdate. The columns named here without a type are typed when the schema leaves `experimental`.
-- Quantities are fractional: `size_exponent` (ticks), bar `volume` f64.
+See 5.6.
 
 ### 5.25 `feature_panels`, `label_panels` (wide tables computed by the producer)
 
@@ -1022,14 +952,10 @@ A package lists the profiles it follows, with versions, in `profiles` (`tds:<nam
 | `tds:pit-fundamentals@1.0` | `fundamentals_events` + `fundamentals_state` | `fact_id`, `doc_id`, `lineage_id`; `issuer_id` on every `equity` row of `instruments` (V020) [2026-11-24, #705 B2] | `nx.explain` lineage |
 | `tds:bitemporal@1.0` | (on top of other profiles) | `ts_recorded` in `events` and `fundamentals_events`; classifications and state carry `ts_known_from` | System history replay |
 | `tds:intraday-bars@1.0` (experimental) | `instruments`, `calendar_sessions`, `bars(freq<1d)` | `ts_start`, `ts_end`, `session_date`, `density` declaration | E4 intraday path fills |
-| `tds:l1-ticks@1.0` (experimental) | `trades`, `quotes` | `ts_event`, `sequence`, availability rule | E4 |
-| `tds:l2-book@1.0` (experimental) | `book_deltas(mbp)` or `book_snapshots` | `is_last`, starting snapshot | E4 |
-| `tds:l3-book@1.0` (experimental) | `book_deltas(mbo)` | `order_id` | E4 queue model |
-| `tds:futures@1.0` (experimental) | `instruments(future)`, `market_statistics`, `roll_calendar` (if continuous contracts are used) | Contract required columns | E4, E5 |
-| `tds:options@1.0` (experimental) | `instruments(option)`, `option_chain_snapshots` or `quotes`, `rates` | Contract required columns | E5 |
-| `tds:crypto@1.0` (experimental) | `instruments(crypto_*)`, `bars` or ticks, `funding_rates` (if there are perps) | `CRYPTO-UTC` calendar, currency declaration | E4 |
 | `tds:fx` | `fx_rates` or `instruments(fx_spot)` + bars | | |
 | `tds:alt-events` | `events` or `series_observations` | `ts_available` required (no rule, column only) | User term inputs |
+
+`tds:l1-ticks`, `tds:l2-book`, `tds:l3-book`, `tds:futures`, `tds:options` and `tds:crypto` left with their kinds on 2026-11-25 (5.6); a package that declares one gets TDS-M007, as for any profile this table does not have.
 
 **The smallest example** (`tds:minimal-daily`, two hand-made CSVs → `tds import csv`):
 
@@ -1108,11 +1034,11 @@ Severity: E = error (profile fails), W = warning.
 | TDS-M012 | E | A path points outside the package folder (`..`, absolute path, symbolic link leading outside) [v1.1] |
 | TDS-M013 | E | The same file path appears twice [v1.1] |
 | TDS-M014 | E | Unknown **mandatory interpretation rule** (availability rule name, a new value of a closed enum that affects execution, unknown `hash_spec`) — rejected because ignoring it changes the meaning [v1.1]. Also `density = sparse` on daily bars (`freq=1d`), which are dense (5.5) [2026-11-23, #705] |
-| TDS-M015 | W | A dataset with an `experimental` schema is present (outside the 1.x compatibility promise) [v1.1] |
+| TDS-M015 | W | A dataset with an `experimental` schema is present (outside the 1.x compatibility promise) [v1.1]. No schema is `experimental` now (5.6) |
 | TDS-M016 | E | A dataset's `coverage.by_market.<m>.processed_through_session` (4.3) is earlier than its `last` in that market (rows after the session it says it processed) or later than the market's `complete_through_session` (3.8) [v1.4, 2026-11-12] |
 | TDS-M017 | W | `tds_draft` (4.2) a date other than the draft text the checker implements (10.5; a missing one is TDS-M003 [2026-11-23, #705]): the package follows another text of the draft, and its hashes are compared only with packages naming the same text [v1.4, 2026-11-18] |
 | TDS-S001 | E | Required column missing; among them `market_rules`' `price_from`, whose cells may be null (5.27) [2026-11-23, #705] |
-| TDS-S002 | E | Column type differs: a file's column from its type, or a manifest `columns[].type` from the type the schema file states for that column (naming `ts_us` or `ts_ns` for a `ts_us/ns` column is not a difference) [2026-11-11]. For a column the schema file leaves untyped (`"type": null`, the `experimental` kinds) and for an `x_` column, the manifest `columns[].type` is the type the file's column is checked against; such a column with no declaration is not checked [2026-11-12]. For a column other than a partition column, the value hash's type tag (4.5 step 3) is the type this row checks it against [2026-11-12] |
+| TDS-S002 | E | Column type differs: a file's column from its type, or a manifest `columns[].type` from the type the schema file states for that column (naming `ts_us` or `ts_ns` for a `ts_us/ns` column is not a difference) [2026-11-11]. For a column the schema file leaves untyped (`"type": null`; none does now, 5.6) and for an `x_` column, the manifest `columns[].type` is the type the file's column is checked against; such a column with no declaration is not checked [2026-11-12]. For a column other than a partition column, the value hash's type tag (4.5 step 3) is the type this row checks it against [2026-11-12] |
 | TDS-S003 | E | Null in a non-nullable column |
 | TDS-S004 | E | An instant column without UTC tz or with a unit different from the dataset rule, INT96. The unit is the schema file's; a manifest `columns[].type` names it only for a `ts_us/ns` column [2026-11-11], and for a column the schema file leaves untyped or an `x_` column, which it declares `ts_us` or `ts_ns` [2026-11-12] |
 | TDS-S005 | W | Unknown column (without `x_` prefix) |
@@ -1231,11 +1157,9 @@ Common: adapters **do not invent** availability times that the source does not h
 | `equity/usa/daily/<t>.zip` (`YYYYMMDD HH:mm`, OHLC deci-cents, volume) | `bars(freq=1d)` | ÷10,000. Time is local in the data time zone → only the date as `session_date`. Whether LEAN daily prices are raw (adjusted by factors when read) [unverified: believed to be stored raw] |
 | `minute/<t>/<date>_trade.zip` (ms since midnight) | `bars(freq=1m)`: `ts_start = local midnight + ms` converted to UTC via the time zone, `ts_end = ts_start + 1 minute` | LEAN bar time = start [verified]. Minutes without trades have no row → `density = sparse` |
 | `_quote.zip` (bid OHLC, bid size, ask OHLC, ask size) | two lines of `bars(price_type = bid/ask)` | |
-| tick trade (time, price, size, exchange, condition hex, suspicious) | `trades` (`conditions = [hex]`, suspicious → `x_lean_suspicious`) | Price deci-cents → kept as integers with `price_exponent = -4` |
-| tick quote (one side only) | `quotes` (other side filled from the previous state) | |
 | `factor_files/<t>.csv` (date, price factor, split factor, reference price) | Price factor and split factor **decoded separately**: split factor changes → `split/reverse_split` (with explicit `share_factor`), changes of the price factor alone → `cash_dividend` (when back-solving `D` from the reference price fits) or `other` (`factor_method = vendor`), reference price → `factor_ref_price`; no factor column is written (K4) | LEAN factors are backward-cumulative with latest = 1 and the effective-date convention may differ — confirmed by normalisation-mode tests [v1.1, RV-Q08] |
 | `map_files/<t>.csv` (date, ticker, exchange) | `instrument_symbols`; if the last date is in the past, `last_session` and `delistings(unknown)` — but a ticker change has the same shape, so decide together with the next row of `instrument_symbols` | Delisting value [loss]. Check the convention whether a map row's date is the start or the end of a TDS interval [v1.1] |
-| `market-hours-database.json` | `calendar_sessions`, `calendar_segments` | |
+| `market-hours-database.json` | `calendar_sessions` | |
 | option path (style, right, strike×10,000, expiry) | `instruments(option)` | |
 
 ### 9.3 Nautilus catalog → TDS (and back)
@@ -1244,13 +1168,6 @@ Common: adapters **do not invent** availability times that the source does not h
 |---|---|
 | `Equity`, `FuturesContract`, `OptionContract`, `CryptoPerpetual`, `CurrencyPair` | `instruments` (by asset_class), `InstrumentId` (e.g. `AAPL.XNAS`) → `instrument_xref(nautilus_instrument_id)`. A TDS id must follow the K1 grammar (`namespace:local id`), so it cannot be used as is: recommended `XNAS:AAPL:<first listing date>` or `NT:AAPL.XNAS` [v1.1, RV-Q08] |
 | `Bar` + `BarType` | `bars`: step and aggregation → `freq`/`aggregation`, price_type → `price_type`, INTERNAL/EXTERNAL → `source_kind`; `ts_event` (close time by default) → `ts_end`, only for time bars `ts_start = ts_end − period` (tick and volume bars: null if the source has no start [supply]); `ts_init` → not `ts_recv` (creation time), so preserved as `x_nt_ts_init`, and the replay order rule is declared separately in the manifest `params.replay_order`. Prices and sizes are moved exactly as fixed point without going through float; precision is **per instrument** in Nautilus, so the dataset exponent (K7) is set to the smallest exponent of that file (e.g. −9) [v1.1] |
-| `QuoteTick` | `quotes` (bid_price → bid_px …) |
-| `TradeTick` | `trades` (aggressor_side, trade_id as is) |
-| `OrderBookDelta` | `book_deltas` (action, side, price, size, order_id, flags, sequence 1:1) |
-| `OrderBookDepth` | `book_snapshots` |
-| `InstrumentStatus` | `trading_status_events` |
-| `InstrumentClose` | `market_statistics(official_close / settlement_price)` |
-| `MarkPriceUpdate`, `FundingRateUpdate` | `reference_prices`, `funding_rates` |
 
 The opposite direction (`tds export nautilus-catalog`) is the default path of E4 (specification 11.2). Prices build Nautilus `Price` with `price_precision`.
 
@@ -1259,18 +1176,12 @@ The opposite direction (`tds export nautilus-catalog`) is the default path of E4
 | DBN schema | TDS | Notes |
 |---|---|---|
 | `definition` | `instruments` + `instrument_xref(databento_instrument_id, one-day interval)` + `instrument_symbols(vendor:databento_raw)` | Expiry, tick size, strike, multiplier |
-| `mbo` | `book_deltas(depth_kind = mbo)` | action A/M/C/R/T/F/N → add/modify/cancel/clear/trade/fill/none; side A/B/N → ask/bid/none (**the side of T/F is the aggressor side**, so trade rows are also copied to `trades.aggressor_side`); F_LAST → `is_last`; F_SNAPSHOT → `is_snapshot`; 1e-9 integer prices as is (`price_exponent = -9`); `INT64_MAX` → null |
-| `mbp-10`, `mbp-1` | `book_snapshots` or `book_deltas(mbp)` + `quotes` | |
-| `tbbo`, `trades` | `trades` (+ `quotes`) | |
 | `ohlcv-1s/1m/1h` | `bars`: `ts_event` = **interval start** [verified] → `ts_start`; `density = sparse` | |
 | `ohlcv-1d` | `bars(bar_time = utc_day)` | UTC-date daily bars [verified] → `freq = 1d` but `bar_time = utc_day` so they are not used as session daily bars; the engine rejects them in features that need session daily bars. Decide by the record and schema type (if there is a session-end daily variant, `bar_time = session`) and do not relabel dates [v1.1] |
-| `statistics` | `market_statistics` | |
-| `status` | `trading_status_events` | |
 | `imbalance` | `events(event_type = auction.imbalance)` | |
 | time `ts_recv` | availability rule `ts_recv` or `ts_recv+<delay>` (gateway receipt is earlier than user receipt) | [v1.1] |
 | `publisher_id`, channel and dataset, record order | `x_dbn_publisher_id`, `x_dbn_dataset`, `x_dbn_channel_id`, stable sort sequence `sequence` (unique only within a channel) | Preserved so original order and source are not lost [v1.1, RV-Q08] |
 | uint64 `order_id` etc. | decimal string column (`x_dbn_order_id`) + an integer column only when it does not overflow int64 | Signed int64 cannot hold all values losslessly [v1.1] |
-| continuous symbols (`ES.c.0`) | `roll_calendar(roll_rule_id = "databento:c")` | Prices not adjusted [verified] |
 
 ### 9.5 CSV → TDS
 
@@ -1364,7 +1275,7 @@ Standard `1.x` bundles all dataset schemas `1.x`. If a dataset schema MAJOR rise
 
 - When reading a package of a higher MINOR of the same MAJOR, a consumer distinguishes by **whether it uses unknown features**: unknown optional columns and optional datasets → ignore (M011); unknown descriptive open enum values → `other`; things that affect execution or interpretation (availability rule names, new values of closed enums, `hash_spec`) → reject (M014). So there is no promise to "accept every future 1.x package".
 - **Adding a value to a closed enum stays MAJOR** (an old consumer cannot do accounting without knowing the meaning). Descriptive enums (`category`, `delist_type`, `reason`, and `asset_class` since 2026-11-24, #705 B3) are kept open so they grow by MINOR.
-- `experimental` schemas (5.6–5.9, 5.22–5.24) are outside this compatibility promise.
+- `experimental` schemas are outside this compatibility promise. No schema is `experimental` now; a kind that comes later enters that way (5.6).
 
 ### 10.4 Extensions and registration
 
@@ -1513,7 +1424,7 @@ Local evidence:
 | Profiles | No versions, one "pass", `minimal-daily` promised a close-price backtest, research required `cum_factor_*` | `@1.0` versions, three results (declared, check level, result, `not_checked`), `minimal-daily` for analysis only, `cum_factor_*` optional in every profile (and out of the standard since 2026-11-25, 5.5), engine support matrix outside the standard | I01, I03 |
 | Compatibility | Unknown enum values as `other`, every MINOR readable | Unknown mandatory interpretation rules and new closed-enum values rejected (M014), only descriptive ones as `other`, experimental schemas outside the promise | I01, Q11 |
 | Manifest | `$schema` = a domain not owned, no producer hints, no path safety | Relative-path `$schema`, `producer.hints`, path safety (M012, M013), profile versions | Q04, I09, I01 |
-| Experimental | Ticks, books, futures, options, crypto inside 1.0 | `experimental` (M015 warning), only daily equity stable | I07 |
+| Experimental | Ticks, books, futures, options, crypto inside 1.0 | `experimental` (M015 warning), only daily equity stable; those kinds left the standard on 2026-11-25 and no schema is `experimental` now (5.6) | I07 |
 | Fundamentals | `preliminary` not in the enum (contradicting T007), `std_item` presented as a standard without definitions | `preliminary` added and T007 lowered to a warning for it, `std_item` is a provisional mapping | I06 |
 | Interoperability | Mapping tables only | Conversion report, zipline `mergers` not treated as conversions, LEAN factor components decoded, Nautilus id grammar and precision, DBN publisher, channel and uint64, `ts_recv+<duration>` | Q08 |
 | Identifiers | `<MIC>:<ticker>` recommended for small users, `security_id` alias possible | `<MIC>:<ticker>:<first listing date>` or FIGI, no alias | Q04, Q01 |
@@ -1623,3 +1534,4 @@ Reference numbers are `R4F-NN`, specification v3.4's numbers for the fourth revi
 - 2026-11-25: **v1.4**, in place. 5.8 and 8.3: TDS-V031 (a crossed book after reconstruction) is retired, its number never reused, before `book_deltas` leaves with the other out-of-scope kinds (#725 Decision 252; #752's R1b). Moved: the conformance case TDS-V031 is gone; no other package's hash. `tds_version` stays `"1.0"`; `tds_draft` stays 2026-11-19 until 12e (10.5).
 - 2026-11-25: **v1.4**, in place. 5.6 and 8.3: TDS-V032 (a sequence gap) is retired, its number never reused, before `trades`, `quotes` and `book_deltas` leave with `params.sequence_consecutive_within`'s shape and its TDS-S001 (#725 Decision 252; #752's R1c). Moved: the conformance case TDS-V032 is gone; no other package's hash. `tds_version` stays `"1.0"`; `tds_draft` stays 2026-11-19 until 12e (10.5).
 - 2026-11-25: **v1.4**, in place. 4.2's JSON schema, 5.6, 5.7 and 8.3: TDS-V030 (a locked or crossed quote) and TDS-T008 (`ts_recv` before `ts_event`) are retired, their numbers never reused, and so are the declaration `params.sequence_consecutive_within`, its shape and its TDS-S001, before the tick kinds leave (#725 Decision 252; #752's R1a-1). Moved: the conformance cases TDS-V030 and TDS-T008 are gone; no other package's hash. `tds_version` stays `"1.0"`; `tds_draft` stays 2026-11-19 until 12e (10.5).
+- 2026-11-25: **v1.4**, in place. The relation to current work, K2, K9, 2's scope, 4.1, 4.2's `roll_rules`, 5.4–5.10, 5.15, 5.16, 5.22–5.24, 7, 9, 10.2, the review table's experimental row and 8.3 TDS-M015 and TDS-S002: the out-of-scope kinds (`trades`, `quotes`, `book_deltas`, `book_snapshots`, `market_statistics`, `calendar_segments`, `trading_status_events`, `rates`, `roll_calendar`, `option_chain_snapshots`, `funding_rates`, `reference_prices`) leave with their schema files, and the profiles `tds:l1-ticks`, `tds:l2-book`, `tds:l3-book`, `tds:futures`, `tds:options` and `tds:crypto` with them (#725 Decision 252; #752's R1a-2). TDS-M015 stays for a kind that comes later (Decision 253); no schema is `experimental` now. No conformance package or hash moves. `tds_version` stays `"1.0"`; `tds_draft` stays 2026-11-19 until 12e (10.5).

@@ -18,7 +18,7 @@ from .conformance_build import build
 #: TDS 7, the profile column of the table, in its order (`tds:fx` and `tds:alt-events` without `@`).
 CHAPTER_7 = (
     "minimal-daily equity-daily-core equity-daily-research panels pit-fundamentals bitemporal"
-    " intraday-bars l1-ticks l2-book l3-book futures options crypto fx alt-events"
+    " intraday-bars fx alt-events"
 )
 
 
@@ -52,12 +52,11 @@ def test_research_needs_fx_rates_only_with_more_than_one_market() -> None:
 
 
 def test_alternatives_and_experimental_status() -> None:
-    l2 = PROFILES["tds:l2-book@1.0"]
-    mbp = ("book_deltas", (("depth_kind", "=mbp"),))
-    assert l2.requires == (((mbp,), (("book_snapshots", ()),)),)
+    alt = PROFILES["tds:alt-events@1.0"]
+    assert alt.requires == (((("events", ()),), (("series_observations", ()),)),)
     together = (("instruments", ()), ("bars", ()))  # TDS 7: `instruments(fx_spot)` + bars
     assert PROFILES["tds:fx@1.0"].requires == (((("fx_rates", ()),), together),)
-    assert l2.status == "experimental"
+    assert PROFILES["tds:intraday-bars@1.0"].status == "experimental"
     assert PROFILES["tds:minimal-daily@1.0"].status == "stable"
 
 
@@ -228,9 +227,6 @@ def test_the_columns_chapter_7_names_per_profile() -> None:
         },
         "bitemporal": dict.fromkeys(recorded, "ts_recorded"),
         "intraday-bars": {"bars(freq<1d)": "ts_start ts_end session_date"},
-        "l1-ticks": {"trades": "ts_event sequence", "quotes": "ts_event sequence"},
-        "l2-book": {"book_deltas(depth_kind=mbp)": "is_last"},
-        "l3-book": {"book_deltas(depth_kind=mbo)": "order_id"},
         "alt-events": {"events": "ts_available", "series_observations": "ts_available"},
     }
 

@@ -47,27 +47,21 @@ NS = pa.timestamp("ns", "UTC")
 
 
 CLOSE = TICK - 1 + 11 * 3600 * 10**9  # 21:00, the session close and `build.THROUGH`
+WHOLE = CLOSE - 10**6  # a millisecond before the close, a whole microsecond
 
 
-def _quotes(recv: int, availability: str | None = None, *, end: int | None = None) -> Any:
-    """One US:AAA quote at `TICK`, received at `recv`, beside the event of TDS-T001's package;
-    with `end`, the daily bar ends then, under a calendar and the US watermark `build.THROUGH`.
+def _bars(end: int, rule: str | None = None) -> Any:
+    """The US:AAA daily bar ending at `end` (ns) under a calendar and the US watermark, beside
+    TDS-T001's event; with `rule`, the bars' rule and a `ts_available` (us, 5.5) at `WHOLE`.
     The files have pyarrow's footer statistics, which the schema level and T006 read."""
-    rel = "quotes/venue=XNYS/date=2024-01-02/part-00000.parquet"
-    columns = {
-        "instrument_id": ["US:AAA"], "session_date": build.DAY, "ts_event": pa.array([TICK], NS),
-        "sequence": [1], "bid_px": [99], "ask_px": [100], "ts_recv": pa.array([recv], NS),
-        **({"ts_available": pa.array([recv + 500], NS)} if availability else {}),
-    }  # fmt: skip
+    said = {"ts_available": pa.array([WHOLE // 1000], build.TS_UTC)} if rule else {}
 
     def change(m: dict[str, Any], f: Any) -> None:
-        build._add("quotes", columns, rel)(m, f)
-        if availability:
-            m["datasets"][-1]["availability"] = availability
-        if end is not None:
-            m["markets"]["US"]["complete_through"] = build.THROUGH.isoformat()
-            build._sessions(0)(m, f)
-            build.rewrite(m, f, build.BARS, build.bars_table(ts_end=pa.array([end], NS)))
+        m["markets"]["US"]["complete_through"] = build.THROUGH.isoformat()
+        build._sessions(0)(m, f)
+        build.rewrite(m, f, build.BARS, build.bars_table(ts_end=pa.array([end], NS), **said))
+        if rule:
+            build.bars(m)["availability"] = {"rule": rule}
         build.CASES["TDS-T001"][1](m, f)  # an `events` row available a second before its event
 
     return change
@@ -87,16 +81,15 @@ def _run(package: Path, pandas: str, level: str = "full") -> dict[str, Any]:
 @pytest.mark.parametrize(
     ("change", "found"),
     [
-        (_quotes(TICK + 1), ["TDS-T001"]),  # received a nanosecond after the tick
-        (_quotes(TICK - 1), ["TDS-T001"]),  # a nanosecond before it: nothing more (T008 retired)
-        # `ts_available` 500 ns after `ts_recv`, a column 5.7 does not give quotes (S005)
-        (_quotes(TICK + 1, "ts_recv+PT0.0000005S"), ["TDS-S005", "TDS-T001"]),
-        (_quotes(TICK + 1, "ts_recv+PT0.000001S"), ["TDS-S005", "TDS-T001", "TDS-T002"]),
-        (_quotes(TICK + 1, end=CLOSE), ["TDS-T001"]),  # at the watermark and the close
-        (_quotes(TICK + 1, end=CLOSE + 1), ["TDS-T001", "TDS-T005", "TDS-T006"]),  # 1 ns after
+        (_bars(CLOSE - 1), ["TDS-T001", "TDS-T005"]),  # a nanosecond before the close (T005)
+        (_bars(CLOSE), ["TDS-T001"]),  # at the watermark and the close
+        (_bars(CLOSE + 1), ["TDS-T001", "TDS-T005", "TDS-T006"]),  # a nanosecond after
+        # the rule's 500 ns from an end that is no whole microsecond reach `ts_available`
+        (_bars(WHOLE - 500, "ts_end+PT0.0000005S"), ["TDS-T001", "TDS-T005"]),
+        (_bars(WHOLE - 500, "ts_end+PT0.000001S"), ["TDS-T001", "TDS-T002", "TDS-T005"]),
     ],
 )
-def test_a_tick_that_is_not_a_whole_microsecond_is_judged(
+def test_an_instant_that_is_not_a_whole_microsecond_is_judged(
     change: Any, found: list[str], pandas: str, tmp_path: Path
 ) -> None:
     if pandas == "installed":
@@ -105,7 +98,6 @@ def test_a_tick_that_is_not_a_whole_microsecond_is_judged(
     change(manifest, files)
     said = _run(build.write(tmp_path, manifest, files), pandas)
     assert said["converts"] is (pandas == "installed")  # blocked: a pandas-free install's path
-    found = sorted(["TDS-M015", *found])  # quotes are experimental (TDS 5.7)
     assert sorted(code for code, _, _ in said["found"]) == found, said
     assert ["TDS-T001", "events"] in [f[:2] for f in said["found"]]
     assert [c for c in said["unchecked"] if c in INSTANT_CODES] == []

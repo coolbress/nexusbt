@@ -153,24 +153,20 @@ def test_the_4_4_dictionary_table_matches_its_schema_files(name: str) -> None:
 
 
 def test_experimental_schemas_flagged() -> None:
+    """TDS 5.6: none is now; a kind that comes later says so in its heading and its file."""
     status = section_status(TDS_DOC.read_text(encoding="utf-8"))
-    experimental = sorted(kind for kind, n in CHAPTER_5.items() if status[n] == "experimental")
-    assert experimental == [  # 5.6-5.9 and 5.22-5.24, whose headings say experimental
-        "book_deltas", "book_snapshots", "funding_rates", "market_statistics",
-        "option_chain_snapshots", "quotes", "reference_prices", "roll_calendar", "trades",
-    ]  # fmt: skip
-    schemas = load_schemas()
-    flagged = {k for k, s in schemas.items() if s.status == "experimental"}
-    assert [k for k in experimental if k not in flagged] == []
+    assert [kind for kind, n in CHAPTER_5.items() if status[n] == "experimental"] == []
+    assert [k for k, s in load_schemas().items() if s.status == "experimental"] == []
+    assert section_status("### 5.28 `x` — `experimental`\n") == {"5.28": "experimental"}
 
 
 def test_a_kind_without_a_file_fails_verify(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     shutil.copytree(str(SCHEMA_DIR), tmp_path, dirs_exist_ok=True)
-    shutil.rmtree(tmp_path / "quotes")
+    shutil.rmtree(tmp_path / "share_counts")
     assert main(tmp_path) == 1
-    assert "quotes: no schema file" in capsys.readouterr().out.splitlines()
+    assert "share_counts: no schema file" in capsys.readouterr().out.splitlines()
 
 
 @pytest.mark.parametrize(
@@ -189,7 +185,7 @@ def test_no_schema_file_is_an_error_not_an_empty_registry(
 def test_schema_files_cover_stable_datasets() -> None:
     status = section_status(TDS_DOC.read_text(encoding="utf-8"))
     stable = [kind for kind, n in CHAPTER_5.items() if status[n] == "stable"]
-    assert len(stable) == 23  # 5.1-5.5, 5.10-5.21, 5.25 and 5.27 (5.12 and 5.26 name none)
+    assert len(stable) == 20  # 5.1-5.5, 5.10-5.21, 5.25 and 5.27 less 5.16 (5.12, 5.26 none)
     schemas = load_schemas()
     assert [k for k in stable if k not in schemas or schemas[k].status != "stable"] == []
 
@@ -199,7 +195,6 @@ def test_every_stable_schema_column_has_a_type() -> None:
     schemas = load_schemas()
     stable = {k: s for k, s in schemas.items() if s.status == "stable"}
     assert [(k, c.name) for k, s in stable.items() for c in s.columns if c.type is None] == []
-    assert any(c.type is None for c in schemas["quotes"].columns)
     known_to = {c.name: c.null for c in schemas["universe_membership"].columns}["ts_known_to"]
     assert known_to is True  # 5.20, 6.3: an open known interval
 
@@ -268,12 +263,12 @@ def test_a_status_other_than_its_sections_is_a_problem() -> None:
     flagged = {
         "bars": Schema("bars", "experimental", ()),
         "bar": Schema("bar", "stable", ()),
-        "quotes": Schema("trades", "experimental", ()),
+        "fx_rates": Schema("share_counts", "stable", ()),
     }
     assert file_problems(flagged, section_status(doc)) == [
         "bars: status `experimental`, section 5.5 is `stable`",
         "bar: not a TDS chapter 5 dataset kind",
-        "quotes/1.0.json: kind `trades`, folder `quotes`",
+        "fx_rates/1.0.json: kind `share_counts`, folder `fx_rates`",
     ]
 
 
@@ -281,14 +276,11 @@ def test_verify_prints_the_lists_and_the_match(capsys: pytest.CaptureFixture[str
     assert main() == 0
     out = capsys.readouterr().out.splitlines()
     assert out[0] == (
-        "stable: bars, calendar_segments, calendar_sessions, classifications, corporate_actions,"
+        "stable: bars, calendar_sessions, classifications, corporate_actions,"
         " delistings, eligibility_daily, events, feature_panels, fundamentals_events,"
         " fundamentals_state, fx_rates, instrument_symbols, instrument_xref, instruments,"
-        " label_panels, market_rules, rates, series_observations, share_counts, tradability_daily,"
-        " trading_status_events, universe_membership"
+        " label_panels, market_rules, series_observations, share_counts, tradability_daily,"
+        " universe_membership"
     )
-    assert out[1] == (
-        "experimental: book_deltas, book_snapshots, funding_rates, market_statistics,"
-        " option_chain_snapshots, quotes, reference_prices, roll_calendar, trades"
-    )
+    assert out[1] == "experimental: (none)"
     assert out[2:] == ["doc tables match schema files"]

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 import math
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +16,7 @@ from nexusbt_tds import ProfileStatus, check, keys, pit, refs
 from nexusbt_tds.check import Level
 from nexusbt_tds.hash import value_hash
 from nexusbt_tds.manifest import read_manifest
+from nexusbt_tds.schemas import verify
 
 from .alone import measured_alone
 from .conformance_build import build
@@ -224,13 +226,21 @@ def test_an_unreadable_file_leaves_the_row_S_codes_unchecked(tmp_path: Path) -> 
     assert sorted(codes(write(tmp_path / "both", unread), "full")) == ["TDS-S009", "TDS-S010"]
 
 
-def test_M015_warns_of_an_experimental_dataset_and_otherwise_passes(tmp_path: Path) -> None:
+def test_M015_warns_of_an_experimental_dataset_and_otherwise_passes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No schema file is experimental (TDS 5.6): `share_counts` is marked so in memory only."""
     plain = write(tmp_path / "plain")
     for level in ("manifest", "schema", "full"):
         assert "TDS-M015" not in check(plain, level=level).unchecked
-    trades = write(tmp_path / "trades", build._add("trades", {"instrument_id": ["US:AAA"]}))
-    assert pairs(trades, "manifest") == [("TDS-M015", "trades")]
-    assert check(trades, level="manifest").warnings[0].severity == "warning"
+    shares = write(tmp_path / "shares", build._add("share_counts", _SHARES))
+    assert pairs(shares, "manifest") == []
+    real = verify.load_schemas
+    monkeypatch.setattr(verify, "load_schemas", lambda root=verify.SCHEMA_DIR: {
+        k: replace(s, status="experimental") if k == "share_counts" else s
+        for k, s in real(root).items()})  # fmt: skip
+    assert pairs(shares, "manifest") == [("TDS-M015", "share_counts")]
+    assert check(shares, level="manifest").warnings[0].severity == "warning"
 
 
 @pytest.mark.parametrize(
@@ -315,16 +325,11 @@ def keys_batches(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
 @pytest.mark.parametrize("code", K_CODES)
 def test_K_codes(code: str, tmp_path: Path) -> None:
     fail = check(build.write(tmp_path / "fail", *build.package(code, "fail")), level="full")
-    assert [p for p in pairs(tmp_path / "fail", "full") if p not in EXPERIMENTAL] == stated(code)
+    assert pairs(tmp_path / "fail", "full") == stated(code)
     assert code not in fail.unchecked
-    assert [c for c in codes(tmp_path / "fail", "schema") if c != "TDS-M015"] == []  # no rows
+    assert codes(tmp_path / "fail", "schema") == []  # no rows
     passed = check(build.write(tmp_path / "pass", *build.package(code, "pass")), level="full")
-    warned = [p for p in ((w.code, w.dataset) for w in passed.warnings) if p not in EXPERIMENTAL]
-    assert (passed.errors, warned, code in passed.unchecked) == ((), [], False)
-
-
-#: The M015 warning a package with an experimental dataset also gets (TDS 5.7, 5.8).
-EXPERIMENTAL = [("TDS-M015", "quotes"), ("TDS-M015", "book_deltas")]
+    assert (passed.errors, passed.warnings, code in passed.unchecked) == ((), (), False)
 
 
 def _custom_in_year(m: dict[str, Any], f: Any) -> None:  # no schema: no key, sort, date column
@@ -1059,9 +1064,8 @@ _SHARES = {
         ("share_counts", _SHARES, None),  # the control: the stated types raise neither
         ("share_counts", _SHARES | {"instrument_id": [1]}, "TDS-S002"),
         ("share_counts", _SHARES | {"source": [1]}, "TDS-S002"),
-        ("trading_status_events", {"sequence": pa.array([1], pa.int32())}, "TDS-S002"),
-        ("trading_status_events", {"ts_event": _SHARES["ts_available"]}, "TDS-S004"),  # us, not ns
-        ("rates", {"ts_available": pa.array([0], pa.timestamp("us"))}, "TDS-S004"),  # no time zone
+        ("tradability_daily", {"halt_count": pa.array([1], pa.int64())}, "TDS-S002"),  # i32
+        ("series_observations", {"ts_available": pa.array([0], pa.timestamp("us"))}, "TDS-S004"),
     ],
 )
 def test_a_column_typed_by_105_is_checked_for_S002_and_S004(
@@ -1073,34 +1077,32 @@ def test_a_column_typed_by_105_is_checked_for_S002_and_S004(
 
 
 _NS = pa.timestamp("ns", "UTC")
-_FUNDING = {
-    "instrument_id": ["US:AAA"], "ts_event": pa.array([build.NEW_YEAR], _NS), "rate": [1e-4],
-    "ts_available": pa.array([build.NEW_YEAR], _NS), "source": ["synthetic"], "x_note": ["n"],
-}  # fmt: skip
+_EXTRA = _SHARES | {"x_seen": pa.array([build.NEW_YEAR], _NS), "x_note": ["n"]}
 
 
-def _funding(row: dict[str, Any] = _FUNDING, **declared: str) -> Any:
-    """One `funding_rates` row (5.24, experimental: its schema file leaves `ts_available` and
-    `source` untyped) with tds.json `columns` declaring `declared`."""
+def _declared(row: dict[str, Any] = _EXTRA, **declared: str) -> Any:
+    """One `share_counts` row with two untyped `x_` columns; tds.json declares `declared`."""
     columns = [{"name": k, "type": v} for k, v in declared.items()]
-    return build._both(build._add("funding_rates", row),
+    return build._both(build._add("share_counts", row),
                        lambda m, f: m["datasets"][-1].update(columns=columns))  # fmt: skip
 
 
 @pytest.mark.parametrize(
     ("change", "found"),
-    [  # #403: a declaration on an untyped or `x_` column is the type the file is checked against
-        (_funding(), []),  # untyped and undeclared: not checked, as before
-        (_funding(ts_available="ts_ns", source="string", x_note="string"), []),
-        (_funding(ts_available="ts_us/ns"), [("TDS-M001", "$.datasets[3].columns[0].type:")]),
-        (_funding(ts_available="ts_us", source="i64"),  # the Decision's conformance case
-         [("TDS-S004", "ts_available"), ("TDS-S002", "source")]),
-        (_funding(ts_available="f64"), [("TDS-S002", "ts_available")]),
-        (_funding(_FUNDING | {"ts_available": pa.array([0], pa.timestamp("ns"))},
-                  ts_available="ts_ns"), [("TDS-S004", "ts_available")]),  # no time zone
-        (_funding(x_note="i64"), [("TDS-S002", "x_note")]),
-        (_funding(rate="f64"), []),  # typed by the schema, declared the same
-        (_funding(source=""), [("TDS-M001", "$.datasets[3].columns[0].type:")]),  # #417
+    [  # #403: a declaration on an untyped (`x_`) column is the type the file is checked against
+        (_declared(), []),  # undeclared: not checked, as before
+        (_declared(x_seen="ts_ns", x_note="string"), []),
+        (_declared(x_seen="ts_us/ns"), [("TDS-M001", "$.datasets[3].columns[0].type:")]),
+        (_declared(x_seen="ts_us", x_note="i64"),  # the Decision's conformance case
+         [("TDS-S004", "x_seen"), ("TDS-S002", "x_note")]),
+        (_declared(x_seen="f64"), [("TDS-S002", "x_seen")]),
+        (_declared(_EXTRA | {"x_seen": pa.array([0], pa.timestamp("ns"))},
+                   x_seen="ts_ns"), [("TDS-S004", "x_seen")]),  # no time zone
+        (_declared(_EXTRA | {"x_seen": _SHARES["ts_available"]},
+                   x_seen="ts_ns"), [("TDS-S004", "x_seen")]),  # us, not ns
+        (_declared(x_note="i64"), [("TDS-S002", "x_note")]),
+        (_declared(shares="f64"), []),  # typed by the schema, declared the same
+        (_declared(x_note=""), [("TDS-M001", "$.datasets[3].columns[0].type:")]),  # #417
     ],
 )  # fmt: skip
 def test_a_declared_type_on_an_untyped_column_is_checked(
@@ -1108,7 +1110,7 @@ def test_a_declared_type_on_an_untyped_column_is_checked(
 ) -> None:
     result = check(write(tmp_path, change), level="schema")
     assert [(f.code, f.message.split()[0]) for f in result.errors] == found
-    assert [(w.code, w.dataset) for w in result.warnings] == [("TDS-M015", "funding_rates")]
+    assert result.warnings == ()
 
 
 def test_a_dataset_typed_by_105_has_a_value_hash_with_no_columns_in_tds_json(
@@ -1527,7 +1529,7 @@ def test_a_required_list_column_leaves_S003_unchecked(tmp_path: Path) -> None:
     pq.write_table(pa.table({"tags": pa.array([["a"]], pa.list_(pa.string()))}), tmp_path / "t")
     meta = pq.ParquetFile(tmp_path / "t").metadata
     blind: set[str] = set()
-    column = Column("tags", "list<code>", False)  # no schema file has one yet (trades: nullable)
+    column = Column("tags", "list<code>", False)  # no schema file has one (TDS 3.2 keeps it)
     assert list(_check_column(meta, meta.schema.to_arrow_schema(), column, True, None, blind)) == []
     assert blind == {"TDS-S003"}  # a list has no top-level null count
     blind.clear()
