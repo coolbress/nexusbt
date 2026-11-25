@@ -1375,7 +1375,6 @@ def test_full_check_judges_d001_on_small(small_unchecked: list[str]) -> None:
     left = small_unchecked
     assert "TDS-D001" not in left
     assert "TDS-D004" not in left
-    assert "TDS-V032" not in left  # judged, with no declaration to judge (#432)
 
 
 def test_full_check_judges_k002_on_small(small: Path, small_unchecked: list[str]) -> None:

@@ -611,11 +611,9 @@
 
 > 5.6~5.9, 5.22~5.24의 스키마는 **실험 판**이다: 무손실 가져오기와 재생 고정 사례가 생길 때까지 1.x 호환 약속(10.2) 밖이고 다음 MINOR에서 바뀔 수 있다. 스키마 파일은 `status: experimental`, 검사기는 이 데이터셋을 담은 패키지에 W(M015)를 낸다. 일봉 주식 데이터셋(5.1~5.5, 5.10~5.21, 5.25~5.26)만 `stable`이다 [RV-I07].
 
-**연속 `sequence` 순번, V032 (`trades` 5.6, `quotes` 5.7, `book_deltas` 5.8)** [2026-11-13, #348]: 이 세 종류의 데이터셋은 `params.sequence_consecutive_within`으로 공급사가 연속 `sequence` 순번을 약속했다고 선언한다. 값은 칼럼 이름의 목록이다. 있으면 약속한 것이고 없으면 약속이 없다. `true`/`false` 형태는 없다. 그룹은 파티션(`venue`, `date`)을 목록의 칼럼으로 더 나눈 것이므로 `[]`이면 파티션 전체가 한 그룹이다(예: `["instrument_id"]`, Databento 채널 피드라면 `["x_dbn_channel_id"]`, 9.4). 이 선언은 그룹이 그 순번의 모든 메시지를 담는다는 뜻이며, 메시지의 일부만 담는 `trades`와 `quotes`에서는 보통 참이 아니다. 다른 종류의 데이터셋에 있는 이 키는 무시한다.
+**연속 `sequence` 순번 (`trades` 5.6, `quotes` 5.7, `book_deltas` 5.8; V032 은퇴)** [2026-11-13, #348]: 이 세 종류의 데이터셋은 `params.sequence_consecutive_within`으로 공급사가 연속 `sequence` 순번을 약속했다고 선언한다. 값은 칼럼 이름의 목록이다. 있으면 약속한 것이고 없으면 약속이 없다. `true`/`false` 형태는 없다. 그룹은 파티션(`venue`, `date`)을 목록의 칼럼으로 더 나눈 것이므로 `[]`이면 파티션 전체가 한 그룹이다(예: `["instrument_id"]`, Databento 채널 피드라면 `["x_dbn_channel_id"]`, 9.4). 이 선언은 그룹이 그 순번의 모든 메시지를 담는다는 뜻이며, 메시지의 일부만 담는 `trades`와 `quotes`에서는 보통 참이 아니다. 다른 종류의 데이터셋에 있는 이 키는 무시한다.
 - 목록의 각 칼럼은 필수다: 파일 꼬리말(footer)에 없으면 `schema` 단계의 TDS-S001이다. 목록에 적힌 파티션 칼럼은 오류가 아니다.
-- V032(경고): 그룹 안에서 행을 `sequence` 순으로 놓는다. 이웃한 두 값의 차이가 0이면 빈칸이 아니고(한 메시지의 여러 행), 1보다 크면 빈칸이다. 그룹의 첫 번호는 무엇이든 된다. 키 중복은 K 코드에 맡긴다. `book_deltas`에서 `is_snapshot = true`인 행은 빼고 본다: 거래소의 실시간 메시지 흐름에 속하지 않는다.
-- 출력: 빈칸이 있는 그룹마다 경고 한 줄. `key`에 그룹의 값(파티션 값이 먼저, 그다음 목록의 칼럼을 선언한 순서대로), `count`에 빠진 번호의 수, 메시지에 첫 빈칸(빈칸 앞의 번호와 뒤의 번호)을 담는다.
-- 선언이 없는 데이터셋은 약속한 것이 없으므로 V032를 내지 않고, `full` 단계에서 V032를 `unchecked`에 넣지 않는다. `manifest`와 `schema` 단계는 행을 읽지 않으므로 V032를 `unchecked`로 둔다.
+- 빈칸을 판정하던 V032는 은퇴했다 [2026-11-25, #752]; 선언의 모양과 이 S001은 세 종류와 함께 빠진다.
 
 파티션 `venue=/date=`(date = `session_date`). 열쇠 (`instrument_id`, `ts_event`, `sequence`, `trade_id`)(trade_id null 허용이면 열쇠에서 빠지고 `sequence`가 유일해야 함). 정렬 (`instrument_id`, `ts_event`, `sequence`). 시각 단위 ns. 매개변수 `price_exponent`, `size_exponent`.
 
@@ -665,7 +663,7 @@
 | flags | i32 | 예 | 원 비트 |
 
 - 재구성 규칙: 파일(또는 날짜) 첫머리는 `clear` 뒤 `is_snapshot = true` 행 묶음이거나, 패키지 안 같은 `venue`의 가장 가까운 이전 파티션의 마지막 상태를 이어받는다고 `params.continuity = "carry"`로 선언.
-- 엔진은 `is_last = true`인 행 뒤에서만 호가를 읽는다. (재구성 뒤 교차 호가인 V031은 은퇴했다 [2026-11-25, #752]: `book_deltas`가 다른 범위 밖 종류와 함께 표준에서 빠진다.) V032(`sequence` 빈칸)는 세 데이터셋에 함께 5.6의 표 앞에 적는다.
+- 엔진은 `is_last = true`인 행 뒤에서만 호가를 읽는다. (재구성 뒤 교차 호가인 V031은 은퇴했다 [2026-11-25, #752]: `book_deltas`가 다른 범위 밖 종류와 함께 표준에서 빠진다.) 5.6의 표 앞에 적은 V032(`sequence` 빈칸)도 은퇴했다.
 - 행마다 호가가 바뀌는 방식(결정 2026-11-12, #347). `is_snapshot` 행도 같은 표대로 적용한다:
 
 | `action` | `mbp`(가격 수준별 호가) | `mbo`(주문별 호가) |
@@ -1177,7 +1175,7 @@ tds export {zipline-bundle|nautilus-catalog|wide-parquet} ... # 9.8
 | TDS-V020 | E | 자산 종류별 필수 칼럼 없음; `tds:equity-daily-research@1.0`이나 `tds:pit-fundamentals@1.0`을 선언했을 때 `equity` 행의 `issuer_id`(5.1; `full` 수준에서 읽음) [2026-11-24, #705 B2] |
 | TDS-V030 | W | 교차·잠긴 BBO |
 | TDS-V031 | — | 2026-11-25 은퇴(#752), 번호는 다시 쓰지 않음: 호가 재구성 뒤 교차; `book_deltas`가 표준에서 빠진다(5.8) |
-| TDS-V032 | W | `params.sequence_consecutive_within`을 선언한 데이터셋의 그룹 안 순번 빈칸(5.6) |
+| TDS-V032 | — | 2026-11-25 은퇴(#752), 번호는 다시 쓰지 않음: `params.sequence_consecutive_within`을 선언한 데이터셋의 그룹 안 순번 빈칸; `trades`, `quotes`, `book_deltas`가 표준에서 빠진다(5.6) |
 | TDS-V040 | E | `ret_lo > ret_hi`; 또는 `exit_value_status`가 `unobserved`가 아닌 줄의 `ret_lo`, `ret_hi`, `policy_id`가 null (5.13; `full` 수준에서 읽음) [2026-11-24, #705 결정 8] |
 | TDS-V041 | W | `events` 행에 `instrument_id`·`issuer_id`·`series_id`가 모두 null [v1.4, R4F-EV-02] |
 | TDS-V050 | E | 라벨 칼럼 이름이 특징 표에도 있음 |
@@ -1625,3 +1623,4 @@ datasets:
 - 2026-11-24: **v1.4** 안에서. 4.2 `partitions`(`partitioning`이 선언되면 필수, M003)와 8.3 TDS-H005(manifest 수준이 그것들을 이어 `value_sha256`과 견줌); TDS-H002가 다른 파티션을 이름 든다(#705 B4, 계획 12b; #725 결정 199). 데이터셋을 `key=value` 폴더로 놓는 도구는 그것을 `partitioning`으로 선언한다. 움직인 것: 이제 파티션을 선언하는 패키지의 값·의미 해시. `tds_version` `"1.0"` 그대로, `tds_draft`는 2026-11-19 그대로(12e까지, 10.5).
 - 2026-11-25: **v1.4** 안에서. 5.5와 bars 스키마 파일: `cum_factor_split`과 `cum_factor_total`이 빠진다; 그 둘을 아직 가진 패키지는 TDS-S005를 받는다(#705 결정 35, 36; 계획 12d). 움직인 것: 파일에 두 칼럼 가운데 하나라도 선언 없이 가진 데이터셋의 값 해시(그 전에 쓴 해시에 대해 TDS-H002·H003); 두 칼럼이 없는 패키지는 없음. `tds_version` `"1.0"` 그대로, `tds_draft`는 2026-11-19 그대로(12e까지, 10.5).
 - 2026-11-25: **v1.4** 안에서. 5.8과 8.3: TDS-V031(재구성 뒤 교차 호가)은 은퇴하고 번호는 다시 쓰지 않는다. `book_deltas`가 다른 범위 밖 종류와 함께 빠지기 전이다(#725 결정 252; #752의 R1b). 움직인 것: 적합성 사례 TDS-V031이 없어짐; 다른 패키지의 해시는 없음. `tds_version` `"1.0"` 그대로, `tds_draft`는 2026-11-19 그대로(12e까지, 10.5).
+- 2026-11-25: **v1.4** 안에서. 5.6과 8.3: TDS-V032(순번 빈칸)는 은퇴하고 번호는 다시 쓰지 않는다. `trades`, `quotes`, `book_deltas`가 `params.sequence_consecutive_within`의 모양과 그 TDS-S001과 함께 빠지기 전이다(#725 결정 252; #752의 R1c). 움직인 것: 적합성 사례 TDS-V032가 없어짐; 다른 패키지의 해시는 없음. `tds_version` `"1.0"` 그대로, `tds_draft`는 2026-11-19 그대로(12e까지, 10.5).

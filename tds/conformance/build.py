@@ -664,9 +664,9 @@ def _traded(volume: float) -> Change:
 
 
 def _book(last_bid: int, sequence: tuple[int, ...] = tuple(range(9))) -> Change:
-    """US:AAA's `mbo` book rows (5.8, experimental) on 2024-01-02, for V032 (V031, which judged
-    the rebuilt book, is retired, #752): a snapshot, bid 99 and ask 100; two batches, the last
-    after an order at `last_bid`. Other `sequence` numbers than 0..8 come with
+    """US:AAA's `mbo` book rows (5.8, experimental) on 2024-01-02, unused since V031 and V032
+    were retired (#752); it leaves with `book_deltas`: a snapshot, bid 99 and ask 100; two
+    batches, the last after an order at `last_bid`. Other `sequence` numbers than 0..8 come with
     `params.sequence_consecutive_within` `[]` (5.6, #348)."""
     rows = [  # action, side, price, size, order_id, is_snapshot, is_last
         ("clear", "none", None, None, None, True, False),
@@ -950,10 +950,6 @@ CASES: dict[str, tuple[Change, Change]] = {
     ),
     "TDS-V020": (_future(**_FUTURE), _future(**_FUTURE | {"root": None})),
     "TDS-V030": (_quote(99, 100), _quote(100, 100)),  # locked
-    "TDS-V032": (
-        _book(98, (*_SNAPSHOT, *range(1000, 1006))),
-        _book(98, (*_SNAPSHOT, 1000, 1001, 1002, 1004, 1005, 1006)),
-    ),
     "TDS-V040": (_exits(delisted=True, ret_lo=-0.5), _exits(delisted=True, ret_lo=0.5)),
     "TDS-V041": (_event(series_id=["US:CPI"]), _event()),
     "TDS-V050": (_labels("fwd_ret"), _labels("mom")),
@@ -1014,7 +1010,6 @@ FAILS: dict[str, tuple[str | None, ...]] = {
     "TDS-V005": ("fx_rates",),
     "TDS-V020": ("instruments",),
     "TDS-V030": ("quotes",),
-    "TDS-V032": ("book_deltas",),
     "TDS-V040": ("delistings",),
     "TDS-V041": ("events",),
     "TDS-V050": ("label_panels",),
