@@ -287,7 +287,6 @@ nexusbt/                                     (public repository, Apache-2.0)
 ├── docs/spec/engine-spec-v3.4.md             (this document; the public edition without private comments, personal information or hosts)
 ├── docs/quickstart.md                        (English quick start, tested by 8.5)
 ├── docs/adr/0001-… .md                       (9.3)
-├── docs/requirements.md                      (keeps appendix B with its status)
 ├── tds/                                      ★ data standard (versioned separately)
 │   ├── README.md  CHANGELOG.md
 │   ├── spec/tds-v1.md                         (the TDS document body; the public edition of engine-data-standard-v1.4.md without chapter 11 (producer mapping) or personal information)
@@ -2859,7 +2858,7 @@ The engine is built with the user's plinth loop (`plinth/2.7.1/docs/how-to/run-a
 | 5 Confirm what the checks cannot see | required checks green + the ticket's "Done means" seen with one's own eyes through `/run` | user | 9.6, chapter 10 "commands to show" per milestone |
 | 6 Merge | the user says "merge" | user | |
 | 7 Breakage | `diagnosing-bugs`: reproduction command → failing test → fix | agent | 9.7 |
-| 8 Stop and come back | state in issues, PRs and `docs/requirements.md`, `/handoff` | both | 9.8 |
+| 8 Stop and come back | state in issues and PRs, `/handoff` | both | 9.8 |
 | 9 Stay healthy | dependency updates one at a time, `/plinth:floor-check` | user | 9.8 |
 
 ### 9.1 Step 1: the repository and the required checks
@@ -3058,7 +3057,7 @@ In this repository the words below mean exactly this. Code names are in English,
 - Tests first (tdd): create the test names of the ticket's "Acceptance tests" as they are, see them fail, then implement. Golden cases (`tests/golden/cases/**`) are the ones the preceding golden ticket already merged, and they are **not changed** (8.2); if a case differs from the spec, stop and write "spec deviation".
 - Deep modules: change or use only the public interfaces of 2.4. Do not make public a name that is not in the public API (chapter 3). Do not import the `_` internals of another module (import rule test).
 - If something has to differ from the spec, stop implementing, write it in the PR description as "spec deviation", and submit an ADR draft with it. Do not make it green by widening tolerances or skipping tests.
-- PR description: evidence for "Done means" (commands and part of the output), which review ran and the findings of the fresh-context review as it reported them (a new subagent or session given only the diff, the issue's acceptance criteria and the Code Review Rules of `AGENTS.md`; `/implement`'s own `/code-review` is briefed by the session that wrote the change, so it is not that review), what could not be confirmed, the `Assisted-by` line. Update the status of the relevant R in `docs/requirements.md`.
+- PR description: evidence for "Done means" (commands and part of the output), which review ran and the findings of the fresh-context review as it reported them (a new subagent or session given only the diff, the issue's acceptance criteria and the Code Review Rules of `AGENTS.md`; `/implement`'s own `/code-review` is briefed by the session that wrote the change, so it is not that review), what could not be confirmed, the `Assisted-by` line.
 - If it looks like it will go over 400 lines, split the ticket into several PRs, each branched from `main` after the previous one merged (none is stacked on an unmerged PR; 10.0's ticket rules) — record the split, dated, in the issue body's `## Decisions`.
 
 ### 9.6 Steps 5~6: "green + seen with one's own eyes"
@@ -3074,7 +3073,7 @@ In this repository the words below mean exactly this. Code names are in English,
 
 ### 9.8 Steps 8~9: stopping, coming back, health
 - Before stopping: the remaining work in the description of the PR in progress, the milestone's row of the milestone tracking issue updated (9.4), decisions in ADRs, `/handoff`.
-- Sources for the answer to "Where is this project, and what's next?" when coming back: the milestone tracking issue, the "Blocked by" of open tickets, `docs/requirements.md` (implemented/deferred/replaced + PR number per R), `bench/results/`, `tests/parity/evidence/`.
+- Sources for the answer to "Where is this project, and what's next?" when coming back: the milestone tracking issue, the "Blocked by" of open tickets, for each requirement its ticket in appendix B, that ticket's issue in the plan issue's ticket map (9.4) and, in that issue, its state and the PR its `## Outcome` names, `bench/results/`, `tests/parity/evidence/`.
 - Health: numpy, numba, pyarrow and polars are tied to each other, so one per PR (check the numpy range numba supports). The pinned zipline is the comparison reference, so it is not upgraded (if it is: an ADR + the comparison evidence again). After a plinth template update, `/plinth:floor-check`.
 
 ---

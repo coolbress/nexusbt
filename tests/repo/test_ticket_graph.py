@@ -9,7 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from ticket_graph import Ticket, check, milestones, tickets
+from ticket_graph import TICKET_ID, Ticket, check, milestones, tickets
 
 CHAPTER = """\
 ### 10.1 Engine tickets
@@ -87,3 +87,34 @@ def test_acyclic_and_milestone_order() -> None:
         "the plan held 224 tickets when it left the spec; fewer means lines were lost"
     )
     assert check(found, milestones(text)) == []
+
+
+SPEC = PLAN.parents[1] / "spec" / "engine-spec-v3.4.md"
+
+#: Tickets appendix B names that the plan moved, and the ticket each became; the test
+#: checks the new one. Remove T7.3 once appendix B's SC-01 row names T3.29.
+MOVED = {"T7.3": "T3.29"}
+
+
+def appendix_b_tickets(spec: str) -> list[list[str]]:
+    """The ticket ids in the Ticket column of each row of appendix B's tables."""
+    block = spec.split("\n## Appendix B.", 1)[1].split("\n## ", 1)[0]
+    rows: list[list[str]] = []
+    column, previous = 0, ""
+    for line in block.splitlines():
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if line.startswith("|") and not previous.startswith("|"):
+            column = cells.index("Ticket")
+        elif line.startswith("|") and set(line) - set("|-: "):
+            rows.append(TICKET_ID.findall(cells[column]))
+        previous = line
+    return rows
+
+
+def test_every_ticket_appendix_b_names_is_a_ticket_of_the_plan() -> None:
+    rows = appendix_b_tickets(SPEC.read_text(encoding="utf-8"))
+    assert len(rows) >= 256, (
+        "appendix B's tables held 256 rows on 2026-11-25; fewer means rows were lost"
+    )
+    known = {t.id for t in tickets(PLAN.read_text(encoding="utf-8"))}
+    assert sorted({MOVED.get(t, t) for row in rows for t in row} - known) == []
