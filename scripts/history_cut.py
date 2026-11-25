@@ -10,7 +10,8 @@ that the new edition is the base with only these spans removed or replaced, and 
 first and last line of each, and the replaced lines in full:
 
 1. the header's Status line, without the history of each version and "No code.";
-2. the header's Inputs line, keeping only "the blueprint", "TDS" and "the design";
+2. the header's Inputs line, keeping only "the three-reviewer consensus", "the blueprint",
+   "TDS" and "the design";
 3. the tracing legend's lines for the removed tag families, replaced by one line naming BASE;
 4. the contents lines of appendices D to I;
 5. from the blank line before the rule above appendix D to the end of the file.
@@ -43,6 +44,7 @@ STATUS_CUTS = [
 ]
 #: The Inputs items that stay: (the item, where to end it).
 INPUT_ITEMS = [
+    (r"`review/consensus\.md` ?\((?:the three-reviewer consensus|3자 검토 합의)", ")"),
     (r"`engine-blueprint-by-aspect\.md` ?\([^)]*\)", ""),
     (r"`engine-data-standard-v1\.4\.md` ?\([^)]*?(?:private appendix|비공개 부록)", ")"),
     (r"`engine-design-2026-10-27\.md` ?\([^)]*\)", ""),
