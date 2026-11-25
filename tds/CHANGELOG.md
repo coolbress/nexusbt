@@ -10,6 +10,10 @@ package version follows the `tds_version` it checks (`1.0.x`), tagged
 - TDS-V031 (a crossed book after reconstruction) and TDS-V032 (a gap in `sequence` numbers) are
   retired, their numbers not reused, before `trades`, `quotes` and `book_deltas` leave the
   standard (#752); `tds check` lists neither as `unchecked` at any level
+- TDS-V030 (a locked or crossed quote) and TDS-T008 (`ts_recv` before `ts_event`) are retired,
+  their numbers not reused (#752); `tds check` lists neither as `unchecked` at any level
+- `params.sequence_consecutive_within` is no longer read: its JSON-schema shape (TDS-M001) and its
+  TDS-S001 for a listed column absent from a file are gone (#752)
 
 ### Added
 - TDS-M010 at the `schema` level for an `instruments.market` not declared in `markets` (TDS 3.8,
@@ -28,9 +32,6 @@ package version follows the `tds_version` it checks (`1.0.x`), tagged
   `YYYY-MM-DD` date is TDS-M001. It is not in the semantic hash
 - `actions.Resolution.affects`: the chosen version's `affects`, so the engine picks the events
   of `C_split` and `C_total` from the resolver's result (spec 5.3.3)
-- `params.sequence_consecutive_within` of `trades`, `quotes` and `book_deltas` (TDS 5.6~5.8):
-  TDS-M001 when it is not an array of distinct strings or names `sequence`, and TDS-S001 at the
-  `schema` level for a listed column absent from a file (a partition column excepted)
 - `tds check` checks `tds.json` against its JSON schema, `tds/schemas/manifest/1.0.json`, at every
   level: TDS-M001 for a field of another shape, a `columns[].type` or `partitioning[].type` that is
   not a TDS type name (`ts_us/ns`, `""` and `null` included; until now a declaration the checker did not

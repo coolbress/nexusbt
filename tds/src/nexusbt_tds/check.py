@@ -8,7 +8,7 @@ and S009 from the rows (`cells`), the key
 checks (K001~K004, K010, K011; `keys`), the
 reference checks (R001~R009; `refs`), the adjustment and value checks (`adjustments`,
 `values`), the interval checks (T003, T004, T012;
-`times`), the instant checks (T001, T002, T005, T007, T008, T010, T011; `instants`), the
+`times`), the instant checks (T001, T002, T005, T007, T010, T011; `instants`), the
 density checks (D001~D004;
 `densities`) and the hashes (H001~H004, TDS 4.5); no profile is verified beyond `schema`.
 None reports a profile as `pass`: the rules a level cannot see are listed in `unchecked`, and
@@ -50,9 +50,9 @@ Severity = Literal["error", "warning"]
 #: the schema files' `status` (#391).
 _ROW_CODES = (
     "S001 S002 S003 S004 S005 S006 S007 S008 S009 S010 S011 K001 K002 K003 K004 K010 K011"
-    " R001 R002 R003 R004 R005 R006 R007 R008 R009 T001 T002 T003 T004 T005 T006 T007 T008"
+    " R001 R002 R003 R004 R005 R006 R007 R008 R009 T001 T002 T003 T004 T005 T006 T007"
     " T010 T011 T012 D001 D002 D003 D004 A003 A004 A005 A006 A007 A008 A009 A010 A011"
-    " V001 V002 V004 V005 V010 V011 V012 V020 V030 V040 V041 V050 H001 H002 H003 H004"
+    " V001 V002 V004 V005 V010 V011 V012 V020 V040 V041 V050 H001 H002 H003 H004"
 )
 UNCHECKED_AT_MANIFEST = tuple(f"TDS-{c}" for c in _ROW_CODES.split())
 #: What the `schema` level judges from footers. S006 and S007 see only a column's minimum and
@@ -82,10 +82,6 @@ HASH_SPECS = frozenset({"tds-hash-2"})  # 4.5; -1 hashed a partitioned dataset o
 SUPPORTED_MAJOR = 1  # 10.3
 #: The newest dataset `schema_version` MINOR this checker knows; per kind with T0.13b's files.
 KNOWN_MINOR = 0
-#: TDS 5.6~5.8 (#348): the kinds whose `params` may promise consecutive `sequence` numbers
-#: within the groups the listed columns make; the columns must be in every file (S001).
-SEQUENCED, WITHIN = frozenset({"trades", "quotes", "book_deltas"}), "sequence_consecutive_within"
-
 # TDS 6.2: the availability rule names. An unknown one is M014, never ignored.
 _DUR = r"P(?=\d|T\d)(\d+Y)?(\d+M)?(\d+W)?(\d+D)?(T(?=\d)(\d+H)?(\d+M)?(\d+(\.\d+)?S)?)?"
 _COL = r"[a-z_][a-z0-9_]*"
@@ -249,10 +245,10 @@ KEY_CODES = ("TDS-K001", "TDS-K002", "TDS-K003", "TDS-K004", "TDS-K010", "TDS-K0
 REF_CODES = tuple(f"TDS-R{n:03}" for n in range(1, 10))  # `refs` checks them
 #: `adjustments` checks them; A001 and A002 are retired with `cum_factor_*` (TDS 8.3, #705).
 ACTION_CODES = tuple(f"TDS-A{n:03}" for n in range(3, 12))
-#: `values` checks them; V031 and V032 are retired with the out-of-scope kinds (#752).
-VALUE_CODES = tuple(f"TDS-V{n:03}" for n in (1, 2, 4, 5, 10, 11, 12, 20, 30, 40, 41, 50))
+#: `values` checks them; V030, V031 and V032 are retired with the out-of-scope kinds (#752).
+VALUE_CODES = tuple(f"TDS-V{n:03}" for n in (1, 2, 4, 5, 10, 11, 12, 20, 40, 41, 50))
 TIME_CODES = ("TDS-T003", "TDS-T004", "TDS-T012")  # `times` checks them (#225)
-INSTANT_CODES = tuple(f"TDS-T{n:03}" for n in (1, 2, 5, 7, 8, 10, 11))  # `instants` (#225)
+INSTANT_CODES = tuple(f"TDS-T{n:03}" for n in (1, 2, 5, 7, 10, 11))  # `instants` (#225)
 DENSITY_CODES = ("TDS-D001", D002, "TDS-D003", "TDS-D004")  # `densities` (#225, #425)
 CELL_CODES = ("TDS-S006", "TDS-S007", "TDS-S009")  # `cells`, from the rows (#391)
 FULL_CODES = (*KEY_CODES, *REF_CODES, *ACTION_CODES, *VALUE_CODES, *TIME_CODES, *INSTANT_CODES,
@@ -792,10 +788,6 @@ def _check_file(
             continue
         yield from _check_column(meta, arrow, column, required, declared.get(column.name), blind)
         yield from _check_values(meta, arrow, column, codes, blind)
-    within = params.get(WITHIN) if ds.get("kind") in SEQUENCED else None  # #348: it requires them
-    for name in within if isinstance(within, list) else []:
-        if isinstance(name, str) and name not in {*arrow.names, *parts, *absent}:
-            yield Finding("TDS-S001", "error", f"column {name} in params.{WITHIN} is missing")
     from .schemas.verify import Column
 
     for name in [n for n in arrow.names if n.startswith("x_") and n not in parts]:  # #403
