@@ -187,8 +187,6 @@ def _add(kind: str, columns: dict[str, Any], *paths: str) -> Change:
 
 #: TDS 4.4 `dictionary/codes`, listing `category` `ordinary`.
 _codes = _add("dictionary/codes", {"field": ["category"], "code": ["ordinary"]})
-#: TDS 4.4 `dictionary/items` with an `annual` item and one whose null `freq` is its column's.
-_items_freq = _add("dictionary/items", {"item": ["eps", "revenue"], "freq": ["annual", None]})
 TS_UTC = pa.timestamp("us", "UTC")
 NEW_YEAR = dt.datetime(2024, 1, 1, tzinfo=dt.UTC)
 
@@ -385,34 +383,17 @@ def _facts(selected: str, state_item: str = "revenue", **fact: list[Any]) -> Cha
     )  # fmt: skip
 
 
-def _states(*known: tuple[int, int | None]) -> Change:
-    """US:AAA's `revenue` states known over days `[from, to)` of January 2024 (5.18)."""
-    n = len(known)
-
-    def at(day: int | None) -> dt.datetime | None:
-        return None if day is None else _at(day, 0, 0)
-
-    return _both(
-        _add("fundamentals_state", {
-            "instrument_id": ["US:AAA"] * n, "item": ["revenue"] * n,
-            "ts_known_from": pa.array([at(a) for a, _ in known], TS_UTC),
-            "ts_known_to": pa.array([at(b) for _, b in known], TS_UTC),
-            "period_end": pa.array([dt.date(2023, 12, 31)] * n), "period_kind": ["FY"] * n,
-            "statement_basis": ["consolidated"] * n, "value": [1.0] * n,
-            "unit": ["currency"] * n, "scale": pa.array([0] * n, pa.int8()),
-            "strict_eligible": [True] * n, "vendor_input": [False] * n,
-            "resolution_policy": ["latest"] * n,
-        }),
-        _add("dictionary/items", {"item": ["revenue"]}),
-    )  # fmt: skip
-
-
-def _members(effective_to: dt.date | str) -> Change:
-    """US:AAA in `index:X` effective from 2024-01-03 to `effective_to` (5.20)."""
-    return _add("universe_membership", {
-        "universe_id": ["index:X"], "instrument_id": ["US:AAA"],
-        "effective_from": pa.array([dt.date(2024, 1, 3)]), "effective_to": pa.array([effective_to]),
-        "ts_known_from": pa.array([NEW_YEAR], TS_UTC), "source": ["synthetic"],
+def _rules(*bands: tuple[Any, Any, Any], until: dt.date | str | None = None) -> Change:
+    """Rule set `us-tick` from 2024-01-02: a `tick_band` row per (price_from, price_to, tick),
+    valid until `until` (a string: written as text, S002's)."""
+    n, (lo, hi, tick) = len(bands), zip(*bands, strict=True)
+    to = pa.array([until] * n, pa.string() if isinstance(until, str) else pa.date32())
+    return _add("market_rules", {
+        "rule_id": ["us-tick"] * n, "market": ["US"] * n, "rule_kind": ["tick_band"] * n,
+        "venue_group": ["*"] * n, "valid_from": pa.array([dt.date(2024, 1, 2)] * n),
+        "valid_to": to, "price_from": pa.array(lo, pa.float64()),
+        "price_to": pa.array(hi, pa.float64()), "tick_size": pa.array(tick),
+        "source": ["https://example.test/r"] * n, "verified": [False] * n,
     })  # fmt: skip
 
 
@@ -594,6 +575,13 @@ def _at(day: int, hour: int = 14, minute: int = 30) -> dt.datetime:
     return dt.datetime(2024, 1, day, hour, minute, tzinfo=dt.UTC)
 
 
+def _ended(available: dt.datetime) -> Change:
+    """US:AAA's bar ending at the 2nd's 21:00 close, available at `available` (rule `column`)."""
+    end = pa.array([_at(2, 21, 0)])
+    return _both(_set("availability", "column", in_bars=True),
+                 _bars(ts_end=end, ts_available=pa.array([available], TS_UTC)))  # fmt: skip
+
+
 #: TDS 5.11's columns the A codes read, with their types; a 2:1 split of US:AAA on 2024-01-03.
 ACTION_TYPES = {"event_id": pa.string(), "instrument_id": pa.string(), "kind": pa.string(),
     "ex_date": pa.date32(), "ts_effective": TS_UTC, "pay_date_status": pa.string(),
@@ -732,8 +720,8 @@ CASES: dict[str, tuple[Change, Change]] = {
         ),
     ),
     "TDS-S004": (_bars(ts_end=TS), _bars(ts_end=TS.cast(pa.timestamp("us")))),
-    "TDS-S005": (  # pass: also an item with its own `freq` and one taking its column's (#406)
-        _both(_bars(x_cf_note=pa.array(["a"])), _items_freq),
+    "TDS-S005": (  # an `x_` column, then one with no `x_`
+        _bars(x_cf_note=pa.array(["a"])),
         _bars(note=pa.array(["a"])),
     ),
     "TDS-S006": (  # bars' `obs_status`: `asset_class` is open since #705 B3
@@ -756,16 +744,22 @@ CASES: dict[str, tuple[Change, Change]] = {
     ),
     "TDS-T002": (_column_forms(complete=True), _column_forms(complete=False)),
     "TDS-T006": (_watermark(THROUGH), _watermark(THROUGH - dt.timedelta(microseconds=1))),
-    "TDS-T001": (  # a second before the event
-        _event(series_id=["US:CPI"]),
-        _event(NEW_YEAR - dt.timedelta(seconds=1), series_id=["US:CPI"]),
+    "TDS-T001": (  # available at the bar's end, then a second before it
+        _ended(_at(2, 21, 0)),
+        _ended(_at(2, 20, 59)),
     ),
     "TDS-T005": (  # XNYS on the 2nd: 14:30 to 21:00
         _both(_sessions(0), _bars(ts_start=pa.array([_at(2)]), ts_end=pa.array([_at(2, 21, 0)]))),
         _both(_sessions(0), _bars(ts_start=pa.array([_at(2)]), ts_end=pa.array([_at(2, 20, 0)]))),
     ),
-    "TDS-T003": (_states((1, 2), (2, None)), _states((1, 3), (2, None))),
-    "TDS-T004": (_members(dt.date(2024, 1, 4)), _members(dt.date(2024, 1, 3))),
+    "TDS-T003": (  # tick bands that meet, then overlap
+        _rules((0.0, 1.0, 0.0001), (1.0, None, 0.01)),
+        _rules((0.0, 1.0, 0.0001), (0.5, None, 0.01)),
+    ),
+    "TDS-T004": (  # valid one day, then ending where it starts
+        _rules((0.0, None, 0.01), until=dt.date(2024, 1, 3)),
+        _rules((0.0, None, 0.01), until=dt.date(2024, 1, 2)),
+    ),
     "TDS-T012": (_classified(_A, _A2, _B), _classified((*_A[:4], None, *_A[5:]), _B)),
     "TDS-T010": (
         _instruments(last_session=DAY),
@@ -782,10 +776,7 @@ CASES: dict[str, tuple[Change, Change]] = {
     "TDS-D001": (_dense(2, 3), _dense(2)),  # the 3rd missing
     "TDS-D003": (_exited(_at(2, 21, 0)), _exited(_at(3))),  # known after the 2nd's close (#425)
     "TDS-D004": (_covered(), _covered(instruments=2)),
-    "TDS-K001": (  # GICS sector and industry on one day (5.19), a key in two editions: no K001
-        lambda m, f: (_gics(1, 3)(m, f), _panels("strict", "compare")(m, f)),
-        _panels("strict", "strict"),  # one key twice in one folder
-    ),
+    "TDS-K001": (_bars_on(2, 3), _bars_on(2, 2)),  # US:AAA's bar on the 2nd twice
     "TDS-K002": (_bars_on(2, 3), _bars_on(3, 2)),
     "TDS-K003": (  # a 2025 session's bar in the year=2024 file
         _keep,
@@ -907,15 +898,12 @@ FAILS: dict[str, tuple[str | None, ...]] = {
     "TDS-M016": ("bars_1d",),
     "TDS-T002": ("delistings", "instrument_symbols"),  # the two-instant form, the one-column
     **dict.fromkeys(["TDS-D001", "TDS-D004"], ("bars_1d",)),
-    "TDS-T001": ("events",),
-    "TDS-T005": ("bars_1d",),
+    **dict.fromkeys(["TDS-T001", "TDS-T005", "TDS-K001"], ("bars_1d",)),
     "TDS-T010": ("instruments",),
     "TDS-T011": ("delistings",),
     "TDS-D003": ("delistings",),
-    "TDS-T003": ("fundamentals_state",),
-    "TDS-T004": ("universe_membership",),
+    **dict.fromkeys(["TDS-T003", "TDS-T004"], ("market_rules",)),
     "TDS-T012": ("classifications",),
-    "TDS-K001": ("feature_panels",),
     "TDS-K010": ("instrument_symbols",),
     "TDS-K011": ("calendar_sessions",),
     "TDS-R009": ("fundamentals_state",),

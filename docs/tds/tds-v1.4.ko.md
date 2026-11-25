@@ -807,7 +807,7 @@ LEAN 계수 파일·Qlib `factor`·공급사 조정 종가만 있는 사용자�
 | lineage_id | id | 예 | 계보(TTM이면 구성 사실 목록; `x_` 확장 표나 `fundamentals_events`로 펼침) |
 | resolution_policy | id | 아니오 | 해석 규칙 판 |
 
-- 구간은 반열림이고 `(edition, instrument_id, item)`마다 겹치지 않는다(T003). `ts_known_to > ts_known_from`(T004).
+- 구간은 반열림이고 `(edition, instrument_id, item)`마다 겹치지 않는다; `ts_known_to > ts_known_from`. T003과 T004는 이제 이 종류를 읽지 않는다(8.3) [2026-11-26, #752].
 - 매니페스트 `availability`는 `{"column": "ts_known_from"}`(6.2) [2026-11-05].
 - strict 판에는 `strict_eligible = true`인 상태만. 공백은 구간 없음(엔진 NaN). 엔진은 다른 판으로 채우지 않는다.
 - 판단 시각 t의 값: `ts_known_from <= t < ts_known_to`인 구간 하나. 오래된 값 거르기(`max_age_days`)는 엔진 설정(명세서 5.3.5).
@@ -1063,17 +1063,17 @@ tds export {zipline-bundle|nautilus-catalog|wide-parquet} ... # 9.8
 | TDS-R007 | — | 2026-11-25 은퇴(#752), 번호는 다시 쓰지 않음: `selected_fact_id`를 `fundamentals_events`에서 찾을 수 없음; 재무 종류가 표준에서 빠진다(5.17, 5.18) |
 | TDS-R008 | E | `instruments.delisted_on` ≠ `delistings.exit_date` |
 | TDS-R009 | E | `item`이 `dictionary/items`에 없음, 패널 칼럼이 `dictionary/columns`에 없음 |
-| TDS-T001 | E | `ts_available < ts_event`(봉·사건; 규칙상 늦을 수 없는 곳) |
+| TDS-T001 | E | 봉의 `ts_available < ts_end`(규칙상 늦을 수 없는 곳); `events`는 이제 읽지 않는다 [2026-11-26, #752] |
 | TDS-T002 | E | `ts_available` 칼럼과 선언 규칙의 값이 다름, 또는 6.2 칼럼 형식이 지목한 칼럼이 데이터셋 파일에 없음 [2026-11-05] |
-| TDS-T003 | E | 상태·이력 구간 겹침, 한 시간축에서: `fundamentals_state`의 알려진 구간은 (`edition`, `instrument_id`, `item`)마다, `market_rules`의 호가 구간은 (`rule_id`, `venue_group`, 날짜)마다. 두 시간축 표의 겹침은 5.2의 줄까지 T012다 [2026-11-11] |
-| TDS-T004 | E | 구간 끝 ≤ 시작, 모든 `[from, to)` 쌍에 대해: `fundamentals_state`의 알려진 구간, `classifications`·`universe_membership`·`instrument_symbols`의 효력·알려진 구간, `instrument_xref`·`market_rules`의 유효 구간. null 끝은 열려 있어 검사하지 않는다 [2026-11-11] |
+| TDS-T003 | E | 한 시간축의 구간 겹침: `market_rules`의 호가 구간은 (`rule_id`, `venue_group`, 날짜)마다. 두 시간축 표의 겹침은 5.2의 줄까지 T012다 [2026-11-11; `fundamentals_state`는 이제 읽지 않음, 2026-11-26, #752] |
+| TDS-T004 | E | 구간 끝 ≤ 시작, 모든 `[from, to)` 쌍에 대해: `classifications`·`instrument_symbols`의 효력·알려진 구간, `instrument_xref`·`market_rules`의 유효 구간. null 끝은 열려 있어 검사하지 않는다 [2026-11-11; `fundamentals_state`와 `universe_membership`은 이제 읽지 않음, 2026-11-26, #752] |
 | TDS-T005 | E | 일봉 `ts_start/ts_end`가 세션 개장·마감과 다름(값이 있을 때) |
 | TDS-T006 | E | 시장 워터마크 `complete_through` 뒤의 자료 |
 | TDS-T007 | — | 2026-11-25 은퇴(#752), 번호는 다시 쓰지 않음: 사실의 `ts_available < period_end`; `fundamentals_events`가 표준에서 빠진다(5.17) |
 | TDS-T008 | — | 2026-11-25 은퇴(#752), 번호는 다시 쓰지 않음: `ts_recv < ts_event`; 틱 종류가 표준에서 빠진다(5.6~5.8) |
 | TDS-T010 | E | `last_session < listed_on` |
 | TDS-T011 | W | 종료 대가 공개가 퇴출 공개보다 이름 |
-| TDS-T012 | E | 두 시간축 **직사각형** 조회 결과가 한 시점·한 판별 열쇠(분류는 scheme·level·판 필터 포함)에 둘 이상, 직사각형 조회 표 셋(6.3 ③)에서: `classifications`, `universe_membership`, `instrument_symbols` [2026-11-11] |
+| TDS-T012 | E | 두 시간축 **직사각형** 조회 결과가 한 시점·한 판별 열쇠(분류는 scheme·level·판 필터 포함)에 둘 이상, 직사각형 조회 표(6.3 ③)에서: `classifications`, `instrument_symbols` [2026-11-11; `universe_membership`은 이제 읽지 않음, 2026-11-26, #752] |
 | TDS-D001 | E | 일봉(`freq=1d`, `density`가 무엇이든)에 세션 행 빠짐. 데이터셋에 행이 있는 종목마다 `listed_on`부터 그 끝까지: `last_session`, 없으면 그 시장 `complete_through`의 날짜(시장의 `timezone`에서, 시간대가 없으면 UTC), 없으면 데이터셋의 `coverage.by_market.<m>.processed_through_session`, 없으면 데이터셋에서 그 시장의 줄이 가진 마지막 세션이고, `delisted_on`을 넘지 않는다(5.5). `listed_on`이나 그 달력이 없으면 그 종목은 판단하지 않는다(unchecked) [2026-11-11; 2026-11-23, #705] |
 | TDS-D002 | E | 세션이 아닌 날 행, 또는 상장 기간 밖 행. `full` 단계의 행 단위 D002는 종목의 `listed_on`..`delisted_on` 밖의 일봉이고, 세션이 아닌 날은 R003이다 [2026-11-11] |
 | TDS-D003 | E | 데이터셋이 처리했다는 세션 뒤의 행: 시장 `<m>`에 `last`가 없는 데이터셋에서, 이용 가능 시각(4.3)이 시장 달력에서 `coverage.by_market.<m>.processed_through_session`의 마감보다 뒤인 행 [2026-11-12, #425] |
@@ -1536,3 +1536,4 @@ datasets:
 - 2026-11-25: **v1.4** 안에서. 4.2 JSON 스키마, 5.6, 5.7, 8.3: TDS-V030(잠기거나 교차한 호가)과 TDS-T008(`ts_event`보다 앞선 `ts_recv`)은 은퇴하고 번호는 다시 쓰지 않는다. 선언 `params.sequence_consecutive_within`, 그 모양, 그 TDS-S001도 함께다. 틱 종류가 빠지기 전이다(#725 결정 252; #752의 R1a-1). 움직인 것: 적합성 사례 TDS-V030과 TDS-T008이 없어짐; 다른 패키지의 해시는 없음. `tds_version` `"1.0"` 그대로, `tds_draft`는 2026-11-19 그대로(12e까지, 10.5).
 - 2026-11-25: **v1.4** 안에서. 지금 할 일과의 관계, K2, K9, 2의 범위, 4.1, 4.2의 `roll_rules`, 5.4~5.10, 5.15, 5.16, 5.22~5.24, 7, 9, 10.2, 검토 표의 실험 판 줄, 8.3 TDS-M015와 TDS-S002: 범위 밖 종류(`trades`, `quotes`, `book_deltas`, `book_snapshots`, `market_statistics`, `calendar_segments`, `trading_status_events`, `rates`, `roll_calendar`, `option_chain_snapshots`, `funding_rates`, `reference_prices`)가 스키마 파일과 함께 빠지고, 프로필 `tds:l1-ticks`, `tds:l2-book`, `tds:l3-book`, `tds:futures`, `tds:options`, `tds:crypto`도 함께 빠진다(#725 결정 252; #752의 R1a-2). TDS-M015는 나중에 오는 종류를 위해 남는다(결정 253). 지금은 `experimental` 스키마가 없다. 움직이는 적합성 패키지나 해시는 없다. `tds_version` `"1.0"` 그대로, `tds_draft`는 2026-11-19 그대로(12e까지, 10.5).
 - 2026-11-25: **v1.4** 안에서. 5.1, 5.17, 5.21, 5.25, 7, 8.3: TDS-T007, TDS-R007, TDS-V041, TDS-V050은 은퇴하고 번호는 다시 쓰지 않는다. 그 종류가 빠지기 전이다(#725 결정 250; #752의 R2b-1). TDS-V020은 `issuer_id`를 묻지 않는다(결정 255). 움직인 것: 적합성 사례 TDS-T007, TDS-R007, TDS-V041, TDS-V050이 없어짐; 다른 패키지의 해시는 없음. `tds_version` `"1.0"` 그대로, `tds_draft`는 2026-11-19 그대로(12e까지, 10.5).
+- 2026-11-26: **v1.4** 안에서. 5.18과 8.3: TDS-T001은 봉만, TDS-T003은 `market_rules`만 읽고, TDS-T004와 TDS-T012는 `fundamentals_state`와 `universe_membership`을 더는 읽지 않는다(#725 결정 250; #752의 R2b-2). `classifications`는 빠질 때까지 읽는다. 움직인 것: 적합성 사례 TDS-T001, TDS-T003, TDS-T004, TDS-K001(pass와 fail), TDS-S005(pass)를 봉과 `market_rules`로 다시 썼다; 다른 패키지의 해시는 없음. `tds_version` `"1.0"` 그대로, `tds_draft`는 2026-11-19 그대로(12e까지, 10.5).

@@ -51,8 +51,8 @@ WHOLE = CLOSE - 10**6  # a millisecond before the close, a whole microsecond
 
 
 def _bars(end: int, rule: str | None = None) -> Any:
-    """The US:AAA daily bar ending at `end` (ns) under a calendar and the US watermark, beside
-    TDS-T001's event; with `rule`, the bars' rule and a `ts_available` (us, 5.5) at `WHOLE`.
+    """The US:AAA daily bar ending at `end` (ns) under a calendar and the US watermark; with
+    `rule`, the bars' rule and a `ts_available` (us, 5.5) at `WHOLE`.
     The files have pyarrow's footer statistics, which the schema level and T006 read."""
     said = {"ts_available": pa.array([WHOLE // 1000], build.TS_UTC)} if rule else {}
 
@@ -62,7 +62,6 @@ def _bars(end: int, rule: str | None = None) -> Any:
         build.rewrite(m, f, build.BARS, build.bars_table(ts_end=pa.array([end], NS), **said))
         if rule:
             build.bars(m)["availability"] = {"rule": rule}
-        build.CASES["TDS-T001"][1](m, f)  # an `events` row available a second before its event
 
     return change
 
@@ -81,12 +80,13 @@ def _run(package: Path, pandas: str, level: str = "full") -> dict[str, Any]:
 @pytest.mark.parametrize(
     ("change", "found"),
     [
-        (_bars(CLOSE - 1), ["TDS-T001", "TDS-T005"]),  # a nanosecond before the close (T005)
-        (_bars(CLOSE), ["TDS-T001"]),  # at the watermark and the close
-        (_bars(CLOSE + 1), ["TDS-T001", "TDS-T005", "TDS-T006"]),  # a nanosecond after
+        (_bars(CLOSE - 1), ["TDS-T005"]),  # a nanosecond before the close (T005)
+        (_bars(CLOSE), []),  # at the watermark and the close
+        (_bars(CLOSE + 1), ["TDS-T005", "TDS-T006"]),  # a nanosecond after
+        (_bars(CLOSE, "column"), ["TDS-T001"]),  # available (us) a millisecond before its end
         # the rule's 500 ns from an end that is no whole microsecond reach `ts_available`
-        (_bars(WHOLE - 500, "ts_end+PT0.0000005S"), ["TDS-T001", "TDS-T005"]),
-        (_bars(WHOLE - 500, "ts_end+PT0.000001S"), ["TDS-T001", "TDS-T002", "TDS-T005"]),
+        (_bars(WHOLE - 500, "ts_end+PT0.0000005S"), ["TDS-T005"]),
+        (_bars(WHOLE - 500, "ts_end+PT0.000001S"), ["TDS-T002", "TDS-T005"]),
     ],
 )
 def test_an_instant_that_is_not_a_whole_microsecond_is_judged(
@@ -99,7 +99,6 @@ def test_an_instant_that_is_not_a_whole_microsecond_is_judged(
     said = _run(build.write(tmp_path, manifest, files), pandas)
     assert said["converts"] is (pandas == "installed")  # blocked: a pandas-free install's path
     assert sorted(code for code, _, _ in said["found"]) == found, said
-    assert ["TDS-T001", "events"] in [f[:2] for f in said["found"]]
     assert [c for c in said["unchecked"] if c in INSTANT_CODES] == []
     late = [message for code, _, message in said["found"] if code == "TDS-T006"]
     assert all("available until 2024-01-02T21:00:00.000000001+00:00" in m for m in late), late

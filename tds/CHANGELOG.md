@@ -31,6 +31,12 @@ package version follows the `tds_version` it checks (`1.0.x`), tagged
 - TDS-V020 no longer asks for `issuer_id` on an `equity` row where
   `tds:equity-daily-research@1.0` or `tds:pit-fundamentals@1.0` is declared (#725 Decision 255);
   it still asks each `asset_class` for its columns
+- TDS-T001, TDS-T003, TDS-T004 and TDS-T012 no longer read the user-data kinds (#752): T001
+  reads bars only (not `events`), T003 `market_rules` only (not `fundamentals_state`), T004 and
+  T012 neither `fundamentals_state` nor `universe_membership`; `classifications`,
+  `instrument_symbols`, `instrument_xref` and `market_rules` are judged as before. The
+  conformance cases TDS-T001, TDS-T003, TDS-T004, TDS-K001 and TDS-S005 are rewritten on bars
+  and `market_rules`
 
 ### Added
 - TDS-M010 at the `schema` level for an `instruments.market` not declared in `markets` (TDS 3.8,
