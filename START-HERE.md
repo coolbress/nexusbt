@@ -53,7 +53,7 @@ The interview notes for `/grill-with-docs` are **not** in this repository. They 
    - `docs/adr/`: keep plinth's ADR files. If one uses a number from 0001 to 0040, renumber it after 0040 with `git mv`.
    - `AGENTS.md`: add two lines: "The spec `docs/spec/engine-spec-v3.4.md` is the single source of truth; do not invent rules it does not have (use chapter 12 defaults, else stop and ask)" and the public rule below.
 4. Create a git-ignored `.hygiene-private.txt` on the user's machine only, listing private words (account, hosts, producer name, data paths). T0.2b's hygiene test reads it. Never commit it.
-5. Run `python3 tools/spec_lint.py`. It should print PASS with the numbers below. Open the PR; this is most of ticket T0.1.
+5. Run `python3 tools/spec_lint.py`. It should print PASS. Open the PR; this is most of ticket T0.1.
 
 ### (b) `/grill-with-docs`
 
@@ -65,7 +65,7 @@ Make **one plan issue** that points at spec sections. Do not rewrite the spec. I
 
 ### (d) `/to-tickets`
 
-Cut issues from [SPEC-INDEX.md](SPEC-INDEX.md): 219 tickets in milestone order (M0 → M6, then v1.x). Each issue body is the ticket text from 10.1 of `docs/plan/plan.md`, copied as written: title, size, Done means, Acceptance, Blocked by, § sections. The issue's own title is a plain sentence of what the ticket does, not the ticket's commit-style title (`T6.16 ci(release): …`); the ticket id and that title go under the body's `## Parent`. Golden tickets (`T<m>.G…`) come before the tickets that use them. Replace `Blocked by` ticket ids with issue numbers as you go, and keep the id → issue map in the plan issue.
+Cut issues from [SPEC-INDEX.md](SPEC-INDEX.md): the tickets in milestone order (M0 → M6, then v1.x). Each issue body is the ticket text from 10.1 of `docs/plan/plan.md`, copied as written: title, size, Done means, Acceptance, Blocked by, § sections. The issue's own title is a plain sentence of what the ticket does, not the ticket's commit-style title (`T6.16 ci(release): …`); the ticket id and that title go under the body's `## Parent`. Golden tickets (`T<m>.G…`) come before the tickets that use them. Replace `Blocked by` ticket ids with issue numbers as you go, and keep the id → issue map in the plan issue.
 
 ### (e) `/implement #N`
 
@@ -97,10 +97,6 @@ The decision records are in [docs/adr/](docs/adr/); each record's Status line sa
 
 - **Public (Apache-2.0):** engine code, the spec, TDS (format, schemas, checker), docs, tests.
 - **Private, never in this repository:** the producer's data, snapshots and any part of them; fixtures made from vendor data; producer paths, host names, IP addresses, account names, the producer's name, producer-internal ticket ids. All test data comes from the synthetic generator (spec 4.8). Real-data evidence holds summary numbers only (spec 2.7). The hygiene tests (T0.2b) enforce this.
-
-## Numbers (computed by script from the spec, 2026-10-29)
-
-219 tickets (M0 16, M1 40, M2 30, M3a 37, M3b 11, M4 28, M5 24, M6 31, v1.x 2) · 107 golden cases (G-01..G-107) · 34 property tests · 49 error codes (E1..E49) · 40 ADRs · 950 named acceptance tests · 177 headings. Recompute tickets, goldens and property tests with `python3 tools/spec_lint.py`; error codes and ADRs are the rows of the tables in spec 6.6 and 9.3. The current counts are in [SPEC-INDEX.md](SPEC-INDEX.md).
 
 ## Where the evidence is
 

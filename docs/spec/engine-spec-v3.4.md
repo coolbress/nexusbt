@@ -2912,6 +2912,7 @@ A property test too slow to run in the `ci` profile within `ci / test`'s time li
 ### 9.2 Step 2: the glossary (`CONTEXT.md`)
 
 The glossary is [`GLOSSARY.md`](../../GLOSSARY.md), translated in [`GLOSSARY.ko.md`](../../GLOSSARY.ko.md); `CONTEXT.md` and `CONTEXT.ko.md`, the names this spec uses, are symbolic links to them. It explains in plain words the terms 1.2 defines and the other words of this project; where the two differ, 1.2 wins. A term is added or changed there when it is settled, and a term whose change would change a rule is changed in this spec first.
+
 ### 9.3 Step 2: the decision records (`docs/adr/`)
 
 The decision records are the files of [`docs/adr/`](../adr/), one per decision, numbered in order. Each file's Status line says whether the decision stands or which record superseded it, and a record that amends another names it.

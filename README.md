@@ -32,7 +32,7 @@ together) are not here yet.
 | --- | --- |
 | [START-HERE.md](START-HERE.md) | Where to begin, the order of work, the decisions not to reopen |
 | [docs/spec/engine-spec-v3.4.md](docs/spec/engine-spec-v3.4.md) | The engine spec, with a [Korean translation](docs/spec/engine-spec-v3.4.ko.md). **The single source of truth**: if anything disagrees with it, the spec wins |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | The map of the system: layers, planned code layout, invariants |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | The map of the system: layers, code layout, invariants |
 | [GLOSSARY.md](GLOSSARY.md) | The words of this project (`CONTEXT.md`, the spec's name for it, links here) |
 | [SPEC-INDEX.md](SPEC-INDEX.md) | Milestones and tickets, with the spec sections and tests for each |
 | [docs/adr/](docs/adr/) | The design decisions, one record each |
