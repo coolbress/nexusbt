@@ -164,7 +164,7 @@ nx.run_pipeline(pipe, start="2024-01-01", end="2024-04-30", freq="monthly")
 | ev-1003 | earnings.announcement | US:AAPL | | 2024-05-02T20:30Z | 2024-05-02T20:31Z | 1.53 | 1.50 | USD/share (EPS) | sec |
 | ev-1004 | macro.release | | US_CPI_YOY | 2024-03-12T12:30Z | 2024-03-12T12:30Z | 3.2 | 3.1 | % | bls |
 
-Column names are exactly those of TDS v1.4 5.21 (the kind column is named `event_type`, a namespaced string). One of `instrument_id`, `issuer_id` and `series_id` must be present (otherwise warning V041). A revision is a new `event_id`.
+Column names are exactly those of TDS v1.4 5.21 (the kind column is named `event_type`, a namespaced string). One of `instrument_id`, `issuer_id` and `series_id` is present (its check V041 is retired). A revision is a new `event_id`.
 
 How to use: `Events.earnings.days_since()` (= `event_type` `earnings.announcement`), `Events.of("earnings.prelim").surprise`, schedule `nx.on_event(Events.of("earnings.prelim"), delay=1)`.
 

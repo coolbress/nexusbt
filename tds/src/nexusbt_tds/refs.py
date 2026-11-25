@@ -4,10 +4,10 @@ Rules chosen with the maintainer (#224, 2026-11-05): R002 reads the `calendar_id
 `instruments` and tds.json `markets`; R003 reads an instrument's calendar
 from `instruments.calendar_id`; R004 holds the four currency columns against ISO 4217's current
 list (`ISO_4217`) and tds.json `currencies`; R006 checks only the three columns TDS 8.3 names;
-R007 checks `selected_fact_id` only; R008 holds both ways; R009 matches `dictionary/columns`
+R008 holds both ways; R009 matches `dictionary/columns`
 `dataset` to the panel dataset's tds.json `name` (4.4), and an absent dictionary is one R009
 per dataset that names it. A check whose reference table is absent, or a package with a file Parquet
-cannot read, leaves its code unchecked; R007 applies only when `fundamentals_events` exists.
+cannot read, leaves its code unchecked. R007 is retired (#752).
 """
 
 from __future__ import annotations
@@ -21,25 +21,23 @@ from typing import Any
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from .check import REF_CODES, Finding, Severity
+from .check import REF_CODES, Finding
 from .keys import Batch, batches, listed, time_columns
 from .manifest import Manifest
 
-R001, R002, R003, R004, R005, R006, R007, R008, R009 = REF_CODES
+R001, R002, R003, R004, R005, R006, R008, R009 = REF_CODES
 PANELS = frozenset({"feature_panels", "label_panels"})
 FUNDAMENTALS = frozenset({"fundamentals_state", "fundamentals_events"})
 CURRENCIES = ("currency", "settlement_currency", "quote_currency", "base_currency")  # 1.2
 MICS = ("venue_mic", "operating_mic")
 TARGETS = ("new_instrument_id", "underlying_instrument_id", "handled_by_event_id")  # R006
 #: The columns of a checked dataset the R codes look at.
-VALUES = ("instrument_id", "calendar_id", "session_date", *CURRENCIES, *MICS, *TARGETS,
-          "selected_fact_id", "item")  # fmt: skip
+VALUES = ("instrument_id", "calendar_id", "session_date", *CURRENCIES, *MICS, *TARGETS, "item")
 #: The only columns read from the tables the R codes look values up in (TDS 8.1 `--datasets`).
 LOOKUPS = {
     "instruments": ("instrument_id", "calendar_id", "delisted_on"),
     "calendar_sessions": ("calendar_id", "session_date"),
     "corporate_actions": ("event_id",),
-    "fundamentals_events": ("fact_id",),
     "delistings": ("instrument_id", "exit_date"),
     "dictionary/items": ("item",),
     "dictionary/columns": ("dataset", "column"),
@@ -106,8 +104,6 @@ def _check(m: Manifest, only: Sequence[str] | None, blind: set[str]) -> list[Fin
         "underlying_instrument_id": ids,
         "handled_by_event_id": events if "corporate_actions" in present else None,
     }
-    states = any(d.get("kind") == "fundamentals_state" for d in checked)
-    facts = {f for (f,) in lookup("fundamentals_events")} if states else set()
     items = {i for (i,) in lookup("dictionary/items")}  # absent: every item missing
     described = set(lookup("dictionary/columns"))
     sessions: defaultdict[object, set[object]] | None = None
@@ -160,9 +156,6 @@ def _check(m: Manifest, only: Sequence[str] | None, blind: set[str]) -> list[Fin
                 out.append(Finding(R005, "warning", msg, dataset=name))
         for column, known in targets.items():
             out += _missing(R006, column, seen[column], known, blind, name)
-        if "fundamentals_events" in present and kind == "fundamentals_state":  # 8.3: only then
-            found = seen["selected_fact_id"]
-            out += _missing(R007, "selected_fact_id", found, facts, blind, name, "warning")
         if kind in FUNDAMENTALS:
             bad = sorted(seen["item"] - items - {None}, key=str)
             out += _undescribed(name, "item", bad, "dictionary/items", present)
@@ -225,7 +218,6 @@ def _missing(
     known: Any,
     blind: set[str],
     name: str | None,
-    severity: Severity = "error",
 ) -> list[Finding]:
     """`code` for the values of `column` not in `known`; unchecked when `known` is None."""
     if known is None:
@@ -237,4 +229,4 @@ def _missing(
         return []
     msg = f"{len(bad)} {column} value(s) not in their table, e.g. {bad[0]}"
     key = {column: str(bad[0])}
-    return [Finding(code, severity, msg, dataset=name, key=key, count=len(bad))]
+    return [Finding(code, "error", msg, dataset=name, key=key, count=len(bad))]

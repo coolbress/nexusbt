@@ -582,7 +582,7 @@ def test_classification_levels_not_duplicate(tmp_path: Path) -> None:
     assert codes(build.write(tmp_path, manifest, files), "full") == []
 
 
-R_CODES = [f"TDS-R{n:03}" for n in range(1, 10)]
+R_CODES = [f"TDS-R{n:03}" for n in (1, 2, 3, 4, 5, 6, 8, 9)]  # R007 is retired (#752)
 
 
 @pytest.fixture(params=["whole", "a row per batch"])
@@ -667,7 +667,6 @@ _NO_EXITS = ["TDS-R008"]  # nor delistings
         (_no_exits, ["TDS-R008"], _BASE_CAL),  # R008: delisted_on set, no delistings row
         (_twice, [], _BASE_CAL),  # delisted twice; delisted_on is the latest exit_date
         (build._exits(delisted=False), ["TDS-R008"], _BASE_CAL),  # a delisting, delisted_on null
-        (_without("fundamentals_events", build._facts("F9")), [], [*_BASE_CAL, *_NO_EXITS]),
         (_MOM, ["TDS-R009"], [*_BASE_CAL, *_NO_EXITS]),  # no dictionary/columns: `mom` missing
         (_empty_panel, ["TDS-R009"], [*_BASE_CAL, *_NO_EXITS]),  # columns from the footer
         (  # a delisting but no instruments table: R008 has nothing to compare
@@ -691,7 +690,7 @@ def test_reference_rules_edges(
     change: Any, errors: list[str], unchecked: list[str], tmp_path: Path
 ) -> None:
     result = check(write(tmp_path, change), level="full")
-    found = [f.code for f in (*result.errors, *result.warnings)]  # R005 and R007 warn
+    found = [f.code for f in (*result.errors, *result.warnings)]  # R005 warns
     assert [c for c in found if c in R_CODES] == errors
     assert [c for c in R_CODES if c in result.unchecked] == unchecked
 
@@ -885,8 +884,8 @@ def test_A011_on_a_timestamp_last_trading_date_is_S002_and_unchecked(tmp_path: P
     assert "TDS-A011" in result.unchecked
 
 
-#: V011 and V012 have tests of their own; V031 and V032 are retired (#752).
-V_CODES = [f"TDS-V{n:03}" for n in (1, 2, 4, 5, 10, 20, 40, 41, 50)]
+#: V011 and V012 have tests of their own; V031, V032, V041 and V050 are retired (#752).
+V_CODES = [f"TDS-V{n:03}" for n in (1, 2, 4, 5, 10, 20, 40)]
 
 
 @pytest.mark.usefixtures("refs_batches")
@@ -987,38 +986,22 @@ def test_a_delistings_file_holds_the_three_columns_even_where_null(tmp_path: Pat
 RESEARCH, PIT = "tds:equity-daily-research@1.0", "tds:pit-fundamentals@1.0"
 
 
-@pytest.mark.parametrize(
-    ("profile", "assets", "issuer", "found"),
-    [
-        (RESEARCH, ("equity",), [None], ["TDS-V020"]),
-        (PIT, ("equity",), [None], ["TDS-V020"]),
-        (RESEARCH, ("equity",), ["I1"], []),
-        (RESEARCH, ("etf", "index"), [None, None], []),  # a fund and an index: no statements
-        (RESEARCH, ("equity", "etf"), ["I1", None], []),
-        (RESEARCH, ("equity", "etf"), None, ["TDS-V020"]),  # no issuer_id column at all
-        (RESEARCH, ("etf", "index"), None, []),
-        ("tds:minimal-daily@1.0", ("equity",), [None], []),  # the core leaves it optional
-    ],
-)
-def test_an_equity_holds_issuer_id_where_a_profile_is_declared(
-    profile: str, assets: tuple[str, ...], issuer: list[str | None] | None, found: list[str],
-    tmp_path: Path,
-) -> None:  # fmt: skip
-    """#705 B2, #725 Decisions 185: by row (V020), the declared profile read; every finding
-    that names `issuer_id` is looked at, the profiles' other datasets aside: none at the
-    column level (M008), where a fund's or an index's null is no gap."""
-    ids = ["US:AAA", "US:BBB"][: len(assets)]
+@pytest.mark.parametrize("profile", [RESEARCH, PIT, "tds:minimal-daily@1.0"])
+@pytest.mark.parametrize("issuer", [[None], None])  # null, or no issuer_id column at all
+def test_an_equity_needs_no_issuer_id(
+    profile: str, issuer: list[str | None] | None, tmp_path: Path
+) -> None:
+    """#725 Decision 255: V020 asks no `issuer_id`, whatever profile is declared; every
+    finding that names `issuer_id` is looked at, the profiles' other datasets aside."""
 
     def change(m: dict[str, Any], f: Any) -> None:
         m["profiles"] = [profile]
-        rows = {k: v * len(ids) for k, v in build.instruments().to_pydict().items()}
-        rows |= {"instrument_id": ids, "asset_class": list(assets)}
+        rows = build.instruments().to_pydict() | {"asset_class": ["equity"]}
         rows |= {} if issuer is None else {"issuer_id": pa.array(issuer, pa.string())}
         build.rewrite(m, f, build.INSTRUMENTS, pa.table(rows))
 
     result = check(write(tmp_path, change), level="full")
-    named = [f.code for f in result.errors if f.code == "TDS-V020" or "issuer_id" in f.message]
-    assert named == found
+    assert [f for f in result.errors if f.code == "TDS-V020" or "issuer_id" in f.message] == []
 
 
 def test_S007_names_a_value_with_its_rows(tmp_path: Path) -> None:
@@ -2186,8 +2169,9 @@ def test_jsonl_ends_with_the_summary(tmp_path: Path) -> None:
 
 
 #: The T codes the rows show; T002's package and T006's are the schema level's (`test_S_codes`;
-#: T002's rows: `test_instant_rules_edges`), and T009 and T013 are not in TDS 8.3.
-T_CODES = [f"TDS-T{n:03}" for n in (1, 3, 4, 5, 7, 10, 11, 12)]
+#: T002's rows: `test_instant_rules_edges`), T009 and T013 are not in TDS 8.3, and T007 and T008
+#: are retired (#752).
+T_CODES = [f"TDS-T{n:03}" for n in (1, 3, 4, 5, 10, 11, 12)]
 INTERVAL_CODES = ["TDS-T003", "TDS-T004", "TDS-T012"]
 
 
@@ -2322,13 +2306,11 @@ _CALENDAR_RULE = build._both(build._sessions(0), build._bars(ts_available=pa.arr
                                  ts_available=pa.array([_at(2, 21) + _HALF]))),
          ["TDS-T002"], []),  # no ts_recv: ts_end and a minute, not half an hour
         (build._instruments(last_session=pa.array(["2024-01-01"])), ["TDS-S002"],
-         [f"TDS-T{n:03}" for n in (1, 2, 5, 7, 10, 11)]),  # a text date: none judged
+         [f"TDS-T{n:03}" for n in (1, 2, 5, 10, 11)]),  # a text date: none judged
         (build._both(build.no_calendar, build._bars(ts_end=pa.array([_at(2, 20)]))), [],
          ["TDS-T005"]),  # no calendar_sessions
         (build._both(build._sessions(0, (3,)), build._bars(ts_end=pa.array([_at(2, 20)]))),
          ["TDS-D002", "TDS-R003"], ["TDS-T005"]),  # a calendar, no session that day: not judged
-        (build._facts("F1", period_end=[dt.date(2024, 1, 2)], value_how=["preliminary"]),
-         ["TDS-T007"], []),  # a warning
         (build._event(_at(1, 0), series_id=["US:CPI"]), [], []),  # at the event: not before it
     ],
 )  # fmt: skip
@@ -2338,7 +2320,6 @@ def test_instant_rules_edges(
     result = check(write(tmp_path, change), level="full")
     assert [f.code for f in (*result.errors, *result.warnings)] == found
     assert [c for c in result.unchecked if c in (*T_CODES, "TDS-T002")] == unchecked
-    assert "TDS-T007" not in [f.code for f in result.errors]  # preliminary: lowered (5.16)
 
 
 #: D002's package is the schema level's (`test_S_codes`); its rows: `test_density_rules_edges`.
