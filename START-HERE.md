@@ -78,7 +78,7 @@ From the spec header ("사용자 결정" blocks, 2026-10-27/28):
 - One key name `instrument_id`, with no `security_id` alias. Other names are renamed only at import (`rename=`, `mapping.yaml`).
 - Public docs (TDS, README, quickstart, error messages, CONTEXT) are English canonical plus a Korean translation. Amended 2026-10-31 (spec OI-45): the spec too. The English spec is canonical at `docs/spec/engine-spec-v3.4.md` and the Korean translation is `docs/spec/engine-spec-v3.4.ko.md`; the English text was grown chapter by chapter beside the Korean and took over the spec's path in one step (#6).
 - v1 is built on synthetic data. It is released after it passes KR/US real-data verification. PyPI name reserved; publish at v1.
-- zipline parity covers presets only (ADR-0021). The hold band is the last M6 ticket (T7.1).
+- zipline parity covers presets only (ADR-0021). The hold band is in v1 (T7.1); its place among the tickets is set when stage (2) cuts them (#725 Decisions 244).
 - Shorting is in v1, off by default. It uses signed symmetry; with `enabled = false` the result is bit-identical to long-only (P-SHORT-OFF). Borrow costs are user config. There is no borrow-availability data. KR short bans come from the market rules pack.
 - The producer has no export layer: its snapshot folder is a TDS package, and the engine connects by path only.
 - Cash interest is `[account] cash_rate_bps` (default 0). A sleeve whose equity hits ≤ 0 is marked `ruined`. Cash accounts have no forced liquidation (margin accounts: spec 5.6.7a).
