@@ -1,5 +1,5 @@
 """The `full` level's instant checks from the rows: T001, T002, T005, T007, T010, T011
-(TDS 5.1, 5.5, 5.6, 5.13, 5.16, 6.2, 8.3).
+(TDS 5.1, 5.5, 5.13, 5.16, 6.2, 8.3).
 
 Rules chosen with the maintainer (#225, 2026-11-11): T001 compares a stored `ts_available` with
 the row's event instant, a bar's `ts_end` or an event's `ts_event`. T002 holds a stored
@@ -31,7 +31,6 @@ from .manifest import Manifest
 from .refs import _rows
 
 T001, T002, T005, T007, T010, T011 = INSTANT_CODES
-TICKS = frozenset({"trades", "quotes", "book_deltas", "book_snapshots", "trading_status_events"})
 _PARTS = re.compile(
     rf"(?P<name>[a-z_]+)(?:\((?P<column>{_COL})(?:\+(?P<inner>{_DUR}))?\))?(?:\+(?P<add>{_DUR}))?"
 )
@@ -47,7 +46,7 @@ _EPOCH_DAY, _DAY_NS = dt.date(1970, 1, 1).toordinal(), 86_400 * 10**9
 def check_instants(
     m: Manifest, only: Sequence[str] | None, blind: set[str], notes: list[str]
 ) -> list[Finding]:
-    """The seven codes on the checked datasets; a file they cannot read leaves them unchecked,
+    """The six codes on the checked datasets; a file they cannot read leaves them unchecked,
     and a time column stored as another type (S002's) too, named in `notes` (#389)."""
     try:
         return _check(m, only, blind)
@@ -119,7 +118,6 @@ COLUMNS = {
     "fundamentals_events": ("fact_id", "period_end", "ts_available", "value_how"),
     "instruments": ("instrument_id", "listed_on", "last_session"),
     "delistings": ("delisting_id", "ts_exit_known", "ts_value_available"),
-    **dict.fromkeys(TICKS, ("instrument_id", "ts_event", "ts_recv")),
 }
 
 

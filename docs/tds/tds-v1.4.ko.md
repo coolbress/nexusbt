@@ -1094,7 +1094,7 @@ tds export {zipline-bundle|nautilus-catalog|wide-parquet} ... # 9.8
 
 | 코드 | 심각도 | 뜻 |
 |---|---|---|
-| TDS-M001 | E | `tds.json` 없음·읽을 수 없음·JSON 스키마(4.2, `tds/schemas/manifest/1.0.json`) 위반. 스키마가 허용하지 않는 `columns[].type`·`partitioning[].type`, 한 데이터셋에 두 번 적힌 칼럼 이름도 여기 [2026-11-12]. 문자열 배열이 아니거나, 한 칼럼을 두 번 적거나, `sequence`를 적은 `params.sequence_consecutive_within`(5.6)도 여기 [2026-11-13] |
+| TDS-M001 | E | `tds.json` 없음·읽을 수 없음·JSON 스키마(4.2, `tds/schemas/manifest/1.0.json`) 위반. 스키마가 허용하지 않는 `columns[].type`·`partitioning[].type`, 한 데이터셋에 두 번 적힌 칼럼 이름도 여기 [2026-11-12]. (2026-11-13부터 여기서 보던 `params.sequence_consecutive_within`의 모양은 은퇴했다, 5.6 [2026-11-25, #752]) |
 | TDS-M002 | E | `tds_version` MAJOR를 지원하지 않음 |
 | TDS-M003 | E | 필수 매니페스트 칼럼 없음; 그 가운데 `tds_draft`(4.2)와, `bars` 데이터셋의 `params.price_basis`·`params.bar_time`·`params.density`가 없거나 `null`인 것, 또는 그 `availability`가 없는 것: 어느 것도 기본값이 없다(5.5) [2026-11-23, #705] |
 | TDS-M004 | E | 목록에 있는 파일이 없음 |
@@ -1553,7 +1553,7 @@ datasets:
 
 ## 18. v1.3 → v1.4 변경 요약 (3자 검토 4라운드 + 사용자 결정, 2026-10-28)
 
-근거 번호는 명세 v3.4의 넷째 검토 라운드 발견 `R4F-NN`이다(그 목록인 명세 부록 I는 2026-11-25에 명세에서 빠졌고 git 이력에 남는다, #771). **`tds_version`은 `"1.0"` 그대로다.** 이유: 표준이 아직 초안이라 호환 약속 전이고(10.5), 기준 생산자는 이미 `tds.corporate_actions`에 `ratio_num/ratio_den`을 쓴다. 1.0 확정 뒤라면 선택 → 필수는 MAJOR다(10.2).
+근거 번호는 명세 v3.4가 넷째 검토 라운드의 변경과 그 뒤의 사용자 결정에 붙인 `R4F-NN`이다(그 목록인 명세 부록 I는 2026-11-25에 명세에서 빠졌고 git 이력에 남는다, #771). **`tds_version`은 `"1.0"` 그대로다.** 이유: 표준이 아직 초안이라 호환 약속 전이고(10.5), 기준 생산자는 이미 `tds.corporate_actions`에 `ratio_num/ratio_den`을 쓴다. 1.0 확정 뒤라면 선택 → 필수는 MAJOR다(10.2).
 
 | 영역 | v1.3 | v1.4 | 근거 |
 |---|---|---|---|

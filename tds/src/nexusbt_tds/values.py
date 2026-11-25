@@ -1,4 +1,4 @@
-"""The `full` level's value checks from the rows: V001~V050 (TDS 5.1, 5.5, 5.7, 5.13, 5.15,
+"""The `full` level's value checks from the rows: V001~V050 (TDS 5.1, 5.5, 5.13, 5.15,
 5.21, 5.25, 8.3).
 
 Rules chosen with the maintainer (#227, 2026-11-10): V001 compares a bar whose open, high, low

@@ -1094,7 +1094,7 @@ Severity: E = error (profile fails), W = warning.
 
 | Code | Severity | Meaning |
 |---|---|---|
-| TDS-M001 | E | `tds.json` missing, unreadable, or violating the JSON schema (4.2, `tds/schemas/manifest/1.0.json`), among them a `columns[].type` or `partitioning[].type` that is not a type name it allows and a column name listed twice in a dataset [2026-11-12], and a `params.sequence_consecutive_within` that is not an array of strings, names a column twice or names `sequence` (5.6) [2026-11-13] |
+| TDS-M001 | E | `tds.json` missing, unreadable, or violating the JSON schema (4.2, `tds/schemas/manifest/1.0.json`), among them a `columns[].type` or `partitioning[].type` that is not a type name it allows and a column name listed twice in a dataset [2026-11-12] (the shape of `params.sequence_consecutive_within`, checked here from 2026-11-13, is retired, 5.6 [2026-11-25, #752]) |
 | TDS-M002 | E | `tds_version` MAJOR not supported |
 | TDS-M003 | E | Required manifest field missing; among them `tds_draft` (4.2) and a `bars` dataset's `params.price_basis`, `params.bar_time` or `params.density`, absent or `null`, or its `availability`, none of which has a default (5.5) [2026-11-23, #705] |
 | TDS-M004 | E | A listed file is missing |
@@ -1553,7 +1553,7 @@ Reference numbers are `R3-NN` from `review/consensus-r3.md` (the same numbers as
 
 ## 18. v1.3 → v1.4 change summary (review round 4 + maintainer decision, 2026-10-28)
 
-Reference numbers are `R4F-NN`, the fourth review round's findings in specification v3.4 (their list, the specification's appendix I, left it on 2026-11-25 and stays in its git history, #771). **`tds_version` stays `"1.0"`.** Reason: the standard is still a draft before any compatibility promise (10.5), and the reference producer already writes `ratio_num/ratio_den` in `tds.corporate_actions`. After 1.0 is final, optional → required would be MAJOR (10.2).
+Reference numbers are `R4F-NN`, specification v3.4's numbers for the fourth review round's changes and the user decisions after it (their list, the specification's appendix I, left it on 2026-11-25 and stays in its git history, #771). **`tds_version` stays `"1.0"`.** Reason: the standard is still a draft before any compatibility promise (10.5), and the reference producer already writes `ratio_num/ratio_den` in `tds.corporate_actions`. After 1.0 is final, optional → required would be MAJOR (10.2).
 
 | Area | v1.3 | v1.4 | Reference |
 |---|---|---|---|
