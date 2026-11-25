@@ -583,6 +583,11 @@ def test_classification_levels_not_duplicate(tmp_path: Path) -> None:
     assert codes(build.write(tmp_path, manifest, files), "full") == []
 
 
+def test_a_panel_key_in_two_editions_is_no_duplicate(tmp_path: Path) -> None:
+    """The `edition=` folder is part of a panel's key (5.25); leaves with the panels (#752)."""
+    assert codes(write(tmp_path, build._panels("strict", "compare")), "full") == []
+
+
 R_CODES = [f"TDS-R{n:03}" for n in (1, 2, 3, 4, 5, 6, 8, 9)]  # R007 is retired (#752)
 
 
