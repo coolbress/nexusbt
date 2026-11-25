@@ -611,9 +611,7 @@ Parameters (`params`): `freq` (`1d`, `1w`, `1mo`, `1h`, `30m`, `5m`, `1m`, `1s` 
 
 > The schemas of 5.6–5.9 and 5.22–5.24 are **experimental**: until lossless import and pinned replay cases exist they are outside the 1.x compatibility promise (10.2) and may change in the next MINOR. Their schema files say `status: experimental`, and the checker emits W (M015) for packages containing these datasets. Only the daily equity datasets (5.1–5.5, 5.10–5.21, 5.25–5.26) are `stable` [RV-I07].
 
-**Consecutive `sequence` numbers (`trades` 5.6, `quotes` 5.7, `book_deltas` 5.8; V032 retired)** [2026-11-13, #348]: a dataset of these three kinds declares with `params.sequence_consecutive_within` that its vendor promised consecutive `sequence` numbers. The value is a list of column names: present means the promise was made, absent means no promise; there is no `true`/`false` form. A group is the partition (`venue`, `date`) split further by the listed columns, so `[]` makes the whole partition one group (examples: `["instrument_id"]`, or `["x_dbn_channel_id"]` for a Databento channel feed, 9.4). The declaration means the group holds every message of its sequence, which is usually not true of `trades` and `quotes` that hold only some of the messages. The key on a dataset of any other kind is ignored.
-- Each listed column is required: one absent from a file's footer is TDS-S001 at the `schema` level; a listed partition column is not an error.
-- V032, which judged the gaps, is retired [2026-11-25, #752]; the declaration's shape and this S001 leave with the three kinds.
+**Consecutive `sequence` numbers** [2026-11-13, #348; retired 2026-11-25, #752]: the declaration `params.sequence_consecutive_within` of `trades`, `quotes` and `book_deltas`, its shape in 4.2's JSON schema, its TDS-S001 on a listed column absent from a file, and V032, which judged the gaps, are retired before the three kinds leave the standard; no check reads the key.
 
 Partition `venue=/date=` (date = `session_date`). Key (`instrument_id`, `ts_event`, `sequence`, `trade_id`) (if trade_id is nullable it drops out of the key and `sequence` must be unique). Sort (`instrument_id`, `ts_event`, `sequence`). Time unit ns. Parameters `price_exponent`, `size_exponent`.
 
@@ -633,7 +631,7 @@ Partition `venue=/date=` (date = `session_date`). Key (`instrument_id`, `ts_even
 | action | code | no | `new` / `cancel` / `correct` (corrected and cancelled trades) |
 | flags | i32 | yes | Vendor flag bits (to keep Databento values as is) |
 
-Default availability rule: if `ts_recv` is present, `ts_recv`; otherwise `ts_event + params.assumed_latency` (declaration required). T008: warning if `ts_recv < ts_event − tolerance` (hftbacktest's negative latency).
+Default availability rule: if `ts_recv` is present, `ts_recv`; otherwise `ts_event + params.assumed_latency` (declaration required). T008 (`ts_recv` before `ts_event`) is retired [2026-11-25, #752].
 
 ### 5.7 `quotes` (L1 quotes / BBO) — `experimental`
 
@@ -641,7 +639,7 @@ Partitions and sort are the same as `trades`. Key (`instrument_id`, `ts_event`, 
 
 Columns: `instrument_id`, `session_date`, `ts_event`, `ts_recv`, `sequence`, `bid_px` fixed null, `bid_sz` fixed null, `ask_px` fixed null, `ask_sz` fixed null, `bid_ct` i32 null, `ask_ct` i32 null, `venue_mic`, `conditions`, `flags`. The columns named here without a type are typed when the schema leaves `experimental`.
 - A row is "the best bid and offer state on both sides from that instant on". If one side is empty, that side is null. Ticks where only one side changed, as in LEAN, have the other side filled from the previous value at import (chapter 9).
-- V030: `bid_px >= ask_px` (locked or crossed) is a warning (may be normal in some markets).
+- V030 (a locked or crossed quote) is retired [2026-11-25, #752].
 
 ### 5.8 `book_deltas`, `book_snapshots` (L2/L3 books) — `experimental`
 
@@ -1096,7 +1094,7 @@ Severity: E = error (profile fails), W = warning.
 
 | Code | Severity | Meaning |
 |---|---|---|
-| TDS-M001 | E | `tds.json` missing, unreadable, or violating the JSON schema (4.2, `tds/schemas/manifest/1.0.json`), among them a `columns[].type` or `partitioning[].type` that is not a type name it allows and a column name listed twice in a dataset [2026-11-12], and a `params.sequence_consecutive_within` that is not an array of strings, names a column twice or names `sequence` (5.6) [2026-11-13] |
+| TDS-M001 | E | `tds.json` missing, unreadable, or violating the JSON schema (4.2, `tds/schemas/manifest/1.0.json`), among them a `columns[].type` or `partitioning[].type` that is not a type name it allows and a column name listed twice in a dataset [2026-11-12] (the shape of `params.sequence_consecutive_within`, checked here from 2026-11-13, is retired, 5.6 [2026-11-25, #752]) |
 | TDS-M002 | E | `tds_version` MAJOR not supported |
 | TDS-M003 | E | Required manifest field missing; among them `tds_draft` (4.2) and a `bars` dataset's `params.price_basis`, `params.bar_time` or `params.density`, absent or `null`, or its `availability`, none of which has a default (5.5) [2026-11-23, #705] |
 | TDS-M004 | E | A listed file is missing |
@@ -1146,7 +1144,7 @@ Severity: E = error (profile fails), W = warning.
 | TDS-T005 | E | Daily `ts_start/ts_end` differ from the session open and close (when present) |
 | TDS-T006 | E | Data after the market watermark `complete_through` |
 | TDS-T007 | E | Fundamentals `ts_available < period_end` (without a preliminary marker) |
-| TDS-T008 | W | `ts_recv < ts_event − tolerance`; the tolerance is 0 until a parameter defines it [2026-11-11] |
+| TDS-T008 | — | Retired 2026-11-25 (#752), the number not reused: `ts_recv < ts_event`; the tick kinds leave the standard (5.6~5.8) |
 | TDS-T010 | E | `last_session < listed_on` |
 | TDS-T011 | W | Publication of the exit consideration earlier than publication of the exit |
 | TDS-T012 | E | The two-time-axis **rectangle** lookup returns more than one row for one time and one discriminating key (for classifications including scheme, level and edition filter), in the three rectangle-lookup tables (6.3 ③): `classifications`, `universe_membership`, `instrument_symbols` [2026-11-11] |
@@ -1173,7 +1171,7 @@ Severity: E = error (profile fails), W = warning.
 | TDS-V011 | W | Suspected volume unit: per-instrument-year median of `value_traded / (volume × multiplier × (H+L+C)/3)` outside [0.5, 2], over bars whose `price_basis` is `raw`, `index` instruments left out (3.4) [v1.2, V31-16; 2026-11-10, #229] |
 | TDS-V012 | W | Grid information exists but a raw price deviates from the grid by more than 1e-9 relative [v1.2, V31-05] |
 | TDS-V020 | E | Required column per asset kind missing; an `equity` row's `issuer_id` where `tds:equity-daily-research@1.0` or `tds:pit-fundamentals@1.0` is declared (5.1; read at the `full` level) [2026-11-24, #705 B2] |
-| TDS-V030 | W | Crossed or locked BBO |
+| TDS-V030 | — | Retired 2026-11-25 (#752), the number not reused: a crossed or locked BBO; `quotes` leaves the standard (5.7) |
 | TDS-V031 | — | Retired 2026-11-25 (#752), the number not reused: a crossed book after reconstruction; `book_deltas` leaves the standard (5.8) |
 | TDS-V032 | — | Retired 2026-11-25 (#752), the number not reused: a sequence gap in a group whose dataset declares `params.sequence_consecutive_within`; `trades`, `quotes` and `book_deltas` leave the standard (5.6) |
 | TDS-V040 | E | `ret_lo > ret_hi`; or `ret_lo`, `ret_hi` or `policy_id` null on a row whose `exit_value_status` is not `unobserved` (5.13; read at the `full` level) [2026-11-24, #705 Decisions 8] |
@@ -1555,7 +1553,7 @@ Reference numbers are `R3-NN` from `review/consensus-r3.md` (the same numbers as
 
 ## 18. v1.3 → v1.4 change summary (review round 4 + maintainer decision, 2026-10-28)
 
-Reference numbers are `R4F-NN` of specification v3.4 (appendix I). **`tds_version` stays `"1.0"`.** Reason: the standard is still a draft before any compatibility promise (10.5), and the reference producer already writes `ratio_num/ratio_den` in `tds.corporate_actions`. After 1.0 is final, optional → required would be MAJOR (10.2).
+Reference numbers are `R4F-NN`, specification v3.4's numbers for the fourth review round's changes and the user decisions after it (their list, the specification's appendix I, left it on 2026-11-25 and stays in its git history, #771). **`tds_version` stays `"1.0"`.** Reason: the standard is still a draft before any compatibility promise (10.5), and the reference producer already writes `ratio_num/ratio_den` in `tds.corporate_actions`. After 1.0 is final, optional → required would be MAJOR (10.2).
 
 | Area | v1.3 | v1.4 | Reference |
 |---|---|---|---|
@@ -1624,3 +1622,4 @@ Reference numbers are `R4F-NN` of specification v3.4 (appendix I). **`tds_versio
 - 2026-11-25: **v1.4**, in place. 5.5 and the bars schema file: `cum_factor_split` and `cum_factor_total` leave; a package that still holds them gets TDS-S005 (#705 Decisions 35, 36; plan item 12d). Moved: the value hash of a dataset whose files hold either column undeclared (TDS-H002 and H003 against hashes written before); a package without them, none. `tds_version` stays `"1.0"`; `tds_draft` stays 2026-11-19 until 12e (10.5).
 - 2026-11-25: **v1.4**, in place. 5.8 and 8.3: TDS-V031 (a crossed book after reconstruction) is retired, its number never reused, before `book_deltas` leaves with the other out-of-scope kinds (#725 Decision 252; #752's R1b). Moved: the conformance case TDS-V031 is gone; no other package's hash. `tds_version` stays `"1.0"`; `tds_draft` stays 2026-11-19 until 12e (10.5).
 - 2026-11-25: **v1.4**, in place. 5.6 and 8.3: TDS-V032 (a sequence gap) is retired, its number never reused, before `trades`, `quotes` and `book_deltas` leave with `params.sequence_consecutive_within`'s shape and its TDS-S001 (#725 Decision 252; #752's R1c). Moved: the conformance case TDS-V032 is gone; no other package's hash. `tds_version` stays `"1.0"`; `tds_draft` stays 2026-11-19 until 12e (10.5).
+- 2026-11-25: **v1.4**, in place. 4.2's JSON schema, 5.6, 5.7 and 8.3: TDS-V030 (a locked or crossed quote) and TDS-T008 (`ts_recv` before `ts_event`) are retired, their numbers never reused, and so are the declaration `params.sequence_consecutive_within`, its shape and its TDS-S001, before the tick kinds leave (#725 Decision 252; #752's R1a-1). Moved: the conformance cases TDS-V030 and TDS-T008 are gone; no other package's hash. `tds_version` stays `"1.0"`; `tds_draft` stays 2026-11-19 until 12e (10.5).

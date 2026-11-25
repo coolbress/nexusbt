@@ -88,7 +88,7 @@ def _run(package: Path, pandas: str, level: str = "full") -> dict[str, Any]:
     ("change", "found"),
     [
         (_quotes(TICK + 1), ["TDS-T001"]),  # received a nanosecond after the tick
-        (_quotes(TICK - 1), ["TDS-T001", "TDS-T008"]),  # and a nanosecond before it
+        (_quotes(TICK - 1), ["TDS-T001"]),  # a nanosecond before it: nothing more (T008 retired)
         # `ts_available` 500 ns after `ts_recv`, a column 5.7 does not give quotes (S005)
         (_quotes(TICK + 1, "ts_recv+PT0.0000005S"), ["TDS-S005", "TDS-T001"]),
         (_quotes(TICK + 1, "ts_recv+PT0.000001S"), ["TDS-S005", "TDS-T001", "TDS-T002"]),

@@ -611,9 +611,7 @@
 
 > 5.6~5.9, 5.22~5.24의 스키마는 **실험 판**이다: 무손실 가져오기와 재생 고정 사례가 생길 때까지 1.x 호환 약속(10.2) 밖이고 다음 MINOR에서 바뀔 수 있다. 스키마 파일은 `status: experimental`, 검사기는 이 데이터셋을 담은 패키지에 W(M015)를 낸다. 일봉 주식 데이터셋(5.1~5.5, 5.10~5.21, 5.25~5.26)만 `stable`이다 [RV-I07].
 
-**연속 `sequence` 순번 (`trades` 5.6, `quotes` 5.7, `book_deltas` 5.8; V032 은퇴)** [2026-11-13, #348]: 이 세 종류의 데이터셋은 `params.sequence_consecutive_within`으로 공급사가 연속 `sequence` 순번을 약속했다고 선언한다. 값은 칼럼 이름의 목록이다. 있으면 약속한 것이고 없으면 약속이 없다. `true`/`false` 형태는 없다. 그룹은 파티션(`venue`, `date`)을 목록의 칼럼으로 더 나눈 것이므로 `[]`이면 파티션 전체가 한 그룹이다(예: `["instrument_id"]`, Databento 채널 피드라면 `["x_dbn_channel_id"]`, 9.4). 이 선언은 그룹이 그 순번의 모든 메시지를 담는다는 뜻이며, 메시지의 일부만 담는 `trades`와 `quotes`에서는 보통 참이 아니다. 다른 종류의 데이터셋에 있는 이 키는 무시한다.
-- 목록의 각 칼럼은 필수다: 파일 꼬리말(footer)에 없으면 `schema` 단계의 TDS-S001이다. 목록에 적힌 파티션 칼럼은 오류가 아니다.
-- 빈칸을 판정하던 V032는 은퇴했다 [2026-11-25, #752]; 선언의 모양과 이 S001은 세 종류와 함께 빠진다.
+**연속 `sequence` 순번** [2026-11-13, #348; 2026-11-25 은퇴, #752]: `trades`, `quotes`, `book_deltas`의 선언 `params.sequence_consecutive_within`, 4.2 JSON 스키마의 그 모양, 목록의 칼럼이 파일에 없을 때의 TDS-S001, 빈칸을 판정하던 V032는 세 종류가 표준에서 빠지기 전에 은퇴했다. 이 키를 읽는 검사는 없다.
 
 파티션 `venue=/date=`(date = `session_date`). 열쇠 (`instrument_id`, `ts_event`, `sequence`, `trade_id`)(trade_id null 허용이면 열쇠에서 빠지고 `sequence`가 유일해야 함). 정렬 (`instrument_id`, `ts_event`, `sequence`). 시각 단위 ns. 매개변수 `price_exponent`, `size_exponent`.
 
@@ -633,7 +631,7 @@
 | action | code | 아니오 | `new` / `cancel` / `correct` (정정·취소 체결) |
 | flags | i32 | 예 | 공급사 플래그 비트(Databento 값 그대로 두려면) |
 
-공개 시각 규칙 기본: `ts_recv`가 있으면 `ts_recv`, 없으면 `ts_event + params.assumed_latency`(필수 선언). T008: `ts_recv < ts_event − 허용치`이면 경고(hftbacktest의 음수 지연).
+공개 시각 규칙 기본: `ts_recv`가 있으면 `ts_recv`, 없으면 `ts_event + params.assumed_latency`(필수 선언). T008(`ts_event`보다 앞선 `ts_recv`)은 은퇴했다 [2026-11-25, #752].
 
 ### 5.7 `quotes` (호가 L1 / BBO) — `experimental`
 
@@ -641,7 +639,7 @@
 
 칼럼: `instrument_id`, `session_date`, `ts_event`, `ts_recv`, `sequence`, `bid_px` fixed null, `bid_sz` fixed null, `ask_px` fixed null, `ask_sz` fixed null, `bid_ct` i32 null, `ask_ct` i32 null, `venue_mic`, `conditions`, `flags`. 여기서 형 없이 적은 칼럼은 스키마가 `experimental`을 벗어날 때 형을 정한다.
 - 행은 "그 순간 이후의 양쪽 최우선 호가 상태"다. 한쪽 호가가 비면 그쪽은 null. LEAN처럼 한쪽만 바뀐 틱은 가져올 때 다른 쪽을 직전 값으로 채운다(9장).
-- V030: `bid_px >= ask_px`(잠김·교차)는 경고(시장에 따라 정상일 수 있음).
+- V030(잠기거나 교차한 호가)은 은퇴했다 [2026-11-25, #752].
 
 ### 5.8 `book_deltas`, `book_snapshots` (호가 L2/L3) — `experimental`
 
@@ -1096,7 +1094,7 @@ tds export {zipline-bundle|nautilus-catalog|wide-parquet} ... # 9.8
 
 | 코드 | 심각도 | 뜻 |
 |---|---|---|
-| TDS-M001 | E | `tds.json` 없음·읽을 수 없음·JSON 스키마(4.2, `tds/schemas/manifest/1.0.json`) 위반. 스키마가 허용하지 않는 `columns[].type`·`partitioning[].type`, 한 데이터셋에 두 번 적힌 칼럼 이름도 여기 [2026-11-12]. 문자열 배열이 아니거나, 한 칼럼을 두 번 적거나, `sequence`를 적은 `params.sequence_consecutive_within`(5.6)도 여기 [2026-11-13] |
+| TDS-M001 | E | `tds.json` 없음·읽을 수 없음·JSON 스키마(4.2, `tds/schemas/manifest/1.0.json`) 위반. 스키마가 허용하지 않는 `columns[].type`·`partitioning[].type`, 한 데이터셋에 두 번 적힌 칼럼 이름도 여기 [2026-11-12]. (2026-11-13부터 여기서 보던 `params.sequence_consecutive_within`의 모양은 은퇴했다, 5.6 [2026-11-25, #752]) |
 | TDS-M002 | E | `tds_version` MAJOR를 지원하지 않음 |
 | TDS-M003 | E | 필수 매니페스트 칼럼 없음; 그 가운데 `tds_draft`(4.2)와, `bars` 데이터셋의 `params.price_basis`·`params.bar_time`·`params.density`가 없거나 `null`인 것, 또는 그 `availability`가 없는 것: 어느 것도 기본값이 없다(5.5) [2026-11-23, #705] |
 | TDS-M004 | E | 목록에 있는 파일이 없음 |
@@ -1146,7 +1144,7 @@ tds export {zipline-bundle|nautilus-catalog|wide-parquet} ... # 9.8
 | TDS-T005 | E | 일봉 `ts_start/ts_end`가 세션 개장·마감과 다름(값이 있을 때) |
 | TDS-T006 | E | 시장 워터마크 `complete_through` 뒤의 자료 |
 | TDS-T007 | E | 재무 `ts_available < period_end`(잠정치 표시 없음) |
-| TDS-T008 | W | `ts_recv < ts_event − 허용치`. 허용치는 매개변수가 정의되기 전까지 0이다 [2026-11-11] |
+| TDS-T008 | — | 2026-11-25 은퇴(#752), 번호는 다시 쓰지 않음: `ts_recv < ts_event`; 틱 종류가 표준에서 빠진다(5.6~5.8) |
 | TDS-T010 | E | `last_session < listed_on` |
 | TDS-T011 | W | 종료 대가 공개가 퇴출 공개보다 이름 |
 | TDS-T012 | E | 두 시간축 **직사각형** 조회 결과가 한 시점·한 판별 열쇠(분류는 scheme·level·판 필터 포함)에 둘 이상, 직사각형 조회 표 셋(6.3 ③)에서: `classifications`, `universe_membership`, `instrument_symbols` [2026-11-11] |
@@ -1173,7 +1171,7 @@ tds export {zipline-bundle|nautilus-catalog|wide-parquet} ... # 9.8
 | TDS-V011 | W | 거래량 단위 의심: 종목·연도 중앙값 `value_traded / (volume × multiplier × (H+L+C)/3)`가 [0.5, 2] 밖. `price_basis`가 `raw`인 bars만, `index` 종목 제외(3.4) [v1.2, V31-16; 2026-11-10, #229] |
 | TDS-V012 | W | 격자 정보가 있는데 원가격이 격자에서 1e-9 상대 넘게 벗어남 [v1.2, V31-05] |
 | TDS-V020 | E | 자산 종류별 필수 칼럼 없음; `tds:equity-daily-research@1.0`이나 `tds:pit-fundamentals@1.0`을 선언했을 때 `equity` 행의 `issuer_id`(5.1; `full` 수준에서 읽음) [2026-11-24, #705 B2] |
-| TDS-V030 | W | 교차·잠긴 BBO |
+| TDS-V030 | — | 2026-11-25 은퇴(#752), 번호는 다시 쓰지 않음: 교차·잠긴 BBO; `quotes`가 표준에서 빠진다(5.7) |
 | TDS-V031 | — | 2026-11-25 은퇴(#752), 번호는 다시 쓰지 않음: 호가 재구성 뒤 교차; `book_deltas`가 표준에서 빠진다(5.8) |
 | TDS-V032 | — | 2026-11-25 은퇴(#752), 번호는 다시 쓰지 않음: `params.sequence_consecutive_within`을 선언한 데이터셋의 그룹 안 순번 빈칸; `trades`, `quotes`, `book_deltas`가 표준에서 빠진다(5.6) |
 | TDS-V040 | E | `ret_lo > ret_hi`; 또는 `exit_value_status`가 `unobserved`가 아닌 줄의 `ret_lo`, `ret_hi`, `policy_id`가 null (5.13; `full` 수준에서 읽음) [2026-11-24, #705 결정 8] |
@@ -1555,7 +1553,7 @@ datasets:
 
 ## 18. v1.3 → v1.4 변경 요약 (3자 검토 4라운드 + 사용자 결정, 2026-10-28)
 
-근거 번호는 명세 v3.4의 `R4F-NN`(부록 I). **`tds_version`은 `"1.0"` 그대로다.** 이유: 표준이 아직 초안이라 호환 약속 전이고(10.5), 기준 생산자는 이미 `tds.corporate_actions`에 `ratio_num/ratio_den`을 쓴다. 1.0 확정 뒤라면 선택 → 필수는 MAJOR다(10.2).
+근거 번호는 명세 v3.4가 넷째 검토 라운드의 변경과 그 뒤의 사용자 결정에 붙인 `R4F-NN`이다(그 목록인 명세 부록 I는 2026-11-25에 명세에서 빠졌고 git 이력에 남는다, #771). **`tds_version`은 `"1.0"` 그대로다.** 이유: 표준이 아직 초안이라 호환 약속 전이고(10.5), 기준 생산자는 이미 `tds.corporate_actions`에 `ratio_num/ratio_den`을 쓴다. 1.0 확정 뒤라면 선택 → 필수는 MAJOR다(10.2).
 
 | 영역 | v1.3 | v1.4 | 근거 |
 |---|---|---|---|
@@ -1624,3 +1622,4 @@ datasets:
 - 2026-11-25: **v1.4** 안에서. 5.5와 bars 스키마 파일: `cum_factor_split`과 `cum_factor_total`이 빠진다; 그 둘을 아직 가진 패키지는 TDS-S005를 받는다(#705 결정 35, 36; 계획 12d). 움직인 것: 파일에 두 칼럼 가운데 하나라도 선언 없이 가진 데이터셋의 값 해시(그 전에 쓴 해시에 대해 TDS-H002·H003); 두 칼럼이 없는 패키지는 없음. `tds_version` `"1.0"` 그대로, `tds_draft`는 2026-11-19 그대로(12e까지, 10.5).
 - 2026-11-25: **v1.4** 안에서. 5.8과 8.3: TDS-V031(재구성 뒤 교차 호가)은 은퇴하고 번호는 다시 쓰지 않는다. `book_deltas`가 다른 범위 밖 종류와 함께 빠지기 전이다(#725 결정 252; #752의 R1b). 움직인 것: 적합성 사례 TDS-V031이 없어짐; 다른 패키지의 해시는 없음. `tds_version` `"1.0"` 그대로, `tds_draft`는 2026-11-19 그대로(12e까지, 10.5).
 - 2026-11-25: **v1.4** 안에서. 5.6과 8.3: TDS-V032(순번 빈칸)는 은퇴하고 번호는 다시 쓰지 않는다. `trades`, `quotes`, `book_deltas`가 `params.sequence_consecutive_within`의 모양과 그 TDS-S001과 함께 빠지기 전이다(#725 결정 252; #752의 R1c). 움직인 것: 적합성 사례 TDS-V032가 없어짐; 다른 패키지의 해시는 없음. `tds_version` `"1.0"` 그대로, `tds_draft`는 2026-11-19 그대로(12e까지, 10.5).
+- 2026-11-25: **v1.4** 안에서. 4.2 JSON 스키마, 5.6, 5.7, 8.3: TDS-V030(잠기거나 교차한 호가)과 TDS-T008(`ts_event`보다 앞선 `ts_recv`)은 은퇴하고 번호는 다시 쓰지 않는다. 선언 `params.sequence_consecutive_within`, 그 모양, 그 TDS-S001도 함께다. 틱 종류가 빠지기 전이다(#725 결정 252; #752의 R1a-1). 움직인 것: 적합성 사례 TDS-V030과 TDS-T008이 없어짐; 다른 패키지의 해시는 없음. `tds_version` `"1.0"` 그대로, `tds_draft`는 2026-11-19 그대로(12e까지, 10.5).

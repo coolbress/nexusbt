@@ -1,5 +1,5 @@
-"""The `full` level's instant checks from the rows: T001, T002, T005, T007, T008, T010, T011
-(TDS 5.1, 5.5, 5.6, 5.13, 5.16, 6.2, 8.3).
+"""The `full` level's instant checks from the rows: T001, T002, T005, T007, T010, T011
+(TDS 5.1, 5.5, 5.13, 5.16, 6.2, 8.3).
 
 Rules chosen with the maintainer (#225, 2026-11-11): T001 compares a stored `ts_available` with
 the row's event instant, a bar's `ts_end` or an event's `ts_event`. T002 holds a stored
@@ -7,8 +7,8 @@ the row's event instant, a bar's `ts_end` or an event's `ts_event`. T002 holds a
 bar's null `ts_end` read `calendar_sessions` through `instruments.calendar_id`, and a row with no
 session, or a delay in years or months, is not judged. T005 compares the `ts_start` and `ts_end`
 a daily session bar has with that day's open and close. T007 compares the UTC date of
-`ts_available` with `period_end`, a warning for `value_how` `preliminary`. T008's tolerance is
-0. A row with a null in what a code compares is skipped. One finding per dataset, code and
+`ts_available` with `period_end`, a warning for `value_how` `preliminary`. T008 is retired
+(#752). A row with a null in what a code compares is skipped. One finding per dataset, code and
 severity; a code a row could not be judged by is unchecked unless another row found it.
 An instant is compared as `keys.Instant`, integer nanoseconds, whatever its column's unit (#382).
 Memory holds the calendar and the instruments' calendars, besides a batch of rows.
@@ -30,14 +30,13 @@ from .keys import Untyped
 from .manifest import Manifest
 from .refs import _rows
 
-T001, T002, T005, T007, T008, T010, T011 = INSTANT_CODES
-TICKS = frozenset({"trades", "quotes", "book_deltas", "book_snapshots", "trading_status_events"})
+T001, T002, T005, T007, T010, T011 = INSTANT_CODES
 _PARTS = re.compile(
     rf"(?P<name>[a-z_]+)(?:\((?P<column>{_COL})(?:\+(?P<inner>{_DUR}))?\))?(?:\+(?P<add>{_DUR}))?"
 )
 SAID = {T001: "row(s) available before their event", T002: "row(s) whose ts_available is not "
         "what the availability rule gives", T005: "daily bar(s) not bounded by their session",
-        T007: "fact(s) available before period_end", T008: "row(s) received before their event",
+        T007: "fact(s) available before period_end",
         T010: "instrument(s) with last_session before listed_on",
         T011: "exit value(s) published before the exit"}  # fmt: skip
 Row = dict[str, Any]
@@ -47,7 +46,7 @@ _EPOCH_DAY, _DAY_NS = dt.date(1970, 1, 1).toordinal(), 86_400 * 10**9
 def check_instants(
     m: Manifest, only: Sequence[str] | None, blind: set[str], notes: list[str]
 ) -> list[Finding]:
-    """The seven codes on the checked datasets; a file they cannot read leaves them unchecked,
+    """The six codes on the checked datasets; a file they cannot read leaves them unchecked,
     and a time column stored as another type (S002's) too, named in `notes` (#389)."""
     try:
         return _check(m, only, blind)
@@ -119,7 +118,6 @@ COLUMNS = {
     "fundamentals_events": ("fact_id", "period_end", "ts_available", "value_how"),
     "instruments": ("instrument_id", "listed_on", "last_session"),
     "delistings": ("delisting_id", "ts_exit_known", "ts_value_available"),
-    **dict.fromkeys(TICKS, ("instrument_id", "ts_event", "ts_recv")),
 }
 
 
@@ -166,7 +164,6 @@ def _broken(
 EVENT = {"bars": "ts_end", "events": "ts_event"}
 #: (code, severity, kinds, (column, column it must not precede)).
 LATER: tuple[tuple[str, Severity, frozenset[str], tuple[str, str]], ...] = (
-    (T008, "warning", TICKS, ("ts_recv", "ts_event")),  # tolerance 0 (#225)
     (T010, "error", frozenset({"instruments"}), ("last_session", "listed_on")),
     (T011, "warning", frozenset({"delistings"}), ("ts_value_available", "ts_exit_known")),
 )
