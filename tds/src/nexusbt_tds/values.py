@@ -81,7 +81,7 @@ SAID = {V001: "bar(s) whose high and low do not enclose open and close",
 def check_values(
     m: Manifest, only: Sequence[str] | None, blind: set[str], notes: list[str]
 ) -> list[Finding]:
-    """V001~V050 on the checked datasets; a file the codes cannot read leaves them unchecked."""
+    """V001~V040 on the checked datasets; a file the codes cannot read leaves them unchecked."""
     unverified: list[str] = []
     try:
         found = _check(m, only, unverified)

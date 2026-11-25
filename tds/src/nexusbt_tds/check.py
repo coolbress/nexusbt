@@ -6,7 +6,7 @@ Parquet footers and statistics and the `dictionary/` tables, no data rows (S001~
 of D002, and of M008 the columns a profile names); the `full` level adds, so far, S006, S007
 and S009 from the rows (`cells`), the key
 checks (K001~K004, K010, K011; `keys`), the
-reference checks (R001~R009; `refs`), the adjustment and value checks (`adjustments`,
+reference checks (R001~R006, R008, R009; `refs`), the adjustment and value checks (`adjustments`,
 `values`), the interval checks (T003, T004, T012;
 `times`), the instant checks (T001, T002, T005, T010, T011; `instants`), the
 density checks (D001~D004;
