@@ -111,7 +111,7 @@ All of them are tested in every milestone (§1.3). The ones that shape the archi
 | Performance, tests | §7, §8 |
 | Milestones and tickets | [docs/plan/plan.md](docs/plan/plan.md) (spec §10 points there) and [SPEC-INDEX.md](SPEC-INDEX.md) |
 | Extension points | §11 |
-| Decisions | [docs/adr/](docs/adr/) (short form in §9.3) |
+| Decisions | [docs/adr/](docs/adr/) (§9.3 points there) |
 
 ## Not in v1 (on purpose)
 

@@ -15,7 +15,7 @@ This repository builds **NexusBT**, an open-source (Apache-2.0) backtesting and 
 | Ticket index | [SPEC-INDEX.md](SPEC-INDEX.md) | milestone → ticket → spec sections → tests → blocked by. Ticket text lives in 10.1 of [docs/plan/plan.md](docs/plan/plan.md) |
 | Data standard TDS v1.4 | [docs/tds/tds-v1.4.md](docs/tds/tds-v1.4.md) (+ [.ko](docs/tds/tds-v1.4.ko.md)), [examples](docs/tds/tds-examples.md) | Spec 2.3 and T0.1 place it at `tds/spec/tds-v1.md`; move it there in T0.1 and fix the links |
 | Glossary | [GLOSSARY.md](GLOSSARY.md) (+ [.ko](GLOSSARY.ko.md)) | The words of this project. `CONTEXT.md` and `CONTEXT.ko.md`, the spec's names, are symbolic links to these |
-| ADRs 0001–0041 | [docs/adr/](docs/adr/) | All accepted. Short form in spec 9.3 |
+| Decision records | [docs/adr/](docs/adr/) | Each record's Status line says whether it stands or what superseded it |
 | Architecture | [ARCHITECTURE.md](ARCHITECTURE.md) (+ [.ko](ARCHITECTURE.ko.md)) | Bird's-eye view, layers, code map (planned), invariants, where to look in the spec |
 | Prototype evidence | [docs/design/prototype-results.md](docs/design/prototype-results.md) | Measured P5/P11, 32/32 hand-computed cases, decision-rows = full compute |
 | Public README | [README.md](README.md) (+ [.ko](README.ko.md)) | |
@@ -50,7 +50,7 @@ The interview notes for `/grill-with-docs` are **not** in this repository. They 
    - plinth may already have: `README.md`, `CONTEXT.md`, `AGENTS.md` (`CLAUDE.md` links to it), `CONTRIBUTING.md`, `CHANGELOG.md`, `LICENSE`, `NOTICE`, `SECURITY.md`, `.gitignore`, `.github/`, `docs/agents/`, `docs/adr/`, other `docs/` folders.
    - `README.md`: put the pack's text (title, motto, sections up to Documentation) first; keep plinth's sections (first day, build and test commands, badges) below. Same for `README.ko.md` if plinth made one.
    - `CONTEXT.md`: put the pack's glossary in; keep any plinth heading or note about how the file is maintained.
-   - `docs/adr/`: keep plinth's ADR files. If one uses a number from 0001 to 0040, renumber it after 0040 with `git mv`. T0.1 checks `ls docs/adr | wc -l` = 40, so adjust that count to match in the T0.1 PR.
+   - `docs/adr/`: keep plinth's ADR files. If one uses a number from 0001 to 0040, renumber it after 0040 with `git mv`.
    - `AGENTS.md`: add two lines: "The spec `docs/spec/engine-spec-v3.4.md` is the single source of truth; do not invent rules it does not have (use chapter 12 defaults, else stop and ask)" and the public rule below.
 4. Create a git-ignored `.hygiene-private.txt` on the user's machine only, listing private words (account, hosts, producer name, data paths). T0.2b's hygiene test reads it. Never commit it.
 5. Run `python3 tools/spec_lint.py`. It should print PASS with the numbers below. Open the PR; this is most of ticket T0.1.
@@ -91,8 +91,7 @@ From the spec header ("사용자 결정" blocks, 2026-10-27/28):
 - Economic-event investing uses the same blocks: `Macro.series`, `Events.<kind>`, `nx.on_event`, `from_parquet(shape=)`.
 - Engine, spec and TDS are public. Only the producer's data is private (2026-10-27).
 
-ADRs (all accepted; full text in [docs/adr/](docs/adr/)):
-0001 keep zipline Pipeline vocabulary, new executor · 0002 read TDS directly, `instrument_id` · 0003 cumulative-factor adjustment + reference impl · 0004 producer resolves fundamentals · 0005 one availability rule `decision_ts`, sleeves · 0006 daily state machine and order types in v1 · 0007 P&L from raw prices and explicit events · 0008 costs are cash debits, provisional bp · 0009 float64 only · 0010 no future lock: segments, attempt records, DSR · 0011 zipline-reloaded 3.2.1 only as isolated parity reference · 0012 run records sealed, source captured, hashes, SQLite index · 0013 microcaps included · 0014 benchmarks TR KOSPI and S&P 500 · 0015 missing pay dates estimated and flagged · 0016 Python/numpy/Numba behind a Rust seam · 0017 event engine only as a boundary, no `engine="auto"` · 0018 input contract is public TDS v1, checker versioned separately · 0019 numerical determinism · 0020 risk stage slot and hold-band recursion · 0021 zipline parity narrowed to equal semantics · 0022 public repo, Apache-2.0, data outside · 0023 no pickle, secrets outside config · 0024 defined fallbacks · 0025 three cache layers · 0026 events are the source of truth · 0027 one corporate-action resolver · 0028 three hashes · 0029 market names from data, rules from packs · 0030 integer minor-unit money · 0031 order lifecycle · 0032 paper-ledger transactions and idempotency · 0033 default label = economic holding return · 0034 integer share arithmetic · 0035 price grid and rounding from packs · 0036 signed long-short symmetry, off by default · 0037 snapshot immutability · 0038 sizing, risk slots and account-reading layer · 0039 validation is `backtest(method=…)`, ML factors in-engine · 0040 processes in v1, free-threading later.
+The decision records are in [docs/adr/](docs/adr/); each record's Status line says whether it stands or what superseded it.
 
 ## Public / private rule
 

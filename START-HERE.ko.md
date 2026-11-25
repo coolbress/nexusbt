@@ -15,7 +15,7 @@
 | 티켓 색인 | [SPEC-INDEX.md](SPEC-INDEX.md) | 마일스톤 → 티켓 → 명세 절 → 시험 → 막는 티켓. 티켓 본문은 [docs/plan/plan.md](docs/plan/plan.md)의 10.1 |
 | 자료 표준 TDS v1.4 | [docs/tds/tds-v1.4.md](docs/tds/tds-v1.4.md) (+ [한국어](docs/tds/tds-v1.4.ko.md)), [예시](docs/tds/tds-examples.md) | 명세 2.3과 T0.1은 `tds/spec/tds-v1.md` 자리를 쓴다. T0.1에서 옮기고 링크를 고친다 |
 | 용어집 | [GLOSSARY.md](GLOSSARY.md) (+ [한국어](GLOSSARY.ko.md)) | 이 프로젝트의 낱말. 명세가 쓰는 이름 `CONTEXT.md`·`CONTEXT.ko.md`는 이 둘을 가리키는 심볼릭 링크 |
-| ADR 0001–0041 | [docs/adr/](docs/adr/) | 모두 accepted. 짧은 판은 명세 9.3 |
+| 결정 기록 | [docs/adr/](docs/adr/) | 기록마다 Status 줄이 그 결정이 서 있는지, 무엇이 대신했는지를 말한다 |
 | 구조 | [ARCHITECTURE.md](ARCHITECTURE.md) (+ [한국어](ARCHITECTURE.ko.md)) | 한눈에 보기, 층, 코드 지도(예정), 불변식, 명세에서 찾을 곳 |
 | 시제품 증거 | [docs/design/prototype-results.md](docs/design/prototype-results.md) | P5·P11 실측, 손계산 32/32, 판단 행만 계산 = 전체 계산 |
 | 공개 README | [README.md](README.md) (+ [한국어](README.ko.md)) | |
@@ -50,7 +50,7 @@
    - plinth가 이미 만들었을 수 있는 것: `README.md`, `CONTEXT.md`, `AGENTS.md`(`CLAUDE.md`가 가리킴), `CONTRIBUTING.md`, `CHANGELOG.md`, `LICENSE`, `NOTICE`, `SECURITY.md`, `.gitignore`, `.github/`, `docs/agents/`, `docs/adr/`, 그 밖의 `docs/` 폴더.
    - `README.md`: 묶음의 글(제목, 표어, Documentation까지)을 앞에 두고, plinth의 절(첫날, 빌드·시험 명령, 배지)은 뒤에 남긴다. plinth가 `README.ko.md`를 만들었다면 그것도 같은 방식으로.
    - `CONTEXT.md`: 묶음의 용어집을 넣는다. plinth가 이 파일을 관리하는 방법에 대해 적은 머리말·메모가 있으면 남긴다.
-   - `docs/adr/`: plinth의 ADR 파일은 남긴다. 번호가 0001~0040과 겹치면 `git mv`로 0040 뒤 번호로 바꾼다. T0.1 수용 시험 `ls docs/adr | wc -l` = 40은 T0.1 PR에서 그 수에 맞춘다.
+   - `docs/adr/`: plinth의 ADR 파일은 남긴다. 번호가 0001~0040과 겹치면 `git mv`로 0040 뒤 번호로 바꾼다.
    - `AGENTS.md`: 두 줄을 더한다. "명세 `docs/spec/engine-spec-v3.4.md`가 유일한 기준이다. 명세에 없는 규칙은 지어내지 않는다(12장 기본값, 없으면 멈추고 묻기)"와 아래 공개 규칙.
 4. 사용자 기계에만 git이 무시하는 `.hygiene-private.txt`를 만든다. 비공개 낱말(계정, 호스트, 생산자 이름, 자료 경로)을 적는다. T0.2b 위생 시험이 이 파일을 읽는다. 커밋하지 않는다.
 5. `python3 tools/spec_lint.py`가 아래 숫자와 함께 PASS를 내는지 본다. PR을 연다. 이것이 T0.1의 대부분이다.
@@ -91,7 +91,7 @@
 - 경제 사건 투자도 같은 블록으로: `Macro.series`, `Events.<kind>`, `nx.on_event`, `from_parquet(shape=)`.
 - 엔진·명세·TDS는 공개한다. 비공개는 생산자의 자료뿐이다(2026-10-27).
 
-ADR(모두 accepted. 전문은 [docs/adr/](docs/adr/), 한 줄 목록은 [START-HERE.md](START-HERE.md)의 같은 절).
+결정 기록은 [docs/adr/](docs/adr/)에 있다. 기록마다 Status 줄이 그 결정이 서 있는지, 무엇이 대신했는지를 말한다.
 
 ## 공개 / 비공개 규칙
 
