@@ -664,10 +664,9 @@ def _traded(volume: float) -> Change:
 
 
 def _book(last_bid: int, sequence: tuple[int, ...] = tuple(range(9))) -> Change:
-    """US:AAA's `mbo` book (5.8, experimental) on 2024-01-02, rebuilt by #347's rules: a
-    snapshot, bid 99 and ask 100; a batch crossed in its middle (bid 101) and not after its
-    `is_last` row; then a batch whose `is_last` is on a separate `none` row, after an order at
-    `last_bid` (101: crossed when judged). Other `sequence` numbers than 0..8 come with
+    """US:AAA's `mbo` book rows (5.8, experimental) on 2024-01-02, for V032 (V031, which judged
+    the rebuilt book, is retired, #752): a snapshot, bid 99 and ask 100; two batches, the last
+    after an order at `last_bid`. Other `sequence` numbers than 0..8 come with
     `params.sequence_consecutive_within` `[]` (5.6, #348)."""
     rows = [  # action, side, price, size, order_id, is_snapshot, is_last
         ("clear", "none", None, None, None, True, False),
