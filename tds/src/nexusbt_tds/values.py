@@ -39,8 +39,8 @@ from .manifest import Manifest
 from .profiles import PROFILES, TRADED, profile_id
 from .refs import _rows, _stored
 
-V001, V002, V004, V005, V010, V011, V012, V020, V030, V040, V041, V050 = VALUE_CODES
-WARNINGS = frozenset({V010, V030, V041})
+V001, V002, V004, V005, V010, V011, V012, V020, V040, V041, V050 = VALUE_CODES
+WARNINGS = frozenset({V010, V041})
 PRICES = ("open", "high", "low", "close", "vwap")
 #: A bar's values for V004's row with no state: what it observed of the session (TDS 5.5).
 VALUED = (*PRICES, "volume", "value_traded")
@@ -67,7 +67,6 @@ COLUMNS = {
         *sorted({c for v in NEEDS.values() for c in v} | {"issuer_id"}),
     ),
     "fx_rates": ("base", "quote", "rate"),
-    "quotes": ("instrument_id", "bid_px", "ask_px"),
     "delistings": ("delisting_id", "ret_lo", "ret_hi", "policy_id", "exit_value_status"),
     "events": ("event_id", "instrument_id", "issuer_id", "series_id"),
 }
@@ -80,7 +79,6 @@ SAID = {V001: "bar(s) whose high and low do not enclose open and close",
         V010: "equity bar(s) whose volume is not an integer",
         V020: "instrument(s) without a column their asset_class needs, issuer_id of an equity "
               "included where a declared profile holds fundamentals",
-        V030: "locked or crossed quote(s), bid_px >= ask_px",
         V040: "delisting(s) with ret_lo > ret_hi, or not unobserved with ret_lo, ret_hi or "
               "policy_id null",
         V041: "event(s) with instrument_id, issuer_id and series_id all null",
@@ -281,9 +279,6 @@ def _broken(
             out.append(V020)
     elif kind == "fx_rates":
         out += [V005] if r["rate"] is not None and r["rate"] <= 0 else []
-    elif kind == "quotes":
-        bid, ask = r["bid_px"], r["ask_px"]
-        out += [V030] if None not in (bid, ask) and bid >= ask else []
     elif kind == "delistings":
         lo, hi = r["ret_lo"], r["ret_hi"]  # null only where the value is unobserved (#705 D8)
         known = r["exit_value_status"] != "unobserved"

@@ -663,58 +663,6 @@ def _traded(volume: float) -> Change:
     return _bars(high=ten, low=ten, volume=pa.array([volume]), value_traded=pa.array([1000.0]))
 
 
-def _book(last_bid: int, sequence: tuple[int, ...] = tuple(range(9))) -> Change:
-    """US:AAA's `mbo` book rows (5.8, experimental) on 2024-01-02, unused since V031 and V032
-    were retired (#752); it leaves with `book_deltas`: a snapshot, bid 99 and ask 100; two
-    batches, the last after an order at `last_bid`. Other `sequence` numbers than 0..8 come with
-    `params.sequence_consecutive_within` `[]` (5.6, #348)."""
-    rows = [  # action, side, price, size, order_id, is_snapshot, is_last
-        ("clear", "none", None, None, None, True, False),
-        ("add", "bid", 99, 5, 1, True, False),
-        ("add", "ask", 100, 5, 2, True, True),
-        ("add", "bid", 101, 2, 3, False, False),  # crossed inside the batch
-        ("fill", "ask", 100, 2, 2, False, False),
-        ("cancel", "ask", 100, 2, 2, False, False),
-        ("cancel", "bid", 101, 2, 3, False, True),  # filled: bid 99, ask 100 left
-        ("add", "bid", last_bid, 1, 4, False, False),
-        ("none", "none", None, None, None, False, True),
-    ]
-    action, side, price, size, order_id, snapshot, last = map(list, zip(*rows, strict=True))
-    rel = "book_deltas/venue=XNYS/date=2024-01-02/part-00000.parquet"
-    add = _add("book_deltas", {
-        "instrument_id": ["US:AAA"] * len(rows), "session_date": DAY.take([0] * len(rows)),
-        "ts_event": pa.array([NEW_YEAR + dt.timedelta(seconds=n) for n in range(len(rows))],
-                             pa.timestamp("ns", "UTC")),
-        "sequence": list(sequence), "action": action, "side": side,
-        "price": pa.array(price, pa.int64()), "size": pa.array(size, pa.int64()),
-        "order_id": pa.array(order_id, pa.int64()), "is_snapshot": snapshot, "is_last": last,
-    }, rel)  # fmt: skip
-
-    def change(m: dict[str, Any], files: Files) -> None:
-        add(m, files)
-        m["datasets"][-1]["params"] = {"depth_kind": "mbo"}
-        if sequence != tuple(range(9)):
-            m["datasets"][-1]["params"]["sequence_consecutive_within"] = []
-
-    return change
-
-
-#: The snapshot rows keep the venue's numbers, out of order (#348's Databento example), and are
-#: left out; the live rows run from 1000, and the fail package skips 1003.
-_SNAPSHOT = (0, 761, 757)
-
-
-def _quote(bid: int, ask: int, **recv: list[dt.datetime]) -> Change:
-    """One US:AAA quote (5.7, experimental) on 2024-01-02; prices are `fixed` integers."""
-    rel = "quotes/venue=XNYS/date=2024-01-02/part-00000.parquet"
-    return _add("quotes", {
-        "instrument_id": ["US:AAA"], "session_date": DAY,
-        "ts_event": pa.array([NEW_YEAR], pa.timestamp("ns", "UTC")), "sequence": [1],
-        "bid_px": [bid], "ask_px": [ask],
-        **{k: pa.array(v, pa.timestamp("ns", "UTC")) for k, v in recv.items()},
-    }, rel)  # fmt: skip
-
-
 def _event(available: dt.datetime = NEW_YEAR, **ids: list[str | None]) -> Change:
     """One `events` row (5.21) with the ids `ids` (each a one-item list)."""
     rel = "events/event_type=earnings.announcement/part-00000.parquet"
@@ -836,10 +784,6 @@ CASES: dict[str, tuple[Change, Change]] = {
     "TDS-T004": (_members(dt.date(2024, 1, 4)), _members(dt.date(2024, 1, 3))),
     "TDS-T012": (_classified(_A, _A2, _B), _classified((*_A[:4], None, *_A[5:]), _B)),
     "TDS-T007": (_facts("F1"), _facts("F1", period_end=[dt.date(2024, 1, 2)])),  # known the 1st
-    "TDS-T008": (
-        _quote(99, 100, ts_recv=[NEW_YEAR]),
-        _quote(99, 100, ts_recv=[NEW_YEAR - dt.timedelta(microseconds=1)]),
-    ),
     "TDS-T010": (
         _instruments(last_session=DAY),
         _instruments(last_session=pa.array([dt.date(2024, 1, 1)])),
@@ -949,7 +893,6 @@ CASES: dict[str, tuple[Change, Change]] = {
         _both(_instruments(tick_size=pa.array([0.0001])), _bars(close=pa.array([0.67685]))),
     ),
     "TDS-V020": (_future(**_FUTURE), _future(**_FUTURE | {"root": None})),
-    "TDS-V030": (_quote(99, 100), _quote(100, 100)),  # locked
     "TDS-V040": (_exits(delisted=True, ret_lo=-0.5), _exits(delisted=True, ret_lo=0.5)),
     "TDS-V041": (_event(series_id=["US:CPI"]), _event()),
     "TDS-V050": (_labels("fwd_ret"), _labels("mom")),
@@ -987,7 +930,6 @@ FAILS: dict[str, tuple[str | None, ...]] = {
     "TDS-T001": ("events",),
     "TDS-T005": ("bars_1d",),
     "TDS-T007": ("fundamentals_events",),
-    "TDS-T008": ("quotes",),
     "TDS-T010": ("instruments",),
     "TDS-T011": ("delistings",),
     "TDS-D003": ("delistings",),
@@ -1009,7 +951,6 @@ FAILS: dict[str, tuple[str | None, ...]] = {
     ),
     "TDS-V005": ("fx_rates",),
     "TDS-V020": ("instruments",),
-    "TDS-V030": ("quotes",),
     "TDS-V040": ("delistings",),
     "TDS-V041": ("events",),
     "TDS-V050": ("label_panels",),

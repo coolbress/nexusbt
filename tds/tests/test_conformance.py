@@ -881,7 +881,7 @@ def test_A011_on_a_timestamp_last_trading_date_is_S002_and_unchecked(tmp_path: P
 
 
 #: V011 and V012 have tests of their own; V031 and V032 are retired (#752).
-V_CODES = [f"TDS-V{n:03}" for n in (1, 2, 4, 5, 10, 20, 30, 40, 41, 50)]
+V_CODES = [f"TDS-V{n:03}" for n in (1, 2, 4, 5, 10, 20, 40, 41, 50)]
 
 
 @pytest.mark.usefixtures("refs_batches")
@@ -2185,7 +2185,7 @@ def test_jsonl_ends_with_the_summary(tmp_path: Path) -> None:
 
 #: The T codes the rows show; T002's package and T006's are the schema level's (`test_S_codes`;
 #: T002's rows: `test_instant_rules_edges`), and T009 and T013 are not in TDS 8.3.
-T_CODES = [f"TDS-T{n:03}" for n in (1, 3, 4, 5, 7, 8, 10, 11, 12)]
+T_CODES = [f"TDS-T{n:03}" for n in (1, 3, 4, 5, 7, 10, 11, 12)]
 INTERVAL_CODES = ["TDS-T003", "TDS-T004", "TDS-T012"]
 
 
@@ -2320,7 +2320,7 @@ _CALENDAR_RULE = build._both(build._sessions(0), build._bars(ts_available=pa.arr
                                  ts_available=pa.array([_at(2, 21) + _HALF]))),
          ["TDS-T002"], []),  # no ts_recv: ts_end and a minute, not half an hour
         (build._instruments(last_session=pa.array(["2024-01-01"])), ["TDS-S002"],
-         [f"TDS-T{n:03}" for n in (1, 2, 5, 7, 8, 10, 11)]),  # a text date: none judged
+         [f"TDS-T{n:03}" for n in (1, 2, 5, 7, 10, 11)]),  # a text date: none judged
         (build._both(build.no_calendar, build._bars(ts_end=pa.array([_at(2, 20)]))), [],
          ["TDS-T005"]),  # no calendar_sessions
         (build._both(build._sessions(0, (3,)), build._bars(ts_end=pa.array([_at(2, 20)]))),
