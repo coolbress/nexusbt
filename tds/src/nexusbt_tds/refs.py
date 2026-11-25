@@ -1,7 +1,7 @@
 """The `full` level's reference checks from the rows: R001~R009 (TDS 8.3).
 
 Rules chosen with the maintainer (#224, 2026-11-05): R002 reads the `calendar_id` of
-`instruments`, `calendar_segments` and tds.json `markets`; R003 reads an instrument's calendar
+`instruments` and tds.json `markets`; R003 reads an instrument's calendar
 from `instruments.calendar_id`; R004 holds the four currency columns against ISO 4217's current
 list (`ISO_4217`) and tds.json `currencies`; R006 checks only the three columns TDS 8.3 names;
 R007 checks `selected_fact_id` only; R008 holds both ways; R009 matches `dictionary/columns`
@@ -140,7 +140,7 @@ def _check(m: Manifest, only: Sequence[str] | None, blind: set[str]) -> list[Fin
                     first = first or {"instrument_id": i, "session_date": day}
         if kind != "instruments":
             out += _missing(R001, "instrument_id", seen["instrument_id"], ids, blind, name)
-        if kind in ("instruments", "calendar_segments"):
+        if kind == "instruments":
             out += _missing(R002, "calendar_id", seen["calendar_id"], sessions, blind, name)
         if dated and (sessions is None or ids is None):
             blind.add(R003)

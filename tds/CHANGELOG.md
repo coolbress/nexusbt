@@ -14,6 +14,14 @@ package version follows the `tds_version` it checks (`1.0.x`), tagged
   their numbers not reused (#752); `tds check` lists neither as `unchecked` at any level
 - `params.sequence_consecutive_within` is no longer read: its JSON-schema shape (TDS-M001) and its
   TDS-S001 for a listed column absent from a file are gone (#752)
+- The schema files of `trades`, `quotes`, `book_deltas`, `book_snapshots`, `market_statistics`,
+  `calendar_segments`, `trading_status_events`, `rates`, `roll_calendar`,
+  `option_chain_snapshots`, `funding_rates` and `reference_prices`, and the profiles
+  `tds:l1-ticks`, `tds:l2-book`, `tds:l3-book`, `tds:futures`, `tds:options` and `tds:crypto`
+  (#752, TDS 5.6): a dataset of one of those kinds is now a kind with no schema file, so no
+  column, key or sort rule is read for it and it raises nothing, and a package declaring one of
+  those profiles gets TDS-M007. No schema is `experimental` now; TDS-M015 stays for a kind that
+  comes later
 
 ### Added
 - TDS-M010 at the `schema` level for an `instruments.market` not declared in `markets` (TDS 3.8,

@@ -5,9 +5,8 @@ A requirement is a tuple of alternatives, each one or more datasets that must al
 `path`) matches and whose `params` meet each condition: `=value`, declared at all (`""`), or
 `<1d`, a `freq` under one day. The manifest level sees only kinds, paths and params. `columns`
 holds the columns a row names, by the dataset that holds them, for the schema level (#352); a
-cell that names none ("Contract required columns", "corporate_actions factor columns") adds
-none. Row conditions (`instruments(fx_spot)`) are left to the full level, and so are the "if
-continuous contracts" and "if perps" conditions.
+cell that names none adds none. Row conditions (`instruments(fx_spot)`) are left to the full
+level. The tick, book, futures, options and crypto profiles left on 2026-11-25 (#752).
 """
 
 from __future__ import annotations
@@ -119,12 +118,6 @@ _TABLE = (
     Profile(
         "tds:intraday-bars@1.0", _X, _needs("instruments", "calendar_sessions", "bars:freq<1d")
     ),
-    Profile("tds:l1-ticks@1.0", _X, _needs("trades", "quotes")),
-    Profile("tds:l2-book@1.0", _X, _needs("book_deltas:depth_kind=mbp|book_snapshots")),
-    Profile("tds:l3-book@1.0", _X, _needs("book_deltas:depth_kind=mbo")),
-    Profile("tds:futures@1.0", _X, _needs("instruments", "market_statistics")),
-    Profile("tds:options@1.0", _X, _needs("instruments", "option_chain_snapshots|quotes", "rates")),
-    Profile("tds:crypto@1.0", _X, _needs("instruments", "bars|trades")),
     Profile("tds:fx@1.0", "stable", _needs("fx_rates|instruments+bars")),
     Profile("tds:alt-events@1.0", "stable", _needs("events|series_observations")),
 )
@@ -148,9 +141,6 @@ _COLUMNS = {
     | {"fundamentals_state": "lineage_id"},
     "bitemporal": dict.fromkeys(("events", "fundamentals_events"), "ts_recorded"),
     "intraday-bars": {"bars:freq<1d": "ts_start ts_end session_date"},
-    "l1-ticks": {"trades": "ts_event sequence", "quotes": "ts_event sequence"},
-    "l2-book": {"book_deltas:depth_kind=mbp": "is_last"},
-    "l3-book": {"book_deltas:depth_kind=mbo": "order_id"},
     "alt-events": {"events": "ts_available", "series_observations": "ts_available"},
 }
 #: Chapter 7's "`obs_status` on every row" (5.5's null cell, #705 Decisions 129): core and above;

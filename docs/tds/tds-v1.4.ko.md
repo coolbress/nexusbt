@@ -81,7 +81,7 @@
 | K6 | 바뀌는 분류·유니버스·식별자는 **두 시간축**: 효력 기간(`effective_from/to`)과 알게 된 시각(`ts_known_from/to`) | "그때 그 분류였다"와 "그때 그걸 알았다"는 다르다 (나중에 채운 업종 이력의 backfill 문제) |
 | K7 | 가격 수: 일봉·사건 금액 = `float64`, 틱·호가 = `int64` 고정소수점(데이터셋별 지수, 기본 1e-9) | 호가 수준은 값이 정확히 같아야 같은 수준이다(Databento 1e-9). 일봉은 float64면 충분하고 다루기 쉽다 |
 | K8 | 패키지 = 폴더 + `tds.json`(Frictionless Data Package v2에서 **영감을 받은** 뼈대; Data Package의 `resources` 구조를 그대로 구현하지는 않는다 — v1.1 문구 고침). 파일마다 sha256·행 수·통계, 데이터셋마다 값 해시·적용 범위, 패키지마다 물리·값·의미 해시 | Frictionless 도구와 생각을 맞추되 Arrow 형과 시점 규칙은 TDS가 정함 |
-| K9 | **프로필**(판 붙음, `@1.0`): `tds:minimal-daily`(표 3개, 분석용)부터 `tds:equity-daily-research`·`tds:l3-book`(experimental)까지. 패키지는 지키는 프로필을 선언하고 검사기가 세 결과(선언·검사 단계·결과)로 확인. 소비자 지원은 소비자가 밝힘 | 작은 사용자는 표 3~4개로 시작 |
+| K9 | **프로필**(판 붙음, `@1.0`): `tds:minimal-daily`(표 3개, 분석용)부터 `tds:equity-daily-research`·`tds:intraday-bars`(experimental)까지. 패키지는 지키는 프로필을 선언하고 검사기가 세 결과(선언·검사 단계·결과)로 확인. 소비자 지원은 소비자가 밝힘 | 작은 사용자는 표 3~4개로 시작 |
 | K10 | 버전: 표준 `MAJOR.MINOR`, 데이터셋 스키마마다 `MAJOR.MINOR`. 선택 칼럼·열린 열거값 추가 = MINOR, 그 밖 = MAJOR. 읽는 쪽은 모르는 칼럼을 무시 | Avro/Confluent의 호환 규칙과 SchemaVer의 생각을 단순화 |
 | K11 | 결정적 쓰기: 같은 내용이면 같은 바이트, 같은 값 해시(4.5 정규 직렬화 — 쓰기 도구·언어와 무관). 파일·행 정렬, row group 경계 고정 | 엔진 INV-09, 생산자 빌드 지문 원칙과 같다 |
 | K12 | 적합성 검사기 `tds check`: 단계 3개(`manifest` / `schema` / `full`), 오류 코드 `TDS-<영역><번호>`, JSON 출력 | 엔진 `SnapshotError`(E14)는 이 코드를 그대로 싣는다 |
@@ -154,7 +154,7 @@
 
 - **목표**: (1) 자료를 만드는 쪽과 엔진을 완전히 떼어 놓는다. (2) 누구든 이 형식을 지키면 자기 자료로 엔진을 쓸 수 있다. (3) 형식만 보고도 "언제 무엇을 알 수 있었나"가 결정된다. (4) 같은 내용이면 같은 해시.
 - **v1에서 엔진이 쓰는 것**: 한국·미국 주식 일봉 연구(`tds:equity-daily-research`).
-- **v1에서 모양만 정하는 것**: 분봉·시간봉, 체결, 호가 L1, 호가 L2/L3, 선물(계약·롤), 옵션(계약·체인·그릭 입력), 코인(24/7, 자금조달료), 외환, 대체·사건 자료.
+- **v1에서 모양만 정하는 것**: 분봉·시간봉, 외환, 대체·사건 자료. 체결, 호가, 선물, 옵션, 코인은 2026-11-25에 표준에서 빠졌다(5.6).
 - **하지 않는 것**: 저장 엔진(DuckDB·ArcticDB 등) 지정, 수집·정제 방법, 비용 표(엔진 자원 파일, 명세서 4.17), 엔진의 실행 기록 형식(명세서 5.9).
 
 ### 2.2 결정 K1~K12 (이유와 버린 대안)
@@ -171,7 +171,7 @@
 
 **K2. 시각 = UTC 순간값, 단위는 데이터셋 종류가 정함.**
 - 순간 칼럼 이름은 `ts_` 로 시작하고 형은 `timestamp[us, tz="UTC"]` 또는 `timestamp[ns, tz="UTC"]`. 어느 단위인지는 데이터셋 종류마다 하나로 정해져 있다(고르는 자유 없음 → 해시·결정성 보장).
-  - `ns`: `trades`, `quotes`, `book_deltas`, `book_snapshots`, `trading_status_events`, 그리고 주기 1초 미만 `bars`.
+  - `ns`: 주기 1초 미만 `bars`.
   - `us`: 나머지 전부(일봉·분봉 포함).
 - 현지 날짜는 `date32`, 이름 끝이 `_date` 또는 `_on`(예외: `period_end`, `period_start`, `effective_from/to`). 날짜는 이름표이고 시각을 대신하지 않는다.
 - 현지 벽시계 시각(시간대 없는 timestamp) 칼럼은 금지. 시간대가 필요한 계산(세션 개장·마감)은 `calendar_sessions`가 UTC 순간값으로 이미 풀어 둔다.
@@ -318,7 +318,6 @@
   instrument_symbols/part-00000.parquet
   instrument_xref/part-00000.parquet
   calendar_sessions/part-00000.parquet
-  calendar_segments/part-00000.parquet
   bars/freq=1d/market=KR/year=2024/part-00000.parquet
   bars/freq=1m/market=US/date=2024-01-02/part-00000.parquet
   tradability_daily/market=KR/year=2024/part-00000.parquet
@@ -334,7 +333,6 @@
   eligibility_daily/market=KR/year=2024/part-00000.parquet
   feature_panels/name=factor_pit_monthly/edition=strict/year=2024/part-00000.parquet
   label_panels/name=label_monthly/year=2024/part-00000.parquet
-  trades/venue=XNAS/date=2024-01-02/<ts_min>_<ts_max>.parquet          (틱, 선택)
   ...
 ```
 
@@ -569,7 +567,7 @@
 - 24/7: `session_date` = UTC 날짜, `ts_open` = 00:00Z, `ts_close` = 다음 날 00:00Z.
 - 선물 야간 거래: 거래일 D의 세션은 D−1 저녁에 시작할 수 있다(`ts_open < session_date 00:00 현지`). 정상이다.
 
-`calendar_segments`(선택, 장중 구간): 열쇠 (`calendar_id`, `session_date`, `segment`, `ts_start`). 칼럼 `calendar_id` id, `session_date` date, `segment` code(`pre`, `opening_auction`, `continuous`, `break`, `closing_auction`, `post`, `single_price_period` 등), `ts_start` ts_us. 장중 체결 모형(E4)과 한국 단일가 구간에 쓴다.
+`calendar_segments`(장중 구간)는 2026-11-25에 표준에서 빠졌다(5.6).
 
 ### 5.5 `bars` (봉, 모든 주기)
 
@@ -607,78 +605,21 @@
 - 연속 계약 봉: `instrument_id`가 `is_synthetic = true`인 연속 종목이고 `params.roll_rule`을 밝힌다(5.22).
 - v1에서 봉에는 판이 없다: 봉을 바꾼 나중 스냅숏은 같은 열쇠 아래 바꾼 봉만 담는다. 바뀐 봉이 어떤 `ts_available`을 갖는지는 TDS가 정하지 않는다: 규칙이면 전과 같이 규칙이 내는 시각이고, 칼럼 규칙이면 생산자가 쓰는 값이다. 소비자는 바뀐 봉을 다른 봉과 똑같이 읽는다(위 `ready_delay`): 시각이 같으면 그 행에 새 값이 보이고, 시각이 늦으면 그 봉은 그 행에서 결측이다. 한 봉이 다른 두 스냅숏은 그 행의 두 이력이고, 실행을 재현하는 것은 그 실행이 기록한 스냅숏이다(4.1) [관리자 결정 2026-11-17, #494].
 
-### 5.6 `trades` (체결 틱) — `status: experimental` [v1.1]
+### 5.6 `trades` (체결 틱) — 빠짐 [2026-11-25, #752]
 
-> 5.6~5.9, 5.22~5.24의 스키마는 **실험 판**이다: 무손실 가져오기와 재생 고정 사례가 생길 때까지 1.x 호환 약속(10.2) 밖이고 다음 MINOR에서 바뀔 수 있다. 스키마 파일은 `status: experimental`, 검사기는 이 데이터셋을 담은 패키지에 W(M015)를 낸다. 일봉 주식 데이터셋(5.1~5.5, 5.10~5.21, 5.25~5.26)만 `stable`이다 [RV-I07].
+> **주식 밖의 종류** [#725 결정 252, 253]: `trades`(5.6), `quotes`(5.7), `book_deltas`와 `book_snapshots`(5.8), `market_statistics`(5.9), `calendar_segments`(5.4), `trading_status_events`(5.10), `rates`(5.16), `roll_calendar`(5.22), `option_chain_snapshots`(5.23), `funding_rates`와 `reference_prices`(5.24)는 2026-11-25에 표준에서 빠졌다. 그 프로필(7장)과 검사(V030, V031, V032, T008과 선언 `sequence_consecutive_within`: 은퇴, 번호는 다시 쓰지 않음, 8.3)도 함께다. `instrument_xref`(5.3)가 뒤따른다. 주식이 먼저이고, 그런 종류는 나중에 올 수 있다. 나중에 오는 종류는 `status`가 `experimental`인 스키마 파일로 들어온다: 1.x 호환 약속(10.2) 밖이고 다음 MINOR에서 바뀔 수 있으며, 검사기는 그것을 담은 패키지에 TDS-M015로 경고한다. 지금은 `experimental` 스키마가 없다. 이 문서에 남은 데이터셋은 `stable`이다.
 
-**연속 `sequence` 순번** [2026-11-13, #348; 2026-11-25 은퇴, #752]: `trades`, `quotes`, `book_deltas`의 선언 `params.sequence_consecutive_within`, 4.2 JSON 스키마의 그 모양, 목록의 칼럼이 파일에 없을 때의 TDS-S001, 빈칸을 판정하던 V032는 세 종류가 표준에서 빠지기 전에 은퇴했다. 이 키를 읽는 검사는 없다.
+### 5.7 `quotes` (호가 L1 / BBO) — 빠짐 [2026-11-25, #752]
 
-파티션 `venue=/date=`(date = `session_date`). 열쇠 (`instrument_id`, `ts_event`, `sequence`, `trade_id`)(trade_id null 허용이면 열쇠에서 빠지고 `sequence`가 유일해야 함). 정렬 (`instrument_id`, `ts_event`, `sequence`). 시각 단위 ns. 매개변수 `price_exponent`, `size_exponent`.
+5.6을 보라.
 
-| 칼럼 | 형 | null | 뜻 |
-|---|---|---|---|
-| instrument_id | id | 아니오 | |
-| session_date | date | 아니오 | |
-| ts_event | ts_ns | 아니오 | 거래소 체결 순간 |
-| ts_recv | ts_ns | 예 | 받은 순간(수집 시스템) |
-| sequence | i64 | 아니오 | 거래소·공급사 순번(없으면 파일 안 순서 번호) |
-| price | fixed | 아니오 | |
-| size | fixed | 아니오 | |
-| aggressor_side | code | 아니오 | `buy` / `sell` / `none` (Databento B/A/N, Nautilus AggressorSide) |
-| trade_id | string | 예 | |
-| venue_mic | code | 예 | 통합 체결 자료의 실제 거래 장소 |
-| conditions | list<code> | 예 | 거래 조건 코드(원 공급사 코드, `dictionary/codes`) |
-| action | code | 아니오 | `new` / `cancel` / `correct` (정정·취소 체결) |
-| flags | i32 | 예 | 공급사 플래그 비트(Databento 값 그대로 두려면) |
+### 5.8 `book_deltas`, `book_snapshots` (호가 L2/L3) — 빠짐 [2026-11-25, #752]
 
-공개 시각 규칙 기본: `ts_recv`가 있으면 `ts_recv`, 없으면 `ts_event + params.assumed_latency`(필수 선언). T008(`ts_event`보다 앞선 `ts_recv`)은 은퇴했다 [2026-11-25, #752].
+5.6을 보라.
 
-### 5.7 `quotes` (호가 L1 / BBO) — `experimental`
+### 5.9 `market_statistics` (공식 통계) — 빠짐 [2026-11-25, #752]
 
-파티션·정렬은 `trades`와 같다. 열쇠 (`instrument_id`, `ts_event`, `sequence`).
-
-칼럼: `instrument_id`, `session_date`, `ts_event`, `ts_recv`, `sequence`, `bid_px` fixed null, `bid_sz` fixed null, `ask_px` fixed null, `ask_sz` fixed null, `bid_ct` i32 null, `ask_ct` i32 null, `venue_mic`, `conditions`, `flags`. 여기서 형 없이 적은 칼럼은 스키마가 `experimental`을 벗어날 때 형을 정한다.
-- 행은 "그 순간 이후의 양쪽 최우선 호가 상태"다. 한쪽 호가가 비면 그쪽은 null. LEAN처럼 한쪽만 바뀐 틱은 가져올 때 다른 쪽을 직전 값으로 채운다(9장).
-- V030(잠기거나 교차한 호가)은 은퇴했다 [2026-11-25, #752].
-
-### 5.8 `book_deltas`, `book_snapshots` (호가 L2/L3) — `experimental`
-
-`book_deltas` — 파티션 `venue=/date=`, 정렬 (`instrument_id`, `ts_event`, `sequence`), 시각 ns. 매개변수 `depth_kind`(`mbp` 가격 수준별 L2 / `mbo` 주문별 L3), `max_depth`(mbp일 때). 표에서 형이 빈 칼럼은 스키마가 `experimental`을 벗어날 때 형을 정한다.
-
-| 칼럼 | 형 | null | 뜻 |
-|---|---|---|---|
-| instrument_id, session_date | | 아니오 | |
-| ts_event, ts_recv | ts_ns | 아니오 / 예 | |
-| sequence | i64 | 아니오 | |
-| action | code(닫힘) | 아니오 | `add`, `modify`, `cancel`, `clear`, `trade`, `fill`, `none` (Databento A/M/C/R/T/F/N) |
-| side | code | 아니오 | `bid` / `ask` / `none` |
-| price | fixed | 예 | `clear`는 null |
-| size | fixed | 예 | mbp: 그 수준의 새 총 수량(0 = 수준 삭제). mbo: 그 주문의 수량 |
-| order_id | i64 | 예 | mbo 필수 |
-| level | i16 | 예 | mbp에서 수준 번호(선택) |
-| is_snapshot | bool | 아니오 | 재생·스냅숏에서 온 행(Databento F_SNAPSHOT) |
-| is_last | bool | 아니오 | 같은 사건 묶음의 마지막 행(F_LAST; 이 행 뒤에만 호가가 일관됨) |
-| flags | i32 | 예 | 원 비트 |
-
-- 재구성 규칙: 파일(또는 날짜) 첫머리는 `clear` 뒤 `is_snapshot = true` 행 묶음이거나, 패키지 안 같은 `venue`의 가장 가까운 이전 파티션의 마지막 상태를 이어받는다고 `params.continuity = "carry"`로 선언.
-- 엔진은 `is_last = true`인 행 뒤에서만 호가를 읽는다. (재구성 뒤 교차 호가인 V031은 은퇴했다 [2026-11-25, #752]: `book_deltas`가 다른 범위 밖 종류와 함께 표준에서 빠진다.) 5.6의 표 앞에 적은 V032(`sequence` 빈칸)도 은퇴했다.
-- 행마다 호가가 바뀌는 방식(결정 2026-11-12, #347). `is_snapshot` 행도 같은 표대로 적용한다:
-
-| `action` | `mbp`(가격 수준별 호가) | `mbo`(주문별 호가) |
-|---|---|---|
-| `add` | 수준 (`side`, `price`)을 새 총 수량 `size`로 둔다. `size`가 0이나 null이면 그 수준을 지운다 | 주문 `order_id`를 `side`, `price`, `size`로 넣는다 |
-| `modify` | `add`와 같다 | 그 주문의 `price`와 `size`를 바꾼다. 모르는 `order_id`는 `add`처럼 넣는다 |
-| `cancel` | `add`와 같다: `size`는 새 총 수량이고, `size`가 0이나 null일 때만 수준을 지운다 | 그 주문을 `size`만큼 줄인다. `size`가 null이거나 남은 수량 이상이면 지운다. 모르는 `order_id`는 무시한다 |
-| `clear` | 파일 첫머리든 하루 중간이든 양쪽을 비운다 | 파일 첫머리든 하루 중간이든 양쪽을 비운다 |
-| `trade`, `fill`, `none` | 바꾸지 않는다(그 행의 `size`는 체결 수량이지 수준의 총 수량이 아니다) | 바꾸지 않는다 |
-
-- V031을 판정하던 방식(#347, #430): 2026-11-25에 검사기 코드와 함께 은퇴(#752).
-
-`book_snapshots` — 일정 간격 또는 사건마다의 깊이 N 상태. 긴 모양: 열쇠 (`instrument_id`, `ts_event`, `side`, `level`). 칼럼 `ts_event`, `ts_recv`, `side`, `level`(0 = 최우선), `price`, `size`, `order_count`. Databento MBP-10·Nautilus OrderBookDepth를 행으로 편 모양. 여기서 형 없이 적은 칼럼은 스키마가 `experimental`을 벗어날 때 형을 정한다.
-
-### 5.9 `market_statistics` (공식 통계) — `experimental`
-
-열쇠 (`instrument_id`, `stat_type`, `ts_event`). 칼럼: `instrument_id`, `session_date`, `stat_type`(열림: `settlement_price`, `open_interest`, `official_open`, `official_close`, `auction_price`, `auction_volume`, `high_limit`, `low_limit`, `vwap`, `reference_price` …), `value` f64, `unit`, `ts_event`, `ts_available`, `is_final` bool(잠정/확정), `source`. Databento Statistics·Nautilus InstrumentClose에 해당. 선물 정산가·미결제약정의 공개 시각(보통 다음 날 아침)을 여기서 정확히 적는다. 여기서 형 없이 적은 칼럼은 스키마가 `experimental`을 벗어날 때 형을 정한다.
+5.6을 보라.
 
 ### 5.10 거래 가능 상태: `tradability_daily`, `trading_status_events`
 
@@ -699,7 +640,7 @@
 | ts_available | ts_us | 예 | 칼럼 묶음별 규칙 **`params.availability_by_column` 필수**(v1.1): 사전 정보(`price_limit_ratio`, `up/down_limit_price`, `reference_price`, `admin_status`)는 `session_open`, 하루 결과(`halted_full_day`, `halt_count`, `limit_up_close`, `limit_down_close`, `locked_up`, `locked_down`)는 `session_close` [RV-Q10] |
 | source | code | 예 | |
 
-`trading_status_events` — 장중 상태 변화. 열쇠 (`instrument_id`, `ts_event`, `sequence`). 칼럼 `instrument_id` id, `ts_event` ts_ns, `sequence` i64, `ts_recv` ts_ns, `status` code(`halted`, `resumed`, `auction`, `pre_open`, `closed`, `luld_pause` …), `reason` string(원 코드), `reason_group` code, `source` string, `source_record_id` string. Databento Status, Nautilus InstrumentStatus에 해당.
+`trading_status_events`(장중 상태 변화)는 2026-11-25에 표준에서 빠졌다(5.6).
 
 ### 5.11 `corporate_actions` (기업행동 사건, 배당 포함)
 
@@ -802,11 +743,11 @@ LEAN 계수 파일·Qlib `factor`·공급사 조정 종가만 있는 사용자�
 | rate | f64 | 아니오 | > 0 (V005) |
 | source | code | 아니오 | |
 
-반대 방향은 엔진이 `1/rate`로. 외환을 거래 대상으로 쓸 때는 `instruments(asset_class = fx_spot)` + `bars`/`quotes`.
+반대 방향은 엔진이 `1/rate`로. 외환을 거래 대상으로 쓸 때는 `instruments(asset_class = fx_spot)` + `bars`.
 
-### 5.16 `rates` (금리 곡선, 옵션 그릭 입력)
+### 5.16 `rates` (금리 곡선) — 빠짐 [2026-11-25, #752]
 
-열쇠 (`curve_id`, `tenor_days`, `ts_event`). 칼럼 `curve_id` id(예 `USD-SOFR`, `USD-TBILL`, `KRW-CD91`), `currency` code, `tenor_days` i32, `rate` f64(연율, ratio), `compounding` code(`simple`/`annual`/`continuous`), `day_count` code(`ACT/360` 등), `ts_event` ts_us, `ts_available` ts_us, `source` string.
+5.6을 보라.
 
 ### 5.17 `fundamentals_events` (재무 사실, 원 PIT 사건)
 
@@ -895,27 +836,17 @@ LEAN 계수 파일·Qlib `factor`·공급사 조정 종가만 있는 사용자�
 
 `series_observations`(거시·대체 시계열, 판(vintage) 포함): 열쇠 (`series_id`, `obs_period_end`, `ts_available`). 칼럼 `series_id` id, `obs_period_start` date null, `obs_period_end` date, `value` f64, `unit` code, `ts_available` ts_us(그 판 발표 순간 — 관측 기간 끝이 아님: 9월 CPI는 10월 발표 순간), `is_revision` bool, `consensus` f64 null [v1.4], `frequency` code null(`D`/`W`/`M`/`Q`/`A`) [v1.4], `source` string. ALFRED식 판 저장: 같은 기간 값의 정정은 새 행; 첫 발표 판 = 그 기간에서 `ts_available`이 가장 이른 행 [v1.4, R4F-EV-01].
 
-### 5.22 선물: 계약, 롤 일정, 연속 계약 — `experimental`
+### 5.22 선물: 계약, 롤 일정, 연속 계약 — 빠짐 [2026-11-25, #752]
 
-- 계약 = `instruments`(asset_class `future`) 행. 계약 id 권장 `CME:ESZ2024`(연도 4자리; `ESZ4`는 10년마다 재사용되므로 id로 쓰지 않음, 기호 이력에는 남김).
-- `roll_calendar`: 열쇠 (`roll_rule_id`, `root`, `session_date`, `rank`). 칼럼 `roll_rule_id`, `root`, `session_date`, `rank` i16(0 = 앞), `instrument_id`, `ts_available`(OI·거래량 기준 롤은 **전날** 자료로 정해지므로 전날 통계 공개 순간; Databento `.n.`·`.v.`도 전날 기준 [확인]). 여기서 형 없이 적은 칼럼은 스키마가 `experimental`을 벗어날 때 형을 정한다.
-- 매니페스트 `roll_rules`: `{"ES-c": {"mapping": "calendar", "offset_sessions": -5, "anchor": "last_trade"}, "CL-n": {"mapping": "open_interest"}}`. `mapping` ∈ {`calendar`, `last_trade`, `first_notice`, `open_interest`, `volume`}; `normalization` ∈ {`none`, `ratio`, `difference`}(연속 봉을 낼 때만).
-- 연속 계약 봉은 선택 파생물: `instruments(is_synthetic = true, asset_class = future, root, x_roll_rule)` + `bars`. **신호용**이며 체결·손익은 실제 계약으로(명세서 11.3).
-- 정산가·미결제약정은 `market_statistics`.
+5.6을 보라.
 
-### 5.23 옵션: 계약, 체인 스냅숏, 그릭 입력 — `experimental`
+### 5.23 옵션: 계약, 체인 스냅숏, 그릭 입력 — 빠짐 [2026-11-25, #752]
 
-- 계약 = `instruments`(asset_class `option`; underlying·strike·right·exercise_style·ts_expiry·multiplier·settlement_type 필수). 미국 상장 옵션은 OCC 기호(OSI)를 `instrument_xref.occ_osi`에. id 권장 `OPRA:AAPL240621C00190000`.
-- `option_chain_snapshots`: 파티션 `underlying=/date=`. 열쇠 (`instrument_id`, `ts_snapshot`). 칼럼 `instrument_id`, `underlying_instrument_id`, `session_date`, `ts_snapshot`(ts_us), `ts_available`, `bid`, `ask`, `bid_size`, `ask_size`, `last`, `volume`, `open_interest`, `underlying_price`, `underlying_price_kind`(`mid`/`last`/`close`), `iv_vendor`, `delta_vendor`, `gamma_vendor`, `vega_vendor`, `theta_vendor`, `rho_vendor`, `greeks_model`(공급사 모형 이름) — **공급사 값만 저장**한다. 엔진이 다시 계산한 값은 입력이 아니다(명세서 11.3 "공급자 값과 재계산 값 구분"). 여기서 형 없이 적은 칼럼은 스키마가 `experimental`을 벗어날 때 형을 정한다.
-- 그릭 재계산 입력: 기초 가격(위 칼럼 또는 기초 `bars`/`quotes`), 금리 `rates`, 배당 `corporate_actions`(발표된 미래 배당) + 선택 `dividend_forecasts`(`events` 종류), 대차 비용(선택 `series_observations`).
-- 틱 단위 옵션 호가는 `quotes`를 그대로 쓴다.
+5.6을 보라.
 
-### 5.24 코인: 24/7, 무기한 계약 — `experimental`
+### 5.24 코인: 24/7, 무기한 계약 — 빠짐 [2026-11-25, #752]
 
-- 달력 `CRYPTO-UTC`(5.4). 종목 id 권장 `<거래소>:<기호>`(`BINANCE:BTCUSDT`, `BINANCE:BTCUSDT-PERP`).
-- `funding_rates`: 열쇠 (`instrument_id`, `ts_event`). 칼럼 `ts_event`(지급 순간), `rate` f64(그 구간 비율), `interval_hours` f64, `is_predicted` bool(예측치), `ts_available`, `source`. Nautilus FundingRateUpdate. 여기서 형 없이 적은 칼럼은 스키마가 `experimental`을 벗어날 때 형을 정한다.
-- `reference_prices`: 열쇠 (`instrument_id`, `price_kind`, `ts_event`). `price_kind` ∈ {`mark`, `index`, `settlement`}. Nautilus MarkPriceUpdate. 여기서 형 없이 적은 칼럼은 스키마가 `experimental`을 벗어날 때 형을 정한다.
-- 수량은 소수: `size_exponent`(틱), 봉 `volume` f64.
+5.6을 보라.
 
 ### 5.25 `feature_panels`, `label_panels` (만든 쪽이 계산한 넓은 표)
 
@@ -1022,14 +953,10 @@ LEAN 계수 파일·Qlib `factor`·공급사 조정 종가만 있는 사용자�
 | `tds:pit-fundamentals@1.0` | `fundamentals_events` + `fundamentals_state` | `fact_id`, `doc_id`, `lineage_id`; `instruments`의 `equity` 행마다 `issuer_id`(V020) [2026-11-24, #705 B2] | `nx.explain` 계보 |
 | `tds:bitemporal@1.0` | (다른 프로필 위에) | `ts_recorded`가 `events`·`fundamentals_events`에; classifications와 state는 `ts_known_from`을 지닌다 | 시스템 이력 재생 |
 | `tds:intraday-bars@1.0` (experimental) | `instruments`, `calendar_sessions`, `bars(freq<1d)` | `ts_start`, `ts_end`, `session_date`, `density` 선언 | E4 장중 경로 체결 |
-| `tds:l1-ticks@1.0` (experimental) | `trades`, `quotes` | `ts_event`, `sequence`, 공개 시각 규칙 | E4 |
-| `tds:l2-book@1.0` (experimental) | `book_deltas(mbp)` 또는 `book_snapshots` | `is_last`, 시작 스냅숏 | E4 |
-| `tds:l3-book@1.0` (experimental) | `book_deltas(mbo)` | `order_id` | E4 대기열 모형 |
-| `tds:futures@1.0` (experimental) | `instruments(future)`, `market_statistics`, `roll_calendar`(연속 계약을 쓰면) | 계약 필수 칼럼 | E4·E5 |
-| `tds:options@1.0` (experimental) | `instruments(option)`, `option_chain_snapshots` 또는 `quotes`, `rates` | 계약 필수 칼럼 | E5 |
-| `tds:crypto@1.0` (experimental) | `instruments(crypto_*)`, `bars` 또는 틱, `funding_rates`(perp가 있으면) | `CRYPTO-UTC` 달력, 통화 선언 | E4 |
 | `tds:fx` | `fx_rates` 또는 `instruments(fx_spot)` + bars | | |
 | `tds:alt-events` | `events` 또는 `series_observations` | `ts_available` 필수(규칙 불가, 칼럼만) | 사용자 항(term) 입력 |
+
+`tds:l1-ticks`, `tds:l2-book`, `tds:l3-book`, `tds:futures`, `tds:options`, `tds:crypto`는 2026-11-25에 그 종류와 함께 빠졌다(5.6). 그중 하나를 선언한 패키지는 이 표에 없는 다른 프로필처럼 TDS-M007을 받는다.
 
 **가장 작은 예** (`tds:minimal-daily`, 손으로 만든 CSV 두 개 → `tds import csv`):
 
@@ -1108,7 +1035,7 @@ tds export {zipline-bundle|nautilus-catalog|wide-parquet} ... # 9.8
 | TDS-M012 | E | 경로가 패키지 폴더 밖을 가리킴(`..`, 절대 경로, 밖으로 나가는 심볼릭 링크) [v1.1] |
 | TDS-M013 | E | 같은 파일 경로가 두 번 나옴 [v1.1] |
 | TDS-M014 | E | 모르는 **필수 해석 규칙**(공개 규칙 이름, 실행에 영향이 있는 닫힌 열거의 새 값, 모르는 `hash_spec`) — 무시하면 뜻이 달라지므로 거절 [v1.1]. 일봉(`freq=1d`)의 `density = sparse`도: 일봉은 dense다(5.5) [2026-11-23, #705] |
-| TDS-M015 | W | `experimental` 스키마 데이터셋이 있음(1.x 호환 약속 밖) [v1.1] |
+| TDS-M015 | W | `experimental` 스키마 데이터셋이 있음(1.x 호환 약속 밖) [v1.1]. 지금은 `experimental` 스키마가 없다(5.6) |
 | TDS-M016 | E | 데이터셋의 `coverage.by_market.<m>.processed_through_session`(4.3)이 그 시장에서 그 `last`보다 이르거나(처리했다는 세션 뒤의 행) 시장의 `complete_through_session`(3.8)보다 늦음 [v1.4, 2026-11-12] |
 | TDS-M017 | W | `tds_draft`(4.2)가 검사기가 구현한 초안 본문과 다른 날짜(10.5; 없으면 TDS-M003 [2026-11-23, #705]): 패키지가 초안의 다른 본문을 따르며, 그 해시는 같은 본문을 적은 패키지와만 비교한다 [v1.4, 2026-11-18] |
 | TDS-S001 | E | 필수 칼럼 없음; 그 가운데 칸이 null일 수 있는 `market_rules`의 `price_from`(5.27) [2026-11-23, #705] |
@@ -1231,11 +1158,9 @@ tds export {zipline-bundle|nautilus-catalog|wide-parquet} ... # 9.8
 | `equity/usa/daily/<t>.zip`(`YYYYMMDD HH:mm`, OHLC deci-cents, volume) | `bars(freq=1d)` | ÷10,000. 시각은 data time zone 현지 → 날짜만 `session_date`로. LEAN 일봉 가격이 원가격인지(계수로 조정해 읽는지) [미확인: 원가격 저장으로 알고 있음] |
 | `minute/<t>/<date>_trade.zip`(자정부터 ms) | `bars(freq=1m)`: `ts_start = 현지 자정 + ms`를 시간대로 UTC 변환, `ts_end = ts_start + 1분` | LEAN 봉 시각 = 시작 [확인]. 거래 없는 분은 행 없음 → `density = sparse` |
 | `_quote.zip`(bid OHLC, bid size, ask OHLC, ask size) | `bars(price_type = bid/ask)` 두 줄 | |
-| 틱 trade(시각, 가격, 수량, 거래소, 조건 hex, suspicious) | `trades`(`conditions = [hex]`, suspicious → `x_lean_suspicious`) | 가격 deci-cents → `price_exponent = -4`로 정수 그대로 |
-| 틱 quote(한쪽만) | `quotes`(직전 상태로 다른 쪽 채움) | |
 | `factor_files/<t>.csv`(날짜, 가격 계수, 분할 계수, 기준 가격) | 가격 계수와 분할 계수를 **따로 해독**: 분할 계수 변화 → `split/reverse_split`(`share_factor` 명시), 가격 계수만의 변화 → `cash_dividend`(기준 가격으로 `D` 역산이 맞을 때) 또는 `other`(`factor_method = vendor`), 기준 가격 → `factor_ref_price`; 계수 칼럼은 쓰지 않는다(K4) | LEAN 계수는 최근 = 1의 뒤로 누적이고 효력 날짜 관례가 다를 수 있다 — 정규화 모드 시험으로 확인 [v1.1, RV-Q08] |
 | `map_files/<t>.csv`(날짜, 티커, 거래소) | `instrument_symbols`; 마지막 날짜가 과거면 `last_session`·`delistings(unknown)` — 단 티커 변경도 같은 모양이므로 `instrument_symbols`의 다음 행과 함께 판별 | 상장폐지 가치 [손실]. 지도 행의 날짜가 TDS 구간 시작인지 끝인지 관례 확인 [v1.1] |
-| `market-hours-database.json` | `calendar_sessions`, `calendar_segments` | |
+| `market-hours-database.json` | `calendar_sessions` | |
 | 옵션 경로(style, right, strike×10,000, expiry) | `instruments(option)` | |
 
 ### 9.3 Nautilus 카탈로그 → TDS (그리고 반대)
@@ -1244,13 +1169,6 @@ tds export {zipline-bundle|nautilus-catalog|wide-parquet} ... # 9.8
 |---|---|
 | `Equity`, `FuturesContract`, `OptionContract`, `CryptoPerpetual`, `CurrencyPair` | `instruments`(asset_class별), `InstrumentId`(예 `AAPL.XNAS`) → `instrument_xref(nautilus_instrument_id)`. TDS id는 K1 문법(`이름공간:지역 id`)을 지켜야 하므로 그대로 쓸 수 없다: 권장 `XNAS:AAPL:<첫 상장일>` 또는 `NT:AAPL.XNAS` [v1.1, RV-Q08] |
 | `Bar` + `BarType` | `bars`: step·aggregation → `freq`/`aggregation`, price_type → `price_type`, INTERNAL/EXTERNAL → `source_kind`; `ts_event`(닫는 시각 기본) → `ts_end`, 시간 봉만 `ts_start = ts_end − 주기`(틱·거래량 봉은 원자료에 시작이 없으면 null [보충]); `ts_init` → `ts_recv` 아님(만든 시각)이라 `x_nt_ts_init`으로 보존하고 재생 순서 규칙은 매니페스트 `params.replay_order`에 따로 선언. 가격·수량은 float를 거치지 않고 고정소수로 정확히 옮긴다; 정밀도는 Nautilus에서 **종목별**이므로 데이터셋 지수(K7)는 그 파일의 가장 작은 지수(예 −9)로 맞춰 담는다 [v1.1] |
-| `QuoteTick` | `quotes`(bid_price → bid_px …) |
-| `TradeTick` | `trades`(aggressor_side, trade_id 그대로) |
-| `OrderBookDelta` | `book_deltas`(action, side, price, size, order_id, flags, sequence 1:1) |
-| `OrderBookDepth` | `book_snapshots` |
-| `InstrumentStatus` | `trading_status_events` |
-| `InstrumentClose` | `market_statistics(official_close / settlement_price)` |
-| `MarkPriceUpdate`, `FundingRateUpdate` | `reference_prices`, `funding_rates` |
 
 반대 방향(`tds export nautilus-catalog`)이 E4의 기본 경로다(명세서 11.2). 가격은 `price_precision`으로 Nautilus `Price`를 만든다.
 
@@ -1259,18 +1177,12 @@ tds export {zipline-bundle|nautilus-catalog|wide-parquet} ... # 9.8
 | DBN 스키마 | TDS | 메모 |
 |---|---|---|
 | `definition` | `instruments` + `instrument_xref(databento_instrument_id, 하루 구간)` + `instrument_symbols(vendor:databento_raw)` | 만기·호가 단위·행사가·승수 |
-| `mbo` | `book_deltas(depth_kind = mbo)` | action A/M/C/R/T/F/N → add/modify/cancel/clear/trade/fill/none; side A/B/N → ask/bid/none(**T/F의 side는 공격자 쪽**이므로 trade 행은 `trades.aggressor_side`로도 복사); F_LAST → `is_last`; F_SNAPSHOT → `is_snapshot`; 가격 1e-9 정수 그대로(`price_exponent = -9`); `INT64_MAX` → null |
-| `mbp-10`, `mbp-1` | `book_snapshots` 또는 `book_deltas(mbp)` + `quotes` | |
-| `tbbo`, `trades` | `trades`(+ `quotes`) | |
 | `ohlcv-1s/1m/1h` | `bars`: `ts_event` = **구간 시작** [확인] → `ts_start`; `density = sparse` | |
 | `ohlcv-1d` | `bars(bar_time = utc_day)` | UTC 날짜 일봉 [확인] → 세션 일봉으로 쓰지 않도록 `freq = 1d`이지만 `bar_time = utc_day`; 엔진은 세션 일봉이 필요한 기능에서 거절. 레코드·스키마 형을 보고 판단하고(세션 끝 일봉 변형이 있으면 `bar_time = session`) 날짜를 다시 이름 붙이지 않는다 [v1.1] |
-| `statistics` | `market_statistics` | |
-| `status` | `trading_status_events` | |
 | `imbalance` | `events(event_type = auction.imbalance)` | |
 | 시각 `ts_recv` | 공개 시각 규칙 `ts_recv` 또는 `ts_recv+<지연>`(게이트웨이 수신은 사용자 수신보다 이르다) | [v1.1] |
 | `publisher_id`, 채널·데이터셋, 레코드 순서 | `x_dbn_publisher_id`, `x_dbn_dataset`, `x_dbn_channel_id`, 안정 정렬 순번 `sequence`(채널 범위 안에서만 유일) | 원 순서·출처를 잃지 않게 보존 [v1.1, RV-Q08] |
 | uint64 `order_id` 등 | 10진 문자열 칼럼(`x_dbn_order_id`) + int64가 넘치지 않을 때만 정수 칼럼 | 부호 있는 int64로는 모든 값을 무손실로 담을 수 없음 [v1.1] |
-| continuous 기호(`ES.c.0`) | `roll_calendar(roll_rule_id = "databento:c")` | 가격 조정 안 함 [확인] |
 
 ### 9.5 CSV → TDS
 
@@ -1364,7 +1276,7 @@ datasets:
 
 - 같은 MAJOR의 더 높은 MINOR 패키지를 읽을 때 소비자는 **모르는 기능을 쓰는지**로 나눈다: 모르는 선택 칼럼·선택 데이터셋 → 무시(M011); 모르는 서술용 열린 열거값 → `other`; 실행·해석에 영향이 있는 것(공개 규칙 이름, 닫힌 열거의 새 값, `hash_spec`) → 거절(M014). 그래서 "모든 미래 1.x 패키지를 받는다"고 약속하지 않는다.
 - **닫힌 열거에 값 추가는 MAJOR 그대로**(옛 소비자가 뜻을 모른 채 회계할 수 없으므로). 서술용 열거(`category`, `delist_type`, `reason`, 그리고 2026-11-24부터 `asset_class`, #705 B3)는 열린 열거로 두어 MINOR로 늘린다.
-- `experimental` 스키마(5.6~5.9, 5.22~5.24)는 이 호환 약속 밖이다.
+- `experimental` 스키마는 이 호환 약속 밖이다. 지금은 `experimental` 스키마가 없고, 나중에 오는 종류가 그렇게 들어온다(5.6).
 
 ### 10.4 확장과 등록
 
@@ -1513,7 +1425,7 @@ datasets:
 | 프로필 | 판 없음, "pass" 하나, `minimal-daily`에 종가 백테스트 약속, research에 `cum_factor_*` 필수 | `@1.0` 판, 세 결과(선언·검사 단계·결과, `not_checked`), `minimal-daily`는 분석만, `cum_factor_*`는 모든 프로필에서 선택(그리고 2026-11-25부터 표준 밖, 5.5), 엔진 지원 매트릭스는 표준 밖 | I01, I03 |
 | 호환 | 모르는 열거값은 `other`, 모든 MINOR를 읽음 | 모르는 필수 해석 규칙·닫힌 열거 새 값은 거절(M014), 서술용만 `other`, experimental 스키마는 약속 밖 | I01, Q11 |
 | 매니페스트 | `$schema` = 소유하지 않은 도메인, 생산자 힌트 없음, 경로 안전 없음 | 상대 경로 `$schema`, `producer.hints`, 경로 안전(M012·M013), 프로필 판 | Q04, I09, I01 |
-| 실험 판 | 틱·호가·선물·옵션·코인이 1.0 안 | `experimental`(M015 경고), 일봉 주식만 stable | I07 |
+| 실험 판 | 틱·호가·선물·옵션·코인이 1.0 안 | `experimental`(M015 경고), 일봉 주식만 stable; 그 종류들은 2026-11-25에 표준에서 빠졌고 지금은 `experimental` 스키마가 없다(5.6) | I07 |
 | 재무 | `preliminary`가 열거에 없음(T007과 모순), `std_item`이 정의 없이 표준처럼 | `preliminary` 추가·T007 경고로, `std_item`은 잠정 매핑 | I06 |
 | 상호운용 | 대응표만 | 변환 보고서, zipline `mergers`를 전환으로 보지 않음, LEAN 계수 성분 해독, Nautilus id 문법·정밀도, DBN 게시자·채널·uint64, `ts_recv+<기간>` | Q08 |
 | 식별자 | 작은 사용자 `<MIC>:<티커>` 권장, `security_id` 별칭 가능 | `<MIC>:<티커>:<첫 상장일>` 또는 FIGI, 별칭 없음 | Q04, Q01 |
@@ -1623,3 +1535,4 @@ datasets:
 - 2026-11-25: **v1.4** 안에서. 5.8과 8.3: TDS-V031(재구성 뒤 교차 호가)은 은퇴하고 번호는 다시 쓰지 않는다. `book_deltas`가 다른 범위 밖 종류와 함께 빠지기 전이다(#725 결정 252; #752의 R1b). 움직인 것: 적합성 사례 TDS-V031이 없어짐; 다른 패키지의 해시는 없음. `tds_version` `"1.0"` 그대로, `tds_draft`는 2026-11-19 그대로(12e까지, 10.5).
 - 2026-11-25: **v1.4** 안에서. 5.6과 8.3: TDS-V032(순번 빈칸)는 은퇴하고 번호는 다시 쓰지 않는다. `trades`, `quotes`, `book_deltas`가 `params.sequence_consecutive_within`의 모양과 그 TDS-S001과 함께 빠지기 전이다(#725 결정 252; #752의 R1c). 움직인 것: 적합성 사례 TDS-V032가 없어짐; 다른 패키지의 해시는 없음. `tds_version` `"1.0"` 그대로, `tds_draft`는 2026-11-19 그대로(12e까지, 10.5).
 - 2026-11-25: **v1.4** 안에서. 4.2 JSON 스키마, 5.6, 5.7, 8.3: TDS-V030(잠기거나 교차한 호가)과 TDS-T008(`ts_event`보다 앞선 `ts_recv`)은 은퇴하고 번호는 다시 쓰지 않는다. 선언 `params.sequence_consecutive_within`, 그 모양, 그 TDS-S001도 함께다. 틱 종류가 빠지기 전이다(#725 결정 252; #752의 R1a-1). 움직인 것: 적합성 사례 TDS-V030과 TDS-T008이 없어짐; 다른 패키지의 해시는 없음. `tds_version` `"1.0"` 그대로, `tds_draft`는 2026-11-19 그대로(12e까지, 10.5).
+- 2026-11-25: **v1.4** 안에서. K2, 4.1, 5.4, 5.6~5.10, 5.16, 5.22~5.24, 7, 9, 10.2와 8.3 TDS-M015: 범위 밖 종류(`trades`, `quotes`, `book_deltas`, `book_snapshots`, `market_statistics`, `calendar_segments`, `trading_status_events`, `rates`, `roll_calendar`, `option_chain_snapshots`, `funding_rates`, `reference_prices`)가 스키마 파일과 함께 빠지고, 프로필 `tds:l1-ticks`, `tds:l2-book`, `tds:l3-book`, `tds:futures`, `tds:options`, `tds:crypto`도 함께 빠진다(#725 결정 252; #752의 R1a-2). TDS-M015는 나중에 오는 종류를 위해 남는다(결정 253). 지금은 `experimental` 스키마가 없다. 움직이는 적합성 패키지나 해시는 없다. `tds_version` `"1.0"` 그대로, `tds_draft`는 2026-11-19 그대로(12e까지, 10.5).

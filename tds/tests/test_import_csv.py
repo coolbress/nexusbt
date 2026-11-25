@@ -171,7 +171,6 @@ def key(text: str) -> tuple[str, str]:
         (("", ""), "instrument_id,close\nXNYS:AAPL,1\n", "no column for session_date, the sort"),
         (("", ""), BARS + "XNYS:AAPL,,1,2\n", "year= partition needs one or more rows"),
         (("", ""), BARS.splitlines()[0] + "\n", "year= partition needs one or more rows"),
-        (key("kind: trades"), "conditions\nX\n", "a list<code> column is not imported"),
         (key("kind: events"), "value\n1\n", "partition event_type= is not imported"),
         (key("missing_values: NA"), BARS, "missing_values is a list"),
         (("", ""), TS.format("2024-01-02"), "'2024-01-02' is not a ts_us"),  # not RFC 3339
@@ -195,6 +194,15 @@ def test_input_that_cannot_be_read_stops(
     with pytest.raises(CsvImportError, match=re.escape(error)):
         import_csv(path, tmp_path / "pkg")
     assert not (tmp_path / "pkg").exists()  # stopped before writing anything
+
+
+@pytest.mark.parametrize("tag", ["list<code>", "json", "fixed"])
+def test_a_type_csv_does_not_carry_is_not_imported(tag: str) -> None:
+    """No kind the import takes has such a column since `trades` left (#752); it still stops."""
+    from nexusbt_tds.import_csv import _value
+
+    with pytest.raises(CsvImportError, match=re.escape(f"a {tag} column is not imported")):
+        _value("X", tag, {}, {}, "t.csv line 2")
 
 
 def test_package_defaults_and_layout(tmp_path: Path) -> None:
