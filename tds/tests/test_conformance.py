@@ -575,11 +575,17 @@ def test_k001_memory_holds_a_batch_not_every_key(tmp_path: Path) -> None:
 
 
 def test_classification_levels_not_duplicate(tmp_path: Path) -> None:
-    manifest, files = build.package("TDS-K001", "pass")  # GICS level 1 and 3, same day (5.19)
+    manifest, files = build.base()
+    build._gics(1, 3)(manifest, files)  # GICS level 1 and 3, same day (5.19)
     rows = pq.read_table(pa.BufferReader(files["classifications/part-00000.parquet"])).to_pylist()
     assert {r["level"] for r in rows} == {1, 3}
     assert len({(r["effective_from"], r["ts_known_from"]) for r in rows}) == 1
     assert codes(build.write(tmp_path, manifest, files), "full") == []
+
+
+def test_a_panel_key_in_two_editions_is_no_duplicate(tmp_path: Path) -> None:
+    """The `edition=` folder is part of a panel's key (5.25); leaves with the panels (#752)."""
+    assert codes(write(tmp_path, build._panels("strict", "compare")), "full") == []
 
 
 R_CODES = [f"TDS-R{n:03}" for n in (1, 2, 3, 4, 5, 6, 8, 9)]  # R007 is retired (#752)
@@ -1121,16 +1127,7 @@ def _closes(*prices: float) -> Any:
                        close=pa.array(prices, pa.float64()))  # fmt: skip
 
 
-def _rules(*bands: tuple[Any, Any, Any], until: dt.date | None = None) -> Any:
-    """Rule set `us-tick` from 2024-01-02: a `tick_band` row per (price_from, price_to, tick)."""
-    n, (lo, hi, tick) = len(bands), zip(*bands, strict=True)
-    return build._add("market_rules", {
-        "rule_id": ["us-tick"] * n, "market": ["US"] * n, "rule_kind": ["tick_band"] * n,
-        "venue_group": ["*"] * n, "valid_from": pa.array([dt.date(2024, 1, 2)] * n),
-        "valid_to": pa.array([until] * n, pa.date32()), "price_from": pa.array(lo, pa.float64()),
-        "price_to": pa.array(hi, pa.float64()), "tick_size": pa.array(tick),
-        "source": ["https://example.test/r"] * n, "verified": [False] * n,
-    })  # fmt: skip
+_rules = build._rules
 
 
 def _assigned(day: int) -> Any:
@@ -2260,8 +2257,8 @@ def _at(day: int, hour: int) -> dt.datetime:
         (build._add("instrument_xref", {"instrument_id": ["US:AAA"], "id_type": ["figi"],
             "id_value": ["F1"], "valid_from": [dt.date(2024, 1, 3)], "valid_to": [build.DAY[0]],
             "link_quality": ["primary"], "source": ["s"]}), ["TDS-T004"], []),  # T004 only
-        (build._both(build.CASES["TDS-T003"][1], build._members("2024-01-04")), ["TDS-S002"],
-         INTERVAL_CODES),  # a text effective_to is S002's: none judged, the T003 there neither
+        (_rules((0.0, 1.0, 0.0001), (0.5, None, 0.01), until="2024-01-04"), ["TDS-S002"],
+         INTERVAL_CODES),  # a text valid_to is S002's: none judged, the T003 there neither
         (_rules((0.0, 1.0, 0.0001), (1.0, None, 0.01)), [], []),  # null ends are open
     ],
 )  # fmt: skip
@@ -2311,7 +2308,6 @@ _CALENDAR_RULE = build._both(build._sessions(0), build._bars(ts_available=pa.arr
          ["TDS-T005"]),  # no calendar_sessions
         (build._both(build._sessions(0, (3,)), build._bars(ts_end=pa.array([_at(2, 20)]))),
          ["TDS-D002", "TDS-R003"], ["TDS-T005"]),  # a calendar, no session that day: not judged
-        (build._event(_at(1, 0), series_id=["US:CPI"]), [], []),  # at the event: not before it
     ],
 )  # fmt: skip
 def test_instant_rules_edges(

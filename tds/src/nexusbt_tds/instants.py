@@ -2,7 +2,7 @@
 (TDS 5.1, 5.5, 5.13, 6.2, 8.3).
 
 Rules chosen with the maintainer (#225, 2026-11-11): T001 compares a stored `ts_available` with
-the row's event instant, a bar's `ts_end` or an event's `ts_event`. T002 holds a stored
+a bar's `ts_end`; the user-data kinds are not read (#752). T002 holds a stored
 `ts_available` to the dataset's rule (not `column`), row by row; the calendar rules and a daily
 bar's null `ts_end` read `calendar_sessions` through `instruments.calendar_id`, and a row with no
 session, or a delay in years or months, is not judged. T005 compares the `ts_start` and `ts_end`
@@ -110,7 +110,6 @@ def _rule(availability: object) -> str | None:
 #: Per kind: the columns read besides those a rule needs.
 COLUMNS = {
     "bars": ("instrument_id", "session_date", "ts_start", "ts_end", "ts_available"),
-    "events": ("event_id", "ts_event", "ts_available"),
     "instruments": ("instrument_id", "listed_on", "last_session"),
     "delistings": ("delisting_id", "ts_exit_known", "ts_value_available"),
 }
@@ -134,7 +133,7 @@ def _broken(
 ) -> Iterator[tuple[str, Severity | None]]:  # fmt: skip
     """The codes row `r` breaks, with their severity; None: the row cannot be judged."""
     available: Any = r.get("ts_available")
-    if kind in ("bars", "events") and _before(available, r.get(EVENT[kind])):
+    if kind == "bars" and _before(available, r["ts_end"]):  # a bar is complete at its end (6.1)
         yield T001, "error"
     if rule and available is not None:
         expected = _derive(rule, r, session, next_open)
@@ -151,8 +150,6 @@ def _broken(
             yield code, severity
 
 
-#: T001's event instant: a bar is complete at its end (5.5, 6.1).
-EVENT = {"bars": "ts_end", "events": "ts_event"}
 #: (code, severity, kinds, (column, column it must not precede)).
 LATER: tuple[tuple[str, Severity, frozenset[str], tuple[str, str]], ...] = (
     (T010, "error", frozenset({"instruments"}), ("last_session", "listed_on")),

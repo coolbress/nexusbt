@@ -1,15 +1,15 @@
-"""The `full` level's interval checks from the rows: T003, T004, T012 (TDS 5.2, 5.18~5.20,
-5.27, 6.3, 8.3).
+"""The `full` level's interval checks from the rows: T003, T004, T012 (TDS 5.2, 5.19, 5.27,
+6.3, 8.3).
 
-Rules chosen with the maintainer (#225, 2026-11-11): T012 holds the three rectangle-lookup
+Rules chosen with the maintainer (#225, 2026-11-11): T012 holds the rectangle-lookup
 tables to one visible row per discriminating key and edition filter, found as two rows whose
 known and effective intervals both meet, then shown by `pit.rect_lookup` at the corner they
-share; T003 holds the one-axis intervals, `fundamentals_state`'s known intervals per
-`(edition, instrument_id, item)` and `market_rules`' tick bands per `(rule_id, venue_group)`
-on a shared date. 5.2's T003 line is T012's condition and is reported as T012 only. T004 reads
-every `[from, to)` pair of `INTERVALS`; a null end is open, and a row it breaks takes part in
-no overlap. A null `instrument_symbols.ts_known_from` is the session open of `valid_from` (5.2):
-a pair it decides leaves T012 unchecked unless another pair found it, as K010 does.
+share; T003 holds `market_rules`' tick bands per `(rule_id, venue_group)` on a shared date;
+the user-data kinds are not read (#752). 5.2's T003 line is T012's condition and is reported
+as T012 only. T004 reads every `[from, to)` pair of `INTERVALS`; a null end is open, and a
+row it breaks takes part in no overlap. A null `instrument_symbols.ts_known_from` is the
+session open of `valid_from` (5.2): a pair it decides leaves T012 unchecked unless another
+pair found it, as K010 does.
 Memory holds these tables' interval columns, grouped by key; one finding per dataset and code.
 """
 
@@ -31,9 +31,7 @@ T003, T004, T012 = TIME_CODES
 KNOWN = ("ts_known_from", "ts_known_to")
 #: T004's `[from, to)` pairs, per kind.
 INTERVALS = {
-    "fundamentals_state": (KNOWN,),
     "classifications": (("effective_from", "effective_to"), KNOWN),
-    "universe_membership": (("effective_from", "effective_to"), KNOWN),
     "instrument_symbols": (("valid_from", "valid_to"), KNOWN),
     "instrument_xref": (("valid_from", "valid_to"),),
     "market_rules": (("valid_from", "valid_to"),),
@@ -41,9 +39,7 @@ INTERVALS = {
 #: Per kind: the overlap code, the key its intervals are grouped by, and the columns read besides.
 OVERLAPS = {
     "classifications": (T012, ("instrument_id", "scheme", "level"), ("edition", "pit_quality")),
-    "universe_membership": (T012, ("universe_id", "instrument_id"), ()),
     "instrument_symbols": (T012, ("instrument_id", "symbol_type"), ()),
-    "fundamentals_state": (T003, ("edition", "instrument_id", "item"), ()),
     "market_rules": (T003, ("rule_id", "venue_group"), ("rule_kind", "price_from", "price_to")),
 }
 SAID = {
