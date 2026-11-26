@@ -1,0 +1,8 @@
+{
+  "kind": "market_values", "schema_version": "1.0", "status": "stable", "section": "5.28",
+  "key": ["date"], "sort": ["date"], "partitions": ["market=/item="],
+  "columns": [
+    {"name": "date", "type": "date", "null": false},
+    {"name": "value", "type": "f64", "null": true}
+  ]
+}
