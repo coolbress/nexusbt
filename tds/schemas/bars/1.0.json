@@ -17,6 +17,7 @@
     {"name": "low", "type": "f64", "null": true},
     {"name": "close", "type": "f64", "null": true},
     {"name": "volume", "type": "f64", "null": true},
+    {"name": "open_auction_volume", "type": "f64", "null": true},
     {"name": "value_traded", "type": "f64", "null": true},
     {"name": "trade_count", "type": "i64", "null": true},
     {"name": "vwap", "type": "f64", "null": true},

@@ -70,7 +70,8 @@ SAID = {V001: "bar(s) whose high and low do not enclose open and close",
         V002: "bar(s) with a negative price, volume or value_traded",
         V004: "bar(s) traded with no close, or on equity or etf with no open, high, low or volume "
               "where a declared profile requires them; no_trade or halted with a volume not 0; "
-              "halted with a price; or with neither a value nor obs_status",
+              "halted with a price; no_trade with an open, high or low; or with neither a value "
+              "nor obs_status",
         V005: "FX rate(s) <= 0",
         V010: "equity bar(s) whose volume is not an integer",
         V020: "instrument(s) without a column their asset_class needs",
@@ -244,9 +245,11 @@ def _broken(
             (state == "traded" and any(r[k] is None for k in cells))
             or (state in ("no_trade", "halted") and volume is not None and volume != 0)
             or (state == "halted" and any(r[k] is not None for k in PRICES[:4]))
+            or (state == "no_trade" and any(r[k] is not None for k in PRICES[:3]))
             or (state is None and all(r[k] is None for k in VALUED))
         ):  # 5.5: a written volume of no trade is 0, a halt has no price (#705 Decisions
-            # 38, 168); a row with neither values nor a state says nothing (131)
+            # 38, 168), no trade has no open, high or low (#752); a row with neither values
+            # nor a state says nothing (131)
             out.append(V004)
         if asset == "equity" and r["volume"] is not None and not float(r["volume"]).is_integer():
             out.append(V010)

@@ -658,7 +658,7 @@ CASES: dict[str, tuple[Change, Change]] = {
     "TDS-S003": (
         lambda m, f: rewrite(m, f, INSTRUMENTS, instruments(name=pa.array([None], pa.string()))),
         lambda m, f: rewrite(
-            m, f, INSTRUMENTS, instruments(lot_size=pa.array([None], pa.float64()))
+            m, f, INSTRUMENTS, instruments(multiplier=pa.array([None], pa.float64()))
         ),
     ),
     "TDS-S004": (_bars(ts_end=TS), _bars(ts_end=TS.cast(pa.timestamp("us")))),
