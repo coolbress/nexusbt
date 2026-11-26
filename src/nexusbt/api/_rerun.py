@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING, Any
 
 from nexusbt import contracts
 from nexusbt.contracts import NexusBTError, ReplayError, SnapshotError
-from nexusbt.data import _package
+from nexusbt.data import DataConfig, _package, open_snapshot
 
 if TYPE_CHECKING:
     from nexusbt.data import Snapshot
@@ -146,6 +146,15 @@ def not_opened(error: SnapshotError, path: Path | None = None) -> None:
         return  # another snapshot, or an error raised with no package to look at
     why = "it does not open or its files differ from tds.json (semantic·physical mismatch)"
     raise unavailable(ACTIVE.run_id, ACTIVE.manifest, why) from error
+
+
+def open_data(cfg: DataConfig, *, sha256: bool = False) -> Snapshot:
+    """`open_snapshot`, its E14 E15 on an exact rerun of that snapshot (`not_opened`)."""
+    try:
+        return open_snapshot(cfg, sha256=sha256)
+    except SnapshotError as unread:  # the package moved, or a file's bytes differ
+        not_opened(unread, Path(cfg.path))
+        raise
 
 
 def unavailable(run_id: str, manifest: Mapping[str, Any], why: str) -> ReplayError:

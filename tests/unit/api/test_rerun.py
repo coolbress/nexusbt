@@ -146,6 +146,21 @@ def test_new_snapshot_that_does_not_open_is_its_own_E14(  # noqa: N802 - the cod
     with pytest.raises(SnapshotError) as raised:
         nx.rerun(run_id, new_snapshot=True)
     assert "new_snapshot" not in str(raised.value)
+    if how != "moved":  # the file's sha256 against tds.json (TDS 11 `TDS-H001`)
+        assert "TDS-H001" in str(raised.value)
+
+
+def test_a_moved_snapshot_the_entry_file_opens_itself_is_E15(  # noqa: N802 - the code's name
+    copied: tuple[Path, str],
+) -> None:
+    """#636 Decisions 2: the recorded snapshot opened by `nx.open` in the entry file, not by
+    `run_pipeline`, and moved: still the run's snapshot, E15 on an exact rerun."""
+    project, run_id = copied
+    entry = _ENTRY.replace("import nexusbt as nx\n", 'import nexusbt as nx\nnx.open("pkg")\n')
+    _edit(project / "runs" / run_id / "source" / "scripts" / "m.py", entry)
+    (project / "pkg").rename(project / "pkg-moved")
+    with pytest.raises(ReplayError, match="is not available"):
+        nx.rerun(run_id)
 
 
 @pytest.mark.parametrize("new_snapshot", [False, True])
