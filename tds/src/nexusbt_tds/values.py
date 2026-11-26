@@ -13,11 +13,11 @@ dataset where no bar has an R is "volume unit unverified". It holds one partitio
 values at a time (8 bytes a bar).
 
 V012 (TDS 5.27; #229, 2026-11-10) reads the raw price columns once more, where the package has
-grid information. The grid of an instrument on a day: the rule sets its `classifications` rows
-of scheme `tick_rule_id` in effect that day name, else its fixed `tick_size`, else the rule set
-of its `tick_rule_id`; of a rule set, the `tick_band` rows in effect that day, of every
-`venue_group` and known time (the checker has no instrument's group and no decision time: a
-price on any of them is on the grid). A price with no band is not compared.
+grid information. The grid of an instrument on a day: its fixed `tick_size`, else the rule set
+of its `tick_rule_id` (the dated `classifications` step left, #752); of a rule set, the
+`tick_band` rows in effect that day, of every `venue_group` and known time (the checker has no
+instrument's group and no decision time: a price on any of them is on the grid). A price with
+no band is not compared.
 """
 
 from __future__ import annotations
@@ -118,11 +118,6 @@ def _off_grid(m: Manifest, only: Sequence[str] | None) -> list[Finding]:
 
     fixed = {i: (tick, rule) for i, tick, rule in rows(
         "instruments", "instrument_id", "tick_size", "tick_rule_id")}  # fmt: skip
-    dated: defaultdict[Any, list[list[Any]]] = defaultdict(list)  # [from, to, rule id]
-    for i, scheme, *assigned in rows(
-        "classifications", "instrument_id", "scheme", "effective_from", "effective_to", "code"
-    ):
-        dated[i] += [assigned] if scheme == "tick_rule_id" else []
     bands: defaultdict[Any, list[list[Any]]] = defaultdict(list)  # [from, to, lo, hi, tick]
     for rule, kind, *band in rows("market_rules", "rule_id", "rule_kind", "valid_from",
                                   "valid_to", "price_from", "price_to", "tick_size"):  # fmt: skip
@@ -134,11 +129,13 @@ def _off_grid(m: Manifest, only: Sequence[str] | None) -> list[Finding]:
     def grid(i: Any, day: Any) -> list[tuple[Any, Any, Any]]:
         """(price_from, price_to, tick) of the instrument on `day`, in 5.27's source order."""
         tick, rule = fixed.get(i, (None, None))
-        rules = [code for start, end, code in dated.get(i, ()) if on(day, start, end)]
-        if not rules and tick and tick > 0:
+        if tick and tick > 0:
             return [(None, None, tick)]
-        return [(lo or 0.0, hi, t) for r in rules or [rule]
-                for start, end, lo, hi, t in bands.get(r, ()) if on(day, start, end)]  # fmt: skip
+        return [
+            (lo or 0.0, hi, t)
+            for start, end, lo, hi, t in bands.get(rule, ())
+            if on(day, start, end)
+        ]
 
     def off(p: float, ticks: list[tuple[Any, Any, Any]]) -> bool:
         """5.27: `p` and the band bounds as integers of the grid's smallest tick that day find
@@ -151,7 +148,7 @@ def _off_grid(m: Manifest, only: Sequence[str] | None) -> list[Finding]:
         return bool(inside) and all(abs(p - round(p / t) * t) > 1e-9 * abs(p) for t in inside)
 
     out = []
-    for ds in m.datasets if any(dated.values()) or any(map(any, fixed.values())) else ():
+    for ds in m.datasets if any(map(any, fixed.values())) else ():
         kind, name = str(ds.get("kind")), str(ds.get("name"))
         if kind not in GRID or not _raw(ds) or (only is not None and name not in only):
             continue

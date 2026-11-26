@@ -12,7 +12,6 @@
     {"name": "edition_class", "type": "string", "null": null},
     {"name": "start_by_market", "type": "string", "null": null},
     {"name": "description", "type": "string", "null": null},
-    {"name": "alias_of", "type": "string", "null": null},
     {"name": "std_name", "type": "string", "null": null}
   ]
 }
