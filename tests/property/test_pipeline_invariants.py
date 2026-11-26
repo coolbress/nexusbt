@@ -16,7 +16,10 @@ from __future__ import annotations
 import dataclasses
 import datetime as dt
 import json
+import os
 import shutil
+import subprocess
+import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -216,6 +219,46 @@ def test_P_DET_pipeline(  # noqa: N802 - spec 10.1's name
     assert [{t: o[t] for t in tables} for o in outputs] == [{t: outputs[0][t] for t in tables}] * 2
     assert all(o[t].keys() == {"physical_sha256", "value_sha256"} for o in outputs for t in tables)
     assert ids[0] != ids[1]  # two runs, not one read twice
+
+
+#: One run in a new process: the pipeline of `SIGNED_ZEROS` on the package `argv[1]`, saved
+#: in the project folder it starts in; it prints the run's id.
+FRESH = """
+import sys
+import nexusbt as nx
+from property._pipelines import build
+from property.test_pipeline_invariants import END, SIGNED_ZEROS, START
+run = nx.run_pipeline(build(SIGNED_ZEROS), start=START, end=END, freq="monthly",
+                      snapshot=nx.open(sys.argv[1]), save=True)
+print(run.run_id)
+"""
+#: Two `PYTHONHASHSEED` values, so that set and dict-of-hash orders differ between the runs.
+HASH_SEEDS = ("1", "2")
+
+
+def test_P_DET_cross_process_hashseed(  # noqa: N802 - spec 10.1's name
+    roots: dict[str, Path], project: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """INV-09 (2.5, 8.3 P-DET): the same pipeline run in two new processes with different
+    `PYTHONHASHSEED` writes output files with the same physical and value hashes (T1.27)."""
+    tests = Path(__file__).resolve().parents[1]
+    path = os.pathsep.join([str(tests), os.environ.get("PYTHONPATH", "")])
+    env = {**os.environ, "PYTHONPATH": path}
+    ids = [subprocess.run([sys.executable, "-c", FRESH, str(roots["small"])], cwd=project,  # noqa: S603 - this interpreter, a script of this module
+
+                          env=env | {"PYTHONHASHSEED": seed}, capture_output=True, text=True,
+                          check=True).stdout.split()[-1]
+           for seed in HASH_SEEDS]  # fmt: skip
+    outputs = [json.loads((project / "runs" / i / "manifest.json").read_text())["outputs"]
+               for i in ids]  # fmt: skip
+    tables = ("pipeline.parquet", "term_diagnostics.parquet")
+    found = [{t: o[t] for t in tables} for o in outputs]
+    assert ids[0] != ids[1]  # two runs, not one read twice
+    assert all(o[t].keys() == {"physical_sha256", "value_sha256"} for o in found for t in tables)
+    assert found[1] == found[0]
+    with capsys.disabled():
+        print(f"\nP-DET: the output hashes of the runs under PYTHONHASHSEED {HASH_SEEDS[0]} and "
+              f"{HASH_SEEDS[1]} are equal: {json.dumps(found[0], sort_keys=True)}")  # fmt: skip
 
 
 #: τ drawn over the run (8.3's "random τ"), up to before the last session's close so that

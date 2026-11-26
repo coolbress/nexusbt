@@ -83,6 +83,14 @@ select = ["E", "F", "W", "I", "N", "UP", "B", "S", "A", "C4", "PT", "SIM", "RUF"
 "joblib".msg = "spec 2.5, 2.6: no pickle-based serialisation"
 "shelve".msg = "spec 2.5, 2.6: no pickle-based storage"
 "pandas.read_pickle".msg = "spec 2.5, 2.6: no pickle; read Parquet or Arrow IPC"
+# Spec 2.5's sources of non-determinism that no module of `src/**` uses. The rest of its list
+# (wall clock, `numpy.random`, `uuid4`) is used outside the decision path (`artifacts`, `api`,
+# `testing`), and one table cannot be scoped by module: `tests/unit/test_determinism_rules.py`
+# bans the whole list in the decision modules (#256's Decisions, 2026-11-26).
+"random".msg = "spec 2.5: no random; a Generator from the probes' seed is passed in"
+"secrets".msg = "spec 2.5: no secrets on the decision path"
+"os.urandom".msg = "spec 2.5: no os.urandom on the decision path"
+"uuid.uuid1".msg = "spec 2.5: no uuid1; only artifacts makes ids"
 
 [tool.ruff.lint.per-file-ignores]
 # The 2.5 ban is for `src/**` and `tds/src/**` only: every other path ignores it.
