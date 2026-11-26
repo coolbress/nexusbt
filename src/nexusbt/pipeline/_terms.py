@@ -624,7 +624,7 @@ class _Reads:
     class's qualified name (empty for a module) and the module's name, E24's too (#690)."""
 
     helpers: tuple[FunctionType, ...]
-    captured: tuple[tuple[str, Any], ...]
+    found: tuple[_Found, ...]
     impure: tuple[str, ...]
     decorator: str = ""
     under: tuple[tuple[str, str, str], ...] = ()
@@ -634,6 +634,31 @@ class _Reads:
     def e24(self) -> bool:
         """Whether what was read holds anything the hash cannot (6.5 (6)): E24, L1 off."""
         return bool(self.impure or self.decorator or self.under or self.lost)
+
+    @property
+    def captured(self) -> tuple[tuple[str, Any], ...]:
+        """The constants hashed, by key. A key that values of two or more objects give (two
+        helpers one factory made, two wrappers of one helper) carries, in brackets before its
+        first `:`, the names by which the function reaches each (#689, decision 2026-11-26:
+        `u.make.<locals>.inner[u.a]:k`); every other key stays as #673 made it."""
+        holders: dict[str, set[int]] = {}
+        for key, holder, _, _ in self.found:
+            holders.setdefault(key, set()).add(holder)
+        keyed: dict[str, Any] = {}
+        for key, _, reach, value in self.found:
+            head, _, rest = key.partition(":")
+            keyed.setdefault(f"{head}[{reach}]:{rest}" if len(holders[key]) > 1 else key, value)
+        return tuple(sorted(keyed.items()))
+
+
+#: A constant read for the hash (#689): its key, the `id` of the object holding it, the names by
+#: which the term's function reaches that object (`u.pair>a`), and the value.
+type _Found = tuple[str, int, str, Any]
+
+
+def _reach(outer: str, inner: str) -> str:
+    """The names `outer`, then `inner`, joined by `>`; either may be empty (the function itself)."""
+    return f"{outer}>{inner}" if outer and inner else outer or inner
 
 
 @functools.cache
@@ -698,8 +723,8 @@ def _reads(fn: FunctionType) -> _Reads:
     own = _walk(inner, set())
     held = _wrapper(fn, "", {id(inner), *map(id, own.helpers)})
     helpers = sorted((*own.helpers, *held.helpers), key=lambda h: h.__qualname__)
-    captured = sorted((*own.captured, *held.captured), key=lambda c: c[0])
-    return _Reads(tuple(helpers), tuple(captured), own.impure, held.decorator, own.under, own.lost)
+    found = (*own.found, *held.found)
+    return _Reads(tuple(helpers), found, own.impure, held.decorator, own.under, own.lost)
 
 
 def _wrapper(fn: FunctionType, prefix: str, seen: set[int]) -> _Reads:
@@ -711,8 +736,8 @@ def _wrapper(fn: FunctionType, prefix: str, seen: set[int]) -> _Reads:
     wrapper holds that the hash cannot read is E24, naming the decorator."""
     held = _walk(fn, seen)
     decorator = _decorator(fn)
-    theirs = [(n if ":" in n else f"{prefix}{decorator}:{n}", v) for n, v in held.captured
-              if not n.endswith("=")]  # fmt: skip
+    theirs = [(k if ":" in k else f"{prefix}{decorator}:{k}", h, r, v) for k, h, r, v in held.found
+              if not k.endswith("=")]  # fmt: skip
     unread = held.impure or held.under or held.lost
     return _Reads(held.helpers, tuple(theirs), (), decorator if unread else "")
 
@@ -725,34 +750,38 @@ def _decorator(wrapper: FunctionType) -> str:
 
 
 def _walk(fn: FunctionType, seen: set[int]) -> _Reads:
-    """What `fn` and the project helpers it reaches read, skipping the functions in `seen`."""
-    found = _defaults(fn)
+    """What `fn` and the project helpers it reaches read, skipping the functions in `seen`; each
+    constant with the object holding it and the names by which `fn` reaches that (#689)."""
+    found: list[_Found] = [(k, id(fn), "", v) for k, v in _defaults(fn).items()]
     helpers: list[FunctionType] = []
     impure: set[str] = set()
     under: set[tuple[str, str, str]] = set()
     lost: set[tuple[str, str, str]] = set()
-    todo = [fn]
+    todo = [(fn, "")]
     while todo:
-        f = todo.pop()
+        f, reach = todo.pop()
         if id(f) in seen:
             continue
         seen.add(id(f))
         names, attrs = _loads(f.__code__)
         values = _values(f, names)
         prefix = "" if f is fn else _prefix(f)
-        judged = _judge(sorted(values.items()), attrs, prefix, found, impure, lost)
+        mine: dict[str, Any] = {}
+        judged = _judge(sorted(values.items()), attrs, prefix, mine, impure, lost)
+        found += [(k, id(f), reach, v) for k, v in mine.items()]
         for name, value, helper in judged:
-            todo.append(helper)
+            there = _reach(reach, name)
+            todo.append((helper, there))
             if isinstance(value, FunctionType) and value is not helper:  # a library's wrapper
                 held = _wrapper(value, _prefix(helper), {*seen, id(helper)})
                 helpers += held.helpers
-                found.update(held.captured)
+                found += [(k, h, _reach(there, r), v) for k, h, r, v in held.found]
                 if held.decorator and f is not helper:  # not again by itself, calling itself
                     under.add((f.__name__, name, held.decorator))
         impure.update(_opens(names, values, attrs))
         helpers += [] if f is fn else [f]
     ordered = sorted(dict.fromkeys(helpers), key=lambda h: h.__qualname__)  # once each, in order
-    return _Reads(tuple(ordered), tuple(sorted(found.items())), tuple(sorted(impure)),
+    return _Reads(tuple(ordered), tuple(found), tuple(sorted(impure)),
                   under=tuple(sorted(under)), lost=tuple(sorted(lost)))  # fmt: skip
 
 
