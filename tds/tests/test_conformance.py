@@ -1650,7 +1650,7 @@ def test_T006_does_not_read_a_timeless_kind(level: Level, tmp_path: Path) -> Non
     assert "TDS-T006" not in [f.code for f in result.errors]
 
 
-def _symbols(ts_known_from: dt.datetime, availability: object) -> Any:
+def _symbol_known(ts_known_from: dt.datetime, availability: object) -> Any:
     """A US `instrument_symbols` row known at `ts_known_from`, US `complete_through` END (5.2;
     the `fundamentals_state` row this case first held left with its kind, #752). The named
     column is not `ts_available`, so the case fails if T006 reads another column."""
@@ -1672,9 +1672,9 @@ def _symbols(ts_known_from: dt.datetime, availability: object) -> Any:
 @pytest.mark.parametrize(
     ("change", "found", "unchecked"),
     [  # TDS 4.2 `{"column": "ts_known_from"}`: T006 reads that column's statistics (#276)
-        (_symbols(END, {"column": "ts_known_from"}), [], False),
-        (_symbols(END + TICK, {"column": "ts_known_from"}), ["TDS-T006"], False),
-        (_symbols(END + TICK, None), [], True),  # no availability: its instant is unknown
+        (_symbol_known(END, {"column": "ts_known_from"}), [], False),
+        (_symbol_known(END + TICK, {"column": "ts_known_from"}), ["TDS-T006"], False),
+        (_symbol_known(END + TICK, None), [], True),  # no availability: its instant is unknown
     ],
 )
 def test_T006_reads_the_named_column(
