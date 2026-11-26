@@ -12,12 +12,11 @@ import functools
 import hashlib
 import importlib.util
 import inspect
+import itertools
 import json
-import re
 import sys
 import sysconfig
 import textwrap
-import traceback
 import warnings
 from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -25,18 +24,21 @@ from pathlib import Path
 from types import CodeType, FunctionType, MappingProxyType, ModuleType
 from typing import Any, Literal, TypeGuard
 
-import numpy as np
-import numpy.typing as npt
-
 from nexusbt.contracts import (
     CapabilityError,
     ConfigError,
     ImpureFunctionWarning,
     LookAheadError,
-    SkippedWorkNotice,
-    TermDomainError,
-    WindowError,
 )
+
+# Running a user term's function is in `_run` (#800); named here too, for the modules importing
+# them from here.
+from ._run import SCALE as SCALE
+from ._run import _user_line as _user_line
+from ._run import call_user as call_user
+from ._run import check_adjustment as check_adjustment
+from ._run import def_line as def_line
+from ._run import unchecked as unchecked
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -439,43 +441,6 @@ def l1_disabled(term: Term) -> bool:
     return False
 
 
-_OUT_OF_WINDOW = re.compile(r"index (-?\d+) is out of bounds for axis 0 with size (\d+)")
-
-
-def call_user(
-    term: Term, windows: Sequence[Any], n: int, fn: Callable[..., Any] | None = None
-) -> npt.NDArray[np.float64]:
-    """A user term's function (`fn`, else the one it was built from) on its input windows
-    (5.3.7), its result as float64 `(n,)`. A row before the window is `WindowError` (E8)
-    suggesting the window it needs, as is a result of another shape or of a non-numeric dtype;
-    any other exception is the user's, as raised, through frames hidden from its traceback
-    (`__tracebackhide__`, R-42), as the executor's on the way here are."""
-    __tracebackhide__ = True
-    params, fn = dict(term.params), fn or term.function
-    if fn is None:
-        raise ValueError(f"no function given for the user term {params['function']}")
-    name, window = params["function"], params["window"]
-    try:
-        got = np.asarray(fn(*windows, **dict(params.get("bound", ()))))
-    except IndexError as error:
-        found = _OUT_OF_WINDOW.fullmatch(str(error))
-        if found is None or int(found[2]) != window:
-            raise
-        k = int(found[1])
-        needed = -k if k < 0 else k + 1
-        frame = traceback.extract_tb(error.__traceback__)[-1]
-        at = f"{Path(frame.filename).name}:{frame.lineno}"
-        names = list(inspect.signature(fn).parameters)
-        column = names[0] if len(term.inputs) == 1 and names else "an input"
-        raise _window_error(name, at, f"reads {column}[{k}] but window={window}",
-                            f"@nx.factor(window={needed}, ...)") from error  # fmt: skip
-    if got.shape != (n,) or got.dtype != np.float64:
-        at = _user_line().split(" in ")[0]
-        raise _window_error(name, at, f"returned {got.dtype} {got.shape}, not float64 ({n},)",
-                            "return one float64 number for each column of the window")  # fmt: skip
-    return got
-
-
 def same_function(a: Callable[..., Any] | None, b: Callable[..., Any] | None) -> bool:
     """Whether two user terms of one graph hash run the same computation. The hash holds their
     source and constants (6.5 (6)), so what can differ is what they read that is not constant:
@@ -489,94 +454,6 @@ def same_function(a: Callable[..., Any] | None, b: Callable[..., Any] | None) ->
 
     pairs = zip(read(a), read(b), strict=True)
     return all(x is y or (_constant(x) and x == y) for x, y in pairs)
-
-
-#: 3.3 `adjustment`: one instrument's input windows are multiplied by this fixed constant.
-SCALE = 2.0
-
-
-def check_adjustment(
-    term: Term, windows: Sequence[Any], got: npt.NDArray[np.float64], ids: Sequence[str],
-    scales: Sequence[float], fn: Callable[..., Any] | None = None,
-) -> bool:  # fmt: skip
-    """3.3: test a user term's declared `adjustment` on the `windows` (unchanged copies of the
-    ones the function was given) and its result `got`, on the first column whose result is
-    finite and not 0, each input's column multiplied by its scale (`_degree.input_scales`):
-    E17 when the declaration does not hold; False when no column could tell (NaN and 0 are the
-    same under any scaling), True once checked."""
-    params = dict(term.params)
-    declared = params["adjustment"]
-    found = np.flatnonzero(np.isfinite(got) & (got != 0))
-    if not found.size:
-        return False
-    j = int(found[0])
-    scaled = [np.array(w, dtype=np.float64) for w in windows]
-    for window, scale in zip(scaled, scales, strict=True):
-        window[:, j] *= scale
-    again = call_user(term, scaled, len(got), fn)[j]
-    expected = got[j] * (SCALE if declared == "degree 1" else 1.0)
-    if abs(again - expected) <= 1e-12 * max(1.0, abs(expected)):
-        return True
-    name, at = params["function"], def_line(fn or term.function)
-    other = "degree 1" if declared == "degree 0" else "degree 0"
-    return_ = "change" if declared == "degree 0" else f"scale by {SCALE:g}"
-    raise TermDomainError(
-        what=f"{name} is declared adjustment='{declared}' but its result for {ids[j]} went from"
-        f" {got[j]!r} to {again!r} when {ids[j]}'s prices were scaled by {SCALE:g}",
-        where=f"factor {name}",
-        why=f"a declared '{declared}' result does not {return_} under that scaling, and the"
-        " refusal of shift and window inputs (3.4) reads the declaration",
-        fix=f"remove adjustment=..., or declare '{other}' if that is what {name} is",
-        more="spec 3.3 (adjustment), 3.4 and 6.6 (E17)",
-        layer=f"your code — {at} in {name}",
-        at=at,
-        subject=name,
-    )
-
-
-def def_line(fn: object) -> str:
-    """`file:line` of a function's `def`; `-` for a callable that is not a plain function."""
-    code = getattr(fn, "__code__", None)
-    return f"{Path(code.co_filename).name}:{code.co_firstlineno}" if code else "-"
-
-
-#: Why a declaration was not checked, by whether its inputs' degrees are known (E45).
-UNCHECKED = {
-    True: ("every result it gave in this run was NaN or 0, which any scaling leaves as it is,"
-           " so it cannot tell degree 0 from degree 1",
-           "run it over rows where it gives finite, non-zero values, or remove adjustment=..."),
-    False: ("an input has no known degree in the price factor (3.4), so the engine cannot say"
-            " what that input is when prices are scaled", "remove adjustment=..."),
-}  # fmt: skip
-
-
-def unchecked(name: str, declared: str, at: str, scalable: bool) -> SkippedWorkNotice:
-    """6.6 no silent failure: a declaration the run could not check (E45)."""
-    why, fix = UNCHECKED[scalable]
-    return SkippedWorkNotice(
-        what=f"skipped 1 declaration check for reason declaration_unchecked: {name}'s"
-        f" adjustment='{declared}' was not checked",
-        where=f"factor {name}",
-        why=why,
-        fix=fix,
-        more="spec 3.3 (adjustment) and 6.6 (no silent failure)",
-        layer=f"your code — {at} in {name}",
-        at=at,
-        subject=name,
-    )
-
-
-def _window_error(name: str, at: str, what: str, fix: str) -> WindowError:
-    return WindowError(
-        what=f"{name} {what}",
-        where=f"factor {name}",
-        why="the function's window is the rows and shape the engine loads for it",
-        fix=fix,
-        more="spec 3.3 and 5.3.7 (windows)",
-        layer=f"your code — {at} in {name}",
-        at=at,
-        subject=name,
-    )
 
 
 def _readable(fn: FunctionType) -> str:
@@ -719,8 +596,8 @@ def _reads(fn: FunctionType) -> _Reads:
     and the wrapper's by `_wrapper`, not again through the project function."""
     inner = _helper(fn)
     if inner is None or inner is fn:
-        return _walk(fn, set())
-    own = _walk(inner, set())
+        return _walk(fn, set(), term=True)
+    own = _walk(inner, set(), term=True)
     held = _wrapper(fn, "", {id(inner), *map(id, own.helpers)})
     helpers = sorted((*own.helpers, *held.helpers), key=lambda h: h.__qualname__)
     found = (*own.found, *held.found)
@@ -749,9 +626,11 @@ def _decorator(wrapper: FunctionType) -> str:
     return f"{home}.{wrapper.__code__.co_qualname.split('.<locals>')[0]}"
 
 
-def _walk(fn: FunctionType, seen: set[int]) -> _Reads:
+def _walk(fn: FunctionType, seen: set[int], term: bool = False) -> _Reads:
     """What `fn` and the project helpers it reaches read, skipping the functions in `seen`; each
-    constant with the object holding it and the names by which `fn` reaches that (#689)."""
+    constant with the object holding it and the names by which `fn` reaches that (#689). `term`:
+    `fn` is a term's own function, whose parameters hold its input windows and bound constants
+    (#674); a helper's or a wrapper's hold whatever their caller passes."""
     found: list[_Found] = [(k, id(fn), "", v) for k, v in _defaults(fn).items()]
     helpers: list[FunctionType] = []
     impure: set[str] = set()
@@ -767,7 +646,8 @@ def _walk(fn: FunctionType, seen: set[int]) -> _Reads:
         values = _values(f, names)
         prefix = "" if f is fn else _prefix(f)
         mine: dict[str, Any] = {}
-        judged = _judge(sorted(values.items()), attrs, prefix, mine, impure, lost)
+        wanted = _wanted(f, attrs, term and f is fn)
+        judged = _judge(sorted(values.items()), wanted, prefix, mine, impure, lost)
         found += [(k, id(f), reach, v) for k, v in mine.items()]
         for name, value, helper in judged:
             there = _reach(reach, name)
@@ -799,7 +679,7 @@ def _defaults(fn: FunctionType) -> dict[str, Any]:
 
 def _values(f: FunctionType, names: set[str]) -> dict[str, Any]:
     """The values `f` reads by name: the globals it loads, then its closure's cells."""
-    values = {n: f.__globals__[n] for n in names if n in f.__globals__}
+    values = {n: f.__globals__[n] for n in sorted(names) if n in f.__globals__}
     for name, cell in zip(f.__code__.co_freevars, f.__closure__ or (), strict=True):
         try:
             values[name] = cell.cell_contents
@@ -810,7 +690,7 @@ def _values(f: FunctionType, names: set[str]) -> dict[str, Any]:
 
 def _judge(
     reads: list[tuple[str, Any]],
-    attrs: set[str],
+    wanted: Callable[[str], Collection[str]],
     prefix: str,
     found: dict[str, Any],
     impure: set[str],
@@ -818,11 +698,11 @@ def _judge(
 ) -> list[tuple[str, Callable[..., Any], FunctionType]]:
     """Sort what one function reads, last name first: a constant into `found` (under `prefix`),
     a class or module that cannot be found by its name into `lost` (#690), a project namespace
-    into the attributes read of it, data or a callable not found again by reference into
-    `impure`; the project helpers it reaches are returned, in the order met, each with the name
-    and the value it is read by (a library's wrapper keeping it, #676)."""
+    into the attributes `wanted` says are read off it (#674), data or a callable not found again
+    by reference into `impure`; the project helpers it reaches are returned, in the order met,
+    each with the name and the value it is read by (a library's wrapper keeping it, #676)."""
     helpers: list[tuple[str, Callable[..., Any], FunctionType]] = []
-    spaces = set[int]()
+    spaces = set[tuple[int, tuple[str, ...]]]()
     while reads:
         name, value = reads.pop()
         if _constant(value):
@@ -830,9 +710,10 @@ def _judge(
         elif isinstance(value, ModuleType | type) and (gone := _unnamed(value)):
             lost.add((name, *gone))
         elif isinstance(value, ModuleType | type):  # `cfg.LIMIT`: a project namespace's
-            if _project_space(value) and id(value) not in spaces:
-                spaces.add(id(value))
-                reads += [(f"{name}.{a}", getattr(value, a)) for a in sorted(attrs)
+            asked = tuple(sorted(wanted(name)))
+            if _project_space(value) and (id(value), asked) not in spaces:
+                spaces.add((id(value), asked))
+                reads += [(f"{name}.{a}", getattr(value, a)) for a in asked
                           if hasattr(value, a)]  # fmt: skip
         elif _held(value):  # an array, a list, a dict, a DataFrame, an object holding one,
             impure.add(name)  # also when it keeps a function in `__wrapped__`
@@ -895,6 +776,91 @@ def _lookup(module: ModuleType, dotted: str) -> object:
     for part in dotted.split("."):
         found = getattr(found, part, None)
     return found
+
+
+#: Instructions for #674: those that read an attribute off what was loaded just before; those
+#: that load a value an attribute may be read off, a global or a closure's cell, or a local; and
+#: those that load a name in a class body, whose chains are not followed.
+_ATTRS = frozenset({"LOAD_ATTR", "LOAD_METHOD"})
+_BASES = frozenset({"LOAD_GLOBAL", "LOAD_NAME", "LOAD_DEREF", "LOAD_FAST"})
+_IN_CLASS = frozenset({"LOAD_FROM_DICT_OR_DEREF", "LOAD_FROM_DICT_OR_GLOBALS"})
+_POSITIONS = (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD,
+              inspect.Parameter.KEYWORD_ONLY)  # fmt: skip
+
+
+@dataclass
+class _Chains:
+    """What one function's code (and the code nested in it) reads attributes off (#674): by
+    dotted path off a global or a closure's cell (`cfg.sub.LIMIT` gives `cfg` → `sub`, `cfg.sub`
+    → `LIMIT`), the paths where a chain stops and the value is used as it is (`c = cfg`), and the
+    attributes read off anything else but a parameter of the function (a call's result, a local,
+    a default, an item), which may be any namespace."""
+
+    paths: dict[str, set[str]] = field(default_factory=dict)
+    ends: set[str] = field(default_factory=set)
+    unknown: set[str] = field(default_factory=set)
+
+
+def _wanted(f: FunctionType, attrs: set[str], term: bool) -> Callable[[str], Collection[str]]:
+    """The attributes a project namespace that `f` reads at a dotted path (`cfg`, `cfg.sub`) is
+    asked for (#674, Decisions 1, 2): those `f`'s code reads straight off that path, and those it
+    reads off something whose value the code does not show (`get().K`, `c.K` with `c=cfg` a
+    default, `globals()["cfg"].K`); every attribute name the code loads, as before, when it uses
+    the path some other way (`c = cfg`, `getattr(cfg, n)`) or reaches it by no chain the code
+    shows. An attribute read off a parameter with no default that the code never sets, of a
+    term's own function (`term`: `close.mean()`, the input window's), is not asked of any
+    namespace; a helper's parameter may hold one. An attribute read where two paths of the code
+    meet (`(c or cfg.sub).K`) is asked of every namespace."""
+    params = inspect.signature(f).parameters.values() if term else ()
+    plain = {p.name for p in params if p.kind in _POSITIONS and p.default is p.empty}
+    seen = _Chains()
+    _chain(f.__code__, frozenset(f.__code__.co_freevars), frozenset(plain - _set(f.__code__)), seen)
+    return lambda path: (attrs if path in seen.ends or path not in seen.paths
+                         else seen.paths[path] | seen.unknown)  # fmt: skip
+
+
+def _chain(code: CodeType, free: frozenset[str], plain: frozenset[str], seen: _Chains) -> None:
+    """`seen` with what `code` reads attributes off; `free` and `plain` are the closure's names
+    and the plain parameters of the function, as `code` sees them (a name it defines itself is
+    its own)."""
+    ops = list(dis.get_instructions(code))
+    taken = set[int]()
+    for i, op in enumerate(ops):
+        if op.opname in _IN_CLASS:
+            seen.ends.add(op.argval)
+        if op.opname not in _BASES:
+            continue
+        chain = list(itertools.takewhile(lambda o: o.opname in _ATTRS and not o.is_jump_target,
+                                         ops[i + 1 :]))  # fmt: skip
+        taken.update(range(i + 1, i + 1 + len(chain)))
+        if op.opname in ("LOAD_FAST", "LOAD_DEREF") and op.argval in plain:
+            continue  # a parameter's attributes: the input window's, not a namespace's
+        if op.opname in ("LOAD_FAST", "LOAD_DEREF") and op.argval not in free:
+            seen.unknown.update(o.argval for o in chain)  # a local: its value is not shown
+            continue
+        path = op.argval
+        for nxt in chain:
+            seen.paths.setdefault(path, set()).add(nxt.argval)
+            path = f"{path}.{nxt.argval}"
+        seen.ends.add(path)
+    loose = (o.argval for i, o in enumerate(ops) if o.opname in _ATTRS and i not in taken)
+    seen.unknown.update(loose)  # off a call's result, an item, ...: its value is not shown
+    for const in code.co_consts:
+        if isinstance(const, CodeType):
+            own = set(const.co_varnames) | set(const.co_cellvars)
+            _chain(const, free - own, plain - own, seen)
+
+
+def _set(code: CodeType) -> set[str]:
+    """The local names the code (and the code nested in it) sets or deletes."""
+    names = set[str]()
+    for op in dis.get_instructions(code):
+        if op.opname.startswith(("STORE_FAST", "DELETE_FAST", "STORE_DEREF", "DELETE_DEREF")):
+            names.update(op.argval if isinstance(op.argval, tuple) else (op.argval,))
+    for const in code.co_consts:
+        if isinstance(const, CodeType):
+            names |= _set(const)
+    return names
 
 
 def _loads(code: CodeType) -> tuple[set[str], set[str]]:
@@ -996,13 +962,3 @@ def _look_ahead(k: int) -> LookAheadError:
         at=line.split(" in ")[0],
         subject=f"shift({k})",
     )
-
-
-def _user_line() -> str:
-    """`file:line in function` of the first frame outside the engine (6.6 header)."""
-    frame, engine = sys._getframe(1), Path(__file__).parents[1]
-    while Path(frame.f_code.co_filename).is_relative_to(engine) and frame.f_back is not None:
-        frame = frame.f_back
-    name = frame.f_code.co_name
-    where = f"{Path(frame.f_code.co_filename).name}:{frame.f_lineno}"
-    return f"{where} in {name if name.isidentifier() else 'module'}"
