@@ -14,7 +14,7 @@ instruments: ["KR:T00001", "KR:T00002", "KR:T00003"]
 input:
   close_prev: [.nan, 12000, 8000]   # Price.close.latest at the session before d
   close: [12000, 8000, .nan]        # Price.close.latest at d
-  sector: ["x", "y", null]          # Meta.sector at d; null = the missing code -1
+  sector: [1, 2, null]              # nx.Item.sector, a numeric undated item (spec 3.2); null = the missing code -1
   halted: [false, unknown, true]    # Trad.halted at d; unknown = status not known
 
 # `values`: true, false or unknown per instrument, in `instruments` order. `final`: the value at
@@ -41,7 +41,7 @@ expected:
   - {term: "(Price.close.latest > 10000).all(2)", values: [unknown, false, false], final: [false, false, false]}
   - {term: "(Price.close.latest > 10000).any(2)", values: [true, true, unknown], final: [true, true, false]}
   - {term: "(Price.close.latest > 10000).as_factor()", values: [1.0, 0.0, .nan], final: null}
-  - {term: "Meta.sector.eq(\"x\")", values: [true, false, unknown], final: [true, false, false]}
+  - {term: "nx.Item.sector.eq(1)", values: [true, false, unknown], final: [true, false, false]}
   - {term: "~Trad.halted", values: [true, unknown, false], final: [true, false, false]}
   - {term: "(~Trad.halted).fillna(True)", values: [true, true, false], final: [true, true, false]}
   - {term: "(Price.close.latest > 10000) & ~Trad.halted", values: [true, false, false], final: [true, false, false]}
