@@ -191,23 +191,6 @@ TS_UTC = pa.timestamp("us", "UTC")
 NEW_YEAR = dt.datetime(2024, 1, 1, tzinfo=dt.UTC)
 
 
-def _panels(*editions: str, **values: list[Any]) -> Change:
-    """US:AAA's January 2024 row of feature panel `f`, a file per edition folder (5.25), with
-    the feature columns `values`."""
-    folder = "feature_panels/name=f/edition={}/year=2024/part-{:05}.parquet"
-    paths = [folder.format(e, n) for n, e in enumerate(editions)]
-    row: dict[str, Any] = {"instrument_id": ["US:AAA"], "period": pa.array([dt.date(2024, 1, 1)])}
-    row |= values
-    row |= {"as_of_date": pa.array([dt.date(2023, 12, 29)])}
-    row |= {"ts_available": pa.array([NEW_YEAR], TS_UTC)}
-
-    def change(m: dict[str, Any], files: Files) -> None:
-        m["editions"] = {"default": "strict", "values": {"strict": "s", "compare": "c"}}
-        _add("feature_panels", row, *paths)(m, files)
-
-    return change
-
-
 def _gics(*levels: int) -> Change:
     """US:AAA's GICS rows at `levels`, all effective 2024-01-02 and known 2024-01-01 (5.19)."""
     n = len(levels)
@@ -805,7 +788,6 @@ CASES: dict[str, tuple[Change, Change]] = {
         _instruments(underlying_instrument_id=pa.array(["US:ZZZ"])),
     ),
     "TDS-R008": (_exits(delisted=True), _exits(delisted=False)),  # an exit, no delisted_on
-    "TDS-R009": (_facts("F1"), _facts("F1", state_item="net_income")),
     "TDS-A003": (
         _actions({"price_factor": None, "factor_method": "unavailable"}),
         _actions({"price_factor": None}),
@@ -906,7 +888,6 @@ FAILS: dict[str, tuple[str | None, ...]] = {
     "TDS-T012": ("classifications",),
     "TDS-K010": ("instrument_symbols",),
     "TDS-K011": ("calendar_sessions",),
-    "TDS-R009": ("fundamentals_state",),
     **dict.fromkeys(
         [f"TDS-A00{n}" for n in range(3, 10)], ("corporate_actions",)
     ),

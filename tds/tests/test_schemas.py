@@ -164,9 +164,9 @@ def test_a_kind_without_a_file_fails_verify(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     shutil.copytree(str(SCHEMA_DIR), tmp_path, dirs_exist_ok=True)
-    shutil.rmtree(tmp_path / "share_counts")
+    shutil.rmtree(tmp_path / "fx_rates")
     assert main(tmp_path) == 1
-    assert "share_counts: no schema file" in capsys.readouterr().out.splitlines()
+    assert "fx_rates: no schema file" in capsys.readouterr().out.splitlines()
 
 
 @pytest.mark.parametrize(
@@ -263,12 +263,12 @@ def test_a_status_other_than_its_sections_is_a_problem() -> None:
     flagged = {
         "bars": Schema("bars", "experimental", ()),
         "bar": Schema("bar", "stable", ()),
-        "fx_rates": Schema("share_counts", "stable", ()),
+        "fx_rates": Schema("delistings", "stable", ()),
     }
     assert file_problems(flagged, section_status(doc)) == [
         "bars: status `experimental`, section 5.5 is `stable`",
         "bar: not a TDS chapter 5 dataset kind",
-        "fx_rates/1.0.json: kind `share_counts`, folder `fx_rates`",
+        "fx_rates/1.0.json: kind `delistings`, folder `fx_rates`",
     ]
 
 

@@ -372,17 +372,18 @@ def test_a_mapping_without_hours_stops_saying_what_to_write(
 
 
 def test_a_kind_typed_by_105_is_imported(tmp_path: Path) -> None:
-    """`share_counts` (5.14) had columns of no type, which "is not imported from CSV"."""
-    counts = ("instrument_id,count_kind,as_of_date,shares,ts_available,source,evidence_id\n"
-              "XNYS:AAPL,listed,2024-01-02,1000,2024-01-03T00:00:00Z,filing,e1\n")  # fmt: skip
+    """`tradability_daily` (5.10) had columns of no type, which "is not imported from CSV"."""
+    status = ("instrument_id,session_date,status_known,halt_count,ts_available,source\n"
+              "XNYS:AAPL,2024-01-02,true,2,2024-01-03T00:00:00Z,exchange\n")  # fmt: skip
     mapping = write(tmp_path, {"instruments.csv": CHAPTER_7, "bars.csv": WHOLE,
-                               "counts.csv": counts,
-                               "mapping.yaml": MINIMAL + "  share_counts:\n    file: counts.csv\n"
+                               "status.csv": status,
+                               "mapping.yaml": MINIMAL + "  tradability_daily:\n"
+                               "    file: status.csv\n"
                                "    availability: {column: ts_available}\n"})  # fmt: skip
     out = tmp_path / "pkg"
     assert main(["import", "csv", str(mapping), "--out", str(out)]) == 0
     assert not check(out, level="full").errors
-    assert rows(out, "share_counts")[0]["evidence_id"] == "e1"
+    assert rows(out, "tradability_daily")[0]["halt_count"] == 2
 
 
 def test_import_report_written(tmp_path: Path) -> None:

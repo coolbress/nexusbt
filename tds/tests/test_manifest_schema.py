@@ -16,8 +16,8 @@ from .conformance_build import build
 
 SCHEMAS = Path(__file__).resolve().parents[1] / "schemas"
 NAMES: list[str] = MANIFEST_SCHEMA["$defs"]["type"]["enum"]
-SHARES = {"name": "share_counts", "kind": "share_counts", "schema_version": "1.0",
-          "path": "share_counts", "files": []}  # fmt: skip
+RATES = {"name": "fx_rates", "kind": "fx_rates", "schema_version": "1.0", "path": "fx_rates",
+         "files": []}  # fmt: skip
 
 
 def findings(tmp_path: Path, change: Any) -> list[tuple[str, str]]:
@@ -42,7 +42,7 @@ def columns(*cols: dict[str, Any], dataset: dict[str, Any] | None = None) -> Any
     [
         (columns({"name": "close", "type": "bogus"}), "$.datasets[1].columns[0].type"),  # typed
         (columns({"name": "x_note", "type": "list<i64>"}), "$.datasets[1].columns[0].type"),
-        (columns({"name": "x_note", "type": "bogus"}, dataset=SHARES),  # untyped in its file
+        (columns({"name": "x_note", "type": "bogus"}, dataset=RATES),  # untyped in its file
          "$.datasets[3].columns[0].type"),  # after the base's three (#705)
         (columns({"name": "ts_end", "type": "ts_us/ns"}), "$.datasets[1].columns[0].type"),  # 4.5
         (lambda m: build.bars(m).update(partitioning=[{"name": "year", "type": "int"}],

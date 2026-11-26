@@ -196,22 +196,6 @@ def test_S009_rows(change: Any, found: list[str], at_schema: list[str], tmp_path
     assert codes(package, "schema") == at_schema
 
 
-def test_dictionary_items_freq_is_optional_and_in_the_value_hash(tmp_path: Path) -> None:
-    """TDS 4.4 `dictionary/items.freq` (#406): an item's own cadence, null or absent when it
-    takes its column's; a dictionary without the column keeps the value hash it had."""
-
-    def items(name: str, **freq: list[Any]) -> tuple[list[str], str]:
-        package = write(tmp_path / name, build._add("dictionary/items", {"item": ["eps"]} | freq))
-        return codes(package, "full"), value_hash(package, "dictionary/items")
-
-    annual, quarterly = items("a", freq=["annual"]), items("q", freq=["quarterly"])
-    without, null = items("none"), items("null", freq=pa.array([None], pa.string()))
-    assert [annual[0], quarterly[0], without[0], null[0]] == [[], [], [], []]
-    assert annual[1] != quarterly[1]  # was ignored: two cadences hashed as the same data
-    assert without[1] == "c5d11590a1f690ff333d2f8969ce535da85a1dc8a7cd25c02f6f24c089b60935"
-    assert null[1] != without[1]  # written all null is not absent (4.5 step 1)
-
-
 def test_an_unreadable_file_leaves_the_row_S_codes_unchecked(tmp_path: Path) -> None:
     def broken(m: dict[str, Any], f: Any) -> None:
         f[build.BARS] = b"not parquet"
@@ -229,18 +213,18 @@ def test_an_unreadable_file_leaves_the_row_S_codes_unchecked(tmp_path: Path) -> 
 def test_M015_warns_of_an_experimental_dataset_and_otherwise_passes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """No schema file is experimental (TDS 5.6): `share_counts` is marked so in memory only."""
+    """No schema file is experimental (TDS 5.6): `fx_rates` is marked so in memory only."""
     plain = write(tmp_path / "plain")
     for level in ("manifest", "schema", "full"):
         assert "TDS-M015" not in check(plain, level=level).unchecked
-    shares = write(tmp_path / "shares", build._add("share_counts", _SHARES))
-    assert pairs(shares, "manifest") == []
+    rates = write(tmp_path / "rates", build._add("fx_rates", _FX))
+    assert pairs(rates, "manifest") == []
     real = verify.load_schemas
     monkeypatch.setattr(verify, "load_schemas", lambda root=verify.SCHEMA_DIR: {
-        k: replace(s, status="experimental") if k == "share_counts" else s
+        k: replace(s, status="experimental") if k == "fx_rates" else s
         for k, s in real(root).items()})  # fmt: skip
-    assert pairs(shares, "manifest") == [("TDS-M015", "share_counts")]
-    assert check(shares, level="manifest").warnings[0].severity == "warning"
+    assert pairs(rates, "manifest") == [("TDS-M015", "fx_rates")]
+    assert check(rates, level="manifest").warnings[0].severity == "warning"
 
 
 @pytest.mark.parametrize(
@@ -583,12 +567,7 @@ def test_classification_levels_not_duplicate(tmp_path: Path) -> None:
     assert codes(build.write(tmp_path, manifest, files), "full") == []
 
 
-def test_a_panel_key_in_two_editions_is_no_duplicate(tmp_path: Path) -> None:
-    """The `edition=` folder is part of a panel's key (5.25); leaves with the panels (#752)."""
-    assert codes(write(tmp_path, build._panels("strict", "compare")), "full") == []
-
-
-R_CODES = [f"TDS-R{n:03}" for n in (1, 2, 3, 4, 5, 6, 8, 9)]  # R007 is retired (#752)
+R_CODES = [f"TDS-R{n:03}" for n in (1, 2, 3, 4, 5, 6, 8)]  # R007 and R009 are retired (#752)
 
 
 @pytest.fixture(params=["whole", "a row per batch"])
@@ -638,15 +617,6 @@ def _no_exits(m: dict[str, Any], f: Any) -> None:  # delisted_on set, delistings
     build.rewrite(m, f, rel, table.slice(0, 0))
 
 
-_MOM = build._panels("strict", mom=[0.1], x_note=["n"])  # a feature column and an extension
-
-
-def _empty_panel(m: dict[str, Any], f: Any) -> None:  # the `mom` panel with its row removed
-    _MOM(m, f)
-    rel = "feature_panels/name=f/edition=strict/year=2024/part-00000.parquet"
-    build.rewrite(m, f, rel, pq.read_table(pa.BufferReader(f[rel])).slice(0, 0))
-
-
 #: Unchecked without calendar_sessions; the base has one since #705, `build.no_calendar` none.
 _NO_CAL = ["TDS-R002", "TDS-R003"]
 _BASE_CAL: list[str] = []  # what of _NO_CAL the base leaves unchecked: nothing
@@ -673,22 +643,10 @@ _NO_EXITS = ["TDS-R008"]  # nor delistings
         (_no_exits, ["TDS-R008"], _BASE_CAL),  # R008: delisted_on set, no delistings row
         (_twice, [], _BASE_CAL),  # delisted twice; delisted_on is the latest exit_date
         (build._exits(delisted=False), ["TDS-R008"], _BASE_CAL),  # a delisting, delisted_on null
-        (_MOM, ["TDS-R009"], [*_BASE_CAL, *_NO_EXITS]),  # no dictionary/columns: `mom` missing
-        (_empty_panel, ["TDS-R009"], [*_BASE_CAL, *_NO_EXITS]),  # columns from the footer
         (  # a delisting but no instruments table: R008 has nothing to compare
             _without("instruments", build._exits(delisted=False)),
             [],
             ["TDS-R001", "TDS-R003", "TDS-R008"],  # R003 maps ids by instruments
-        ),
-        (  # `mom` described for the dataset `feature_panels` (4.4); `x_note` needs no entry
-            build._both(
-                _MOM,
-                build._add(
-                    "dictionary/columns", {"dataset": ["feature_panels"], "column": ["mom"]}
-                ),
-            ),
-            [],
-            [*_BASE_CAL, *_NO_EXITS],
         ),
     ],
 )
@@ -753,26 +711,6 @@ def test_refs_on_columns_it_cannot_compare(
     result = check(write(tmp_path, change), level="full")
     assert not [f.code for f in (*result.errors, *result.warnings) if f.code in R_CODES]
     assert [c for c in R_CODES if c in result.unchecked] == unchecked
-
-
-@pytest.mark.parametrize(
-    ("change", "dataset", "dictionary"),
-    [
-        (build._panels("strict", mom=[0.1], size=[2.0]), "feature_panels", "dictionary/columns"),
-        (
-            _without("dictionary/items", build._facts("F1")),
-            "fundamentals_state",
-            "dictionary/items",
-        ),
-    ],
-)
-def test_R009_names_the_missing_dictionary_once_per_dataset(
-    change: Any, dataset: str, dictionary: str, tmp_path: Path
-) -> None:
-    result = check(write(tmp_path, change), level="full")
-    r009 = [f for f in result.errors if f.code == "TDS-R009"]
-    assert [f.dataset for f in r009 if f.dataset == dataset] == [dataset]  # not one per column
-    assert all(f"no {dictionary}" in f.message for f in r009)
 
 
 A_CODES = [f"TDS-A{n:03}" for n in range(3, 10)]  # A001 and A002 retired (#705)
@@ -1040,21 +978,28 @@ def test_a_tradability_daily_id_or_date_of_the_wrong_type_is_S002(
     assert ("TDS-S002" in found) is wrong
 
 
-_SHARES = {
-    "instrument_id": ["US:AAA"], "count_kind": ["listed"], "as_of_date": build.DAY,
-    "shares": [1e6], "ts_available": pa.array([build.NEW_YEAR], build.TS_UTC),
-    "source": ["synthetic"], "evidence_id": ["e1"],
+#: One USD/KRW fixing (5.15), every column typed by its schema file.
+_FX = {
+    "base": ["USD"], "quote": ["KRW"], "rate_kind": ["fixing"], "obs_date": build.DAY,
+    "ts_event": pa.array([build.NEW_YEAR], build.TS_UTC),
+    "ts_available": pa.array([build.NEW_YEAR], build.TS_UTC), "rate": [1400.0],
+    "source": ["synthetic"],
 }  # fmt: skip
+
+
+#: One `tradability_daily` row (5.10), whose columns #105 typed.
+_TRADABLE = {"instrument_id": ["US:AAA"], "session_date": build.DAY, "status_known": [True],
+             "source": ["synthetic"]}  # fmt: skip
 
 
 @pytest.mark.parametrize(
     ("kind", "row", "code"),
     [
-        ("share_counts", _SHARES, None),  # the control: the stated types raise neither
-        ("share_counts", _SHARES | {"instrument_id": [1]}, "TDS-S002"),
-        ("share_counts", _SHARES | {"source": [1]}, "TDS-S002"),
+        ("tradability_daily", _TRADABLE, None),  # the control: the stated types raise neither
+        ("tradability_daily", _TRADABLE | {"instrument_id": [1]}, "TDS-S002"),
+        ("tradability_daily", _TRADABLE | {"source": [1]}, "TDS-S002"),
         ("tradability_daily", {"halt_count": pa.array([1], pa.int64())}, "TDS-S002"),  # i32
-        ("series_observations", {"ts_available": pa.array([0], pa.timestamp("us"))}, "TDS-S004"),
+        ("tradability_daily", {"ts_available": pa.array([0], pa.timestamp("us"))}, "TDS-S004"),
     ],
 )
 def test_a_column_typed_by_105_is_checked_for_S002_and_S004(
@@ -1066,13 +1011,13 @@ def test_a_column_typed_by_105_is_checked_for_S002_and_S004(
 
 
 _NS = pa.timestamp("ns", "UTC")
-_EXTRA = _SHARES | {"x_seen": pa.array([build.NEW_YEAR], _NS), "x_note": ["n"]}
+_EXTRA = _FX | {"x_seen": pa.array([build.NEW_YEAR], _NS), "x_note": ["n"]}
 
 
 def _declared(row: dict[str, Any] = _EXTRA, **declared: str) -> Any:
-    """One `share_counts` row with two untyped `x_` columns; tds.json declares `declared`."""
+    """One `fx_rates` row with two untyped `x_` columns; tds.json declares `declared`."""
     columns = [{"name": k, "type": v} for k, v in declared.items()]
-    return build._both(build._add("share_counts", row),
+    return build._both(build._add("fx_rates", row),
                        lambda m, f: m["datasets"][-1].update(columns=columns))  # fmt: skip
 
 
@@ -1087,10 +1032,10 @@ def _declared(row: dict[str, Any] = _EXTRA, **declared: str) -> Any:
         (_declared(x_seen="f64"), [("TDS-S002", "x_seen")]),
         (_declared(_EXTRA | {"x_seen": pa.array([0], pa.timestamp("ns"))},
                    x_seen="ts_ns"), [("TDS-S004", "x_seen")]),  # no time zone
-        (_declared(_EXTRA | {"x_seen": _SHARES["ts_available"]},
+        (_declared(_EXTRA | {"x_seen": _FX["ts_available"]},
                    x_seen="ts_ns"), [("TDS-S004", "x_seen")]),  # us, not ns
         (_declared(x_note="i64"), [("TDS-S002", "x_note")]),
-        (_declared(shares="f64"), []),  # typed by the schema, declared the same
+        (_declared(rate="f64"), []),  # typed by the schema, declared the same
         (_declared(x_note=""), [("TDS-M001", "$.datasets[3].columns[0].type:")]),  # #417
     ],
 )  # fmt: skip
@@ -1106,8 +1051,8 @@ def test_a_dataset_typed_by_105_has_a_value_hash_with_no_columns_in_tds_json(
     tmp_path: Path,
 ) -> None:
     # Before #105 its untyped columns had "no declared type" unless tds.json `columns` gave one.
-    root = write(tmp_path, build._add("share_counts", _SHARES))
-    assert len(value_hash(root, "share_counts")) == 64
+    root = write(tmp_path, build._add("tradability_daily", _TRADABLE))
+    assert len(value_hash(root, "tradability_daily")) == 64
 
 
 @pytest.mark.usefixtures("refs_batches")

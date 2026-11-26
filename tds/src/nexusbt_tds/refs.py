@@ -1,13 +1,11 @@
-"""The `full` level's reference checks from the rows: R001~R009 (TDS 8.3).
+"""The `full` level's reference checks from the rows: R001~R008 (TDS 8.3).
 
 Rules chosen with the maintainer (#224, 2026-11-05): R002 reads the `calendar_id` of
 `instruments` and tds.json `markets`; R003 reads an instrument's calendar
 from `instruments.calendar_id`; R004 holds the four currency columns against ISO 4217's current
 list (`ISO_4217`) and tds.json `currencies`; R006 checks only the three columns TDS 8.3 names;
-R008 holds both ways; R009 matches `dictionary/columns`
-`dataset` to the panel dataset's tds.json `name` (4.4), and an absent dictionary is one R009
-per dataset that names it. A check whose reference table is absent, or a package with a file Parquet
-cannot read, leaves its code unchecked. R007 is retired (#752).
+R008 holds both ways. A check whose reference table is absent, or a package with a file Parquet
+cannot read, leaves its code unchecked. R007 and R009 are retired (#752).
 """
 
 from __future__ import annotations
@@ -19,28 +17,23 @@ from pathlib import Path
 from typing import Any
 
 import pyarrow as pa
-import pyarrow.parquet as pq
 
 from .check import REF_CODES, Finding
 from .keys import Batch, batches, listed, time_columns
 from .manifest import Manifest
 
-R001, R002, R003, R004, R005, R006, R008, R009 = REF_CODES
-PANELS = frozenset({"feature_panels", "label_panels"})
-FUNDAMENTALS = frozenset({"fundamentals_state", "fundamentals_events"})
+R001, R002, R003, R004, R005, R006, R008 = REF_CODES
 CURRENCIES = ("currency", "settlement_currency", "quote_currency", "base_currency")  # 1.2
 MICS = ("venue_mic", "operating_mic")
 TARGETS = ("new_instrument_id", "underlying_instrument_id", "handled_by_event_id")  # R006
 #: The columns of a checked dataset the R codes look at.
-VALUES = ("instrument_id", "calendar_id", "session_date", *CURRENCIES, *MICS, *TARGETS, "item")
+VALUES = ("instrument_id", "calendar_id", "session_date", *CURRENCIES, *MICS, *TARGETS)
 #: The only columns read from the tables the R codes look values up in (TDS 8.1 `--datasets`).
 LOOKUPS = {
     "instruments": ("instrument_id", "calendar_id", "delisted_on"),
     "calendar_sessions": ("calendar_id", "session_date"),
     "corporate_actions": ("event_id",),
     "delistings": ("instrument_id", "exit_date"),
-    "dictionary/items": ("item",),
-    "dictionary/columns": ("dataset", "column"),
 }
 BATCH_ROWS = 65_536
 _MIC = re.compile(r"[A-Z0-9]{4}")  # R005, ISO 10383
@@ -73,7 +66,7 @@ def _rows(root: Path, ds: Mapping[str, Any], columns: Sequence[str]) -> Iterator
 
 
 def check_refs(m: Manifest, only: Sequence[str] | None, blind: set[str]) -> list[Finding]:
-    """R001~R009 reading, of the datasets checked, the columns these codes look at, and of the
+    """R001~R008 reading, of the datasets checked, the columns these codes look at, and of the
     tables they point to only `LOOKUPS`' columns (#309). Memory holds a batch, each checked
     column's distinct values and the lookups; `instruments` is kept as rows of three columns.
     A file the codes cannot read, or one with a column name twice, leaves them unchecked."""
@@ -85,9 +78,7 @@ def check_refs(m: Manifest, only: Sequence[str] | None, blind: set[str]) -> list
 
 
 def _check(m: Manifest, only: Sequence[str] | None, blind: set[str]) -> list[Finding]:
-    from .schemas.verify import load_schemas
-
-    root, schemas = m.root.resolve(), load_schemas()
+    root = m.root.resolve()
     checked = [d for d in m.datasets if only is None or d.get("name") in only]
     present = {d.get("kind") for d in m.datasets}  # a table with no rows is present, not absent
 
@@ -104,8 +95,6 @@ def _check(m: Manifest, only: Sequence[str] | None, blind: set[str]) -> list[Fin
         "underlying_instrument_id": ids,
         "handled_by_event_id": events if "corporate_actions" in present else None,
     }
-    items = {i for (i,) in lookup("dictionary/items")}  # absent: every item missing
-    described = set(lookup("dictionary/columns"))
     sessions: defaultdict[object, set[object]] | None = None
     if "calendar_sessions" in present:
         sessions = defaultdict(set)
@@ -156,34 +145,7 @@ def _check(m: Manifest, only: Sequence[str] | None, blind: set[str]) -> list[Fin
                 out.append(Finding(R005, "warning", msg, dataset=name))
         for column, known in targets.items():
             out += _missing(R006, column, seen[column], known, blind, name)
-        if kind in FUNDAMENTALS:
-            bad = sorted(seen["item"] - items - {None}, key=str)
-            out += _undescribed(name, "item", bad, "dictionary/items", present)
-        if kind in PANELS and str(kind) in schemas:
-            fixed = {c.name for c in schemas[str(kind)].columns}
-            stored = _stored(root, ds)  # from the footers: a file with no rows has columns too
-            values = [c for c in stored if c not in fixed and not c.startswith("x_")]
-            bad = sorted(c for c in values if (name, c) not in described)
-            out += _undescribed(name, "panel column", bad, "dictionary/columns", present)
     return out
-
-
-def _stored(root: Path, ds: Mapping[str, Any]) -> set[str]:
-    """The columns the files store, partition columns aside."""
-    return {c for rel, p in listed(root, ds) for c in pq.read_schema(root / rel).names
-            if c not in p}  # fmt: skip
-
-
-def _undescribed(
-    name: str, what: str, bad: list[Any], table: str, present: set[Any]
-) -> list[Finding]:
-    """R009, one finding per dataset; it names the dictionary when the package has none."""
-    if not bad:
-        return []
-    shown = ", ".join(map(str, bad[:3])) + (", …" if len(bad) > 3 else "")
-    why = f"not in {table}" if table in present else f"undescribed: the package has no {table}"
-    msg = f"{len(bad)} {what}(s) {shown} {why}"
-    return [Finding(R009, "error", msg, dataset=name, count=len(bad))]
 
 
 def _delisted(known: list[tuple[Any, Any]], exits: Iterable[tuple[Any, ...]]) -> list[Finding]:
