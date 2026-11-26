@@ -34,8 +34,6 @@ _UTC = pa.timestamp("us", tz="UTC")
 #: 5.4.1's `term_diagnostics`, its columns in order.
 _COUNTS = pa.schema([("market", pa.string()), ("session_date", pa.date32()), ("term", pa.string()),
                      ("diagnostic", pa.string()), ("n", pa.int64())])  # fmt: skip
-#: `Price` columns that are a lookup of `share_counts` (3.2, 5.3.5a), not bars columns.
-_SHARE_COUNTS = frozenset({"shares_out", "market_cap"})
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -137,11 +135,6 @@ def _price_fields(nodes: Sequence[Term]) -> list[str]:
     read = [dict(t.params) for t in nodes if t.op == "column"]
     if other := sorted({f"{c['dataset']}.{c['column']}" for c in read if c["dataset"] != "Price"}):
         raise NotImplementedError(f"run_pipeline reads Price columns only so far, not {other}")
-    if counts := sorted({c["column"] for c in read} & _SHARE_COUNTS):
-        raise NotImplementedError(
-            f"run_pipeline does not read Price.{', Price.'.join(counts)} yet: they are a "
-            "point-in-time lookup of share_counts (spec 5.3.5a), which comes with T2.15"
-        )
     return sorted({c["column"] for c in read})
 
 

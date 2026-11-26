@@ -31,7 +31,6 @@ from nexusbt.contracts import (
     FallbacksPolicy,
     LabelEntryPolicy,
     LimitFillPolicy,
-    MissingPayDatePolicy,
     NexusBTError,
     OrderTypePolicy,
     PinsPolicy,
@@ -243,16 +242,12 @@ def whole(table: Check, *keys: str) -> Check:  # a table that writes every one o
     return check
 
 
-NAME = "[A-Za-z0-9_-]+"  # 3.11 [project] name; also the [meta] scheme (a rule chosen in #94)
+NAME = "[A-Za-z0-9_-]+"  # 3.11 [project] name
 # 3.11 [research] family_id
 UUID4 = "[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
 STR, BOOL, CCY, DATE = is_(str), is_(bool), match("[A-Z]{3}"), _date
-META = rule(  # "<scheme>@<level>": 3.11 gives the form; a level of digits is the rule chosen (#94)
-    lambda v: isinstance(v, str) and re.fullmatch(rf"auto|{NAME}(@\d+)?", v) is not None,
-    'not "auto" or a scheme', 'write "auto", <scheme> or <scheme>@<level>'
-)  # fmt: skip
 POS, COUNT, UNIT, ANY = num(1, int_=True), num(0, int_=True), num(0, 1, gt=True), num()
-BPS, GE0, PER_META = num(0, 2000), num(0), per_market(META, scalar=True)
+BPS, GE0 = num(0, 2000), num(0)
 _FILLED = rule(lambda v: isinstance(v, str) and v != "", "not a non-empty string",
                "write a path or a series name")  # fmt: skip
 ROUNDING = named(fields(mode=choice(RoundingModePolicy), unit=num(0, gt=True)))
@@ -278,7 +273,6 @@ SCHEMA: dict[str, dict[str, tuple[Any, Check]]] = {
         "edition": policy(EditionPolicy.STRICT), "verify": policy(VerifyPolicy.MANIFEST),
         "require_profiles": ([], list_of(STR)), "pins": policy(PinsPolicy.INDEX_ROOT),
         "fallbacks": policy(FallbacksPolicy.WARN), "history_mode": fixed("economic"),
-        "share_count_kinds": (["listed", "outstanding"], list_of(STR)),
     },
     "defaults": {
         "universe": ("all", STR), "base_ccy": (None, CCY), "start": ("1995-01-01", DATE),
@@ -291,9 +285,8 @@ SCHEMA: dict[str, dict[str, tuple[Any, Check]]] = {
     "preview": {"years": (1, POS), "max_names": (200, POS)},
     "sleeves": {"weights": (None, per_market(GE0))}, "markets": {"allow_untested": (False, BOOL)},
     "universe": {
-        "investable": (True, BOOL), "exclude_microcap": (False, BOOL),
+        "exclude_microcap": (False, BOOL),
         "exclude": ([], list_of(STR)), "microcap_pct": (0.20, num(0, 0.5, gt=True)),
-        "eligibility_rule": ("investable-v1", STR),
     },
     "portfolio": {"anchor_date": ("start", DATE), "tiebreak": policy(TiebreakPolicy.HASH),
                   "band_entries": policy(BandEntriesPolicy.SKIP),
@@ -332,10 +325,7 @@ SCHEMA: dict[str, dict[str, tuple[Any, Check]]] = {
         "min_half_spread_bps": (PACK, per_market(GE0)), "max_half_spread_bps": (200, GE0),
     },
     "dividends": {
-        "missing_pay_date": policy(MissingPayDatePolicy.ESTIMATE),
-        "estimate_window_years": (5, POS),
-        "fallback_pay_lag_days": (PACK, per_market(num(1, 400, int_=True))),
-        "estimate_min_obs": (20, POS), "withholding": (Each(0.0), per_market(num(0, 0.5))),
+        "withholding": (Each(0.0), per_market(num(0, 0.5))),
     },
     "corporate_actions": {
         "rights": policy(RightsPolicy.LAPSE), "unsupported": policy(UnsupportedPolicy.FAIL),
@@ -361,7 +351,6 @@ SCHEMA: dict[str, dict[str, tuple[Any, Check]]] = {
         "label_entry": policy(LabelEntryPolicy.NEXT_OPEN),
         "target": policy(EvaluateTargetPolicy.FWD_RETURN),
     },
-    "meta": {"sector": ("auto", PER_META), "industry": ("auto", PER_META)},
     "gates": {"ic_t": (3.0, ANY), "dsr": (0.95, ANY)},
     "checks": {
         "auto_truncation_probe": (True, BOOL), "probes": (4, num(0, 64, int_=True)),

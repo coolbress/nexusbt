@@ -96,9 +96,6 @@ def test_a_market_in_one_tax_group_and_group_defaults(tmp_path: Path) -> None:
     ("text", "key"),
     [
         ("[costs.provisional_bps]\nKR = {buy = 5}\n", "[costs] provisional_bps"),  # {buy, sell}
-        ('[meta]\nsector = "gics@x"\n', "[meta] sector"),  # <level>: digits (chosen rule)
-        ('[meta]\nindustry = {KR = "a b"}\n', "[meta] industry"),
-        ('[meta]\nsector = "gics@"\n', "[meta] sector"),
         ('[fx]\nseries = {usdkrw = "c@x"}\n', "[fx] series"),  # "<BASE><QUOTE>"
         ('[fx]\nseries = {USDKRWX = "c@x"}\n', "[fx] series"),
         ('[defaults]\nstart = "2021-13-45"\n', "[defaults] start"),  # not a calendar date
@@ -106,19 +103,16 @@ def test_a_market_in_one_tax_group_and_group_defaults(tmp_path: Path) -> None:
     ],
 )
 def test_a_value_outside_its_form(tmp_path: Path, text: str, key: str) -> None:
-    error = refused(tmp_path, text, key)
-    if key.startswith("[meta]"):
-        assert "<scheme> or <scheme>@<level>" in error.parts["fix"]
+    refused(tmp_path, text, key)
 
 
 def test_values_in_their_form(tmp_path: Path) -> None:
     text = (
         "[costs.provisional_bps]\nKR = {buy = 5, sell = 25}\n"
-        '[meta]\nsector = "gics@2"\nindustry = {KR = "krx", US = "auto"}\n'
         '[fx]\nseries = {USDKRW = "close@x"}\n[defaults]\nstart = "2020-02-29"\n'
     )
     config = load_config(write(tmp_path, text), markets=KR_US)
-    assert config.values["meta"]["sector"] == "gics@2"
+    assert config.values["fx"]["series"] == {"USDKRW": "close@x"}
 
 
 @pytest.mark.parametrize(

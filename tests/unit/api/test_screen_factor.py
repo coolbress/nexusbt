@@ -1,6 +1,6 @@
 """`nx.screen(factor, top=n)` (spec 3.8, 3.9 Screen; T1.13, #249): the top n of one factor per
 market on each market's last snapshot session, among the listed instruments until T2.4's
-investable universe (#249 Decisions, 2026-11-19), sealed as a `kind="screen"` run.
+default universe (3.6; #249 Decisions, 2026-11-19), sealed as a `kind="screen"` run.
 
 `tiny`'s instrument n has base close 10000·n in KR and 10·n in US, times (1.00, 1.01, 1.02,
 1.01)[k % 4] on its k-th listed session; `T00006` lists on 2020-02-18 at base 60000 (KR) and
@@ -59,9 +59,9 @@ def test_top_per_market(tiny: Path, project: Path) -> None:
 
 def test_universe_is_the_listed_instruments_until_t24(tiny: Path) -> None:
     """#249 Decisions, #43's notes: the universe is 3.3's default domain, said on the result;
-    T2.4's investable universe changes this line and this test."""
+    T2.4's default universe (3.6) changes this line and this test."""
     found = nx.screen(nx.Price.close.latest, top=1, snapshot=str(tiny))
-    assert "universe: listed (investable comes with T2.4)" in str(found)
+    assert "universe: listed (the default universe comes with T2.4)" in str(found)
     on_jan = nx.screen(nx.Price.close.latest, top=1, asof="2020-01-31", snapshot=str(tiny))
     assert "universe 5 KR / 5 US" in str(on_jan)  # T00006 lists on 2020-02-18
 
