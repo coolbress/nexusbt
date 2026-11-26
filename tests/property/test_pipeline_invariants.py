@@ -233,7 +233,7 @@ TAU = st.datetimes(min_value=dt.datetime(2015, 1, 1), max_value=dt.datetime(2019
 #: KR:E000015, ratio 5, amended to 7 at 2016-01-13 03:00), and every decision by τ comes
 #: before its ex-date. These 8 KR instruments hold no version known after its ex-date (the
 #: whole `small` holds one, in US). `LATE_EVENT` below bites with a whole event known after
-#: its ex-date; a later version known that late is not tested here (#679).
+#: its ex-date; `LATE_AMENDMENT` with a later version known that late (#679).
 CHOSEN = {"terms": dt.datetime(2017, 11, 1, 3, 0, tzinfo=dt.UTC),
           "version": dt.datetime(2016, 1, 13, 2, 0, tzinfo=dt.UTC),
           "bar": dt.datetime(2016, 12, 29, 6, 30, tzinfo=dt.UTC)}  # fmt: skip
@@ -354,4 +354,51 @@ def test_P_FUT_pipeline_event_known_after_its_ex_date(  # noqa: N802 - after spe
     assert bits(new) == bits(old)
     assert bits(closed(earlier.term_diagnostics, at, LATE_TAU)) == bits(
         closed(whole.term_diagnostics, at, LATE_TAU)
+    )
+
+
+#: An amount amendment first known after its event's ex-date, as the generator writes it
+#: (#679's Decisions, 2026-11-21: no injected version). `small` with US alone and 45
+#: instruments is the fewest that hold one (none at 41 to 44, nor KR alone at 8, 16 or 30;
+#: counted 2026-11-26): `LATE_AMENDMENT`, a dividend of US:T00041 amended from 3.48 to 3.82,
+#: ex-date 2016-01-28, first version known 2016-01-13, amendment 2016-02-19. τ lies between
+#: the ex-date and the amendment, so the cut deletes the amendment and keeps the first
+#: version, and the decision of 2016-01-29 reads `Returns`' `Price.close_tr` across the
+#: ex-date (spec 8.3 P-FUT's second clause).
+LATE_AMENDMENT = "US:E000183"
+AMENDMENT_TAU = dt.datetime(2016, 2, 10, 3, 0, tzinfo=dt.UTC)
+
+
+def test_P_FUT_pipeline_amendment_known_after_its_ex_date(  # noqa: N802 - after spec 10.1's name
+    tmp_path: Path, project: Path
+) -> None:
+    """INV-02 as `test_P_FUT_pipeline` states it, at a τ after an event's ex-date and before
+    its amount amendment is first known: deleting the amendment, its first version kept, leaves
+    the rows decided by τ as they were."""
+    root = make_snapshot(tmp_path / "us", preset="small", markets=("US",), n_us=45)
+    events = {r["event_id"]: r for r in rows_of(root, "corporate_actions")}
+    late = events[LATE_AMENDMENT]
+    first = events[late["revision_of"]]
+    known = min(t for t in (late["ts_announced"], late["ts_terms_available"]) if t is not None)
+    assert late["kind"] == first["kind"] == "cash_dividend"
+    assert late["status"] == "effective"
+    assert late["cash_per_share"] != first["cash_per_share"]  # an amount amendment
+    assert first["ts_announced"] < late["ts_effective"] < AMENDMENT_TAU < known
+    at = shutil.copytree(root, tmp_path / "cut")
+    cut_after(at, AMENDMENT_TAU)
+    kept = {r["event_id"] for r in rows_of(at, "corporate_actions")}
+    assert first["event_id"] in kept
+    assert LATE_AMENDMENT not in kept
+    pipe, period = build(SIGNED_ZEROS), ("2016-01-04", "2016-03-31")
+    with inside(project):
+        whole = nx.run_pipeline(pipe, start=period[0], end=period[1], freq="monthly",
+                                snapshot=nx.open(str(root)))  # fmt: skip
+        earlier = nx.run_pipeline(pipe, start=period[0], end=period[1], freq="monthly",
+                                  snapshot=nx.open(str(at)))  # fmt: skip
+    old, new = decided(whole.table, AMENDMENT_TAU), decided(earlier.table, AMENDMENT_TAU)
+    across = zip(old["session_date"].to_pylist(), old["instrument_id"].to_pylist(), strict=True)
+    assert (dt.date(2016, 1, 29), late["instrument_id"]) in set(across)  # a decision across it
+    assert bits(new) == bits(old)
+    assert bits(closed(earlier.term_diagnostics, at, AMENDMENT_TAU)) == bits(
+        closed(whole.term_diagnostics, at, AMENDMENT_TAU)
     )
