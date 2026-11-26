@@ -14,7 +14,7 @@ TDS(NexusBT 데이터 표준) v1.4 기준 그림 설명서. 모든 숫자는 **�
                 ┌──────────────── 스냅숏 폴더 하나 = TDS 패키지 ────────────────┐
   (가) 재료     │ bars(일봉) · corporate_actions(기업행동)                         │
   엔진이 계산   │ calendar_sessions(거래일) · delistings(상장폐지)                 │──▶ Pipeline
-                │ tradability_daily(정지·관리) · classifications(업종)             │
+                │ tradability_daily(정지·관리)                                     │
                 │ fx_rates(환율)                                                   │
                 └──────────────────────────────────────────────────────────────────┘
 ```
@@ -73,7 +73,6 @@ snapshots/2026-11-02_buildK/
 | `calendar_sessions` | calendar_id XKRX · session_date 2024-03-29 · ts_open 2024-03-29T00:00Z · ts_close 06:30Z · session_kind regular |
 | `delistings` | KR:999990 · last_trading_date 2019-07-10 · exit_date 2019-07-19 · delist_type performance · exit_value_status observed · ret_observed −0.95 |
 | `tradability_daily` | KR:123456 · 2024-03-29 · status_known true · halted_full_day true · admin_status administrative |
-| `classifications` | KR:005930 · scheme krx_sector · level 1 · code "IT" · effective_from 2000-01-01 · ts_known_from 2000-01-01 |
 | `fx_rates` | base USD · quote KRW · rate_kind fixing · obs_date 2024-03-29 · rate 1,346.8 · ts_available 2024-03-29T06:30Z |
 
 ---

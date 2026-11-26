@@ -191,18 +191,6 @@ TS_UTC = pa.timestamp("us", "UTC")
 NEW_YEAR = dt.datetime(2024, 1, 1, tzinfo=dt.UTC)
 
 
-def _gics(*levels: int) -> Change:
-    """US:AAA's GICS rows at `levels`, all effective 2024-01-02 and known 2024-01-01 (5.19)."""
-    n = len(levels)
-    return _add("classifications", {
-        "instrument_id": ["US:AAA"] * n, "scheme": ["gics"] * n,
-        "level": pa.array(levels, pa.int8()), "code": [f"c{i}" for i in range(n)],
-        "effective_from": pa.array([dt.date(2024, 1, 2)] * n),
-        "ts_known_from": pa.array([NEW_YEAR] * n, TS_UTC), "edition": ["both"] * n,
-        "pit_quality": ["native"] * n, "source": ["synthetic"] * n,
-    })  # fmt: skip
-
-
 def _bars_on(*days: int) -> Change:
     """US:AAA's daily bars on these days of January 2024, in that order."""
     columns = {"session_date": pa.array([dt.date(2024, 1, d) for d in days])}
@@ -363,41 +351,39 @@ def _rules(*bands: tuple[Any, Any, Any], until: dt.date | str | None = None) -> 
     })  # fmt: skip
 
 
-#: A `classifications` row of US:AAA's `gics`: code, effective from and to, known from and to
-#: (ISO dates, None: open), level, edition, pit_quality.
-Classified = tuple[str, str, str | None, str, str | None, int, str, str]
+#: An `instrument_symbols` row of US:AAA's ticker: symbol, valid from and to, known from and
+#: to (ISO dates, None: open). The two-time-axis kind since `classifications` left (#752).
+Ticker = tuple[str, str, str | None, str, str | None]
 
 
-def classified_table(rows: list[Classified]) -> pa.Table:
+def ticker_table(rows: list[Ticker]) -> pa.Table:
     def day(s: str | None) -> dt.date | None:
         return None if s is None else dt.date.fromisoformat(s)
 
     def ts(s: str | None) -> dt.datetime | None:
         return None if s is None else dt.datetime.fromisoformat(s).replace(tzinfo=dt.UTC)
 
-    code, ef, et, kf, kt, level, edition, quality = (list(c) for c in zip(*rows, strict=True))
+    symbol, vf, vt, kf, kt = (list(c) for c in zip(*rows, strict=True))
     return pa.table({
-        "instrument_id": ["US:AAA"] * len(rows), "scheme": ["gics"] * len(rows),
-        "level": pa.array(level, pa.int8()), "code": code,
-        "effective_from": pa.array([day(d) for d in ef], pa.date32()),
-        "effective_to": pa.array([day(d) for d in et], pa.date32()),
+        "instrument_id": ["US:AAA"] * len(rows), "symbol_type": ["ticker"] * len(rows),
+        "symbol": symbol, "venue_mic": ["XNYS"] * len(rows),
+        "valid_from": pa.array([day(d) for d in vf], pa.date32()),
+        "valid_to": pa.array([day(d) for d in vt], pa.date32()),
         "ts_known_from": pa.array([ts(t) for t in kf], TS_UTC),
         "ts_known_to": pa.array([ts(t) for t in kt], TS_UTC),
-        "edition": pa.array(edition, pa.string()), "pit_quality": pa.array(quality, pa.string()),
-        "source": ["synthetic"] * len(rows),
     })  # fmt: skip
 
 
-def _classified(*rows: Classified) -> Change:
-    table = classified_table(list(rows))
-    return _add("classifications", {name: table[name] for name in table.column_names})
+def _symbol_rows(*rows: Ticker) -> Change:
+    table = ticker_table(list(rows))
+    return _add("instrument_symbols", {name: table[name] for name in table.column_names})
 
 
 #: TDS 6.3 ③'s pinned example 1: A, A2 (A's correction) and B; without A2, A is still known
 #: when B is (T012).
-_A = ("A", "2019-01-01", None, "2018-12-01", "2020-03-06", 1, "both", "native")
-_A2 = ("A", "2019-01-01", "2020-03-20", "2020-03-06", None, 1, "both", "native")
-_B = ("B", "2020-03-20", None, "2020-03-06", None, 1, "both", "native")
+_A = ("A", "2019-01-01", None, "2018-12-01", "2020-03-06")
+_A2 = ("A", "2019-01-01", "2020-03-20", "2020-03-06", None)
+_B = ("B", "2020-03-20", None, "2020-03-06", None)
 DENSE = {"freq": "1d", "price_basis": "raw", "density": "dense", "bar_time": "session"}
 
 
@@ -716,7 +702,7 @@ CASES: dict[str, tuple[Change, Change]] = {
         _rules((0.0, None, 0.01), until=dt.date(2024, 1, 3)),
         _rules((0.0, None, 0.01), until=dt.date(2024, 1, 2)),
     ),
-    "TDS-T012": (_classified(_A, _A2, _B), _classified((*_A[:4], None, *_A[5:]), _B)),
+    "TDS-T012": (_symbol_rows(_A, _A2, _B), _symbol_rows((*_A[:4], None), _B)),
     "TDS-T010": (
         _instruments(last_session=DAY),
         _instruments(last_session=pa.array([dt.date(2024, 1, 1)])),
@@ -858,7 +844,7 @@ FAILS: dict[str, tuple[str | None, ...]] = {
     "TDS-T011": ("delistings",),
     "TDS-D003": ("delistings",),
     **dict.fromkeys(["TDS-T003", "TDS-T004"], ("market_rules",)),
-    "TDS-T012": ("classifications",),
+    "TDS-T012": ("instrument_symbols",),
     "TDS-K010": ("instrument_symbols",),
     "TDS-K011": ("calendar_sessions",),
     **dict.fromkeys(

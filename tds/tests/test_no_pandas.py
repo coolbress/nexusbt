@@ -149,8 +149,7 @@ _FAR = "9999-12-31"  # an open end written as a date: past int64 in nanoseconds 
 @pytest.mark.parametrize(
     ("change", "found"),
     [  # the two places that put instants back in an Arrow table
-        (build._classified((*build._A[:4], _FAR, *build._A[5:]),
-                           (*build._B[:4], _FAR, *build._B[5:])), "TDS-T012"),
+        (build._symbol_rows((*build._A[:4], _FAR), (*build._B[:4], _FAR)), "TDS-T012"),
         (build._actions({"ts_terms_available": dt.datetime.fromisoformat(_FAR + "T00Z")}),
          "TDS-A008"),
     ],

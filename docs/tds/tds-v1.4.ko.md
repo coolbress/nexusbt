@@ -195,8 +195,8 @@
 - 효력 기간 `effective_from`/`effective_to`(세상에서 그 상태였던 기간, 날짜 또는 순간)와 앎 기간 `ts_known_from`/`ts_known_to`(그 기록을 믿고 쓸 수 있던 기간).
 - 판단 시각 t에서 쓰는 행: `ts_known_from <= t < ts_known_to` 그리고 효력 기간이 t(또는 질의한 날짜)를 포함.
 - 조회는 **직사각형**이다: 앎 조건과 효력 조건을 함께 만족하는 행(6.3). 앎 시각 최대 행을 먼저 고르고 효력을 확인하면 안 된다(미리 발표된 미래 효력 행이 현재 행을 가림).
-- 두 시간축 표(`classifications`, `instrument_symbols`)는 같은 이름 쌍을 쓴다: 효력 `effective_from`/`effective_to`(`instrument_symbols`는 v1 이름 `valid_from`/`valid_to`를 유지하되 뜻이 같다고 명시), 앎 `ts_known_from`/`ts_known_to` [v1.1].
-- 앎 기간을 모르는 자료(대부분의 분류 이력)는 `ts_known_from = effective_from의 순간값`으로 둘 수 있으나 `pit_quality = backfilled`를 선언해야 한다(행 칼럼이 있으면 행 단위, 없으면 데이터셋 단위). **strict 판 조회는 행 단위 `backfilled` 행을 넣지 않는다**; 행 단위 품질이 없는 데이터셋 단위 `backfilled`/`mixed`는 소비자가 경고만 한다(6.5) [v1.1].
+- 두 시간축 표 `instrument_symbols`는 이 이름 쌍을 쓴다: 효력 `effective_from`/`effective_to`(`instrument_symbols`는 v1 이름 `valid_from`/`valid_to`를 유지하되 뜻이 같다고 명시), 앎 `ts_known_from`/`ts_known_to` [v1.1; `classifications`는 빠짐, 2026-11-26, #752].
+- 앎 기간을 모르는 자료는 `ts_known_from = effective_from의 순간값`으로 둘 수 있으나 `pit_quality = backfilled`를 데이터셋 단위로 선언해야 한다; 소비자는 경고만 한다(6.5) [v1.1; 행 단위 `pit_quality` 칼럼과 그 strict 제외는 `classifications`와 함께 빠짐, 2026-11-26, #752].
 
 **K7. 수의 형.**
 - 일봉·사건 금액·재무 값: `float64`. NaN·Inf 금지(결측은 null).
@@ -320,7 +320,6 @@
   corporate_actions/part-00000.parquet
   delistings/part-00000.parquet
   fx_rates/part-00000.parquet
-  classifications/part-00000.parquet
   ...
 ```
 
@@ -426,7 +425,7 @@
 
 | 데이터셋 | 열쇠 | 칼럼 |
 |---|---|---|
-| `dictionary/columns` | (`dataset`, `column`) | `dataset` string, `column` string, `type` string, `unit` string, `currency_source` string(`column:<이름>` / `instrument` / `fixed:<코드>` / null), `scale` i8, `freq` string(daily/monthly/event/…), `edition_class` string(strict 자격 규칙 이름), `start_by_market` string(JSON 텍스트), `description` string, `alias_of` string, `std_name` string(TDS 표준 항목과 같으면 그 이름) |
+| `dictionary/columns` | (`dataset`, `column`) | `dataset` string, `column` string, `type` string, `unit` string, `currency_source` string(`column:<이름>` / `instrument` / `fixed:<코드>` / null), `scale` i8, `freq` string(daily/monthly/event/…), `edition_class` string(strict 자격 규칙 이름), `start_by_market` string(JSON 텍스트), `description` string, `std_name` string(TDS 표준 항목과 같으면 그 이름) |
 | `dictionary/codes` | (`field`, `code`) | `field` string, `code` string, `label` string, `description` string, `maps_to` string(닫힌 TDS 열거로 읽을 때의 값) |
 
 칼럼 이름 뒤에 그 3.2 타입을 적으며, 4.5의 값 해시가 이 타입을 쓴다. JSON 값 칼럼은 `string`이고 저장된 텍스트 그대로다[2026-11-04].
@@ -503,7 +502,7 @@
 
 - `asset_class`는 열린 목록이다 [2026-11-24, #705 B3]: 위 목록에 없는 값도 받고, TDS-S007(W)이 그 값과 종목 수를 말해 오타가 보인다. 그런 종목은 `equity`에만 쓴 규칙(7장의 `open`…`volume`과 그것을 보는 V004)을 받지 않고, 자기 규칙이 없는 종류로 읽는다; 모든 봉이 받는 규칙(V004의 `obs_status` 줄 규칙 등)은 그대로 받는다. `other`는 거래되지 않고 어느 주식 유니버스에도 들지 않는 종류다.
 
-**사후 정적 표** [v1.1, RV-C08]: `instruments`는 시점 없는 "지금 아는 값" 표다. `name`, `last_session`, `delisted_on`은 사후 정보이므로 소비자는 판단 입력으로 쓰면 안 된다(상장 기간 마스크·표시·폐지 처리에만). 바뀔 수 있는 속성(`category`, `venue_mic`, `currency`, `lot_size`, `tick_size`, `tick_rule_id`)이 실제로 바뀐 종목이 있으면 생산자는 그 이력을 `classifications`의 같은 이름 scheme(`category`, `venue_mic` …, 두 시간축)으로 함께 내보내고, 소비자는 그 scheme이 있으면 그것을 읽는다. `asset_class`, `market`, `calendar_id`는 한 id 안에서 바뀌지 않는다(바뀌면 새 id, K1(d)).
+**사후 정적 표** [v1.1, RV-C08]: `instruments`는 시점 없는 "지금 아는 값" 표다. `name`, `last_session`, `delisted_on`은 사후 정보이므로 소비자는 판단 입력으로 쓰면 안 된다(상장 기간 마스크·표시·폐지 처리에만). 바뀔 수 있는 속성(`category`, `venue_mic`, `currency`, `lot_size`, `tick_size`, `tick_rule_id`)은 현재 값을 담는다; 같은 이름 scheme으로 `classifications`에 가던 이력은 그 종류와 함께 빠졌다 [2026-11-26, #752]. `asset_class`, `market`, `calendar_id`는 한 id 안에서 바뀌지 않는다(바뀌면 새 id, K1(d)).
 
 ### 5.2 `instrument_symbols` (기호 이력)
 
@@ -592,7 +591,7 @@
 
 > **주식 밖의 종류** [#725 결정 252, 253]: `trades`(5.6), `quotes`(5.7), `book_deltas`와 `book_snapshots`(5.8), `market_statistics`(5.9), `calendar_segments`(5.4), `trading_status_events`(5.10), `rates`(5.16), `roll_calendar`(5.22), `option_chain_snapshots`(5.23), `funding_rates`와 `reference_prices`(5.24)는 2026-11-25에 표준에서 빠졌다. 그 프로필(7장)과 검사(V030, V031, V032, T008과 선언 `sequence_consecutive_within`: 은퇴, 번호는 다시 쓰지 않음, 8.3)도 함께다. `instrument_xref`(5.3)가 2026-11-26에 뒤따랐다. 주식이 먼저이고, 그런 종류는 나중에 올 수 있다. 나중에 오는 종류는 `status`가 `experimental`인 스키마 파일로 들어온다: 1.x 호환 약속(10.2) 밖이고 다음 MINOR에서 바뀔 수 있으며, 검사기는 그것을 담은 패키지에 TDS-M015로 경고한다. 지금은 `experimental` 스키마가 없다. 이 문서에 남은 데이터셋은 `stable`이다.
 
-> **사용자 자료 종류** [#725 결정 250, 254]: `events`와 `series_observations`(5.21), `dictionary/items`(4.4)는 2026-11-26에 표준에서 빠졌다. 사용자 자료 종류의 검사(T007, R007, R009, V041, V050: 은퇴, 8.3)와 프로필 `tds:equity-daily-research`, `tds:pit-fundamentals`, `tds:bitemporal`, `tds:alt-events`(7장)도 함께다. `share_counts`(5.14), `fundamentals_events`(5.17), `fundamentals_state`(5.18), `universe_membership`과 `eligibility_daily`(5.20), 그리고 `feature_panels`와 `label_panels`(5.25)는 2026-11-26에 `tds:panels`(7장), `dictionary/columns`의 `is_label` 칼럼(4.4), 그것을 읽는 엔진 코드와 함께 빠졌다 [#752]. `classifications`(5.19)는 틱 단계와 함께 뒤따른다. 거래 밖 사용자의 값은 값 표에 넣는다.
+> **사용자 자료 종류** [#725 결정 250, 254]: `events`와 `series_observations`(5.21), `dictionary/items`(4.4)는 2026-11-26에 표준에서 빠졌다. 사용자 자료 종류의 검사(T007, R007, R009, V041, V050: 은퇴, 8.3)와 프로필 `tds:equity-daily-research`, `tds:pit-fundamentals`, `tds:bitemporal`, `tds:alt-events`(7장)도 함께다. `share_counts`(5.14), `fundamentals_events`(5.17), `fundamentals_state`(5.18), `universe_membership`과 `eligibility_daily`(5.20), 그리고 `feature_panels`와 `label_panels`(5.25)는 2026-11-26에 `tds:panels`(7장), `dictionary/columns`의 `is_label` 칼럼(4.4), 그것을 읽는 엔진 코드와 함께 빠졌다 [#752]. `classifications`(5.19)는 2026-11-26에 틱 단계와 함께 빠졌다 [#752]. 거래 밖 사용자의 값은 값 표에 넣는다.
 
 ### 5.7 `quotes` (호가 L1 / BBO) — 빠짐 [2026-11-25, #752]
 
@@ -742,15 +741,9 @@ LEAN 계수 파일·Qlib `factor`·공급사 조정 종가만 있는 사용자�
 
 5.6을 보라.
 
-### 5.19 `classifications` (분류, 두 시간축)
+### 5.19 `classifications` (분류, 두 시간축) — 빠짐 [2026-11-26, #752]
 
-열쇠 (`instrument_id`, `scheme`, `level`, `edition`, `effective_from`, `ts_known_from`)(v1.1: `level`·`edition` 추가 — v1 열쇠로는 GICS 섹터·산업 행이나 strict/compare 행이 같은 날 오면 K001 중복이었다) [RV-C08]. 정렬 같음.
-
-칼럼: `instrument_id` id, `scheme` code(예 `gics`, `krx_sector`, `sic`, `industry_pit`, `market_segment`, `is_financial`, `category`, `venue_mic`), `level` i8 **null 금지**(단일 수준 체계는 0, 다단계는 1 = 가장 굵은 수준), `code` string, `label` string null, `effective_from` date, `effective_to` date null, `ts_known_from` ts_us, `ts_known_to` ts_us null, `edition` code(`strict`/`compare`/`both`, 기본 both), `pit_quality` code(행 단위), `source` string.
-- 조회: 직사각형(6.3) — `ts_known_from <= t < ts_known_to` 그리고 `effective_from <= date(t) < effective_to`, 판 필터(strict = `strict`+`both`, compare = `compare`+`both`), strict는 행 단위 `backfilled` 제외. 같은 (종목, 체계, 수준, 판 필터)에서 이 조건을 만족하는 행은 하나(T012).
-- scheme `tick_rule_id` [2026-11-01]: 종목의 시기별 호가 단위 규칙. `level` 0, `code` = `rule_kind = tick_band`인 `market_rules.rule_id`(5.27), `effective_from` = 적용되는 첫 세션, `ts_known_from` = 배정이 발표된 시각. 규칙 묶음의 가격대 값은 `market_rules`에 두고, 이 scheme은 종목이 어느 묶음을 쓰는지만 유효 구간과 알려진 시각으로 담는다. 종목과 기간마다 다른 배정을 싣는다. 예: US Reg NMS Rule 612 개정 — $1 이상에서 시간가중 평균 호가 스프레드에 따라 $0.005 또는 $0.01, 반년마다 다시 배정, 준수는 2027년 11월 첫 영업일부터([SEC Release 34-105656](https://www.sec.gov/files/rules/exorders/2026/34-105656.pdf)). 판단 시각에 유효한 행은 격자 원천 순서에서 `instruments.tick_size`와 `instruments.tick_rule_id`보다 앞선다(5.27).
-- `dictionary/columns.alias_of`로 소비자 이름(예 `sector`)을 `"<scheme>@<level>"`에 대응할 수 있다.
-- 명세서 4.13의 `valid_from_utc/valid_to_utc/known_at_utc`를 이 두 축으로 바꾼다(12장 D12).
+5.6을 보라.
 
 ### 5.20 유니버스: `universe_membership`, `eligibility_daily` — 빠짐 [2026-11-26, #752]
 
@@ -801,7 +794,7 @@ LEAN 계수 파일·Qlib `factor`·공급사 조정 종가만 있는 사용자�
 | source | string | 아니오 | 거래소 규정·공고 URL |
 | verified | bool | 아니오 | 사람이 원문으로 확인했는가 |
 
-- **가격 격자 규범**: 원가격 칼럼(`bars.open/high/low/close`, `tradability_daily.*_limit_price`)은 그 종목·그 날짜의 격자 위 값이어야 하지만, f64 표현 때문에 1e-9 상대 안의 흔들림은 허용한다(`0.6768000000000001`). 소비자는 비교 전에 **시장 최소 단위 정수**(KR 1원, US 0.0001달러 같은 한 좌표)로 바꾼다 — 가격대마다 다른 호가 단위의 틱 수로 비교하면 경계를 넘는 두 가격의 순서가 뒤집힌다(4,995/5 = 999 > 5,000/10 = 500). 호가 단위 표는 격자 소속 확인과 주문 가격 맞춤에 쓴다. 최소 단위 정수에 맞지 않는 관측 가격은 소비자가 옮기지 않는다(그 행만 실수 비교) [v1.3, R3-02]. 격자 원천 순서: 그 시각에 유효한 `classifications` scheme `tick_rule_id` 행(5.19) [2026-11-01] → `instruments.tick_size`(고정) → `instruments.tick_rule_id`의 `market_rules` → 소비자 자원. 검사 V012(W): 격자 정보가 있는데 원가격이 격자에서 1e-9 상대 넘게 벗어난 행(조정가를 원가격으로 잘못 선언한 패키지를 잡음). 검사기는 읽을 시장 최소 단위가 없으므로(그것은 소비자 자원이다) V012는 격자 자체의 좌표로 비교한다 [2026-11-10, #229]: 단위는 그 종목·그 날짜에 유효한 격자의 가장 작은 `tick_size`(고정 `tick_size` 자체, 또는 규칙 묶음의 유효한 `tick_band` 행 중 가장 작은 값)이고, 가격과 가격대 경계를 그 단위의 정수로 바꿔 가격이 속한 가격대를 찾으며, 가격이 그 가격대 호가 단위의 가장 가까운 배수에서 1e-9 상대 넘게 떨어져 있으면 벗어난 것이다.
+- **가격 격자 규범**: 원가격 칼럼(`bars.open/high/low/close`, `tradability_daily.*_limit_price`)은 그 종목·그 날짜의 격자 위 값이어야 하지만, f64 표현 때문에 1e-9 상대 안의 흔들림은 허용한다(`0.6768000000000001`). 소비자는 비교 전에 **시장 최소 단위 정수**(KR 1원, US 0.0001달러 같은 한 좌표)로 바꾼다 — 가격대마다 다른 호가 단위의 틱 수로 비교하면 경계를 넘는 두 가격의 순서가 뒤집힌다(4,995/5 = 999 > 5,000/10 = 500). 호가 단위 표는 격자 소속 확인과 주문 가격 맞춤에 쓴다. 최소 단위 정수에 맞지 않는 관측 가격은 소비자가 옮기지 않는다(그 행만 실수 비교) [v1.3, R3-02]. 격자 원천 순서: `instruments.tick_size`(고정) → `instruments.tick_rule_id`의 `market_rules` → 소비자 자원. 맨 앞에 오던 `classifications` 단계 [2026-11-01]는 그 종류와 함께 빠졌다(5.19); 2027-11-01부터의 Rule 612 개정에 따른 US 종목별·반년별 배정은 #802가 정할 때까지 원천이 없고, 배정이 없는 종목은 규칙 팩의 US 0.01을 그대로 쓴다 [2026-11-26, #752]. 검사 V012(W): 격자 정보가 있는데 원가격이 격자에서 1e-9 상대 넘게 벗어난 행(조정가를 원가격으로 잘못 선언한 패키지를 잡음). 검사기는 읽을 시장 최소 단위가 없으므로(그것은 소비자 자원이다) V012는 격자 자체의 좌표로 비교한다 [2026-11-10, #229]: 단위는 그 종목·그 날짜에 유효한 격자의 가장 작은 `tick_size`(고정 `tick_size` 자체, 또는 규칙 묶음의 유효한 `tick_band` 행 중 가장 작은 값)이고, 가격과 가격대 경계를 그 단위의 정수로 바꿔 가격이 속한 가격대를 찾으며, 가격이 그 가격대 호가 단위의 가장 가까운 배수에서 1e-9 상대 넘게 떨어져 있으면 벗어난 것이다.
 - 가격대 구간은 맞추기 전 값으로 정한다. 같은 (`rule_id`, `venue_group`, 날짜)에서 가격대 구간이 겹치면 T003.
 - 공매도 금지 기간·대차 자료는 이 표준에 두지 않는다(엔진 시장 규칙 팩의 일; 대차 가능 수량·수수료 데이터셋은 다음 MINOR 후보) [V31-LS-07].
 
@@ -819,7 +812,7 @@ LEAN 계수 파일·Qlib `factor`·공급사 조정 종가만 있는 사용자�
 | `ts_recorded` | 만든 쪽 시스템이 처음 기록한 순간(시스템 시간) | 만든 쪽 |
 | `known_on` | 공개 날짜(날짜만 있을 때의 원 값) | 원자료 |
 
-- `pit_quality = native`인 분류 행(`classifications`)의 `ts_known_from`은 그 행을 쓸 수 있게 된 기간의 시작이면서 만든 쪽이 그 행을 기록한 순간이다: 만든 쪽은 알게 된 때 행을 쓰고, 이 데이터셋에는 `ts_recorded`가 없다(6.4). `backfilled` 행(K6, 2.2)의 `ts_known_from`은 기간의 시작일 뿐이다: 만든 쪽이 그 행을 기록한 순간은 남지 않고, `pit_quality`(행에, 행 칼럼이 없으면 데이터셋에)가 그것을 알린다 [2026-11-12].
+- 분류 행의 `ts_known_from`이 `native` 행과 `backfilled` 행에서 뜻하던 것 [2026-11-12]: `classifications`(5.19)와 함께 빠짐 [2026-11-26, #752].
 
 ### 6.2 공개 시각 유도 규칙 (매니페스트 `availability.rule`)
 
@@ -839,7 +832,7 @@ LEAN 계수 파일·Qlib `factor`·공급사 조정 종가만 있는 사용자�
 - 칼럼별로 다른 공개 시각(예 `tradability_daily`의 개장 전 정보와 종가 결과)은 `params.availability_by_column`로 묶음마다 규칙을 준다(`tradability_daily`에는 필수, 5.10).
 - 규칙 이름은 **필수 해석 규칙**이다: 소비자가 모르는 규칙 이름을 만나면 무시하지 말고 거절해야 한다(검사기 M014, 10.3) [v1.1].
 - `corporate_actions`의 공개 시각은 두 개다: 효력 `ts_effective`, 조건 `ts_terms_available`(null이면 `ts_announced`, 둘 다 null이면 `ts_effective`). 매니페스트 `availability`는 `{"effect": "ts_effective", "terms": "ts_terms_available"}`로 적는다(T002가 확인) [v1.1].
-- **칼럼 형식** [2026-11-05]: 가용 시각을 자기 칼럼에 담은 데이터셋은 매니페스트 `availability`를 `{"column": "<이름>"}`으로 적는다. `{"column": "ts_available"}`은 규칙 `column`이다. `ts_known_from`으로 찾는 두 시간축 데이터셋(6.3 규칙 3)은 `{"column": "ts_known_from"}`으로 적는다: `instrument_symbols`(5.2), `classifications`(5.19). 지목한 칼럼의 null은 그 데이터셋 절이 정한 대체값을 따른다(`instrument_symbols`: `valid_from`의 세션 개장).
+- **칼럼 형식** [2026-11-05]: 가용 시각을 자기 칼럼에 담은 데이터셋은 매니페스트 `availability`를 `{"column": "<이름>"}`으로 적는다. `{"column": "ts_available"}`은 규칙 `column`이다. `ts_known_from`으로 찾는 두 시간축 데이터셋(6.3 규칙 3)은 `{"column": "ts_known_from"}`으로 적는다: `instrument_symbols`(5.2) [`classifications`(5.19)는 빠짐, 2026-11-26, #752]. 지목한 칼럼의 null은 그 데이터셋 절이 정한 대체값을 따른다(`instrument_symbols`: `valid_from`의 세션 개장).
 - `delistings`(5.13)의 공개 시각은 두 개다: 퇴출 `ts_exit_known`(null이면 종료 세션 개장), 가치 `ts_value_available`(null이면 `ts_exit_known`, 둘 다 null이면 종료 세션 개장). 매니페스트 `availability`는 `corporate_actions` 형식과 같은 모양인 `{"exit": "ts_exit_known", "value": "ts_value_available"}`로 적는다 [2026-11-05].
 - 규칙(그대로 쓴 것이나 `{"rule": …}`)도 아니고 이 형식들(`{"column": …}`, `{"effect": …, "terms": …}`, `{"exit": …, "value": …}`, 각 값은 칼럼 이름)도 아닌 `availability`는 TDS-M014이며, 조용히 받아들이지 않는다. 형식이 지목한 칼럼은 데이터셋 파일에 있어야 한다(T002, `schema` 단계에서는 8.2) [2026-11-05].
 
@@ -847,18 +840,18 @@ LEAN 계수 파일·Qlib `factor`·공급사 조정 종가만 있는 사용자�
 
 1. **점 관측**(봉·환율): 판단 t에서 `ts_available <= t`인 행만. 같은 열쇠 대상의 "최신"은 `ts_event`(또는 `period`) 최대.
 2. **상태 구간**: `fundamentals_state`(5.18)와 함께 빠짐 [2026-11-26, #752].
-3. **두 시간축 — 직사각형 조회**(`classifications`, `instrument_symbols`): 판별 열쇠마다 `ts_known_from <= t < ts_known_to` **그리고** 효력 기간이 질의 날짜 포함인 행. 두 조건을 **함께** 거른다: 앎 시각 최대 행 하나를 먼저 고르면 미리 발표된 미래 효력 행이 현재 효력 행을 가린다. 고정 예시(명세서 5.3.6 표와 같음, 검사기 T012 conformance): ① 미리 발표: A 효력 [2019-01-01, ∞)·앎 [2018-12-01, 2020-03-06), A′(같은 코드, 효력 [2019-01-01, 2020-03-20))·앎 [2020-03-06, ∞), B 효력 [2020-03-20, ∞)·앎 [2020-03-06, ∞) → (t = 2020-03-10, q = 2020-03-10)의 답 A′; ② 늦은 발견: 효력은 지났지만 앎 전 → 옛 행; ③ 정정: 앎 구간이 닫힌 옛 행 대신 새 행; ④ 수준: level마다 하나; ⑤ 판: strict/compare 필터마다 하나.
+3. **두 시간축 — 직사각형 조회**(`instrument_symbols`; `classifications`는 빠짐, 2026-11-26, #752): 판별 열쇠마다 `ts_known_from <= t < ts_known_to` **그리고** 효력 기간이 질의 날짜 포함인 행. 두 조건을 **함께** 거른다: 앎 시각 최대 행 하나를 먼저 고르면 미리 발표된 미래 효력 행이 현재 효력 행을 가린다. 고정 예시(명세서 5.3.6 표와 같음, 검사기 T012 conformance): ① 미리 발표: A 효력 [2019-01-01, ∞)·앎 [2018-12-01, 2020-03-06), A′(같은 코드, 효력 [2019-01-01, 2020-03-20))·앎 [2020-03-06, ∞), B 효력 [2020-03-20, ∞)·앎 [2020-03-06, ∞) → (t = 2020-03-10, q = 2020-03-10)의 답 A′; ② 늦은 발견: 효력은 지났지만 앎 전 → 옛 행; ③ 정정: 앎 구간이 닫힌 옛 행 대신 새 행; ④ 수준과 ⑤ 판은 `classifications`의 예시여서 그와 함께 빠짐 [2026-11-26, #752].
 4. **사건 효력과 조건 공개가 다른 기업행동**: 5.11 해석 절차. 판단에서는 효력과 조건 공개가 둘 다 `<= t`일 때 조정에 넣는다(명세서 5.3.3·5.3.4).
 5. **세션 마감 기준**: 시장 축 행 s의 값은 굳는 시각 `ready_m(s) = ts_close(s) + Δ_m`까지 쓸 수 있는 정보만(명세서 5.1.2가 봉의 공개 규칙에서 `Δ_m`을 정한다). 이건 엔진 규칙이고 자료 형식은 `ts_available`만 제공한다.
 
 ### 6.4 이력 방식 두 가지
 
 - **경제 이력**(`history_mode = economic`, 기본): 나중에 모은 옛 공시도 원래 공개 시각으로 쓴다. `ts_available`만 본다.
-- **시스템 이력**(`history_mode = system`): "그때 만든 쪽 시스템이 실제로 알던 것"을 재생한다. 판단 t에서 `ts_recorded`가 없는 `classifications`의 행은 `ts_known_from <= t`일 때만 보인다(그 행이 가진 유일한 시간축, 6.1). 그래서 `backfilled` 행은 만든 쪽이 알게 된 때보다 이른 `ts_known_from`부터 재생에 보이고, `pit_quality = backfilled`가 읽는 쪽에 그 경고다 [2026-11-12]. `events`와 `ts_recorded`를 필수로 만들던 `tds:bitemporal` 프로필은 표준에서 빠졌다(5.6) [2026-11-26, #752].
+- **시스템 이력**(`history_mode = system`): "그때 만든 쪽 시스템이 실제로 알던 것"을 재생한다. `classifications` 행에 대한 경계(`ts_known_from <= t`) [2026-11-12]는 그 종류와 함께 빠졌다(5.19) [2026-11-26, #752]. `events`와 `ts_recorded`를 필수로 만들던 `tds:bitemporal` 프로필은 표준에서 빠졌다(5.6) [2026-11-26, #752].
 
 ### 6.5 `pit_quality`
 
-데이터셋(또는 행)마다 `native`(원자료가 준 공개 시각) / `backfilled`(나중에 모아 추정) / `mixed`. **strict 처리(v1.1, K6과 하나로 맞춤)**: 행 단위 `pit_quality` 칼럼이 있는 표(두 시간축 표)는 strict 조회에서 `backfilled` 행을 뺀다; 행 단위 품질이 없는 데이터셋 단위 `backfilled`/`mixed`는 소비자가 strict 실행에서 경고한다(전체를 빼면 가격·사건처럼 필수 자료가 사라지므로). `mixed`는 "일부 행이 backfilled"라는 선언이고 어떤 행인지 숨기지 않으려면 행 칼럼을 두는 것을 권한다. 검사기는 값을 판단하지 않고 선언만 확인한다 [RV-C09].
+데이터셋마다 `native`(원자료가 준 공개 시각) / `backfilled`(나중에 모아 추정) / `mixed`. **strict 처리(v1.1, K6과 하나로 맞춤)**: 데이터셋 단위 `backfilled`/`mixed`는 소비자가 strict 실행에서 경고한다(전체를 빼면 가격·사건처럼 필수 자료가 사라지므로). `mixed`는 "일부 행이 backfilled"라는 선언이다. 행 단위 `pit_quality` 칼럼과 그 strict 제외는 `classifications`에만 있었고 그와 함께 빠졌다 [2026-11-26, #752]. 검사기는 값을 판단하지 않고 선언만 확인한다 [RV-C09].
 
 ---
 
@@ -981,14 +974,14 @@ tds export {zipline-bundle|nautilus-catalog|wide-parquet} ... # 9.8
 | TDS-T001 | E | 봉의 `ts_available < ts_end`(규칙상 늦을 수 없는 곳); `events`는 이제 읽지 않는다 [2026-11-26, #752] |
 | TDS-T002 | E | `ts_available` 칼럼과 선언 규칙의 값이 다름, 또는 6.2 칼럼 형식이 지목한 칼럼이 데이터셋 파일에 없음 [2026-11-05] |
 | TDS-T003 | E | 한 시간축의 구간 겹침: `market_rules`의 호가 구간은 (`rule_id`, `venue_group`, 날짜)마다. 두 시간축 표의 겹침은 5.2의 줄까지 T012다 [2026-11-11; `fundamentals_state`는 이제 읽지 않음, 2026-11-26, #752] |
-| TDS-T004 | E | 구간 끝 ≤ 시작, 모든 `[from, to)` 쌍에 대해: `classifications`·`instrument_symbols`의 효력·알려진 구간, `market_rules`의 유효 구간. null 끝은 열려 있어 검사하지 않는다 [2026-11-11; `fundamentals_state`, `universe_membership`, `instrument_xref`는 이제 읽지 않음, 2026-11-26, #752] |
+| TDS-T004 | E | 구간 끝 ≤ 시작, 모든 `[from, to)` 쌍에 대해: `instrument_symbols`의 효력·알려진 구간, `market_rules`의 유효 구간. null 끝은 열려 있어 검사하지 않는다 [2026-11-11; `fundamentals_state`, `universe_membership`, `instrument_xref`, `classifications`는 이제 읽지 않음, 2026-11-26, #752] |
 | TDS-T005 | E | 일봉 `ts_start/ts_end`가 세션 개장·마감과 다름(값이 있을 때) |
 | TDS-T006 | E | 시장 워터마크 `complete_through` 뒤의 자료 |
 | TDS-T007 | — | 2026-11-25 은퇴(#752), 번호는 다시 쓰지 않음: 사실의 `ts_available < period_end`; `fundamentals_events`가 표준에서 빠진다(5.17) |
 | TDS-T008 | — | 2026-11-25 은퇴(#752), 번호는 다시 쓰지 않음: `ts_recv < ts_event`; 틱 종류가 표준에서 빠진다(5.6~5.8) |
 | TDS-T010 | E | `last_session < listed_on` |
 | TDS-T011 | W | 종료 대가 공개가 퇴출 공개보다 이름 |
-| TDS-T012 | E | 두 시간축 **직사각형** 조회 결과가 한 시점·한 판별 열쇠(분류는 scheme·level·판 필터 포함)에 둘 이상, 직사각형 조회 표(6.3 ③)에서: `classifications`, `instrument_symbols` [2026-11-11; `universe_membership`은 이제 읽지 않음, 2026-11-26, #752] |
+| TDS-T012 | E | 두 시간축 **직사각형** 조회 결과가 한 시점·한 판별 열쇠에 둘 이상, 직사각형 조회 표(6.3 ③)에서: `instrument_symbols` [2026-11-11; `universe_membership`과 판 필터를 가진 `classifications`는 이제 읽지 않음, 2026-11-26, #752] |
 | TDS-D001 | E | 일봉(`freq=1d`, `density`가 무엇이든)에 세션 행 빠짐. 데이터셋에 행이 있는 종목마다 `listed_on`부터 그 끝까지: `last_session`, 없으면 그 시장 `complete_through`의 날짜(시장의 `timezone`에서, 시간대가 없으면 UTC), 없으면 데이터셋의 `coverage.by_market.<m>.processed_through_session`, 없으면 데이터셋에서 그 시장의 줄이 가진 마지막 세션이고, `delisted_on`을 넘지 않는다(5.5). `listed_on`이나 그 달력이 없으면 그 종목은 판단하지 않는다(unchecked) [2026-11-11; 2026-11-23, #705] |
 | TDS-D002 | E | 세션이 아닌 날 행, 또는 상장 기간 밖 행. `full` 단계의 행 단위 D002는 종목의 `listed_on`..`delisted_on` 밖의 일봉이고, 세션이 아닌 날은 R003이다 [2026-11-11] |
 | TDS-D003 | E | 데이터셋이 처리했다는 세션 뒤의 행: 시장 `<m>`에 `last`가 없는 데이터셋에서, 이용 가능 시각(4.3)이 시장 달력에서 `coverage.by_market.<m>.processed_through_session`의 마감보다 뒤인 행 [2026-11-12, #425] |
@@ -1010,7 +1003,7 @@ tds export {zipline-bundle|nautilus-catalog|wide-parquet} ... # 9.8
 | TDS-V005 | E | 환율·금리 곡선 값이 0 이하(금리는 음수 허용; 환율만) |
 | TDS-V010 | W | 주식 거래량이 정수가 아님 |
 | TDS-V011 | W | 거래량 단위 의심: 종목·연도 중앙값 `value_traded / (volume × multiplier × (H+L+C)/3)`가 [0.5, 2] 밖. `price_basis`가 `raw`인 bars만, `index` 종목 제외(3.4) [v1.2, V31-16; 2026-11-10, #229] |
-| TDS-V012 | W | 격자 정보가 있는데 원가격이 격자에서 1e-9 상대 넘게 벗어남 [v1.2, V31-05] |
+| TDS-V012 | W | 격자 정보가 있는데 원가격이 격자에서 1e-9 상대 넘게 벗어남 [v1.2, V31-05; 격자는 `instruments.tick_size`나 그 `tick_rule_id`가 가리키는 규칙 묶음에서만, `classifications`는 이제 읽지 않음, 2026-11-26, #752] |
 | TDS-V020 | E | 자산 종류별 필수 칼럼 없음(5.1; `full` 수준에서 읽음); `issuer_id`는 그 칼럼이 아니다 [2026-11-25, #725 결정 255] |
 | TDS-V030 | — | 2026-11-25 은퇴(#752), 번호는 다시 쓰지 않음: 교차·잠긴 BBO; `quotes`가 표준에서 빠진다(5.7) |
 | TDS-V031 | — | 2026-11-25 은퇴(#752), 번호는 다시 쓰지 않음: 호가 재구성 뒤 교차; `book_deltas`가 표준에서 빠진다(5.8) |
@@ -1457,3 +1450,4 @@ datasets:
 - 2026-11-26: **v1.4** 안에서. 지금 할 일과의 관계, K9, 5.5의 `freq<1d`, 7: 프로필 `tds:intraday-bars@1.0`이 빠진다(엔진 명세서 4.3; #752). 그것을 선언한 패키지는 TDS-M007을 받는다. 분봉과 `freq<1d`의 뜻(#80)은 바뀌지 않는다. 움직이는 적합성 패키지나 해시는 없다. `tds_version` `"1.0"` 그대로, `tds_draft`는 2026-11-19 그대로(12e까지, 10.5).
 - 2026-11-26: **v1.4** 안에서. K1, 4.1의 배치, 4.3, 5.3, 5.6, 8.2의 T006, 8.3의 TDS-T004, 1장과 9장의 대응: `instrument_xref`가 스키마 파일과 함께 빠진다(#725 결정 252; #752의 R3a). 그 종류의 데이터셋은 이제 스키마 파일이 없는 종류라 칼럼·열쇠·정렬을 검사하지 않고, T004는 그 유효 구간을 읽지 않으며, T006은 이용 가능 규칙이 없는 다른 종류처럼 `unchecked`다. 움직이는 적합성 패키지나 해시는 없다. `tds_version` `"1.0"` 그대로, `tds_draft`는 2026-11-19 그대로(12e까지, 10.5).
 - 2026-11-26: **v1.4** 안에서. 첫머리 안내, K5, K6, 2의 목록, 4.1의 배치, 4.2 예시, 4.3, 4.4, 5.5, 5.6, 5.11, 5.14, 5.17, 5.18, 5.20, 5.25, 6.1, 6.2, 6.3, 6.4, 7, 8.1, 9.6, 10.1: `share_counts`, `fundamentals_events`, `fundamentals_state`, `universe_membership`, `eligibility_daily`, `feature_panels`, `label_panels`가 스키마 파일과 함께 빠지고, `tds:panels@1.0`도 함께 빠지며, `dictionary/columns`에서 `is_label`이, `corporate_actions.kind`에서 `symbol_change`가 빠진다(#725 결정 250~254; #752의 R3b-3). `tds:panels`를 선언한 패키지는 TDS-M007을 받고, 빠진 종류의 데이터셋은 스키마 파일이 없는 종류이며, `symbol_change` 행은 TDS-S006이다. 움직이는 적합성 패키지나 해시 벡터는 없다. `tds_version` `"1.0"` 그대로, `tds_draft`는 2026-11-19 그대로(12e까지, 10.5).
+- 2026-11-26: **v1.4** 안에서. K6, 4.1의 배치, 4.4, 5.1, 5.6, 5.19, 5.27, 6.1, 6.2, 6.3, 6.4, 6.5, 8.3: `classifications`가 스키마 파일과 함께 빠진다(#725 결정 247, 250; #752의 틱 단계). `dictionary/columns`에서 `alias_of`가 빠진다. 격자 원천 순서(5.27)에서 `classifications` 단계가 빠지고, 2027-11-01부터의 US 종목별 배정은 #802가 정할 때까지 원천이 없다. TDS-T004, TDS-T012, TDS-V012는 `classifications`를 더 읽지 않고, T012에는 판 필터가 없다. 그 종류의 데이터셋은 스키마 파일이 없는 종류다. 움직인 것: 적합성 사례 TDS-T012(pass와 fail)는 `instrument_symbols`로 다시 만든다. `tds_version` `"1.0"` 그대로, `tds_draft`는 2026-11-19 그대로(12e까지, 10.5).

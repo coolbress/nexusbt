@@ -482,13 +482,12 @@ def rule(rule_id: str, market: str = "KR", kind: str = "tick_band") -> dict[str,
 
 def gridded(
     at: Path, ticks: dict[str, tuple[float | None, str | None]] | None = None,
-    rules: Rows | None = None, codes: dict[str, tuple[str, dt.date]] | None = None,
-    twice: str | None = None,
+    rules: Rows | None = None, twice: str | None = None,
 ) -> Path:  # fmt: skip
     """The tiny KR and ZZ package without tick information (ZZ: the generic pack, no grid),
-    given `instruments` tick columns (`ticks`: id → (tick_size, tick_rule_id), the rest null),
-    these `market_rules` rows, and `classifications` tick_rule_id rows (id → (code, from));
-    the dataset of kind `twice` is written again as `<kind>_b`, listed after it (#551)."""
+    given `instruments` tick columns (`ticks`: id → (tick_size, tick_rule_id), the rest null)
+    and these `market_rules` rows; the dataset of kind `twice` is written again as `<kind>_b`,
+    listed after it (#551)."""
     path = make_snapshot(at, preset="tiny", markets=("KR", "ZZ"), degrade=["no_tick_info"])
 
     def change(data: dict[str, Any]) -> None:
@@ -500,21 +499,15 @@ def gridded(
             t = t.append_column("tick_rule_id", pa.array([p[1] for p in pairs], pa.string()))
             pq.write_table(t, part)
             f.update(bytes=part.stat().st_size)
-        classified = [{"instrument_id": i, "scheme": "tick_rule_id", "level": 0, "code": code,
-                       "label": None, "effective_from": start, "effective_to": None,
-                       "ts_known_from": dt.datetime(2020, 1, 1, tzinfo=dt.UTC),
-                       "ts_known_to": None, "edition": "economic", "pit_quality": "pit",
-                       "source": "test"} for i, (code, start) in (codes or {}).items()]  # fmt: skip
-        for kind, rows, schema in (("market_rules", rules, RULES),
-                                   ("classifications", classified, None)):  # fmt: skip
-            for name in (kind, f"{kind}_b") if kind == twice else (kind,) if rows else ():
-                (path / name).mkdir()
-                part = path / name / "p.parquet"
-                pq.write_table(pa.Table.from_pylist(rows or [], schema), part)
-                data["datasets"].append({
-                    "name": name, "kind": kind, "path": name, "schema_version": "1.0",
-                    "coverage": {}, "files": [{"path": f"{name}/p.parquet", "rows": len(rows or []),
-                                               "bytes": part.stat().st_size}]})  # fmt: skip
+        kind = "market_rules"
+        for name in (kind, f"{kind}_b") if kind == twice else (kind,) if rules else ():
+            (path / name).mkdir()
+            part = path / name / "p.parquet"
+            pq.write_table(pa.Table.from_pylist(rules or [], RULES), part)
+            data["datasets"].append({
+                "name": name, "kind": kind, "path": name, "schema_version": "1.0",
+                "coverage": {}, "files": [{"path": f"{name}/p.parquet", "rows": len(rules or []),
+                                           "bytes": part.stat().st_size}]})  # fmt: skip
 
     edit_manifest(path, change)
     write_hashes(path)
@@ -522,15 +515,14 @@ def gridded(
 
 
 GRID = CapabilityRequest(frozenset({"grid"}))
-ZZ1, START, LATER = "ZZ:T00001", dt.date(2020, 1, 2), dt.date(2030, 1, 2)  # LATER: after the bars
+ZZ1 = "ZZ:T00001"
 
 
 @pytest.mark.parametrize("source", [
     {"ticks": {ZZ1: (0.01, None)}},
     {"ticks": {ZZ1: (None, "zz-tick")}, "rules": [rule("zz-tick")]},
-    {"codes": {ZZ1: ("zz-tick", LATER)}, "rules": [rule("zz-tick")]},  # dates are not read
     {"rules": [rule("zz-band", market="ZZ")]},
-], ids=["tick_size", "tick_rule_id", "classifications", "market_rules"])  # fmt: skip
+], ids=["tick_size", "tick_rule_id", "market_rules"])  # fmt: skip
 def test_one_instrument_with_a_grid_source_is_no_f15(tmp_path: Path, source: Any) -> None:
     """#453: a usable grid source for one of ZZ's six instruments: no F-15 for ZZ. The
     `tick_band` rule set a code names is filed under KR, so that ZZ's own rows give nothing."""
@@ -542,9 +534,9 @@ def test_one_instrument_with_a_grid_source_is_no_f15(tmp_path: Path, source: Any
 @pytest.mark.parametrize("source", [
     {"ticks": {}},  # the columns, every value null
     {"ticks": {ZZ1: (None, "zz-tick")}},
-    {"codes": {ZZ1: ("zz-tick", START)}, "rules": [rule("kr-tick")]},
-    {"codes": {ZZ1: ("zz-tick", START)}, "rules": [rule("zz-tick", "ZZ", "price_limit")]},
-], ids=["null-columns", "dangling-column", "dangling-code", "price_limit-only"])  # fmt: skip
+    {"ticks": {ZZ1: (None, "zz-tick")}, "rules": [rule("kr-tick")]},
+    {"ticks": {ZZ1: (None, "zz-tick")}, "rules": [rule("zz-tick", "ZZ", "price_limit")]},
+], ids=["null-columns", "dangling-column", "dangling-with-rules", "price_limit-only"])  # fmt: skip
 def test_unusable_grid_source_is_f15(tmp_path: Path, source: Any) -> None:
     """#453: a null column, a code that names no `tick_band` rule set, and `price_limit` rows
     give no grid: F-15 with the count of ZZ's instruments."""
@@ -556,11 +548,10 @@ def test_unusable_grid_source_is_f15(tmp_path: Path, source: Any) -> None:
 
 @pytest.mark.parametrize("source", [
     {"rules": [rule("zz-band", market="ZZ")], "twice": "market_rules"},
-    {"codes": {ZZ1: ("zz-tick", START)}, "rules": [rule("zz-tick")], "twice": "classifications"},
-], ids=["market_rules", "classifications"])  # fmt: skip
+], ids=["market_rules"])  # fmt: skip
 def test_two_grid_sources_of_a_kind_leave_grid_off(tmp_path: Path, source: Any) -> None:
-    """#551: `grid` reads `market_rules` and `classifications` without needing them; two of
-    either leave it off with no F-15, and requesting it is E18 naming both (spec 4.3)."""
+    """#551: `grid` reads `market_rules` without needing it; two leave it off with no F-15, and
+    requesting it is E18 naming both (spec 4.3; `classifications` left, #752)."""
     path = gridded(tmp_path / "t", **source)
     kind = source["twice"]
     with warnings.catch_warnings():

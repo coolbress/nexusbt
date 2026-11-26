@@ -14,7 +14,7 @@ The instrument key is `instrument_id` (e.g. `KR:005930` Samsung Electronics, `US
                 ┌──────────────── one snapshot folder = one TDS package ────────────────┐
   (A) inputs    │ bars (daily bars) · corporate_actions (corporate actions)              │
   engine        │ calendar_sessions (trading days) · delistings (delistings)             │──▶ the Pipeline
-  computes      │ tradability_daily (halts, admin) · classifications (sectors)           │
+  computes      │ tradability_daily (halts, admin)                                       │
                 │ fx_rates (exchange rates)                                              │
                 └────────────────────────────────────────────────────────────────────────┘
 ```
@@ -73,7 +73,6 @@ The engine takes only this one folder path: `nx.open("snapshots/2026-11-02_build
 | `calendar_sessions` | calendar_id XKRX · session_date 2024-03-29 · ts_open 2024-03-29T00:00Z · ts_close 06:30Z · session_kind regular |
 | `delistings` | KR:999990 · last_trading_date 2019-07-10 · exit_date 2019-07-19 · delist_type performance · exit_value_status observed · ret_observed −0.95 |
 | `tradability_daily` | KR:123456 · 2024-03-29 · status_known true · halted_full_day true · admin_status administrative |
-| `classifications` | KR:005930 · scheme krx_sector · level 1 · code "IT" · effective_from 2000-01-01 · ts_known_from 2000-01-01 |
 | `fx_rates` | base USD · quote KRW · rate_kind fixing · obs_date 2024-03-29 · rate 1,346.8 · ts_available 2024-03-29T06:30Z |
 
 ---
