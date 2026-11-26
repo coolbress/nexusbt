@@ -147,7 +147,7 @@ def test_one_helper_read_under_two_names_keeps_the_short_key(
     [("u.fast(1.0) + u.slow(1.0)",
       ("u._base[u.fast]:_lib689.scaled:k", "u._base[u.slow]:_lib689.scaled:k")),
      ("u.stacked(1.0)",
-      ("u.stacked[u.stacked]:_lib689.scaled:k", "u.stacked[u.stacked>f]:_lib689.scaled:k"))],
+      ("u.stacked[u.stacked]:_lib689.scaled:k", "u.stacked[u.stacked>@f]:_lib689.scaled:k"))],
     ids=["two wrappers", "stacked"],
 )  # fmt: skip
 def test_two_wrappers_of_one_helper_keep_both_arguments(

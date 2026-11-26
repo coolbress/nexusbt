@@ -613,8 +613,9 @@ def _wrapper(fn: FunctionType, prefix: str, seen: set[int]) -> _Reads:
     wrapper holds that the hash cannot read is E24, naming the decorator."""
     held = _walk(fn, seen)
     decorator = _decorator(fn)
-    theirs = [(k if ":" in k else f"{prefix}{decorator}:{k}", h, r, v) for k, h, r, v in held.found
-              if not k.endswith("=")]  # fmt: skip
+    # a chain that starts inside the wrapper is marked `@` (#797): no project name starts so
+    theirs = [(k if ":" in k else f"{prefix}{decorator}:{k}", h, f"@{r}" if r else r, v)
+              for k, h, r, v in held.found if not k.endswith("=")]  # fmt: skip
     unread = held.impure or held.under or held.lost
     return _Reads(held.helpers, tuple(theirs), (), decorator if unread else "")
 
