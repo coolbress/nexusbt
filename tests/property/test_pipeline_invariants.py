@@ -396,8 +396,11 @@ def test_P_FUT_pipeline_amendment_known_after_its_ex_date(  # noqa: N802 - after
         earlier = nx.run_pipeline(pipe, start=period[0], end=period[1], freq="monthly",
                                   snapshot=nx.open(str(at)))  # fmt: skip
     old, new = decided(whole.table, AMENDMENT_TAU), decided(earlier.table, AMENDMENT_TAU)
-    across = zip(old["session_date"].to_pylist(), old["instrument_id"].to_pylist(), strict=True)
-    assert (dt.date(2016, 1, 29), late["instrument_id"]) in set(across)  # a decision across it
+    across = [t0 for d, i, t0 in zip(*(old[k].to_pylist() for k in ("session_date",
+              "instrument_id", "t0")), strict=True)
+              if (d, i) == (dt.date(2016, 1, 29), late["instrument_id"])]  # fmt: skip
+    assert across, "no decision across the ex-date"
+    assert np.isfinite(across[0])  # `Returns(5)` read real prices across it
     assert bits(new) == bits(old)
     assert bits(closed(earlier.term_diagnostics, at, AMENDMENT_TAU)) == bits(
         closed(whole.term_diagnostics, at, AMENDMENT_TAU)
