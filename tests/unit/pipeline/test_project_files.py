@@ -27,11 +27,12 @@ def score(close):
 """
 
 
-def load(path: Path, text: str) -> ModuleType:
-    """`text` written to `path` and imported under a name of its own."""
+def load(path: Path, text: str, name: str = "") -> ModuleType:
+    """`text` written to `path` and imported under `name`, else a name of its own: a module the
+    test puts in `sys.modules` is named as it is held there, as `import` does (#690)."""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text)
-    spec = importlib.util.spec_from_file_location(f"m573_{abs(hash(str(path)))}", path)
+    spec = importlib.util.spec_from_file_location(name or f"m573_{abs(hash(str(path)))}", path)
     assert spec is not None
     assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)
@@ -71,7 +72,8 @@ def test_a_library_function_is_no_helper(tmp_path: Path, monkeypatch: pytest.Mon
     monkeypatch.setattr(_terms, "_OUTSIDE", (*_terms._OUTSIDE, link))
     hashes = []
     for release, body in enumerate(("sum(xs) / len(xs)", "sum(xs) / max(len(xs), 1)")):
-        lib = load(real / f"v{release}" / "lib573.py", f"def fmean(xs):\n    return {body}\n")
+        lib = load(real / f"v{release}" / "lib573.py", f"def fmean(xs):\n    return {body}\n",
+                   "lib573")  # fmt: skip
         monkeypatch.setitem(sys.modules, "lib573", lib)
         score = load(tmp_path / "project" / f"user{release}.py", USER).score
         assert score.function is not None
@@ -114,7 +116,7 @@ def test_an_editable_package_is_the_project(tmp_path: Path) -> None:
     hashes = []
     for release, body in enumerate(("sum(xs) / len(xs)", "sum(xs) / max(len(xs), 1)")):
         lib = load(tmp_path / "other" / "src" / f"v{release}" / "lib573.py",
-                   f"def fmean(xs):\n    return {body}\n")  # fmt: skip
+                   f"def fmean(xs):\n    return {body}\n", "lib573")  # fmt: skip
         assert _terms._project_file(str(lib.__file__))
         sys.modules["lib573"] = lib
         try:
