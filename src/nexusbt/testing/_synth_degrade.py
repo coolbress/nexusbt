@@ -35,9 +35,9 @@ LOT = 100  # `volume_in_lots`: the shares of one KR lot (4.8 (11a))
 #: `late_bars` (#354): the share of the KR bars that are late, by 1 to LATE_BY sessions, drawn
 #: from a stream of their own, PCG64 seeded [seed, LATE_STREAM], so no other row changes.
 LATE_SHARE, LATE_BY, LATE_STREAM = 0.005, 3, 354
-#: Spec 4.8's other values, built by a later ticket (spec 10.1: T0.16b).
-LATER = ("no_fundamentals_state", "no_eligibility", "no_share_counts", "no_fundamentals_events",
-         "no_benchmarks", "no_panels")  # fmt: skip
+#: Spec 4.8's other value, built by a later ticket (spec 10.1: T0.16b). The removed kinds'
+#: values (`no_eligibility`, `no_share_counts`, the fundamentals' and panels') left (#752).
+LATER = ("no_benchmarks",)
 #: The datasets a value leaves out.
 ABSENT = {"no_delistings": "delistings", "no_tick_info": "market_rules"}
 DATES = ("record_date", "declared_date", "pay_date", "resolution_date")

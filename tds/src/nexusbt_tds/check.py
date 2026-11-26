@@ -874,10 +874,9 @@ def _listed(value: str, values: Sequence[str]) -> bool:
 
 Stat = tuple[Any, Any, int]  # a row group's minimum, maximum (None: all null) and null count
 _EPOCH, _MICRO = dt.datetime(1970, 1, 1, tzinfo=dt.UTC), dt.timedelta(microseconds=1)
-#: The kinds with no availability instant to hold against a watermark (5.1, 5.3, 5.4, 4.4;
-#: `instrument_xref` has no known time in v1, 8.2, #332); any other kind without a rule
-#: leaves T006 unchecked, never passed (#181 review).
-TIMELESS = frozenset({"instruments", "instrument_xref", "calendar_sessions", *DICTIONARIES})
+#: The kinds with no availability instant to hold against a watermark (5.1, 5.4, 4.4, 8.2,
+#: #332); any other kind without a rule leaves T006 unchecked, never passed (#181 review).
+TIMELESS = frozenset({"instruments", "calendar_sessions", *DICTIONARIES})
 
 
 def _check_ranges(m: Manifest, only: Sequence[str] | None, blind: set[str]) -> list[Finding]:

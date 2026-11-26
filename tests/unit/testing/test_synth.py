@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import ast
-import bisect
 import csv
 import datetime as dt
 import inspect
@@ -189,20 +188,20 @@ def test_command_prints_counts_and_hashes_then_checks(
     assert code == 0, printed.out + printed.err
     lines = printed.out.splitlines()
     # 2 markets x (5 instruments x 62 sessions + 1 listed on 02-18 x 31 sessions)
-    assert lines[:8] == [
-        "instruments 12 rows", "instrument_symbols 14 rows", "instrument_xref 0 rows",
-        "calendar_sessions 124 rows", "corporate_actions 0 rows", "delistings 0 rows",
-        "bars_1d 682 rows", "corporate_actions revisions 0, cancellations 0",
+    assert lines[:7] == [
+        "instruments 12 rows", "instrument_symbols 14 rows", "calendar_sessions 124 rows",
+        "corporate_actions 0 rows", "delistings 0 rows", "bars_1d 682 rows",
+        "corporate_actions revisions 0, cancellations 0",
     ]  # fmt: skip
     written = json.loads((out / "tds.json").read_text(encoding="utf-8"))
     hashes = written["hashes"]
     assert written["tds_draft"] == "2026-11-19"  # the TDS text it follows (4.2, #529)
-    assert lines[8:10] == [
+    assert lines[7:9] == [
         f"value_sha256 {hashes['value_sha256']}",
         f"semantic_sha256 {hashes['semantic_sha256']}",
     ]
-    assert re.fullmatch(r"time \d+\.\d s, size \d+ bytes", lines[10])
-    assert lines[11] == "profiles tds:minimal-daily@1.0, tds:equity-daily-core@1.0"
+    assert re.fullmatch(r"time \d+\.\d s, size \d+ bytes", lines[9])
+    assert lines[10] == "profiles tds:minimal-daily@1.0, tds:equity-daily-core@1.0"
     assert not any(line.startswith("TDS-A001") for line in lines)  # #705: the record's test
     assert "0 errors, 0 warnings at level full" in printed.out
     assert "tds:equity-daily-core@1.0: declared" in printed.out  # with empty events (TDS 7)
@@ -390,8 +389,9 @@ def test_small_hashes_match_on_macos_and_linux(tmp_path: Path) -> None:
     package = make_snapshot(tmp_path / "d", preset="small")  # default markets KR, US; seed 0
     hashes = json.loads((package / "tds.json").read_text())["hashes"]
     assert (hashes["value_sha256"], hashes["semantic_sha256"]) == (
-        "d2eda714f8f20f724b9be8cae0ec12454a43ed1c74dd8385b9b1b6bd7d35b162",  # #705 B4: partitioned
-        "e8ab3228c65abcd8f343ab2dfa0d725a1872941d69bd51fdbb010901c43ecb8e",
+        # #752 R3a: three datasets left; the other eight's value hashes are unchanged
+        "ca09c1277cbcd2f8cef6117bb419ef30c3dacaef1b57fed30ae30772f8b8232a",
+        "a09fe87b47bc1c3af06a042b6d67b054b20b2ec83bf21c69ff0627efaf019765",
     )
 
 
@@ -416,7 +416,7 @@ def test_small_value_path_uses_no_platform_math() -> None:
                  acts._revise, acts._move, delist._delistings, events.exit_value, daily._snap,
                  daily._ratios, daily._kr_rows, trade._tradability, trade._sample, trade._halts,
                  trade._limits, trade._wobble, trade._status, trade._last_traded,
-                 daily._share_counts, daily._eligibility, daily._venues, daily._value_traded,
+                 daily._venues, daily._value_traded,
                  daily._market_rules):  # fmt: skip
         assert not called_names(inspect.getsource(step)) & PLATFORM_MATH, step.__name__
     # the check refuses what it is for, so the pass above is not vacuous
@@ -615,21 +615,17 @@ def test_revisions_and_cancellations_present(
 
 
 def test_small_declares_availability_for_every_dataset_with_an_instant(small: Path) -> None:
-    # TDS 4.2, 6.2 (#276); instruments and calendar_sessions are timeless (8.2), and
-    # instrument_xref has no known time in v1 (5.3)
+    # TDS 4.2, 6.2 (#276); instruments and calendar_sessions are timeless (8.2)
     manifest = json.loads((small / "tds.json").read_text(encoding="utf-8"))
     assert {d["name"]: d.get("availability") for d in manifest["datasets"]} == {
         "instruments": None,
         "instrument_symbols": {"column": "ts_known_from"},
-        "instrument_xref": None,
         "calendar_sessions": None,
         "corporate_actions": {"effect": "ts_effective", "terms": "ts_terms_available"},
         "delistings": {"exit": "ts_exit_known", "value": "ts_value_available"},
         "market_rules": None,  # 5.27 has no instant column, only its validity dates
         "bars_1d": {"rule": "ts_end"},
         "tradability_daily": None,  # its rules are `params.availability_by_column` (6.2, 5.10)
-        "share_counts": {"column": "ts_available"},
-        "eligibility_daily": {"rule": "session_close"},
     }
     (status,) = (d for d in manifest["datasets"] if d["name"] == "tradability_daily")
     assert status["params"]["availability_by_column"]
@@ -837,72 +833,6 @@ def test_no_limit_hit_before_kr_had_a_price_limit(monkeypatch: pytest.MonkeyPatc
     assert not any(np.isnan(bars[n][0]).any() for n in daily.OHLC)
 
 
-def by_bar(package: Path, kind: str) -> dict[tuple[str, dt.date], dict[str, Any]]:
-    return {(r["instrument_id"], r["session_date"]): r for r in rows(package, kind)}
-
-
-def test_eligibility_no_lookahead(small: Path) -> None:
-    manifest = json.loads((small / "tds.json").read_text(encoding="utf-8"))
-    (entry,) = (d for d in manifest["datasets"] if d["kind"] == "eligibility_daily")
-    assert entry["availability"] == {"rule": "session_close"}  # not v2's session_open (RV-C09)
-    assert entry["params"] == {"missing_means": False}  # no row yet: not eligible
-    calendar = {r["instrument_id"]: r["calendar_id"] for r in rows(small, "instruments")}
-    hours = {(r["calendar_id"], r["session_date"]): (r["ts_open"], r["ts_close"])
-             for r in rows(small, "calendar_sessions")}  # fmt: skip
-    bars, status = by_bar(small, "bars"), by_bar(small, "tradability_daily")
-    runs: dict[str, str] = {}  # each instrument's eligibility, one letter per change
-    for e in sorted(rows(small, "eligibility_daily"),
-                    key=lambda r: (r["instrument_id"], r["session_date"])):  # fmt: skip
-        iid, day = e["instrument_id"], e["session_date"]
-        opens, closes = hours[calendar[iid], day]
-        assert e["ts_available"] == closes > opens  # a decision at its own open cannot read it
-        traded = bars[iid, day]["obs_status"] == "traded"  # that day's own result
-        admin = status[iid, day]["admin_status"] == "administrative"
-        assert (e["rule_id"], e["is_eligible"]) == ("investable-v1", traded and not admin)
-        assert e["reason"] == (None if e["is_eligible"] else
-                               "no_price" if not traded else "administrative")  # fmt: skip
-        letter = "T" if e["is_eligible"] else "F"
-        runs[iid] = runs.get(iid, "") + ("" if runs.get(iid, " ")[-1:] == letter else letter)
-    assert len(runs) == len(calendar)
-    changed = [iid for iid, run in runs.items() if "FTF" in run]
-    assert changed  # out, back in and out again, each change readable only at its close
-    assert {e["reason"] for e in rows(small, "eligibility_daily")} == {
-        None, "no_price", "administrative"}  # fmt: skip
-
-
-def test_share_counts_follow_share_events(small: Path) -> None:
-    bars, end = (
-        by_bar(small, "bars"),
-        max(r["session_date"] for r in rows(small, "calendar_sessions")),
-    )
-    days: dict[str, list[dt.date]] = {}
-    for iid, day in sorted(bars):
-        days.setdefault(iid, []).append(day)
-    counts: dict[str, list[dict[str, Any]]] = {}
-    split = split_at(small)
-    for r in sorted(rows(small, "share_counts"), key=lambda r: r["as_of_date"]):
-        counts.setdefault(r["instrument_id"], []).append(r)
-    for iid, held in counts.items():
-        kr = iid.startswith("KR:")
-        assert {r["count_kind"] for r in held} == {"listed" if kr else "outstanding"}
-        on = [bars[iid, days[iid][bisect.bisect_right(days[iid], r["as_of_date"]) - 1]]
-              for r in held]  # the last bar on or before each count  # fmt: skip
-        factor = [split(iid, bar["session_date"]) for bar in on]
-        start = held[0]["shares"] * factor[0]
-        for r, bar, f in zip(held, on, factor, strict=True):  # the first count, moved since
-            assert abs(r["shares"] - start / f) < 1 + factor[0] / f  # fractions cut
-            if kr:  # every session, known at its close
-                assert (r["as_of_date"], r["ts_available"]) == (bar["session_date"], bar["ts_end"])
-            else:  # each quarter's last day, filed 40 days later inside the period
-                assert (r["as_of_date"] + dt.timedelta(1)).day == 1
-                assert r["as_of_date"].month % 3 == 0
-                assert r["ts_available"] == dt.datetime.combine(
-                    r["as_of_date"] + dt.timedelta(40), dt.time(21), UTC)  # fmt: skip
-                assert r["ts_available"].date() <= end
-    assert sum(len(v) for k, v in counts.items() if k.startswith("KR:")) == sum(
-        k[0].startswith("KR:") for k in bars)  # fmt: skip
-
-
 def first_versions(package: Path) -> dict[tuple[str, dt.date], str]:
     return {(r["instrument_id"], r["ex_date"]): r["kind"]
             for r in rows(package, "corporate_actions") if r["revision_of"] is None}  # fmt: skip
@@ -1017,21 +947,19 @@ def clear_day(package: Path) -> tuple[str, dt.date]:
 
 
 def test_injected_halt_blanks_its_bar(tmp_path: Path) -> None:
-    # #300: a full-day halt on a KR session, as 4.8 (5) makes them; ineligible that day (4.8 (10))
+    # #300: a full-day halt on a KR session, as 4.8 (5) makes them
     short: dict[str, Any] = {"markets": ("KR",), "start": dt.date(2019, 1, 2), "n_kr": 20}
     iid, day = clear_day(make_snapshot(tmp_path / "a", **short))
     halt = {"dataset": "tradability_daily", ID: iid, "session_date": day.isoformat(),
             "halted_full_day": True}  # fmt: skip
     package = make_snapshot(tmp_path / "b", **short, events=[halt])
     on = {name: next(r for r in rows(package, name) if (r[ID], r["session_date"]) == (iid, day))
-          for name in ("bars", "tradability_daily", "eligibility_daily")}  # fmt: skip
+          for name in ("bars", "tradability_daily")}  # fmt: skip
     bar = on["bars"]
     assert [bar[c] for c in ("obs_status", "open", "high", "low", "close", "volume")] == [
         "halted", None, None, None, None, 0.0]  # fmt: skip
     assert (on["tradability_daily"]["halted_full_day"], on["tradability_daily"]["halt_count"]) == (
         True, 0)  # fmt: skip
-    assert (on["eligibility_daily"]["is_eligible"], on["eligibility_daily"]["reason"]) == (
-        False, "no_price")  # fmt: skip
     assert "0 errors" in pkg._tds("check", str(package), "--level", "full").stdout
     assert applied(package) == resolved(package)
 
@@ -1304,7 +1232,7 @@ def test_degrade_drops_declared_profiles(tmp_path: Path) -> None:
         said = rf"^error TDS-M008(?: bars_1d)?: {re.escape(CORE)} requires .*"
         assert re.search(said + re.escape(missing[value]), done.stdout, re.M), done.stdout
     for wrong, error, words in (
-        (["no_eligibility"], NotImplementedError, r"come with T0.16b \(spec"),
+        (["no_benchmarks"], NotImplementedError, r"come with T0.16b \(spec"),
         (["no_ohlcv"], ValueError, "spec 4.8 has"),
         ("no_ohlc", ValueError, "a sequence of values"),
         # left with F-02 and F-03 (#705): refused, naming the values there are
@@ -1347,7 +1275,7 @@ def test_small_coverage_matches_the_rows(small: Path) -> None:
     # #390, TDS 4.3: the keys of 4.2's example, counted here from the rows
     markets, datasets = manifest_of(small)
     through = {m: {PT: e["complete_through_session"]} for m, e in markets.items()}  # #192
-    for name in ("bars_1d", "tradability_daily", "eligibility_daily"):
+    for name in ("bars_1d", "tradability_daily"):
         table, coverage = read(small, name), datasets[name]["coverage"]
         low, high = pc.min_max(table["session_date"]).as_py().values()
         assert coverage["instruments"] == pc.count_distinct(table[ID]).as_py() == 420, name
@@ -1378,28 +1306,11 @@ def test_full_check_judges_d001_on_small(small_unchecked: list[str]) -> None:
 
 
 def test_full_check_judges_k002_on_small(small: Path, small_unchecked: list[str]) -> None:
-    # #412: the three datasets TDS 5.3, 5.14 and 5.20 left without a sort declare the one the
-    # generator writes them in, so K002 judges every dataset of small
+    # #412: small's tds.json declares no sort since the three datasets that did left (#752), so
+    # K002 judges every dataset by the sort its schema file carries
     _, datasets = manifest_of(small)
-    assert datasets["instrument_xref"]["sort"] == [ID, "id_type", "id_value", "valid_from"]
-    assert datasets["share_counts"]["sort"] == [ID, "count_kind", "as_of_date", "ts_available"]
-    assert datasets["eligibility_daily"]["sort"] == ["session_date", ID, "rule_id"]
+    assert not [name for name, d in datasets.items() if "sort" in d]
     assert "TDS-K002" not in small_unchecked
-
-
-def test_k002_takes_the_schema_files_sort_when_tds_json_has_none(tmp_path: Path) -> None:
-    # #412: the three schema files carry the sort TDS states, so a manifest that leaves it out
-    # is judged too; a cut-down small, which has share_counts and eligibility_daily
-    package = make_snapshot(tmp_path / "bare", preset="small", end=dt.date(2015, 6, 30),
-                            n_kr=8, n_us=8)  # fmt: skip
-    path = package / "tds.json"
-    manifest = json.loads(path.read_text(encoding="utf-8"))
-    names = {d["name"] for d in manifest["datasets"]}
-    assert {"instrument_xref", "share_counts", "eligibility_daily"} <= names
-    for dataset in manifest["datasets"]:
-        dataset.pop("sort", None)
-    path.write_text(json.dumps(manifest), encoding="utf-8")
-    assert "TDS-K002" not in unchecked(package)
 
 
 def test_tiny_has_the_watermark_and_coverage_too(tiny: Path) -> None:
@@ -1454,7 +1365,7 @@ def test_behind_cuts_one_datasets_processed_through_session(tmp_path: Path) -> N
     assert "TDS-M016" not in unchecked(package)
 
 
-CUT = dict.fromkeys(("corporate_actions", "delistings", "share_counts", "instrument_symbols"), 300)
+CUT = dict.fromkeys(("corporate_actions", "delistings", "instrument_symbols"), 300)
 
 
 def test_behind_cuts_the_rows_known_after_the_session(tmp_path: Path) -> None:
@@ -1475,8 +1386,8 @@ def test_behind_cuts_the_rows_known_after_the_session(tmp_path: Path) -> None:
 
 
 def test_behind_cuts_nothing_from_a_dataset_without_an_instant(tmp_path: Path) -> None:
-    # #425 review: instrument_xref (written whole, not per market) has no instant to cut by
-    package = make_snapshot(tmp_path / "xref", preset="tiny", behind={"instrument_xref": 1})
+    # #425 review: instruments (written whole, not per market) has no instant to cut by
+    package = make_snapshot(tmp_path / "timeless", preset="tiny", behind={"instruments": 1})
     assert "TDS-M016" not in unchecked(package)
 
 

@@ -33,7 +33,7 @@ VERSION = "1.0"
 
 #: The TDS chapter 5 dataset kinds by section (5.12 and 5.26 define no dataset).
 _SECTIONS = """
-5.1 instruments; 5.2 instrument_symbols; 5.3 instrument_xref; 5.4 calendar_sessions
+5.1 instruments; 5.2 instrument_symbols; 5.4 calendar_sessions
 5.5 bars; 5.10 tradability_daily
 5.11 corporate_actions; 5.13 delistings; 5.14 share_counts; 5.15 fx_rates
 5.17 fundamentals_events; 5.18 fundamentals_state; 5.19 classifications

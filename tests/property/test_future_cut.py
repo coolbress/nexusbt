@@ -23,7 +23,7 @@ pytestmark = pytest.mark.unit
 TAU = dt.datetime(2017, 6, 15, 3, 0, tzinfo=dt.UTC)
 #: The first-known column of each dataset, as `_future` reads TDS 6.2 (an independent spelling
 #: of the cut rule for this package, whose columns have no nulls there).
-KNOWN = {"bars_1d": "ts_end", "share_counts": "ts_available", "delistings": "ts_exit_known",
+KNOWN = {"bars_1d": "ts_end", "delistings": "ts_exit_known",
          "instrument_symbols": "ts_known_from"}  # fmt: skip
 
 
@@ -66,7 +66,7 @@ def test_no_row_first_known_after_tau(original: Path, cut: Path) -> None:
     for name, column in known(original).items():
         assert not any(after(r[column]) for r in rows(cut, name)), name
         assert any(after(r[column]) for r in rows(original, name)), name  # it had some to cut
-    for name in ("eligibility_daily", "tradability_daily"):  # by their session's close
+    for name in ("tradability_daily",):  # by its session's close
         for market in ("KR:", "US:"):  # both close on 2017-06-14 before τ, KR's 06-15 after
             days = {r["session_date"] for r in rows(cut, name) if r["instrument_id"][:3] == market}
             assert max(days) == dt.date(2017, 6, 14), (name, market)
@@ -98,7 +98,7 @@ def test_kept_rows_are_the_original_rows(original: Path, cut: Path) -> None:
         assert sorted(map(repr, kept)) == sorted(map(repr, rows(cut, name))), name
     kept = [r for r in rows(original, "corporate_actions") if not after(existence(r))]
     assert sorted(map(repr, kept)) == sorted(map(repr, rows(cut, "corporate_actions")))
-    for name in ("eligibility_daily", "tradability_daily"):  # every session closed by τ, kept
+    for name in ("tradability_daily",):  # every session closed by τ, kept
         kept = [r for r in rows(original, name) if r["session_date"] <= dt.date(2017, 6, 14)]
         assert sorted(map(repr, kept)) == sorted(map(repr, rows(cut, name))), name
 

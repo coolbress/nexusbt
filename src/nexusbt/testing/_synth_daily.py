@@ -1,5 +1,6 @@
 """Parts of the synthetic generator (spec 4.8) that `synth` calls for `small`: the KR price
-grid of 4.8 (5), `share_counts` (4.8 (7)) and `eligibility_daily` (4.8 (10)).
+grid of 4.8 (5). `share_counts` and `eligibility_daily` (4.8 (7), (10)) are not written since
+2026-11-26 (#752); `share_counts` was a market's last draw, so no other byte moved.
 
 They draw from `synth`'s one random stream in the order it calls them and keep its
 integer-and-+-x/ value path (#128), so moving them here changed no byte of `small`.
@@ -18,14 +19,7 @@ from typing import Any
 import numpy as np
 import pyarrow as pa
 
-from nexusbt.contracts import ID_COLUMN as ID
-
 PRODUCER = "nexusbt-synth"
-#: The TDS 5.14 `share_counts` columns the generator writes.
-SHARE_COUNTS = pa.schema({ID: pa.string(), "count_kind": pa.string(), "as_of_date": pa.date32(),
-                          "shares": pa.float64(), "ts_available": pa.timestamp("us", tz="UTC"),
-                          "source": pa.string()})  # fmt: skip
-ELIGIBILITY = "investable-v1"  # 4.8 (10)'s rule
 #: 4.8 (5): the KR tick and price-limit tables' venue group of each MIC.
 KR_GROUP = {"XKRX": "KOSPI", "XKOS": "KOSDAQ"}
 OHLC = ("open", "high", "low", "close")
@@ -121,54 +115,3 @@ def _value_traded(bars: dict[str, list[Any]]) -> list[np.ndarray]:
     representative price, so V011's R is 1), and 0 on a halted bar, which has no price."""
     return [np.where(v > 0, v * (h + lo + c) / 3, 0.0) for v, h, lo, c in zip(
         bars["volume"], bars["high"], bars["low"], bars["close"], strict=True)]  # fmt: skip
-
-
-def _share_counts(
-    market: str, sessions: dict[str, Any], bars: dict[str, list[Any]], rng: np.random.Generator
-) -> pa.Table:
-    """4.8 (7): KR `listed` shares on every session, known at its close; US and ZZ
-    `outstanding` shares at each quarter end, filed 40 days later at 21:00Z, the rows filed
-    after the period left out. A listing starts with 1e6~1e8 shares, multiplied from each
-    share event's ex-date on (the ratio of `_split`, the running split factor), fractions
-    dropped."""
-    end, out = sessions["session_date"][-1], []
-    for k in range(len(bars[ID])):
-        base = int(rng.integers(1_000_000, 100_000_000, endpoint=True))
-        dates, split = bars["session_date"][k], bars["_split"][k]
-        shares, kind = np.floor(base * (split[0] / split)), "listed"
-        asof, at, when = dates, np.arange(len(dates)), bars["ts_end"][k]
-        if market != "KR":  # each quarter's last day, the last session on or before it
-            month = dates.astype("datetime64[M]").astype(int)
-            quarter = (month - month % 3 + 3).astype("datetime64[M]").astype("datetime64[D]")
-            asof = np.unique(quarter - np.timedelta64(1, "D"))
-            asof = asof[asof <= dates[-1]]
-            when = (asof + np.timedelta64(40, "D")).astype("datetime64[us]") + np.timedelta64(
-                21, "h"
-            )
-            filed = when.astype("datetime64[D]") <= end
-            asof, when, kind = asof[filed], when[filed], "outstanding"
-            at = np.searchsorted(dates, asof, side="right") - 1
-        out.append(pa.table({
-            ID: [bars[ID][k][0]] * len(asof), "count_kind": [kind] * len(asof),
-            "as_of_date": asof, "shares": shares[at], "ts_available": when,
-            "source": [PRODUCER] * len(asof)}, schema=SHARE_COUNTS))  # fmt: skip
-    return pa.concat_tables([SHARE_COUNTS.empty_table(), *out])
-
-
-def _eligibility(bars: dict[str, list[Any]], status: dict[str, list[Any]]) -> dict[str, Any]:
-    """4.8 (10): `investable-v1` on every bar. All instruments are common stock, so a bar is
-    eligible when it traded and its instrument is not administrative that day; the traded
-    part is the day's own result, so each row is available at the session close."""
-    out: dict[str, list[Any]] = {}
-    for k in range(len(bars[ID])):
-        traded = np.array(bars["obs_status"][k]) == "traded"
-        admin = np.array(status["admin_status"][k]) == "administrative"
-        for name, values in {
-            "rule_id": [ELIGIBILITY] * len(traded), ID: bars[ID][k],
-            "session_date": bars["session_date"][k], "is_eligible": traded & ~admin,
-            "reason": [None if t and not a else "administrative" if t else "no_price"
-                       for t, a in zip(traded, admin, strict=True)],
-            "ts_available": bars["ts_end"][k],
-        }.items():  # fmt: skip
-            out.setdefault(name, []).append(values)
-    return out

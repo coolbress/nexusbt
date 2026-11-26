@@ -117,14 +117,12 @@ def test_todo_fields_flagged(tmp_path: Path, capsys: pytest.CaptureFixture[str])
     assert "0 errors, 0 warnings at level full" in capsys.readouterr().out
 
 
-def test_draft_asks_no_availability_of_instrument_xref(tmp_path: Path) -> None:
-    """`instrument_xref` has no known time in v1 (TDS 5.3, 8.2): no `availability` TODO (#360)."""
+def test_draft_asks_no_availability_of_a_timeless_kind(tmp_path: Path) -> None:
+    """`instruments` and `calendar_sessions` have no known time (TDS 8.2): no `availability`
+    TODO (#360); `instrument_xref`, the case this test first held, left (#752)."""
     package, _ = folder(tmp_path)
-    (package / "instrument_xref").mkdir()
-    pq.write_table(pa.table({"instrument_id": ["US:A"]}), package / "instrument_xref" / "a.parquet")
-    drafted = build_manifest(package).data["datasets"]
-    xref = next(d for d in drafted if d["name"] == "instrument_xref")
-    assert (xref["kind"], "availability" in xref) == ("instrument_xref", False)
+    drafted = {d["name"]: d for d in build_manifest(package).data["datasets"]}
+    assert [n for n in ("instruments", "calendar_sessions") if "availability" in drafted[n]] == []
 
 
 def two_freqs(package: Path, names: dict[str, str | None]) -> None:

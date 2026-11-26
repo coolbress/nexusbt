@@ -51,6 +51,13 @@ package version follows the `tds_version` it checks (`1.0.x`), tagged
 - The profile `tds:intraday-bars@1.0` (#752, engine specification 4.3): a package declaring it
   gets TDS-M007. Minute bars themselves are checked as before, and `freq<1d` still picks the
   intraday key of `bars` (TDS 5.5)
+- The schema file of `instrument_xref` (#752, TDS 5.3, 5.6): a dataset of that kind is now a
+  kind with no schema file, so its columns, key and sort are not checked, `tds hash --write`
+  stops on it (no value hash without its types) and at `full` TDS-H002, H003 and H004 are
+  `unchecked`; TDS-T004 no longer reads its validity intervals, and TDS-T006 is `unchecked` on
+  it, as on any kind without an availability rule, where until now it was timeless and never
+  judged; `tds manifest build` no longer names its folder's kind and drafts an `availability`
+  TODO for it
 
 ### Added
 - TDS-M010 at the `schema` level for an `instruments.market` not declared in `markets` (TDS 3.8,

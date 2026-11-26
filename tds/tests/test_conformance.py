@@ -1629,21 +1629,12 @@ def test_T006_from_the_statistics(
     assert ("TDS-T006" in check(tmp_path, level="full").unchecked) is unchecked
 
 
-def _xref(m: dict[str, Any], f: Any) -> None:
-    """A US `instrument_xref` with no `availability`, US `complete_through` END."""
-    m["markets"]["US"]["complete_through"] = END.isoformat()
-    rel = "instrument_xref/market=US/part-00000.parquet"
-    f[rel] = build.parquet(pa.table({"instrument_id": ["US:AAA"]}), "instrument_xref")
-    m["datasets"].append({"name": "instrument_xref", "kind": "instrument_xref",
-                          "schema_version": "1.0", "path": "instrument_xref",
-                          "files": [{"path": rel, "bytes": len(f[rel])}]})  # fmt: skip
-
-
 @pytest.mark.parametrize("level", ["schema", "full"])
-def test_T006_does_not_read_instrument_xref(level: Level, tmp_path: Path) -> None:
-    """When I run `tds check --level schema --datasets instrument_xref`, then `TDS-T006` is
-    not in `unchecked`: the table is timeless for T006 (TDS 8.2, #332, #360)."""
-    result = check(write(tmp_path, _xref), level=level, datasets=["instrument_xref"])
+def test_T006_does_not_read_a_timeless_kind(level: Level, tmp_path: Path) -> None:
+    """When I run `tds check --level schema --datasets calendar_sessions`, then `TDS-T006` is
+    not in `unchecked`: the table is timeless for T006 (TDS 8.2, #332, #360); `instrument_xref`,
+    the case this test first held, left (#752)."""
+    result = check(write(tmp_path), level=level, datasets=["calendar_sessions"])
     assert "TDS-T006" not in result.unchecked
     assert "TDS-T006" not in [f.code for f in result.errors]
 
@@ -2196,9 +2187,6 @@ def _at(day: int, hour: int) -> dt.datetime:
         (_rules((0.0, 1.0, 0.0001), (0.5, None, 0.01)), ["TDS-T003"], []),  # bands overlap
         (_rules((0.0, 1.0, 0.0001), (1.0, None, 0.01), until=dt.date(2024, 1, 2)),
          ["TDS-T004"], []),  # valid_to == valid_from: one finding for the dataset
-        (build._add("instrument_xref", {"instrument_id": ["US:AAA"], "id_type": ["figi"],
-            "id_value": ["F1"], "valid_from": [dt.date(2024, 1, 3)], "valid_to": [build.DAY[0]],
-            "link_quality": ["primary"], "source": ["s"]}), ["TDS-T004"], []),  # T004 only
         (_rules((0.0, 1.0, 0.0001), (0.5, None, 0.01), until="2024-01-04"), ["TDS-S002"],
          INTERVAL_CODES),  # a text valid_to is S002's: none judged, the T003 there neither
         (_rules((0.0, 1.0, 0.0001), (1.0, None, 0.01)), [], []),  # null ends are open
