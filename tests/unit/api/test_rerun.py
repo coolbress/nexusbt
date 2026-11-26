@@ -466,22 +466,23 @@ nx.run_pipeline(nx.Pipeline({"c": nx.Price.close.latest}), start="2020-01-06",
 """
 
 
-@pytest.mark.parametrize(("beside", "text", "name"), [
-    (False, _LOADED, "cfg"),  # loaded from a file path under a name
-    (False, _ALIAS, "alias"),  # another name for `mylib.helpers` in sys.modules
-    (True, _BESIDE, "side"),  # beside an entry outside the project folder
+@pytest.mark.parametrize(("beside", "text", "name", "recorded"), [
+    (False, _LOADED, "cfg", ["cfg"]),  # loaded from a file path under a name
+    (False, _ALIAS, "alias", ["alias", "mylib", "mylib.helpers"]),  # another name in sys.modules
+    (True, _BESIDE, "side", ["side"]),  # beside an entry outside the project folder
 ])  # fmt: skip
 def test_an_unchanged_outside_helper_not_found_by_its_name_is_refused_as_such(
-    outside: tuple[Path, Path, str], beside: bool, text: str, name: str
+    outside: tuple[Path, Path, str], beside: bool, text: str, name: str, recorded: list[str]
 ) -> None:
     """#644 Decisions 1: nothing changed, but the recorded name resolves to nothing in the new
     process, so the code is not shown to be the same: E15 saying it cannot be found by its
-    name, not that it is missing and must be restored."""
+    name, not that it is missing and must be restored. The run records only the modules the
+    entry imported from outside the project folder, so the refusal is about `name`."""
     _, project, first = outside
     elsewhere = project.parent / "elsewhere"
     elsewhere.mkdir()
-    for helper in ("cfg.py", "side.py"):
-        (elsewhere / helper).write_text("SCALE = 1\n", encoding="utf-8")
+    if name in ("cfg", "side"):
+        (elsewhere / f"{name}.py").write_text("SCALE = 1\n", encoding="utf-8")
     ((elsewhere if beside else project) / "m2.py").write_text(text + _RUN, encoding="utf-8")
     if beside:  # run from the project folder, as `python ../elsewhere/m2.py`
         subprocess.run([sys.executable, "../elsewhere/m2.py"], check=True)
@@ -489,7 +490,7 @@ def test_an_unchanged_outside_helper_not_found_by_its_name_is_refused_as_such(
         subprocess.run([sys.executable, "m2.py"], check=True)
     sealed = {p.name for p in (project / "runs").iterdir() if (p / "SEALED").is_file()}
     (run_id,) = sealed - {first}
-    assert name in _manifest(project / "runs" / run_id)["source"]["outside"]
+    assert sorted(_manifest(project / "runs" / run_id)["source"]["outside"]) == recorded
     with pytest.raises(ReplayError) as refused:
         nx.rerun(run_id, trust=True)  # this process's `machine_id` is the first run's (#635)
     said = str(refused.value)
