@@ -349,23 +349,6 @@ def _exited(known: dt.datetime | None, through: str = "2024-01-02", rule: Any = 
     return change
 
 
-def _facts(selected: str, state_item: str = "revenue", **fact: list[Any]) -> Change:
-    """Fact F1 (`revenue`) in `fundamentals_events`, a state row choosing `selected` for item
-    `state_item`, and `dictionary/items` listing `revenue` (5.16~5.18, 4.4)."""
-    known = pa.array([NEW_YEAR], TS_UTC)
-    both = {"instrument_id": ["US:AAA"], "period_end": pa.array([dt.date(2023, 12, 31)]),
-            "period_kind": ["FY"], "statement_basis": ["consolidated"], "value": [1.0],
-            "unit": ["currency"], "scale": pa.array([0], pa.int8()), "strict_eligible": [True],
-            "vendor_input": [False]}  # fmt: skip
-    return _both(
-        _add("fundamentals_events", both | {"fact_id": ["F1"], "item": ["revenue"],
-             "ts_available": known, "source": ["synthetic"], "pit_quality": ["native"]} | fact),
-        _add("fundamentals_state", both | {"item": [state_item], "ts_known_from": known,
-             "selected_fact_id": [selected], "resolution_policy": ["latest"]}),
-        _add("dictionary/items", {"item": ["revenue"]}),
-    )  # fmt: skip
-
-
 def _rules(*bands: tuple[Any, Any, Any], until: dt.date | str | None = None) -> Change:
     """Rule set `us-tick` from 2024-01-02: a `tick_band` row per (price_from, price_to, tick),
     valid until `until` (a string: written as text, S002's)."""
@@ -634,16 +617,6 @@ def _traded(volume: float) -> Change:
     return _bars(high=ten, low=ten, volume=pa.array([volume]), value_traded=pa.array([1000.0]))
 
 
-def _event(available: dt.datetime = NEW_YEAR, **ids: list[str | None]) -> Change:
-    """One `events` row (5.21) with the ids `ids` (each a one-item list)."""
-    rel = "events/event_type=earnings.announcement/part-00000.parquet"
-    return _add("events", {
-        "event_id": ["US:EV1"], "ts_event": pa.array([NEW_YEAR], TS_UTC),
-        "ts_available": pa.array([available], TS_UTC), "source": ["synthetic"], "doc_id": ["d1"],
-        **{k: pa.array(v, pa.string()) for k, v in ids.items()},
-    }, rel)  # fmt: skip
-
-
 def _future(**columns: Any) -> Change:
     """US:AAA as a future (5.1) with `columns`."""
     return _instruments(asset_class=pa.array(["future"]), **columns)
@@ -664,9 +637,9 @@ CASES: dict[str, tuple[Change, Change]] = {
         _set("profiles", ["tds:minimal-daily"]),
         _set("profiles", ["tds:no-such-profile@1.0"]),
     ),
-    "TDS-M008": (
+    "TDS-M008": (  # minimal-daily without `calendar_sessions` (C3, #705)
         _set("profiles", ["tds:minimal-daily@1.0", "tds:fx@1.0"]),
-        _set("profiles", ["tds:minimal-daily@1.0", "tds:alt-events@1.0"]),
+        _both(no_calendar, _set("profiles", ["tds:minimal-daily@1.0"])),
     ),
     "TDS-M009": (
         _set("schema_version", "1.0", in_bars=True),

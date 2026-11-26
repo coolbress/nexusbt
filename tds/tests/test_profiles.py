@@ -15,11 +15,8 @@ from nexusbt_tds.profiles import describe, profile_id
 
 from .conformance_build import build
 
-#: TDS 7, the profile column of the table, in its order (`tds:fx` and `tds:alt-events` without `@`).
-CHAPTER_7 = (
-    "minimal-daily equity-daily-core equity-daily-research panels pit-fundamentals bitemporal"
-    " intraday-bars fx alt-events"
-)
+#: TDS 7, the profile column of the table, in its order (`tds:fx` without `@`).
+CHAPTER_7 = "minimal-daily equity-daily-core panels intraday-bars fx"
 
 
 def test_every_chapter_7_profile_is_in_the_table() -> None:
@@ -45,15 +42,7 @@ def test_core_stacks_on_minimal_with_raw_dense_daily_bars() -> None:
     ]
 
 
-def test_research_needs_fx_rates_only_with_more_than_one_market() -> None:
-    research = PROFILES["tds:equity-daily-research@1.0"]
-    assert research.requires_multi_market == (((("fx_rates", ()),),),)
-    assert (("dictionary/columns", ()),) in {alt for group in research.requires for alt in group}
-
-
 def test_alternatives_and_experimental_status() -> None:
-    alt = PROFILES["tds:alt-events@1.0"]
-    assert alt.requires == (((("events", ()),), (("series_observations", ()),)),)
     together = (("instruments", ()), ("bars", ()))  # TDS 7: `instruments(fx_spot)` + bars
     assert PROFILES["tds:fx@1.0"].requires == (((("fx_rates", ()),), together),)
     assert PROFILES["tds:intraday-bars@1.0"].status == "experimental"
@@ -204,11 +193,7 @@ def test_the_columns_chapter_7_names_per_profile() -> None:
         if profile.traded
     }
     ohlv = "open high low volume"
-    assert traded == {
-        "equity-daily-core": {raw_dense: ohlv},
-        "equity-daily-research": {raw_dense: ohlv},
-    }
-    recorded = ("events", "fundamentals_events")  # #397 Decisions
+    assert traded == {"equity-daily-core": {raw_dense: ohlv}}
     named = {
         name.removeprefix("tds:").removesuffix("@1.0"): {
             describe((need,)): " ".join(columns) for need, columns in profile.columns
@@ -219,15 +204,8 @@ def test_the_columns_chapter_7_names_per_profile() -> None:
     assert named == {
         "minimal-daily": {"bars(freq=1d, price_basis)": "close"},
         "equity-daily-core": core,
-        "equity-daily-research": core,  # "above +"
         "panels": {"feature_panels": "ts_available", "label_panels": "ts_available"},
-        "pit-fundamentals": {
-            "fundamentals_events": "fact_id doc_id",
-            "fundamentals_state": "lineage_id",
-        },
-        "bitemporal": dict.fromkeys(recorded, "ts_recorded"),
         "intraday-bars": {"bars(freq<1d)": "ts_start ts_end session_date"},
-        "alt-events": {"events": "ts_available", "series_observations": "ts_available"},
     }
 
 
@@ -400,45 +378,13 @@ def test_a_column_without_statistics_is_a_note_not_an_error(tmp_path: Path) -> N
     )
 
 
-def test_bitemporal_needs_ts_recorded_where_the_dataset_is_present(tmp_path: Path) -> None:
-    # TDS 7: "(on top of other profiles)": no dataset of its own, a column in those it names
-    bitemporal = "tds:bitemporal@1.0"
+def test_a_profile_column_is_looked_for_only_in_the_datasets_named(tmp_path: Path) -> None:
     manifest, files = build.base()
-    assert check(Path(build.write(tmp_path / "a", manifest, files)), level="schema",
-                 profiles=[bitemporal]).errors == ()  # fmt: skip
-    build._event()(manifest, files)
-    result = check(Path(build.write(tmp_path / "b", manifest, files)), level="schema",
-                   profiles=[bitemporal], datasets=["events"])  # fmt: skip
-    assert [f.message for f in result.errors if f.code == "TDS-M008"] == [
-        f"{bitemporal} requires column ts_recorded in events: missing"
+    build._bars(close=None)(manifest, files)  # minimal-daily's `close` gone from the bars
+    root = Path(build.write(tmp_path, manifest, files))
+    found = check(root, level="schema", profiles=[MINIMAL], datasets=["bars_1d"])
+    assert [f.message for f in found.errors if f.code == "TDS-M008"] == [
+        f"{MINIMAL} requires column close in bars: missing"
     ]
-    named = check(tmp_path / "b", level="schema", profiles=[bitemporal], datasets=["bars_1d"])
-    assert [f.code for f in named.errors] == []  # --datasets: only the named ones are read
-
-
-BITEMPORAL = "tds:bitemporal@1.0"
-
-
-def test_bitemporal_fundamentals_events_without_ts_recorded_is_M008(tmp_path: Path) -> None:
-    # #397 Decisions: the profile names the two datasets whose schema carries `ts_recorded` (5.17)
-    manifest, files = build.base()
-    build._facts("F1")(manifest, files)  # fundamentals_events and _state, without ts_recorded
-    result = check(Path(build.write(tmp_path / "a", manifest, files)), level="schema",
-                   profiles=[BITEMPORAL])  # fmt: skip
-    assert [f.message for f in result.errors if f.code == "TDS-M008"] == [
-        f"{BITEMPORAL} requires column ts_recorded in fundamentals_events: missing"
-    ]  # and none for fundamentals_state, whose schema has no `ts_recorded`
-    manifest, files = build.base()
-    build._facts("F1", ts_recorded=pa.array([build.NEW_YEAR], build.TS_UTC))(manifest, files)
-    held = check(Path(build.write(tmp_path / "b", manifest, files)), level="schema",
-                 profiles=[BITEMPORAL])  # fmt: skip
-    assert (held.errors, [f.code for f in held.warnings if "ts_recorded" in f.message]) == ((), [])
-
-
-def test_bitemporal_classifications_written_to_their_schema_are_clean(tmp_path: Path) -> None:
-    # #397: `classifications` carries its recorded time as `ts_known_from` (5.1.5), no M008/S005
-    manifest, files = build.base()
-    build._classified(build._A)(manifest, files)
-    result = check(Path(build.write(tmp_path, manifest, files)), level="schema",
-                   profiles=[BITEMPORAL])  # fmt: skip
-    assert (result.errors, [f.code for f in result.warnings if f.code == "TDS-S005"]) == ((), [])
+    other = check(root, level="schema", profiles=[MINIMAL], datasets=["instruments"])
+    assert [f.code for f in other.errors] == []  # --datasets: only the named ones are read

@@ -185,7 +185,7 @@ def test_no_schema_file_is_an_error_not_an_empty_registry(
 def test_schema_files_cover_stable_datasets() -> None:
     status = section_status(TDS_DOC.read_text(encoding="utf-8"))
     stable = [kind for kind, n in CHAPTER_5.items() if status[n] == "stable"]
-    assert len(stable) == 20  # 5.1-5.5, 5.10-5.21, 5.25 and 5.27 less 5.16 (5.12, 5.26 none)
+    assert len(stable) == 18  # 5.1-5.5, 5.10-5.20, 5.25 and 5.27 less 5.16 (5.12, 5.26 none)
     schemas = load_schemas()
     assert [k for k in stable if k not in schemas or schemas[k].status != "stable"] == []
 
@@ -239,8 +239,8 @@ def test_market_rules_schema_stable_optional(
     schema = load_schemas()["market_rules"]
     key = ["rule_id", "rule_kind", "venue_group", "valid_from", "price_from"]
     assert (schema.status, schema.key, schema.sort) == ("stable", key, key)
-    needed = {kind for p in PROFILES.values() for group in (*p.requires, *p.requires_multi_market)
-              for alt in group for kind, _ in alt}  # fmt: skip
+    needed = {kind for p in PROFILES.values() for group in p.requires for alt in group
+              for kind, _ in alt}  # fmt: skip
     assert "market_rules" not in needed
     manifest, files = build.base()
     build._add("market_rules", pa.Table.from_pylist(rows).to_pydict())(manifest, files)
@@ -277,10 +277,9 @@ def test_verify_prints_the_lists_and_the_match(capsys: pytest.CaptureFixture[str
     out = capsys.readouterr().out.splitlines()
     assert out[0] == (
         "stable: bars, calendar_sessions, classifications, corporate_actions,"
-        " delistings, eligibility_daily, events, feature_panels, fundamentals_events,"
+        " delistings, eligibility_daily, feature_panels, fundamentals_events,"
         " fundamentals_state, fx_rates, instrument_symbols, instrument_xref, instruments,"
-        " label_panels, market_rules, series_observations, share_counts, tradability_daily,"
-        " universe_membership"
+        " label_panels, market_rules, share_counts, tradability_daily, universe_membership"
     )
     assert out[1] == "experimental: (none)"
     assert out[2:] == ["doc tables match schema files"]

@@ -324,9 +324,9 @@ def test_three_status_distinct(tiny: Path, tmp_path: Path) -> None:
     schema = open_snapshot(DataConfig(path=tiny, verify=VerifyPolicy.SCHEMA))
     assert schema.profiles[CORE].verified_level == "schema"
     more = shutil.copytree(tiny, tmp_path / "more")
-    edit_manifest(more, lambda d: d["profiles"].append("tds:bitemporal@1.0"))
+    edit_manifest(more, lambda d: d["profiles"].append("tds:fx@1.0"))
     s = open_snapshot(DataConfig(path=more))  # declared and checked, not read by v1 (4.3)
-    assert s.profiles["tds:bitemporal@1.0"] == ProfileStatus(True, "manifest", "not_checked")
+    assert s.profiles["tds:fx@1.0"] == ProfileStatus(True, "manifest", "not_checked")
     assert s.capabilities.supported == {CORE, MINIMAL}
 
 

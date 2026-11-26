@@ -60,7 +60,7 @@ UNCHECKED_AT_MANIFEST = tuple(f"TDS-{c}" for c in _ROW_CODES.split())
 #: it stays unchecked. The `full` level judges the three from the rows instead (`cells`).
 #: TDS 4.4: the tables that describe the package; their schema files (`dictionary_schemas`) give
 #: the value hash its types, and the schema level checks no S code on them, nor hides one.
-DICTIONARIES = frozenset({"dictionary/columns", "dictionary/items", "dictionary/codes"})
+DICTIONARIES = frozenset({"dictionary/columns", "dictionary/codes"})  # `items` left (#752)
 #: TDS 8.2's range checks from file statistics: T006 here; D002's part stays `unchecked`, since
 #: a non-session day between the minimum and the maximum is in the rows (#181).
 T006, D002 = "TDS-T006", "TDS-D002"
@@ -1077,11 +1077,7 @@ def _check_profile(
         why = "unknown profile" if _PROFILE.fullmatch(name) else "not a profile name"
         yield Finding("TDS-M007", "error", f"{why}: {name!r}")
         return
-    markets = m.data.get("markets")
-    needs = profile.requires
-    if isinstance(markets, dict) and len(markets) > 1:
-        needs += profile.requires_multi_market
-    for group in needs:
+    for group in profile.requires:
         if not any(all(_has(m.datasets, need) for need in alt) for alt in group):
             wanted = " or ".join(describe(alt) for alt in group)
             yield Finding("TDS-M008", "error", f"{name} requires dataset {wanted}")

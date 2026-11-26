@@ -927,10 +927,7 @@ def test_a_delistings_file_holds_the_three_columns_even_where_null(tmp_path: Pat
     assert codes(write(tmp_path, change), "schema") == ["TDS-S001"] * 3  # one per column
 
 
-RESEARCH, PIT = "tds:equity-daily-research@1.0", "tds:pit-fundamentals@1.0"
-
-
-@pytest.mark.parametrize("profile", [RESEARCH, PIT, "tds:minimal-daily@1.0"])
+@pytest.mark.parametrize("profile", ["tds:minimal-daily@1.0", "tds:equity-daily-core@1.0"])
 @pytest.mark.parametrize("issuer", [[None], None])  # null, or no issuer_id column at all
 def test_an_equity_needs_no_issuer_id(
     profile: str, issuer: list[str | None] | None, tmp_path: Path
