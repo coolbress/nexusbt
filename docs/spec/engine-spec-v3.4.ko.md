@@ -816,6 +816,7 @@ Q{q}-Q1 / period             {x:.2%}                …
   t                          {t:.2f}                …
 monotonic (Q1<…<Q{q})        {k}/{q-1} steps        …
 turnover Q{q} / period       {p}%                   …
+rank autocorr (mean)         {r:.2f}                …
 worst year IC                {year}  {ic:.3f}       …
 exits in Q1 (obs/policy/unobs) {a}/{b}/{c} of {n}   …
 naive breadth / yr · IR     {br:,} · {ir:.2f}      …   (naive opportunity count, not independent bets)
@@ -872,6 +873,8 @@ warnings {n} (run.warnings) · data fallbacks {k} · reconciled: {yes|NO}
 ```
 
 **첫 화면의 primary, reference, diagnostics, provenance** (결정 2026-11-04, #216; 정의는 6.3a): reference가 없는 실행(`method="linear"` 또는 `splits.holdout()`)은 지표 표가 primary 결과이고 `primary` 줄도 `reference` 줄도 찍지 않는다. 다른 방법이면 `primary` 줄이 먼저 오고 방법, 경로 수나 폴드 수, 기간을 싣는다. `reference` 줄은 선형 실행과 그 기간, `params = default`를 밝히고, 그 아래 지표 표가 그 선형 실행(`Run.metrics`)이다. PSR·DSR·Lo Sharpe 줄과 hygiene 칸(6.3a)의 (2), (4), (5) 항목은 diagnostics이며 각각 계산한 시계열과 비교 집합을 밝힌다(6.3). 그 칸의 (3) 항목인 경로 띠는 CPCV 실행의 primary 결과에 속한다. `assumptions`, `family`, `evaluation` 줄, `IS scores` 줄(`grid`의 IS 점수를 어떻게 계산했나: `strict`, `approximate`, `slice`, 6.3a, #215)과 그 칸의 (1), (6), (7), (8) 항목은 provenance다. 만들지 못한 값은 `nan`이 아니라 그 실패 표식(6.3a)을 찍고, 기간이 담아야 할 표본보다 적은 표본으로 계산한 값은 평가 기간과 `n_valid`/`n_total`을 찍는다. `report.html`과 CSV로 쓴 결과 표도 같은 네 표시를 싣는다(6.3a).
+
+**시뮬레이션 결과 줄** (사용자 결정 2026-11-25, #764): Run과 FactorReport의 첫 화면과 `report.html`은 각각 한 줄을 늘, 끄는 설정 없이 싣는다. 그 줄은 결과가 과거 자료로 흉내 낸 것이고, 실제로 체결된 거래는 없으며, 같은 결과가 다시 나온다는 말이 아니라고 밝힌다.
 
 **`next` 줄** (결정 2026-11-04, #218): 안내서 `docs/guide/choose-by-question.md`(3.10)의 항목을 안내서 순서로 최대 셋 보이며, 각 항목은 지표 값이 아니라 실행이 한 일을 기준으로 이 고정 표에서 고른다: `grid`, 또는 후보가 N > 1인 전략 cohort → `compared`; `nx.ml.factor`, 또는 `method="linear"`에서 `params=`의 매개변수 → `periodic`; 평가 라벨 `research data` → `unseen`; E21 알림 또는 `skipped` > 0 → `na`. 각 항목은 실행의 사실과 안내서 앵커로 쓴다. 예: `next   you chose among 12 settings on this data → docs/guide/choose-by-question.md#compared`. 엔진이 아직 만들지 않는 사실은 항목을 주지 않고, 항목이 없으면 줄도 없다. 이 줄은 방법의 순위를 매기지 않고, "안전"이라고 하지 않으며, 자료·기간·지표를 바꾸라고 권하지 않는다.
 
@@ -1884,6 +1887,7 @@ v1은 이 절의 정의를 규범으로 고정하고(INV-08 문구, `DecisionCon
 - **실효가 진단**: 체결마다 `effective_price = P ± (½스프레드 + 충격)/q`(매수 +, 매도 −)를 사건에 남기고, 그 세션 [L, H] 밖인 건수·비율을 보고서 비용 줄에 낸다(가격은 바꾸지 않음; 주문 크기가 비현실적이라는 신호. backtrader는 슬리피지를 봉 범위 안으로 자름).
 - **임시 비용 표**(선택) [V31-27]: `provisional(table=…)`이면 `b_side`를 표의 (시장, 쪽, 체결 날짜 구간, 판단 시점 ADV 금액 구간) 행에서 찾는다; 행이 없으면 E23. 기본은 표 없음.
 - 보고서 머리에 프로필 이름을 쓰고, `provisional`이면 "(provisional costs)"를 붙인다 [R-61].
+- **기본 프로필** (사용자 결정 2026-11-25, #764, #311이 열어 둔 두 부분): `provisional`은 시장별 고정 bp로 남는다. ½스프레드 추정 `hs`와 충격은 사용자가 고르는 프로필 `realistic`에만 있다. `hs`에는 반 호가 단위 하한이 없다.
 
 #### 5.6.9 슬리브, 통화, 평가 [R-62, 11.4.1, C5]
 - **처음 자금**: 시작 시각 `inception_ts` = 실행의 첫 판단 `decision_ts`(모든 슬리브 중 가장 이른 것). 기준 통화 자본 K를 `[sleeves] weights`로 나누고, 다른 통화 슬리브는 `ts_available <= inception_ts`인 마지막 환율로 한 번 바꿔 넣는다(최소 단위 반올림). 이후 슬리브 사이 현금 이동은 없다 [11.4.1].
@@ -2014,7 +2018,7 @@ v1은 이 절의 정의를 규범으로 고정하고(INV-08 문구, `DecisionCon
 | 낙폭 기간·회복 기간·최악 월 | 최대 낙폭 고점 → 저점 달력일, 저점 → 고점 회복 달력일(회복 못 하면 "not recovered"), 달력 월 수익(복리) 최솟값 [SC-09]. **회복 = NAV가 직전 고점 이상**(같음 포함, 최소 단위 정수 비교); 고점 날짜 = 저점 전 마지막으로 직전 고점 이상이었던 날(backtrader PR #528: "초과"만 회복으로 봐서 두 낙폭이 이어 붙음) |
 | 신호-비중 상관 `signal_weight_corr` | 판단·슬리브마다 `c_d = corr( zscore(점수_d), w_d − w̄_d )`, 유니버스 안 유한 점수 종목 전부(목표 0 포함), 평균 순위가 아닌 피어슨 상관, 5.3.10 순서로 합. 보고는 판단들의 중앙값과 건수. 위험 조정이 없으므로 Grinold–Kahn의 전이 계수(TC)라 부르지 않는다(v2 이름 "transfer coefficient" 바꿈) [SC-08] |
 | 통화 귀속 | 5.6.9 식의 연율 기여(현지·환율·교차) [SC-07] |
-| 용량("capacity" 시나리오) | 같은 목표를 자본 ×10, ×100으로 재생(집행만): CAGR, 상한에 걸린 주문 비율(`capacity_bound / 주문 수`), 평균 참여율(`fill_qty / ADV`). "cap binds at ≈ K" = 상한 걸린 비율이 처음 5%를 넘는 배수의 자본(×1, ×10, ×100 중; 없으면 "> x100") [SC-06] |
+| 용량("capacity" 시나리오) | 같은 목표를 자본 ×10, ×100으로 재생(집행만): CAGR, 상한에 걸린 주문 비율(`capacity_bound / 주문 수`), 평균 참여율(`fill_qty / ADV`). "cap binds at ≈ K" = 상한 걸린 비율이 처음 5%를 넘는 배수의 자본(×1, ×10, ×100 중; 없으면 "> x100") [SC-06]. 기본 프로필 `provisional`에서는 비용이 주문 크기에 따라 늘지 않고 한계는 거래량 상한(5.6.6)으로만 드러난다고 결과가 밝힌다(사용자 결정 2026-11-25, #764) |
 | N_eff, DSR(N_eff) | v1.x [SC-10]: study 후보의 일간 순수익 상관행렬을 거리 `1 − ρ`, 평균 연결 계층 군집 + 실루엣 최대로 묶은 군집 수(방법 이름 기록). DSR 기본은 N 유지 [OQ-6]. 군집 수만 센다: 군집 수준 수익 시계열과 군집 사이 Sharpe 분산은 여기서 정의하지 않으며, ONC(OI-17)와 다른 방법이므로 둘을 같은 이름으로 부르지 않는다. T7.2를 만들기 전에 이 행이 군집 수준 수익 시계열, 군집 사이 Sharpe 분산 추정, 기간·빈도가 다른 후보의 정렬을 정의한다(#197) |
 | 로그 손실·Brier(ML 분류 팩터) [#197] | 분류 라벨을 쓰는 `nx.ml.factor`의 `evaluate`에서, 채점한 예측(판단이 그 fit의 학습 표본에 들지 않는 판단 × 종목; 나머지는 세기만 하고 채점하지 않음)에 대해: **로그 손실** `= −mean ln max(p(y), 1e-15)`, p(y) = 예측의 `probs`가 실현된 클래스 y에 준 확률, 라벨이 선언한 클래스 위에서(fit에 없던 선언 클래스의 확률은 0, 5.3.11); **Brier**는 고른 `score=` 위에서 `= mean (s − t)²`, t = `p_up`이면 1[y = +1], `p_down`이면 1[y = −1], `p_up_minus_down`이면 y, 두 클래스에 `score=None`이면 1[y = 큰 클래스]. `p_up_minus_down`에서 이것은 y ∈ {−1, 0, +1}에 대한 점수의 평균 제곱 오차이며 고전적 Brier 점수가 아니다. 줄 이름은 그대로 두고 이 문장이 독자에게 알린다. FactorReport 줄 `log-loss {x:.3f} · Brier ({score}) {y:.3f} · scored {a}/{b} (model fit out of sample)` |
 
@@ -2040,6 +2044,7 @@ v1은 이 절의 정의를 규범으로 고정하고(INV-08 문구, `DecisionCon
 - **Newey–West t**: IC 계열 `x_1..x_T`(결측 뺌), `γ_j = (1/T)Σ_{t=j+1}^{T}(x_t − x̄)(x_{t−j} − x̄)`, `σ² = γ_0 + 2Σ_{j=1}^{L}(1 − j/(L+1))γ_j`, `t = x̄ / sqrt(σ²/T)`. `L = floor(4·(T/100)^(2/9))`, 겹치는 정답(h > 1 판단 간격)이면 `L = max(L, h − 1)`. 보고서에 L을 적는다 [11.4.5].
 - **분위**: 5.4.3 규칙, 분위별 동일 가중 평균 정답. 스프레드 `Q_q − Q_1` 평균·NW t. 단조 단계 수 = `#{j : mean(Q_{j+1}) > mean(Q_j)}`.
 - **회전율(분위 q)** = `1 − |S_t ∩ S_{t−1}| / |S_t|`의 평균.
+- **순위 자기상관** (사용자 결정 2026-11-25, #764): 시장마다, 한 판단과 그 앞 판단의 팩터 값 사이의 Spearman(평균 순위) 상관을, 두 판단의 표본(universe 참 ∧ 팩터 유한; 정답은 필요 없음)에 모두 든 종목으로 구한다. 한쪽에만 있는 종목은 빠진다. 그런 종목이 `min_pairs`(20)보다 적으면 결측이고, 판단이 하나뿐이면 짝이 없으므로 결측이다. 보고서는 그 평균(`rank autocorr (mean)`, 3.9)을 `turnover` 속성에 싣는다.
 - **커버리지** = `Σ 유효 / Σ 유니버스` (분자/분모 함께) [R-11].
 - **연도별·구간별**: 판단 날짜의 연도·구간으로 같은 통계.
 - **종료 건수**: 분위별로 청산이 종료가치였던 정답 수를 status별로.
@@ -3162,6 +3167,8 @@ v1 명세의 O1~O11, 청사진 OQ-1~OQ-15, TDS Q1~Q16을 하나로 모았고, v3
 | RS-05 | 묶음 MDA, 표본 고유도 가중, MI/VI, denoising·detoning, NCO, 메타 라벨링, 생성 모형 | RS-04 뒤(#197); v1 아님 | later |
 | RS-06 | 엔진이 쓰는 식 10 옆에 `bench/` 진단으로 두는 이틀 보정 Abdi–Ranaldo 추정(식 11)(5.6.8) | v1.x(결정 2026-11-06, #310): 진단만; 엔진 비용 추정은 T3.8의 알려진 값이 고정한 식 10에 남는다 | v1.x |
 | RS-07 | 일봉의 선택 칼럼 `bid_close`/`ask_close` | 정하지 않음(#311, 결정 2026-11-10): 기록이 열어 둔 TDS MINOR 질문; 5.6.8은 지금 추정을 유지 | TDS 다음 MINOR |
+| RS-08 | 자료에 따라 정해지는 다른 선택(팩터 가중치, 공분산 추정, 배분 최적화, 문턱값 고르기)도 학습으로 보고 같은 학습 창 감사(5.3.11)를 거치게 하기 | v1 뒤(사용자 결정 2026-11-25, #764): #195의 결정에서 빠진 후속, M6의 티켓이 아님 | later |
+| RS-09 | 밖에서 미리 계산한 특성과 사용자 콜백에 대해, 엔진이 확인한 것과 선언된 가정을 나눠 기록하기 | v1 뒤(사용자 결정 2026-11-25, #764): #195의 결정에서 빠진 후속, M6의 티켓이 아님 | later |
 | R4F-42 | ERC `fallback="fail"` 옵션 | v1.x(Opus·Sol 다수 — 대체 + E43 + 건수로 충분, Fable은 v1 제안). 옵션 하나라 다시 열기 쉬움 | v1.x |
 | R4F-43 | ML 양쪽 훈련 `ml_two_sided=True`(AFML식 CPCV 훈련) | v1.x, E44류 경고와 함께. v1은 사용자 결정으로 앞쪽만(5.3.11) | v1.x |
 | R4F-44 | `Macro`·`Events` 확장: 컨센서스 분포(표준화 서프라이즈), 사건 창 이벤트 스터디 보고(CAR), 장중 발표 시각 정밀 체결 | v1.x. v1은 `value − consensus`와 세션 단위 트리거뿐; `Macro`·`Events`와 함께 2026-11-24 대체(#752) | v1.x |
