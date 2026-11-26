@@ -10,8 +10,9 @@ Five items of example data. Their names are this generator's, not names the engi
 - `symbol_values`: `sector`, a code from 1 to 10.
 
 The draws come from a stream of their own, `PCG64([seed, 752])`, one child per market as the
-other stages spawn theirs, so no other dataset's rows change. Integers and exact division
-only (4.8 rule 3), so the bytes are the same on every platform.
+other stages spawn theirs, so no other dataset's rows change. Integer draws and the four
+arithmetic operations only (4.8 rule 3; IEEE rounds a division the same everywhere), so
+the bytes are the same on every platform.
 """
 
 from __future__ import annotations
