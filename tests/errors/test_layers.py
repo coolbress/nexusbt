@@ -19,17 +19,20 @@ SPEC = (HERE.parents[1] / "docs" / "spec" / "engine-spec-v3.4.md").read_text(enc
 TABLE: dict[str, str | dict[str, str]] = tomllib.loads((HERE / "layers.toml").read_text())
 CLASSES = {c.code: c for c in NexusBTError.__subclasses__()}
 CODES = sorted(TABLE, key=lambda code: int(code[1:]))
+#: The numbers 6.6 marks retired: a row whose third cell (after the class) begins "retired".
+RETIRED = set(re.findall(r"^\| (E\d+) \| `\w+` \| \w+ \| retired ", SPEC, re.MULTILINE))
 
 #: A second condition's case, where the example shows the first.
 EXTRA = [
     nx.CapabilityError(
-        what="fundamentals_state not in snapshot; needed for Fund.roe",
+        what="tradability_daily not in snapshot; needed for Trad.halted",
         where="snapshot s1",
         why="the term reads a dataset this snapshot does not have",
-        fix="use a snapshot with fundamentals_state, or remove Fund.roe",
+        fix="use a snapshot with tradability_daily, or remove Trad.halted",
         more="spec 4.3 and 4.5; tds check snap --level full",
-        layer="data — snapshot s1 / fundamentals_state / column value / producer synthetic",
-        subject="Fund.roe",
+        layer="data — snapshot s1 / tradability_daily / column halted_full_day"
+        " / producer synthetic",
+        subject="Trad.halted",
     )
 ]
 RAISED = cases.raised()
@@ -80,7 +83,12 @@ def spec_layers() -> dict[str, set[str]]:
 
 
 def test_every_code_has_layer_case() -> None:
-    assert [f"E{n}" for n in range(1, 50)] == CODES == sorted(CLASSES, key=lambda c: int(c[1:]))
+    """Every number of 6.6 but a retired one has its class and its layer; a retired number has
+    neither (its number is not reused)."""
+    assert {"E3", "E47"} == RETIRED  # 6.6 today; a new retirement changes this line
+    live = [f"E{n}" for n in range(1, 50) if f"E{n}" not in RETIRED]
+    assert live == CODES == sorted(CLASSES, key=lambda c: int(c[1:]))
+    assert not RETIRED & (set(CLASSES) | set(TABLE))
     covered = {(err.code, condition_of(err)) for err in CASES}
     assert covered == {(code, c) for code in CODES for c in conditions(code)}
     for file, err in zip(cases.FILES, RAISED, strict=True):  # `<code>-<condition>.py`

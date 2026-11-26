@@ -68,7 +68,7 @@ def test_m1_screen_prints_the_top_10_per_market_and_the_run(
     assert lines[0].startswith("factor  screen as of KR 2019-12-30 close · US 2019-12-31 close")
     rows = [line.split() for line in lines[2:22]]
     assert [(r[0], r[2]) for r in rows] == [(str(n), m) for m in ("KR", "US") for n in range(1, 11)]
-    assert lines[22] == "universe: listed (investable comes with T2.4)"
+    assert lines[22] == "universe: listed (the default universe comes with T2.4)"
     assert "selected 10/" in lines[23]
     run_id = lines[23].rsplit(" run ", 1)[1]
     assert run_id.split("-")[2:4] == ["screen", "m1_screen"]

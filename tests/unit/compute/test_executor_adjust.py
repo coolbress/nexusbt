@@ -190,9 +190,3 @@ def test_a_column_of_another_dataset_is_not_adjusted(tmp_path: Path) -> None:
     axis = Axis(tmp_path, [SPLIT], {"x": [1.0, 2.0, 3.0, 4.0, 5.0]})
     term = nx.factor(window=3, inputs=[BoundColumn.of("Panel", "x")])(total)
     assert axis.run([term], [4], {graph_hash(term): total})[4, graph_hash(term)] == 12.0
-
-
-def test_shares_out_window_waits_for_5_3_5a(tmp_path: Path) -> None:
-    axis = Axis(tmp_path, [SPLIT], {"shares_out": [1.0] * 5})
-    with pytest.raises(NotImplementedError, match=r"5\.3\.5a"):
-        axis.windows("shares_out", 3, [4])

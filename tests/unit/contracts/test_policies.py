@@ -75,8 +75,8 @@ def choices(key: str) -> list[str]:
 NAMED = named_in_2_4()
 
 
-def test_2_4_names_26_policy_enums() -> None:
-    assert len(NAMED) == 26
+def test_2_4_names_25_policy_enums() -> None:
+    assert len(NAMED) == 25
 
 
 def test_policy_enums_are_the_ones_2_4_names() -> None:

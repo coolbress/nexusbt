@@ -191,7 +191,6 @@ PACK_SCHEMA: dict[str, dict[str, tuple[bool, Ok]]] = {
     "price_limits": {"table": (True, _table), "open_tolerance": (True, _num(0, 0.05))},
     "costs": {"provisional_bps": (False, _bps), "min_half_spread_bps": (True, _num(0)),
               "table_market_groups": (False, _table)},
-    "dividends": {"fallback_pay_lag_days": (True, _num(1, 400, int_=True))},
     "tradability": {"unknown_status_before": (True, _match(r"(\d{4}-\d\d-\d\d)?"))},
     "grid": {"tick_table": (False, _table), "base_unit": (False, _num(1e-12))},
     "rounding": dict.fromkeys(COMPONENTS, (True, _rounding)),

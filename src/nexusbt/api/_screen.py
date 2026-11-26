@@ -1,7 +1,7 @@
 """`nx.screen(factor, top=n)`'s result (spec 3.8, 3.9 Screen), T1.13 (#249).
 
 The factor's top n per market on one session, among the listed instruments (3.3's default
-domain) until T2.4 brings the investable universe (#249 Decisions, 2026-11-19).
+domain) until T2.4 brings the default universe (3.6; #249 Decisions, 2026-11-19).
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ import pyarrow as pa
 from nexusbt.contracts import ID_COLUMN
 
 #: What the universe is until T2.4: 3.3's default domain, said on every result (#43's notes).
-UNIVERSE = "universe: listed (investable comes with T2.4)"
+UNIVERSE = "universe: listed (the default universe comes with T2.4)"
 
 
 @dataclass(frozen=True, slots=True, eq=False)

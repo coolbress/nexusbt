@@ -2,7 +2,6 @@
 # than one condition maps condition id → layer. `test_layers.py` checks it both ways.
 E1 = "your code"
 E2 = "your code"
-E3 = "data"
 E4 = "your code"
 E5 = "your code"
 E6 = "data"
@@ -47,6 +46,5 @@ E44 = "config"
 # E45 takes the layer of its skip reason; no reason without a fixed code is listed yet.
 E45 = { skip_reason = "*" }
 E46 = "engine bug"
-E47 = "data"
 E48 = "your code"
 E49 = "your code"

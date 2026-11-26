@@ -96,7 +96,7 @@ _BASIS: Mapping[str, str | None] = {
     **dict.fromkeys(("open", "high", "low", "close"), "split"),
     "close_tr": "total",
     "volume": "volume",
-    **dict.fromkeys(("close_unadjusted", "volume_unadjusted", "value_traded", "market_cap")),
+    **dict.fromkeys(("close_unadjusted", "volume_unadjusted", "value_traded")),
 }
 
 
@@ -468,8 +468,6 @@ def _basis(params: Mapping[str, Any]) -> str | None:
     """The column's basis in the table of 3.2; a column of another dataset is not a price."""
     if params["dataset"] != "Price":
         return None
-    if params["column"] not in _BASIS:  # `shares_out`: n·Q[t]/Q[a] from its `as_of_date` a
-        raise NotImplementedError(f"a window of Price.{params['column']} comes with 5.3.5a")
     return _BASIS[params["column"]]
 
 

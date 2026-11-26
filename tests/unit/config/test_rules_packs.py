@@ -41,8 +41,7 @@ def test_kr_us_generic_packs_valid() -> None:
     assert "provisional_bps" not in generic["costs"]  # [costs.provisional_bps] <M> required
     half_spread = [p["costs"]["min_half_spread_bps"] for p in (kr, us, generic)]
     assert half_spread == [5, 1, 5]
-    pay_lag = [p["dividends"]["fallback_pay_lag_days"] for p in (kr, us, generic)]
-    assert pay_lag == [120, 21, 30]
+    assert "dividends" not in kr  # `fallback_pay_lag_days` left with the estimate (#752)
     assert us["tradability"]["unknown_status_before"] == "2019-08-23"
 
 
@@ -56,7 +55,7 @@ def test_broken_pack_is_refused(tmp_path: Path) -> None:
         ("unit = 1}", "unit = 0.5}", "unit"),  # a multiple of the minor unit
         ("day_count = 360", "# day_count = 360", "day_count missing"),
         ('proceeds = {mode = "half_up", unit = 1}', 'proceeds = "half_up"', "proceeds"),
-        ("[dividends]", "[extra]\n[dividends]", "extra"),
+        ("[tradability]", "[extra]\n[tradability]", "extra"),
         ('market = "US"', 'market = "ZZ"', "not 'US'"),
         ("[shorting]", "[shorts]", "shorting"),
         ('"ticks/us_tick_table_v1.csv"', '"ticks/none.csv"', "none.csv"),

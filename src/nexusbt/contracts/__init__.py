@@ -158,13 +158,6 @@ class DecimalRatioPolicy(StrEnum):
     LITERAL = "literal"
 
 
-class MissingPayDatePolicy(StrEnum):
-    """`[dividends] missing_pay_date` (5.6.11)."""
-
-    ESTIMATE = "estimate"
-    FAIL = "fail"
-
-
 class BonusSharesTradablePolicy(StrEnum):
     """`[corporate_actions] bonus_shares_tradable` (5.6.10)."""
 
@@ -498,7 +491,6 @@ class NexusBTError(Exception):
 # fmt: off
 class LookAheadError(NexusBTError, code="E1", kinds=("block",)): ...
 class LabelLeakError(NexusBTError, code="E2", kinds=("block",)): ...
-class PointInTimeError(NexusBTError, code="E3", kinds=("block",)): ...
 class SurvivorshipWarning(NexusBTError, code="E4", kinds=("warning",)): ...
 class UnitError(NexusBTError, code="E5"): ...
 class CoverageWarning(NexusBTError, code="E6", kinds=("warning",)): ...
@@ -542,7 +534,6 @@ class SolverFallbackNotice(NexusBTError, code="E43", kinds=("notice",)): ...
 class MLDeterminismWarning(NexusBTError, code="E44", kinds=("warning",)): ...
 class SkippedWorkNotice(NexusBTError, code="E45", kinds=("notice",)): ...
 class EngineBugError(NexusBTError, code="E46"): ...
-class DatasetShapeError(NexusBTError, code="E47"): ...
 class PretrainedLeakError(NexusBTError, code="E48"): ...
 class PretrainedOverlapWarning(NexusBTError, code="E49", kinds=("warning",)): ...
 # fmt: on
@@ -623,12 +614,11 @@ def _note_user_exception(
 # fmt: off
 _EXAMPLES: dict[str, tuple[str, str, str, str, str, str, str]] = {
     "E1": ("strategy.py:8", "mom", "The value on 2020-03-02 changed when data after 2020-03-02 was removed", "term mom, instrument A1, 2020-03-02", "the term reads the future, so a backtest of it is not possible in real time", "use .shift(k) with k ≥ 1 or nx.ops.rolling(...) on a return or a ratio; for a price level, a built-in factor such as Returns(...) or @nx.factor(window=..., inputs=[Price.close]), which read the column on today's basis", "nx.explain(strategy, 'A1', '2020-03-02'); spec 6.5 truncation probe"),  # noqa: E501
-    "E2": ("strategy.py:9", "Label.ret_1m", "Label.ret_1m is a forward-looking label", "the signal of Strategy 'value'", "a label is known only after the decision, so it cannot drive one", "remove it from the signal; test it with nx.evaluate(f, target=Label.ret_1m)", "spec 5.3.11 (label ports)"),  # noqa: E501
-    "E3": ("strategy.py:4", "earnings", "dataset 'earnings' has no known_on column", "file data/earnings.parquet", "without the time a row became known, it could be read before it existed", "from_parquet(path, key=[...], known_on='published_at') or known_on='date' (recorded as an assumption)", "nx.describe(earnings)"),  # noqa: E501
+    "E2": ("strategy.py:9", "fwd", "fwd is a forward-looking label", "the signal of Strategy 'value'", "a label is known only after the decision, so it cannot drive one", "remove it from the signal; test it with nx.evaluate(f, target=fwd)", "spec 5.3.11 (label ports)"),  # noqa: E501
     "E4": ("", "universe", "a fixed list of 40 securities is used from 2000-01-03 to 2024-12-30; 0 delisted included", "Strategy 'value', universe", "a list of names alive today hides the ones that failed", "nx.universe('KR') & ... .top(n) or index_members('KOSPI200'); keep with survivorship_ok='reason'", "spec 6.6 E4"),  # noqa: E501
-    "E5": ("strategy.py:11", "market_cap", "market_cap is in local currency (KRW for KR, USD for US)", "rank across markets KR, US", "numbers in two currencies are not comparable", "remove across_markets=True, .to('USD'), or use a ratio", "nx.describe(Price.market_cap)"),  # noqa: E501
-    "E6": ("", "screen", "the screen keeps 120 of 2400 names on 2020-03-02 (5%)", "NaN counts: Fund.roe 2100, Price.close 180", "most of the universe is missing, so results describe a few names", "accept (coverage table recorded), edition='compare', or start=...", "nx.check(strategy); tds check snap --level full"),  # noqa: E501
-    "E7": ("strategy.py:12", "Fund.roa", "Fund has no column 'roa'. Did you mean: roe, roic?", "dataset Fund", "the column is not in this snapshot's dictionary", "nx.describe(Fund)", "spec 3.2 (dataset columns)"),  # noqa: E501
+    "E5": ("strategy.py:11", "value_traded", "value_traded is in local currency (KRW for KR, USD for US)", "rank across markets KR, US", "numbers in two currencies are not comparable", "remove across_markets=True, .to('USD'), or use a ratio", "nx.describe(Price.value_traded)"),  # noqa: E501
+    "E6": ("", "screen", "the screen keeps 120 of 2400 names on 2020-03-02 (5%)", "NaN counts: Price.close 2100, Price.volume 180", "most of the universe is missing, so results describe a few names", "accept (coverage table recorded), edition='compare', or start=...", "nx.check(strategy); tds check snap --level full"),  # noqa: E501
+    "E7": ("strategy.py:12", "Price.clsoe", "Price has no column 'clsoe'. Did you mean: close, close_tr?", "dataset Price", "Price's columns are fixed (spec 3.2)", "nx.describe(Price)", "spec 3.2 (dataset columns)"),  # noqa: E501
     "E8": ("strategy.py:14", "mom", "mom reads close[-253] but window=252", "factor mom, input close", "the row is outside the window the engine loads", "@nx.factor(window=253, ...)", "spec 3.3 and 5.3.7 (windows)"),  # noqa: E501
     "E9": ("", "start", "start 2020-01-01 is not a KR session; using 2020-01-02", "argument start", "runs begin on a session", "start='2020-01-02'", "spec 6.6 E9"),  # noqa: E501
     "E10": ("", "segment", "this run computes performance on segment 'test' (2020-01-02 → 2024-12-30); exposures in study: 3", "study 'value'", "each look at a held-out segment uses it up", "nx.preregister(...) before looking, if you want a recorded criterion", "spec 6.3a"),  # noqa: E501
@@ -649,9 +639,9 @@ _EXAMPLES: dict[str, tuple[str, str, str, str, str, str, str]] = {
     "E25": ("", "A1", "A1 is valued at a price 25 sessions old", "instrument A1, 2020-02-01 → 2020-03-02", "the mark may be far from a tradable price", "exclude A1 from the universe, or check trading_status for A1 with tds check (the mark is the last valid close, 5.6.3)", "spec 5.6.3; tds check snap --level full"),  # noqa: E501
     "E26": ("", "book b1", "orders for decision d1 already exist in book b1 (state version 4); showing them", "book b1", "the same orders must not be sent twice", "nothing to do; the existing batch is shown, not sent again", "spec 5.9.6"),  # noqa: E501
     "E27": ("", "fills", "14 fills with unknown tradability", "2020-01-02 → 2020-12-30", "the security may not have been tradable", "[execution] unknown_tradability='block' to see the sensitivity", "spec 5.6.5; tds check snap --level full"),  # noqa: E501
-    "E28": ("", "dividends", "3 dividends used an estimated pay date", "corporate_actions, pay_date_status", "cash may arrive on another day", "[dividends] missing_pay_date = 'fail' to stop instead", "spec 5.6.11; tds check snap --level full"),  # noqa: E501
+    "E28": ("", "dividends", "3 dividends used an estimated pay date", "corporate_actions, pay_date_status", "cash may arrive on another day", "check the dates marked estimated in pay_date_status", "spec 5.6.11; tds check snap --level full"),  # noqa: E501
     "E29": ("", "model", "model is fitted on 2019-01-02 → 2020-12-30 which overlaps test", "ml.factor model", "test labels would enter training", "set fit_segment='train' and embargo_sessions", "spec 6.3a"),  # noqa: E501
-    "E30": ("", "F-08", "fallback F-08 used: market_cap is NaN without share_counts", "dataset share_counts, market KR, 2400 rows", "a fallback changes what a term means", "[data] fallbacks='fail' to stop instead", "spec 4.5; tds check snap --level full"),  # noqa: E501
+    "E30": ("", "F-15", "fallback F-15 used: price grid = currency minor unit", "dataset market_rules, market KR, 12 instruments", "a fallback changes what a term means", "[data] fallbacks='fail' to stop instead", "spec 4.5; tds check snap --level full"),  # noqa: E501
     "E31": ("", "run r1", "run r1 was created on another machine; its source/ will be executed", "run folder r1", "running code you did not read is unsafe", "nx.rerun(id, trust=True) after reading source/", "spec 5.9.3"),  # noqa: E501
     "E32": ("", "mom", "mom on 2020-03-02 changed when the run started 20 sessions earlier", "term mom", "the value depends on when the run began", "remove state carried across windows (globals, recursion)", "spec 6.5"),  # noqa: E501
     "E33": ("", "A1", "first difference on 2020-03-02 for A1 at stage fills: 100 vs 90", "book b1, 2020-03-02, A1, stage fills", "the book and the engine disagree", "check fills and cash flows; nexusbt reconcile --restate; if the snapshot is identical, nexusbt bugreport r1", "spec 5.9.7; tds check snap --level full"),  # noqa: E501
@@ -660,7 +650,7 @@ _EXAMPLES: dict[str, tuple[str, str, str, str, str, str, str]] = {
     "E36": ("", "order o1", "order o1 for A1: price jump (0.42 vs limit 0.30)", "order o1, A1, 2020-03-02", "the data may be wrong", "check the data for 2020-03-02; the order is shown, not blocked", "spec 5.9.6; tds check snap --level full"),  # noqa: E501
     "E37": ("", "rounding", "12 of 60 decisions leave >5% cash from share rounding (median 6%; 3 targets got 0 shares)", "Strategy 'value'", "the portfolio is not the one designed", "raise capital, lower n, or use max price filters", "spec 5.6.7"),  # noqa: E501
     "E38": ("", "shorting", "collateral short by 1000 USD on 4 sessions (max 2500)", "sleeve US", "new shorts and buys were blocked", "lower [shorting] max_gross or collateral_ratio; forced buy-ins are not modeled", "spec 5.6.7a"),  # noqa: E501
-    "E39": ("", "listed", "60% of listed names are unknown for universe filter listed on 4 decisions (input NaN: market_cap)", "universe filter listed", "unknown is neither in nor out", "make the fallback explicit: (listed).fillna(True) or .fillna(False)", "spec 5.4.1; tds check snap --level full"),  # noqa: E501
+    "E39": ("", "listed", "60% of listed names are unknown for universe filter listed on 4 decisions (input NaN: close)", "universe filter listed", "unknown is neither in nor out", "make the fallback explicit: (listed).fillna(True) or .fillna(False)", "spec 5.4.1; tds check snap --level full"),  # noqa: E501
     "E40": ("", "cpcv", "cpcv has nothing to fit or select; all paths are identical, showing 1 path", "backtest(method='cpcv')", "with nothing to choose, every path gives the same result", "add grid= or an ml.factor, or use method='walk_forward'", "spec 6.3a"),  # noqa: E501
     "E41": ("strategy.py:30", "my_rule", "my_rule returned mult 1.5 for A1 on 2020-03-02; risk rules may only scale toward zero (0 ≤ m ≤ 1)", "risk rule my_rule, A1, 2020-03-02", "a multiplier above 1 would raise a position the sizer chose", "clip in your rule, or declare @nx.risk_rule(reads_account=True)", "spec 3.8 and 5.5.2"),  # noqa: E501
     "E42": ("", "drawdown_brake", "drawdown_brake: not evaluated (no account)", "screen, risk rule drawdown_brake", "the rule needs an account's history, and screen has none", "use --ledger BOOK or --as-backtest", "spec 5.5.2a"),  # noqa: E501
@@ -668,7 +658,6 @@ _EXAMPLES: dict[str, tuple[str, str, str, str, str, str, str]] = {
     "E44": ("", "ml", "fits used 4 threads; rerun compares predictions with tolerance 1e-9", "[ml] threads", "parallel fits may differ in the last bits", "[ml] threads = 1 for bit-identical reruns", "spec 5.3.11"),  # noqa: E501
     "E45": ("", "classifications", "skipped 1 dataset for reason optional_data_unread", "dataset classifications", "work the run planned was not done", "see the reason code in skips.toml", "spec 6.6 (no silent failure); tds check snap --level full"),  # noqa: E501
     "E46": ("", "run r1", "this is a NexusBT bug, not your code or data", "run r1", "an engine invariant does not hold", "please report: nexusbt bugreport r1", "spec 6.6 E46"),  # noqa: E501
-    "E47": ("", "my_earnings", "events need a ts_event column, a known_on column and one of instrument_id/issuer_id/series_id; 'ts_event' is missing in data/earnings.parquet", "file data/earnings.parquet", "an event without its time cannot be placed on the timeline", "nx.dataset.from_parquet(path, shape='events', ts_event='announced_at', known_on='published_at', rename={'ticker_id': 'instrument_id'}, name='my_earnings')", "spec 3.2 (from_parquet)"),  # noqa: E501
     "E48": ("strategy.py:25", "model", "model m1 was trained on data up to 2021-12-30; decision 2021-06-30 is before it", "ml.pretrained model m1", "the model has seen the period it would decide on", "start after 2022-01-14, or nx.ml.pretrained(..., allow_overlap=True) to mark instead of fail", "spec 5.3.11"),  # noqa: E501
     "E49": ("strategy.py:25", "model", "6 decisions use a pretrained model that saw their period", "ml.pretrained model m1", "results on those decisions are optimistic", "read the marked rows before trusting the result", "spec 5.3.11"),  # noqa: E501
 }
@@ -679,13 +668,11 @@ def _data(dataset: str, column: str) -> str:
 
 
 _BUG = "please report: nexusbt bugreport r1"
-_FILE = "file data/earnings.parquet"  # a user's own file (E3, E47): #52 Decisions 2026-11-02
 #: Code → the example's `layer` line, the layer of `tests/errors/layers.toml` with its 6.6 tail.
 _EXAMPLE_LAYERS: dict[str, str] = {
     "E1": "your code — strategy.py:8 in mom", "E2": "your code — strategy.py:9 in value",
-    "E3": f"data — {_FILE} / earnings / column known_on",
     "E4": "your code — strategy.py:5 in value", "E5": "your code — strategy.py:11 in value",
-    "E6": f"data — {_data('fundamentals_state', 'value')}",
+    "E6": f"data — {_data('bars_1d', 'close')}",
     "E7": "your code — strategy.py:12 in value", "E8": "your code — strategy.py:14 in mom",
     "E9": "config — argument start=2020-01-01", "E10": "config — argument segment='test'",
     "E11": "config — nexusbt.toml [execution] order = 'limit'",
@@ -705,20 +692,19 @@ _EXAMPLE_LAYERS: dict[str, str] = {
     "E27": f"data — {_data('tradability_daily', 'status_known')}",
     "E28": f"data — {_data('corporate_actions', 'pay_date_status')}",
     "E29": "your code — strategy.py:22 in model",
-    "E30": f"data — {_data('share_counts', 'shares')}", "E31": "config — argument trust=False",
+    "E30": f"data — {_data('market_rules', 'tick_size')}", "E31": "config — argument trust=False",
     "E32": "your code — strategy.py:7 in mom",
     "E33": f"data → engine bug — {_data('bars', 'close')} → {_BUG}",
     "E34": "your code — strategy.py:16 in score", "E35": "config — argument book='b1'",
     "E36": f"data — {_data('bars', 'close')}",
     "E37": "config — nexusbt.toml [defaults] capital = 10000000",
     "E38": "config — nexusbt.toml [shorting] max_gross = 1.0",
-    "E39": f"data → your code — {_data('share_counts', 'shares')} → strategy.py:6 in listed",
+    "E39": f"data → your code — {_data('bars_1d', 'close')} → strategy.py:6 in listed",
     "E40": "config — nexusbt.toml [validate] max_fits = 200",
     "E41": "your code — strategy.py:30 in my_rule (risk slot)",
     "E42": "config — argument ledger=None",
     "E43": f"data — {_data('bars', 'close')}", "E44": "config — nexusbt.toml [ml] threads = 4",
     "E45": f"data — {_data('classifications', 'code')}", "E46": f"engine bug — {_BUG}",
-    "E47": f"data — {_FILE} / my_earnings / column ts_event",
     "E48": "your code — strategy.py:25 in model", "E49": "your code — strategy.py:25 in model",
 }
 # fmt: on

@@ -20,11 +20,15 @@ ROW = re.compile(r"^\| (E\d+) \| `(\w+)`[^|]*\| ([^|]+) \|", re.MULTILINE)
 KINDS = ("block", "fail", "warning", "notice")
 LAYER = "config — argument x=1"
 
-#: 6.6 rows E1..E39: code → (class name, kinds in the order the Kind cell names them).
+#: 6.6 rows E1..E39: code → (class name, kinds in the order the Kind cell names them); a
+#: retired number's row names a class that left with its code.
+ROWS = [(code, name, kind) for code, name, kind in ROW.findall(SPEC) if int(code[1:]) <= 39]
+RETIRED = {code: name for code, name, _ in re.findall(
+    r"^\| (E\d+) \| `(\w+)` \| (\w+) \| retired ", SPEC, re.MULTILINE)}  # fmt: skip
 TABLE = {
     code: (name, tuple(re.findall("|".join(KINDS), kind)))
-    for code, name, kind in ROW.findall(SPEC)
-    if int(code[1:]) <= 39
+    for code, name, kind in ROWS
+    if code not in RETIRED
 }
 CODES = sorted(TABLE, key=lambda code: int(code[1:]))
 
@@ -39,7 +43,8 @@ def error(code: str) -> type[NexusBTError]:
 
 
 def test_all_codes_present_E1_to_E39() -> None:  # noqa: N802 - the name the issue gives
-    assert [f"E{n}" for n in range(1, 40)] == CODES
+    assert [f"E{n}" for n in range(1, 40) if f"E{n}" not in RETIRED] == CODES
+    assert not any(hasattr(nx, name) for name in RETIRED.values())  # retired: not in the engine
     for code in CODES:
         cls = error(code)
         assert issubclass(cls, NexusBTError), code
@@ -56,7 +61,9 @@ def test_message_has_five_parts(code: str) -> None:
 
 def test_codes_E40_to_E49_present() -> None:  # noqa: N802 - the name the issue gives
     rows = {code: (name, kind) for code, name, kind in ROW.findall(SPEC)}
-    for n in range(40, 50):
+    retired = [f"E{n}" for n in range(40, 50) if f"E{n}" in RETIRED]
+    assert not any(hasattr(nx, rows[code][0]) for code in retired)  # retired: not in the engine
+    for n in (n for n in range(40, 50) if f"E{n}" not in RETIRED):
         name, kind = rows[f"E{n}"]
         cls: type[NexusBTError] = getattr(nx, name)
         assert cls.code == f"E{n}"
@@ -72,7 +79,7 @@ def test_message_rejects_a_missing_part() -> None:
 def test_column_name_error_header_and_attribute_error() -> None:
     err = nx.ColumnNameError.example()
     assert isinstance(err, AttributeError)
-    assert str(err).splitlines()[0] == "ColumnNameError [E7] in strategy.py:12 Fund.roa"
+    assert str(err).splitlines()[0] == "ColumnNameError [E7] in strategy.py:12 Price.clsoe"
 
 
 @pytest.mark.parametrize("code", CODES)

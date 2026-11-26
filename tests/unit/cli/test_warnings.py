@@ -124,7 +124,7 @@ def test_a_repeated_warning_is_printed_once_and_another_too(
     """The same text given again from the same place in one command is printed once (Python's
     default filter, as before #649); a different text is printed too."""
     e30 = str(nx.DataProfileWarning.example())
-    other = e30.replace("F-08", "F-09")
+    other = e30.replace("F-15", "F-16")
 
     def doctor() -> str:
         for text in (e30, e30, other):

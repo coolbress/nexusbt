@@ -15,7 +15,6 @@ from nexusbt.pipeline import BoundColumn, bind, stub_source
 TYPO = "clsoe"  # by `getattr`: the stubs make `Price.clsoe` a type error too
 #: 3.2, the `Price` table, in its order.
 PRICE = "open high low close close_tr close_unadjusted volume volume_unadjusted value_traded"
-PRICE += " shares_out market_cap"
 
 
 def test_price_columns_fixed() -> None:
@@ -46,11 +45,23 @@ def test_meta_aliases() -> None:
     assert Meta.exchange == Meta.venue_mic
     assert Meta.market != Meta.venue_mic
     assert type(Meta.market) is nx.Classifier
-    assert type(Meta.is_financial) is nx.Filter
-    assert type(Meta.sector.eq("10")) is nx.Filter
+    assert type(Meta.category.eq("etf")) is nx.Filter
     assert {"country", "exchange", "market"} <= set(dir(Meta))
     with pytest.raises(nx.ColumnNameError, match=r"'contry'\. Did you mean: country\?"):
         getattr(Meta, TYPO[:0] + "contry")
+
+
+@pytest.mark.parametrize(
+    ("dataset", "name"),
+    [(Meta, "sector"), (Meta, "industry"), (Meta, "is_financial"), (Price, "shares_out"),
+     (Price, "market_cap")],
+)  # fmt: skip
+def test_removed_columns_are_column_name_errors(dataset: type, name: str) -> None:
+    """3.2: a sector or an industry is an item (`Item`), a share count a value-table item
+    (5.3.5a); these columns were removed 2026-11-24 (#752)."""
+    with pytest.raises(nx.ColumnNameError, match=f"has no column '{name}'"):
+        getattr(dataset, name)
+    assert name not in dir(dataset)
 
 
 @pytest.mark.parametrize("name", ["delisted_on", "last_session", "name"])
@@ -85,10 +96,10 @@ def test_stub_file_generated(
     fixed = stub_source()
     for line in (
         "class Price:\n    open: BoundColumn",
-        "market_cap: BoundColumn",
+        "value_traded: BoundColumn",
         "class Meta:\n",
         "    market: Classifier\n",
-        "    is_financial: Filter\n",
+        "    category: Classifier\n",
         "    country: Classifier\n",
     ):
         assert line in fixed

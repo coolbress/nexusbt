@@ -18,7 +18,7 @@ import numpy as np
 from nexusbt.contracts import ColumnNameError, SchemaRegistry
 
 from ._degree import check_degrees
-from ._terms import BoundColumn, Classifier, Filter, Pipeline, Term, _node, _user_line, call_user
+from ._terms import BoundColumn, Classifier, Pipeline, Term, _node, _user_line, call_user
 
 #: `instruments` columns known only after the fact (3.2, RV-C08, INV-01): never a `Meta` column.
 _HINDSIGHT = ("delisted_on", "last_session", "name")
@@ -51,16 +51,15 @@ class _Dataset(type):
 
 class Price(metaclass=_Dataset):
     _fixed = ("open", "high", "low", "close", "close_tr", "close_unadjusted", "volume",
-              "volume_unadjusted", "value_traded", "shares_out", "market_cap")  # fmt: skip
+              "volume_unadjusted", "value_traded")  # fmt: skip
 
 
 class Meta(metaclass=_Dataset):
-    """`Meta.<scheme>(level=)` and the scheme `sector` and `industry` read come with T2.3."""
+    """A sector or an industry is a numeric undated item (`Item`, 3.2); `Meta.sector`,
+    `industry` and `is_financial` were removed 2026-11-24 (#752)."""
 
-    _fixed = ("market", "currency", "asset_class", "venue_mic", "category", "sector", "industry",
-              "is_financial")  # fmt: skip
+    _fixed = ("market", "currency", "asset_class", "venue_mic", "category")
     _kind = Classifier
-    _kinds = MappingProxyType({"is_financial": Filter})
     _aliases = MappingProxyType({"country": "market", "exchange": "venue_mic"})
 
 
@@ -79,7 +78,7 @@ def bind(graph: Term | Pipeline, registry: SchemaRegistry) -> None:
 
 _STUB = """\
 # Written by `nexusbt stubs` from the snapshot's dictionary (spec 3.2); not edited by hand.
-from nexusbt.pipeline._terms import BoundColumn, Classifier, Filter
+from nexusbt.pipeline._terms import BoundColumn, Classifier
 """
 
 
