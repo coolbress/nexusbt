@@ -11,7 +11,7 @@ are in #254's Decisions of 2026-11-20.
   with a value that comes later.
 - `tradability_daily`: its session's close, not its pre-open group's `session_open`.
 - A row with no instant stays.
-- `instruments`, `instrument_xref`, `calendar_sessions` and `market_rules` have no instant
+- `instruments`, `calendar_sessions` and `market_rules` have no instant
   and stay whole, rows after τ included.
 - `instruments.delisted_on` is emptied for an instrument whose `delistings` row was cut.
 - `instruments.last_session` is emptied where it lies after its market's watermark as of τ.
@@ -50,7 +50,7 @@ from nexusbt.testing import _synth_package as pk
 from nexusbt_tds.hash import write_hashes
 
 #: The datasets the cut leaves whole: no availability instant in TDS 6.2.
-TIMELESS = frozenset({"instruments", "instrument_xref", "calendar_sessions", "market_rules"})
+TIMELESS = frozenset({"instruments", "calendar_sessions", "market_rules"})
 
 
 def cut_after(root: Path, tau: dt.datetime) -> dict[str, int]:

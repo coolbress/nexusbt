@@ -100,7 +100,7 @@ def test_E14_carries_tds_code_and_hint_not_ticket(tiny: Path, tmp_path: Path) ->
 
 def test_unknown_required_rule_E14(tiny: Path, tmp_path: Path) -> None:  # noqa: N802 - the ticket's test name
     newer = shutil.copytree(tiny, tmp_path / "newer")  # 4.1: a newer MINOR is a warning, M011
-    edit_manifest(newer, lambda d: dataset(d, "instrument_xref").update(schema_version="1.9"))
+    edit_manifest(newer, lambda d: dataset(d, "calendar_sessions").update(schema_version="1.9"))
     assert open_snapshot(DataConfig(path=newer)).warnings == {"TDS-M011": 1}
     rule = "next_auction_open"  # a 1.x availability rule this engine does not know (4.1)
     edit_manifest(newer, lambda d: dataset(d, "bars_1d").update(availability=rule))

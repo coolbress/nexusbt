@@ -8,12 +8,12 @@ fixed cycles, with no random numbers. `small` follows 4.8's generation rules (1)
 `numpy.random.Generator(PCG64(seed))`, except that its prices and volumes come from integer
 draws and + - x / instead of 4.8 (3)'s exp, normal and lognormal draws, so that its bytes do
 not depend on the platform's math library (#128). Both write `instruments`,
-`instrument_symbols`, an empty `instrument_xref`, `calendar_sessions`, `corporate_actions`
+`instrument_symbols`, `calendar_sessions`, `corporate_actions`
 and `delistings` (both empty in `tiny`; in `small` 4.8 (4) and (6)) and dense daily `bars`
 whose raw prices follow the events (none in `tiny` unless injected); `small` also
-`tradability_daily` (4.8 (5), whose KR grid, halts and limits move its bars), `share_counts`
-(4.8 (7)), `eligibility_daily` (4.8 (10)), the bars' `value_traded` and, with KR, `market_rules`
-(4.8 (11a)). The hashes in
+`tradability_daily` (4.8 (5), whose KR grid, halts and limits move its bars), the bars'
+`value_traded` and, with KR, `market_rules` (4.8 (11a)). `share_counts`, `eligibility_daily`
+and the empty `instrument_xref` are not written since 2026-11-26 (#752). The hashes in
 `tds.json` and `--validate`'s check are the `tds` command's, run as a separate process: spec
 2.5 draws no arrow from `testing` to `nexusbt_tds`, so this module does not import it. What
 the events applied to the prices is recorded beside the package, never in it (`APPLIED`), and
@@ -49,8 +49,6 @@ from nexusbt.testing._synth_daily import (
     OHLC,
     PRODUCER,
     TICK_RULE,
-    _eligibility,
-    _share_counts,
     _value_traded,
     _venues,
 )
@@ -341,7 +339,6 @@ def _small(
                           (events, ids, days))  # moves `bars` too  # fmt: skip
     out, payouts, delisted = _delistings(market, ids, first, last, sessions, bars, rng, ended,
                                          MARKETS[market]["currency"])  # fmt: skip
-    counts, eligible = _share_counts(market, sessions, bars, rng), _eligibility(bars, status)
     bars["value_traded"] = _value_traded(bars)  # of the bars every event and halt has moved
     instruments = _instruments(
         market, ids, mics, [days[i].item() for i in first],
@@ -350,7 +347,7 @@ def _small(
         delisted_on=delisted, tick_rule_id=[TICK_RULE if market == "KR" else None] * n,
     )  # fmt: skip
     order = [("session_date", "ascending"), (ID, "ascending")]
-    table, status, eligible = (
+    table, status = (
         pa.table(
             {
                 c: pa.array(np.concatenate(v), from_pandas=True)  # NaN → null
@@ -358,13 +355,12 @@ def _small(
                 if c not in FACTORS  # the running factors stay out of the package
             }
         ).sort_by(order)
-        for t in (bars, status, eligible)
+        for t in (bars, status)
     )
     return {"instruments": instruments, "bars_1d": table, "tradability_daily": status,
             "instrument_symbols": _symbols([s for v in spans.values() for s in v]),
             "corporate_actions": pa.concat_tables([actions, payouts]),
-            "delistings": out, "eligibility_daily": eligible,
-            "share_counts": counts}, applied  # fmt: skip
+            "delistings": out}, applied  # fmt: skip
 
 
 def _arguments(
@@ -523,7 +519,7 @@ def _cut(table: Mapping[str, Any], name: str, day: str, sessions: Table) -> dict
     known = pk.FIELDS.get(name, {}).get("availability", {})
     out = dict(table)
     if not known.keys() & {"terms", "exit", "column"}:
-        return out  # no instant: nothing to cut (instruments, instrument_xref, market_rules)
+        return out  # no instant: nothing to cut (instruments, market_rules)
     rows = pk._arrow(table[name])
     if "terms" in known:
         told, terms, effect = (rows[c].to_pylist() for c in ("ts_announced", known["terms"],

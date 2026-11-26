@@ -185,7 +185,7 @@ def test_no_schema_file_is_an_error_not_an_empty_registry(
 def test_schema_files_cover_stable_datasets() -> None:
     status = section_status(TDS_DOC.read_text(encoding="utf-8"))
     stable = [kind for kind, n in CHAPTER_5.items() if status[n] == "stable"]
-    assert len(stable) == 18  # 5.1-5.5, 5.10-5.20, 5.25 and 5.27 less 5.16 (5.12, 5.26 none)
+    assert len(stable) == 17  # 5.1-5.5, 5.10-5.20, 5.25 and 5.27 less 5.3, 5.16 (5.12, 5.26 none)
     schemas = load_schemas()
     assert [k for k in stable if k not in schemas or schemas[k].status != "stable"] == []
 
@@ -278,7 +278,7 @@ def test_verify_prints_the_lists_and_the_match(capsys: pytest.CaptureFixture[str
     assert out[0] == (
         "stable: bars, calendar_sessions, classifications, corporate_actions,"
         " delistings, eligibility_daily, feature_panels, fundamentals_events,"
-        " fundamentals_state, fx_rates, instrument_symbols, instrument_xref, instruments,"
+        " fundamentals_state, fx_rates, instrument_symbols, instruments,"
         " label_panels, market_rules, share_counts, tradability_daily, universe_membership"
     )
     assert out[1] == "experimental: (none)"

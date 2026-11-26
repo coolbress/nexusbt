@@ -33,7 +33,6 @@ KNOWN = ("ts_known_from", "ts_known_to")
 INTERVALS = {
     "classifications": (("effective_from", "effective_to"), KNOWN),
     "instrument_symbols": (("valid_from", "valid_to"), KNOWN),
-    "instrument_xref": (("valid_from", "valid_to"),),
     "market_rules": (("valid_from", "valid_to"),),
 }
 #: Per kind: the overlap code, the key its intervals are grouped by, and the columns read besides.
@@ -67,7 +66,7 @@ def _dataset(m: Manifest, ds: Mapping[str, Any], undecided: list[bool]) -> list[
     kind, name = str(ds.get("kind")), str(ds.get("name"))
     if kind not in INTERVALS:
         return []
-    code, key, extra = OVERLAPS.get(kind, (None, ("instrument_id", "id_type", "id_value"), ()))
+    code, key, extra = OVERLAPS[kind]
     pairs = INTERVALS[kind]
     columns = list(dict.fromkeys([*key, *extra, *(c for p in pairs for c in p)]))
     rows = [dict(zip(columns, r, strict=True)) for r in _rows(m.root.resolve(), ds, columns)]
@@ -78,8 +77,6 @@ def _dataset(m: Manifest, ds: Mapping[str, Any], undecided: list[bool]) -> list[
         msg = f"{len(broken)} {SAID[T004]}"
         out.append(Finding(T004, "error", msg, name, key=_shown(key, broken[0]),
                            count=len(broken)))  # fmt: skip
-    if code is None:
-        return out
     if kind == "market_rules":  # tick bands only; a null `price_from` is 0 (5.27)
         rows = [r | {"price_from": r["price_from"] or 0.0} for r in rows
                 if r["rule_kind"] == "tick_band"]  # fmt: skip

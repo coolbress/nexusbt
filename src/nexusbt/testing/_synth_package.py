@@ -61,9 +61,6 @@ FIELDS: dict[str, dict[str, Any]] = {
         "partitioning": PARTITIONING,
         "params": {"freq": "1d", "price_basis": "raw", "density": "dense", "bar_time": "session"},
         "columns": _typed(("ts_start", "ts_us"), ("ts_end", "ts_us"))},
-    # TDS 5.3, 5.14, 5.20: the sort each is written in, so K002 judges it (#412)
-    "instrument_xref": {"sort": [ID, "id_type", "id_value", "valid_from"], "columns": _typed(
-        (ID, "id"), ("id_type", "code"), ("link_quality", "code"), ("source", "string"))},
     # TDS 4.2, 6.2: availability as the columns that hold it (#276)
     "instrument_symbols": {"availability": {"column": "ts_known_from"}},
     "corporate_actions": {
@@ -73,20 +70,7 @@ FIELDS: dict[str, dict[str, Any]] = {
         "path": "tradability_daily/freq=1d", "params": {"availability_by_column": BY_COLUMN},
         "partitioning": PARTITIONING,
         "columns": _typed((ID, "id"), ("session_date", "date"))},
-    "eligibility_daily": {  # TDS 5.20: the rule is session_close, a missing row means false
-        "availability": {"rule": "session_close"}, "params": {"missing_means": False},
-        "partitioning": PARTITIONING,
-        "sort": ["session_date", ID, "rule_id"],
-        "columns": _typed(("rule_id", "id"), (ID, "id"), ("session_date", "date"),
-                          ("is_eligible", "bool"), ("ts_available", "ts_us"))},
-    "share_counts": {
-        "availability": {"column": "ts_available"},
-        "sort": [ID, "count_kind", "as_of_date", "ts_available"], "columns": _typed(
-        (ID, "id"), ("count_kind", "code"), ("ts_available", "ts_us"), ("source", "string"))},
 }  # fmt: skip
-#: TDS 5.3 `instrument_xref`, written empty (4.8 (2)).
-XREF = {c: pa.string() for c in (ID, "id_type", "id_value", "link_quality", "source")}
-XREF |= {"valid_from": pa.date32(), "valid_to": pa.date32()}
 
 
 def _arrow(table: Table | pa.Table) -> pa.Table:
@@ -142,7 +126,7 @@ def _watermark(sessions: Table) -> dict[str, str]:
 
 
 #: The datasets with a row per session (TDS 4.3): `behind` cannot cut them without their rows.
-SESSIONAL = ("bars_1d", "tradability_daily", "eligibility_daily", "calendar_sessions")
+SESSIONAL = ("bars_1d", "tradability_daily", "calendar_sessions")
 
 
 def processed(
@@ -167,7 +151,7 @@ def _daily(
 ) -> None:  # fmt: skip
     """Writes the datasets partitioned by market and year, of the markets that have them
     (tiny: the bars only so far), adding their `files` entries and their coverage."""
-    for name in ("bars_1d", "tradability_daily", "eligibility_daily"):
+    for name in ("bars_1d", "tradability_daily"):
         path = FIELDS[name].get("path", name)
         parts: dict[str | None, pa.Table]
         parts = {m: _arrow(tables[m][name]) for m in tables if name in tables[m]}
@@ -195,7 +179,7 @@ def datasets(
     tables: Mapping[str, Mapping[str, Any]], calendars: Mapping[str, Table], rules: bool
 ) -> dict[str, Callable[[], pa.Table]]:
     """The datasets written whole, each joined over the markets in `tables` when it is written;
-    `market_rules` (4.8 (11a)) when `rules`, `share_counts` when every market has it."""
+    `market_rules` (4.8 (11a)) when `rules`."""
 
     def joined(name: str, key: list[str]) -> pa.Table:
         table = pa.concat_tables([_arrow(tables[m][name]) for m in tables])
@@ -204,7 +188,6 @@ def datasets(
     made: dict[str, Callable[[], pa.Table]] = {
         "instruments": lambda: joined("instruments", [ID]),
         "instrument_symbols": lambda: joined("instrument_symbols", [ID, "valid_from"]),
-        "instrument_xref": lambda: pa.schema(XREF).empty_table(),
         "calendar_sessions": lambda: pa.concat_tables(
             [_arrow(calendars[c]) for c in sorted(calendars)]),
         "corporate_actions": lambda: joined("corporate_actions", [ID, "ex_date", "event_id"]),
@@ -212,8 +195,6 @@ def datasets(
     }  # fmt: skip
     if rules:
         made["market_rules"] = _market_rules
-    if all("share_counts" in t for t in tables.values()):  # tiny has none yet
-        made["share_counts"] = lambda: joined("share_counts", FIELDS["share_counts"]["sort"])
     return made
 
 
