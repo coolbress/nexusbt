@@ -88,8 +88,6 @@ def ewma(c: list[Any], rate: float) -> Any:
         total = total + w
     for v, w in zip(c, weights, strict=True):
         acc = acc + v * w  # a NaN cell makes the value NaN
-    if np.isnan(acc) and not any(np.isnan(v) for v in c):
-        return F(np.inf)  # `inf - inf`: the NaN an overflow made
     return acc / total
 
 

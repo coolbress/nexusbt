@@ -186,12 +186,11 @@ def ewma_weights(window: int, decay_rate: float) -> F64:
 
 
 def window_ewma(x: F64, weights: F64) -> F64:
-    """`EWMA`: `sum(x * w) / sum(w)`, each a left fold in row order; NaN when any cell is NaN.
-    A NaN that only an overflow made (`inf - inf`) comes out as `inf`."""
+    """`EWMA`: `sum(x * w) / sum(w)`, each a left fold in row order; NaN when any cell is NaN."""
     acc, total = np.zeros(x.shape[1]), fold_sum(weights)
     for r in range(len(x)):
         acc = acc + x[r] * weights[r]
-    found: F64 = np.where(np.isnan(acc) & ~np.isnan(x).any(axis=0), np.inf, acc / total)
+    found: F64 = acc / total
     return found
 
 
