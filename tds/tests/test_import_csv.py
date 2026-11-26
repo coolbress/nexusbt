@@ -402,10 +402,10 @@ def test_import_report_written(tmp_path: Path) -> None:
     # decision 7: each manifest default the mapping does not give is named
     assert [a.split(":")[0] for a in report["assumed"]] == ["name", "snapshot_id", "id_namespaces"]
     filled = report["datasets"]["instruments"]["assumed"]
-    assert [a.split(" ")[0] for a in filled] == [
-        "lot_size", "multiplier", "is_synthetic", "pit_quality"]  # fmt: skip
+    assert [a.split(" ")[0] for a in filled] == ["multiplier", "is_synthetic", "pit_quality"]
     got = rows(out, "instruments")[0]
-    assert (got["lot_size"], got["multiplier"], got["is_synthetic"]) == (1.0, 1.0, False)
+    assert (got["multiplier"], got["is_synthetic"]) == (1.0, False)
+    assert "lot_size" not in got  # not known: never written as 1 (TDS 5.1, #705 Decisions 12)
 
 
 def test_values_and_fills(tmp_path: Path) -> None:

@@ -16,7 +16,7 @@
     {"name": "listed_on_censored", "type": "bool", "null": true},
     {"name": "last_session", "type": "date", "null": true},
     {"name": "delisted_on", "type": "date", "null": true},
-    {"name": "lot_size", "type": "f64", "null": false},
+    {"name": "lot_size", "type": "f64", "null": true},
     {"name": "tick_size", "type": "f64", "null": true},
     {"name": "tick_rule_id", "type": "id", "null": true},
     {"name": "multiplier", "type": "f64", "null": false},

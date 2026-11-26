@@ -477,13 +477,13 @@
 | issuer_id | id | 예 | 회사 묶음(불투명) |
 | name | string | 예 | 현재 이름(이력은 `instrument_symbols`) |
 | listed_on | date | 아니오 | 첫 세션(이 패키지가 아는 범위; 자료 시작보다 이른 상장은 자료 첫 세션 + `listed_on_censored = true`) |
-| listed_on_censored | bool | 예 | 참 = 실제 상장은 더 이름 |
+| listed_on_censored | bool | 예 | 참 = 실제 상장이 더 이를 수 있음: `listed_on`은 이 패키지가 아는 첫 세션이지, 알려진 상장일이 아니다 [2026-11-26, #705 결정 17(1)] |
 | last_session | date | 예 | 마지막 가격 세션(상장 중이면 null) |
 | delisted_on | date | 예 | 원장 퇴출일(`delistings`와 같아야 함, R008) |
-| lot_size | f64 | 아니오 | 주문 최소 단위(주·계약·코인). 기본 1 |
+| lot_size | f64 | 예 | 주문 최소 단위(주·계약·코인). 모르면 null: 쓰는 쪽은 그 자리에 1을 쓰지 않는다. null을 어떻게 다루는지는 소비자의 일이다(엔진은 체결 코드를 만들 때 정한다) [2026-11-26, #705 결정 12] |
 | tick_size | f64 | 예 | 고정 호가 단위. 가격대별이면 null + `tick_rule_id` |
 | tick_rule_id | id | 예 | 가격대별 호가 단위 규칙(`market_rules.rule_id`, 5.27; v1.2에서 정의) [V31-05] |
-| multiplier | f64 | 아니오 | 계약 승수. 주식 1.0 |
+| multiplier | f64 | 아니오 | 계약 승수. `equity`, `etf`, `fund`는 1.0 [2026-11-26, #705 결정 17(4)] |
 | price_precision | i8 | 예 | 가격 소수 자리(틱 자료 검사용) |
 | size_precision | i8 | 예 | 수량 소수 자리 |
 | underlying_instrument_id | id | 예 | 파생상품의 기초 |
@@ -500,7 +500,7 @@
 | is_inverse | bool | 예 | 역방향 계약(코인) |
 | index_kind | code | 예 | `TR`(배당 포함) / `PR`(가격) / `NTR` — `asset_class = index`일 때 |
 | index_weighting | code(열림) | 예 | 지수 가중 방식 `cap` / `float_cap` / `equal` / `price` / `other` — `asset_class = index`일 때. 소비자는 벤치마크 비교에 표시한다 [v1.2, V31-15] |
-| is_synthetic | bool | 아니오 | 참 = 실제 거래 대상이 아님(연속 계약·지수). 엔진은 체결에 쓰지 않음 |
+| is_synthetic | bool | 아니오 | 참 = 실제 거래 대상이 아님(연속 계약·지수). 엔진은 체결에 쓰지 않음. `equity`, `etf`, `fund`는 거짓 [2026-11-26, #705 결정 17(4)] |
 
 검사: R001(다른 표의 id가 여기 없음), V020(`asset_class`별 필수 칼럼: option은 underlying·strike·right·style·expiry·multiplier·settlement 필수; future는 root·expiry·multiplier·settlement 필수; crypto는 base·quote 필수), T010(`last_session < listed_on`), R002(달력 없음).
 
@@ -551,6 +551,7 @@
 - `calendar_version`은 정보용이다: 생산자가 쓰고, 공개할 때마다 모든 행에서 다시 쓸 수 있으며, 다른 필드가 바뀌지 않은 행에서도 그렇다. 소비자는 이 열을 열쇠로 쓰지 않고(엔진은 캐시 열쇠에서 뺀다, 명세서 5.3.9), 이 열을 지켜보는 검사는 없다 [사용자 결정 2026-11-04].
 - 세션 표는 일정 자료와 가격을 대조해 만든다. 어떤 종목 가격이 없다고 세션을 지우지 않는다(명세서 4.6).
 - **bars 날짜에서 추론한 달력** [2026-11-23, #705]: `source`가 `inferred_from_bar_dates`인 줄(거래소 달력이 없는 쓰는 도구의 이름 붙인 마지막 수단, 9.5)에서 `ts_open`과 `ts_close`는 bars가 그날의 `ts_start`와 `ts_end`를 주면 그 값이고, 나머지 날에는 사용자가 선언한 정규장 시각이며 날마다 관찰한 것이 아니다. 그런 날에는 반일장이 반영되지 않으므로 `ts_close`가 실제 마감보다 늦을 수 있다: 가용 시각이 실제보다 늦을 뿐 이르지 않다. `session_kind`는 그 선언에 따른 `regular`이고 특별 세션은 구별되지 않는다(`is_half_day`는 null). 달력은 bars의 마지막 날짜까지만 닿으므로 마지막 막대 뒤의 세션을 갖지 않는다(#461).
+- **마지막 막대 뒤의 세션** [2026-11-26, #752; #461]: 거래소 달력을 가진 만든 쪽은 bars의 마지막 날짜 뒤의 예정된 세션을 실어도 된다(의무는 아님). 그러면 마지막 막대 뒤 날짜의 값(5.28)이 놓일 세션을 갖는다.
 - 24/7: `session_date` = UTC 날짜, `ts_open` = 00:00Z, `ts_close` = 다음 날 00:00Z.
 - 선물 야간 거래: 거래일 D의 세션은 D−1 저녁에 시작할 수 있다(`ts_open < session_date 00:00 현지`). 정상이다.
 
@@ -571,6 +572,7 @@
 | price_type | code | 예 | `last`(기본, 체결가) / `bid` / `ask` / `mid` (Nautilus price_type) |
 | open, high, low, close | f64 | 예 | 원가격(현지 통화). `halted`·`missing` 행에서는 null. `no_trade` 행에서는 `open`·`high`·`low`가 null이고 앞의 종가로 채우지 않으며, `close`에는 거래소의 기준가가 있을 수 있다. `traded` 행에서는 `close` 필수. 선언한 프로필이 요구하는 bars 데이터셋(7장: `tds:equity-daily-core@1.0` 이상)의 `equity`·`etf` 종목 `traded` 행에서는 넷 모두(V004) [2026-11-22, #705] |
 | volume | f64 | 예 | 원 거래량(주·계약·코인). `no_trade`·`halted` 행에 적었다면 0이다(V004); 거기서 null은 말하지 않은 것이고 오류가 아니다 [2026-11-23, #705]. `missing` 행에서는 null. 선언한 프로필이 요구하는 곳의 `equity`·`etf` 종목 `traded` 행에서는 필수(V004, 7장) [2026-11-22, #705] |
+| open_auction_volume | f64 | 예 | 그 세션 시가 단일가의 거래량(`volume`의 단위), 선택. 소비자는 시가 체결을 이것으로 묶을 수 있다(엔진 명세서 5.6.6) [2026-11-26, #725 결정 242; #752] |
 | value_traded | f64 | 예 | 거래대금(현지 통화) |
 | trade_count | i64 | 예 | 체결 수(Massive `transactions`) |
 | vwap | f64 | 예 | |
@@ -585,7 +587,8 @@
 - `obs_status` [2026-11-23, #705]: 상태를 아는 줄에만 적는다. 쓰는 도구가 종목에 없는 세션에 채운 줄은 `missing`이고, 생산자의 줄은 생산자가 준 값이다. 값이 있는데 상태를 받지 못한 줄은 null로 둔다. 상태를 말하지 않는다는 뜻이고, 소비자는 값을 적힌 그대로 읽으며 `traded`로 여기지 않는다. `tds:minimal-daily@1.0`은 이를 허용하고, `tds:equity-daily-core@1.0`부터는 모든 줄에 `obs_status`가 있어야 한다(7장, TDS-S003). 값(`open`, `high`, `low`, `close`, `vwap`, `volume`, `value_traded`)도 `obs_status`도 없는 줄은 왜 값이 없는지 말하지 않으므로, 어느 프로필에서도 받아들이지 않는다(V004) [2026-11-23, #705].
 - 일봉(`freq=1d`)은 `params.density`가 무엇이든 dense다 [2026-11-23, #705]: 종목마다 `listed_on`부터 그 끝까지 그 달력의 모든 세션에 행이 하나(D001). 끝은 `last_session`이고, 없으면 그 시장 `complete_through`의 날짜(시장의 `timezone`에서 읽고, 시간대가 없으면 UTC), 그것도 없으면 데이터셋의 `coverage.by_market.<m>.processed_through_session`, 그것도 없으면 데이터셋에서 그 시장의 줄이 가진 마지막 세션이다. 다만 `delisted_on`을 넘지 않는다: 그 뒤의 줄은 D002의 것이다. `last_session`이 없는 종목은 끝을 모르는 종목이다: 그 줄은 패키지가 담은 끝까지 이어지고, 관측이 없는 세션은 `missing` 줄이며, 쓰는 도구는 그 종목의 `last_session`이나 `delisted_on`을 지어내지 않는다. 세션 밖 날짜 행 금지(D002).
 - 여러 세션에 걸친 봉(`freq` `1w`, `1mo`, 또는 `1d`도 `freq<1d`도 아닌 것) [2026-11-23, #705]: 키는 일봉의 것(`instrument_id`, `session_date`)이고, `session_date`는 그 봉이 덮는 마지막 세션이다. 봉은 `ts_end`에 다 만들어지므로 첫 세션을 적으면 줄의 날짜가 쓸 수 있게 되는 때보다 앞선다. `ts_start`와 `ts_end`는 필수다. 한 세션을 위해 쓴 규칙(D001, D002, T005)은 그것을 판정하지 않고, TDS는 아직 그 파티션 형태를 정하지 않았다(9.5는 `freq=1d`만 가져온다).
-- 가격 검사 V001: `low <= min(open, close)`, `high >= max(open, close)`, `low <= high`(값이 모두 있을 때). 원가격은 가격 격자 위(5.27 격자 규범, V012 W) [v1.2, V31-05]. `volume` 단위는 3.4(V011 W) [v1.2, V31-16]. V002 음수 가격·거래량 금지(지수·스프레드 계약 같은 음수 허용 종목은 `instruments.category`로 예외 선언). V004: `obs_status = traded`면 `close` 필수, 선언한 프로필이 요구하는 bars 데이터셋(7장)의 `equity`·`etf` 행이면 `open`·`high`·`low`·`volume`도 [2026-11-22, #705]; 어느 프로필에서나 `no_trade`·`halted` 행에 적은 `volume`은 0, `halted` 행에는 `open`·`high`·`low`·`close`가 없고, `obs_status`가 없는 행은 값을 가진다 [2026-11-23, #705].
+- 가격 검사 V001: `low <= min(open, close)`, `high >= max(open, close)`, `low <= high`(값이 모두 있을 때). 원가격은 가격 격자 위(5.27 격자 규범, V012 W) [v1.2, V31-05]. `volume` 단위는 3.4(V011 W) [v1.2, V31-16]. V002 음수 가격·거래량 금지(지수·스프레드 계약 같은 음수 허용 종목은 `instruments.category`로 예외 선언). V004: `obs_status = traded`면 `close` 필수, 선언한 프로필이 요구하는 bars 데이터셋(7장)의 `equity`·`etf` 행이면 `open`·`high`·`low`·`volume`도 [2026-11-22, #705]; 어느 프로필에서나 `no_trade`·`halted` 행에 적은 `volume`은 0, `halted` 행에는 `open`·`high`·`low`·`close`가 없고, `obs_status`가 없는 행은 값을 가진다 [2026-11-23, #705]. 모든 프로필에서 `no_trade` 행에는 `open`·`high`·`low`가 없다 [2026-11-26, #752].
+- **거래 상태 선언** [2026-11-26, #725 결정 212, 213; #752]: 원본에 거래 상태가 없는 쓰는 쪽은 bars 데이터셋의 `params`에 한 번 `"obs_status_from": "volume_zero_no_trade"`를 선언할 수 있다. 그러면 `volume`이 0보다 큰 행에 `obs_status` `traded`를, `volume`이 0인 행에 `no_trade`를 쓰고, 그 행의 `open`·`high`·`low`를 비우며 `close`는 기준가로 남긴다. `open`·`high`·`low` 중 하나가 `close`와 다른 `volume` 0 행은 비우지 않고 묻는다(엔진 명세서 4.3). 선언은 `params`와 함께 의미 해시에 들어간다(4.5). 검사기는 선언을 읽지 않고, V004가 쓴 행을 판정한다.
 - 일봉 종가 = 공식 종가(한국 종가 단일가, 미국 공식 종가). 다르면 `x_` 칼럼으로.
 - 일봉은 `KR_close`와 마찬가지로 정규장 종가를 뜻하며, 시간외 거래는 넣지 않는다(명세서 1.2, 4.6). KR에서 이 종가는 KRX 정규장 종가이며, NXT(넥스트레이드, 대체거래소)의 체결은 정규장 시간과 겹치는 것이라도 종가·OHLC·거래량·거래대금(`value_traded`)에 넣지 않는다(사용자 결정 2026-11-01).
 - `shares_out`(명세서 4.7)은 봉의 칼럼이 아니다. 주식 수는 값 표의 항목이다(엔진 명세서 5.3.5a). 만든 쪽 편의 칼럼 `x_<ns>_shares_out`은 허용.
@@ -644,9 +647,9 @@
 | record_date | date | 예 | 기준일 |
 | declared_date | date | 예 | 이사회 결의·공표일 |
 | pay_date | date | 예 | 현금 지급·새 주식 상장일 |
-| pay_date_status | code | 아니오 | `observed` / `estimated` / `missing` |
-| resolution_date | date | 예 | [2026-11-01] 배당을 확정한 결의의 날: 주주총회가 승인하는 결산배당은 주주총회일, 정관에 따라 이사회가 확정하는 배당(상법 제462조 제2항)과 중간배당(제462조의3 제1항)·분기배당(자본시장법 제165조의12 제1항)은 이사회 결의일. 생산자는 KR "현금·현물배당 결정" 공시와 주주총회 결과로 채운다. 이사회가 배당을 제안한 날일 수 있는 `declared_date`와 별개. 소비자는 `pay_date`가 없을 때 나라별 대체값보다 먼저 이 날 + 1개월(법정 지급 기한)로 추정한다(명세 5.6.11) |
-| resolution_body | code (closed) | 예 | [2026-11-04] `meeting`, `board` — `resolution_date`가 기록하는 결의의 주체. `meeting` = 결산배당을 승인하는 주주총회(상법 제462조 제2항 본문); `board` = 이사회가 결의 주체일 때: 정관으로 이사회가 재무제표를 승인하는 회사의 결산배당(제462조 제2항 단서, 제449조의2), 중간배당(제462조의3 제1항), 분기배당(자본시장법 제165조의12 제1항). null = 생산자가 모름. 이 칼럼으로 소비자는 `resolution_date`가 주주총회일인 행과 이사회 결의일인 행을 구별한다. 실제로는 주주총회에서 배당을 승인하는 회사의 `board` 행은 규칙의 경우가 아니라 생산자의 채움 결함이다(그때 `resolution_date`는 주주총회일). 지급일 추정(명세 5.6.11)은 둘 다 같다: 1개월 기한(제464조의2 제1항; 분기배당은 자본시장법 제165조의12 제3항)은 어느 쪽 결의에서든 시작한다 |
+| pay_date_status | code | 아니오 | `observed` / `estimated` / `declared` / `missing`. `estimated`: 만든 쪽이 추정한 날짜, `declared`: 쓰는 쪽이 패키지의 현금 날짜 선언(아래)으로 정한 날짜 [2026-11-26, #752; #725 결정 214] |
+| resolution_date | date | 예 | [2026-11-01] 배당을 확정한 결의의 날: 주주총회가 승인하는 결산배당은 주주총회일, 정관에 따라 이사회가 확정하는 배당(상법 제462조 제2항)과 중간배당(제462조의3 제1항)·분기배당(자본시장법 제165조의12 제1항)은 이사회 결의일. 생산자는 KR "현금·현물배당 결정" 공시와 주주총회 결과로 채운다. 이사회가 배당을 제안한 날일 수 있는 `declared_date`와 별개 |
+| resolution_body | code (closed) | 예 | [2026-11-04] `meeting`, `board` — `resolution_date`가 기록하는 결의의 주체. `meeting` = 결산배당을 승인하는 주주총회(상법 제462조 제2항 본문); `board` = 이사회가 결의 주체일 때: 정관으로 이사회가 재무제표를 승인하는 회사의 결산배당(제462조 제2항 단서, 제449조의2), 중간배당(제462조의3 제1항), 분기배당(자본시장법 제165조의12 제1항). null = 생산자가 모름. 이 칼럼으로 소비자는 `resolution_date`가 주주총회일인 행과 이사회 결의일인 행을 구별한다. 실제로는 주주총회에서 배당을 승인하는 회사의 `board` 행은 규칙의 경우가 아니라 생산자의 채움 결함이다(그때 `resolution_date`는 주주총회일) |
 | ts_announced | ts_us | 예 | 사건이 공개된 순간(공시 접수) |
 | ts_terms_available | ts_us | 예 | 금액·비율이 확정 공개된 순간(한국 옛 배당은 배당락 뒤). null = `ts_announced`와 같음 |
 | ratio_num, ratio_den | i64 | 예 | [v1.2, V31-01] 수량 비율의 **정확한 유리수 꼴**(양의 정수 둘, 둘 다 있거나 둘 다 null): 분할류는 `share_factor = num/den`(1:8 역분할 = 1/8, 7:1 = 7/1, 5% 주식배당 = 21/20, 주식배당 0.29 = 129/100), 합병·분할설립은 `ratio_new_per_old = num/den`(교환비율 0.4237 = 4237/10000). 소비자는 이것을 정본으로 정수 산술 `q' = (q·num) div den`을 한다. f64 칼럼은 그 몫(보조). **[v1.4, R4F-01] 보유 주식 수를 바꾸는 모든 사건**(`split`, `reverse_split`, `stock_dividend`, `bonus_issue`, 주식 병합인 `capital_reduction`, `spinoff`, `stock_merger`, `mixed_merger`, 주식 교환이 있는 `exchange_offer`, 배정 비율이 있는 `rights_issue`)**은 `ratio_num/ratio_den`을 반드시(MUST) 채운다.** 검사 A010(**E**, v1.4에서 W → E): 그런 사건에 둘 다 null, 한쪽만 있음, 0 이하, f64 칼럼과 상대 1e-12 넘게 다름. 소비자는 f64 칼럼에서 유리수를 추론하지 않는다(v1.3의 "추론하면 기록" 허용을 없앰 — f64만으로는 0.333이 1/3인지 333/1000인지 정할 수 없다). [2026-11-04, R7-01] 정확 비율이 없는(둘 다 null) 외부 자료의 사건을 소비자가 어떻게 다룰지는 소비자 설정이 정한다(NexusBT는 `[corporate_actions] decimal_ratio`, 엔진 명세 3.11); 생산자에게 A010은 오류 그대로다. 그런 사건에 f64 칼럼을 쓰는 것은 사용자가 십진 읽기를 명시적으로 고른 경우뿐이다: 그때 f64의 최단 왕복 십진 표기를 정확한 십진 분수로 쓸 수 있고(0.333 → 333/1000), 소비자는 건수를 보고서에 남긴다. 잘못된 비율은 없는 비율이 아니다: 0 이하이거나 한쪽만 있는 비율은 오류 그대로다. [2026-11-10, #188] 둘 다 있고 양수이지만 f64 칼럼과 상대 1e-12 넘게 다른 비율도 생산자에게는 오류다; 소비자는 그런 비율을 쓰지 않고, 그 사건을 어떻게 할지는 없는 비율과 같은 소비자 설정이 정한다(NexusBT는 엔진 명세 5.6.1과 4.4 4단계: 기본으로 그 종목을 사건이 보이는 때부터 뺀다) |
@@ -678,6 +681,8 @@
 6. (2026-11-22 은퇴, #705: A001은 `c = +∞`로 풀어 bars의 `cum_factor_*`를 대조했고, 그 칼럼은 5.5에서 빠졌다.) `c = +∞`(패키지 전체 지식)에서 사슬은 최신판 하나만 내고, 취소된 사슬은 1.0이다.
 
 **배당 날짜 주의.** 한국은 기준일(record) ≠ 배당락일(ex). 결제 주기 때문에 배당락은 보통 기준일 전 영업일이다 [미확인: 시기별 규칙]. 기준일만 아는 자료는 `ex_date`를 규칙으로 유도하고 `x_<ns>_ex_date_method = 'record_minus_1_session'` 같은 칼럼을 남긴다.
+
+**현금 날짜 선언** [2026-11-26, #725 결정 214, 215; #752]. 배당에 `pay_date`가 없는 쓰는 쪽은 `corporate_actions` 데이터셋의 `params`에 현금이 들어오는 때를 한 번 선언할 수 있다: `"pay_date_when_missing": {"rule": "ex_date"}`(배당락일에) 또는 `{"calendar_days": N}`(그 N 역일 뒤). 그러면 그 날짜를 `pay_date`로, `pay_date_status = declared`로 쓴다. 선언은 `params`와 함께 의미 해시에 들어가고(4.5), 검사기는 읽지 않는다. 엔진은 빠진 `pay_date`를 추정하지 않는다(엔진 명세서 5.6.11).
 
 ### 5.12 (계수만 있는 자료의 처리)
 
@@ -1050,7 +1055,7 @@ tds export {zipline-bundle|nautilus-catalog|wide-parquet} ... # 9.8
 | TDS-A009 | E | `factor_method = spinoff_first_close`인데 `ts_terms_available < ts_close(효력 세션)`(신설 첫 종가 전에 계수를 알 수 없음) [v1.1] |
 | TDS-V001 | E | OHLC 모순 |
 | TDS-V002 | E | 음수 가격·거래량(허용 선언 없음) |
-| TDS-V004 | E | `obs_status = traded`인데 `close`가 null, 또는 선언한 프로필이 요구하는 bars 데이터셋의 `equity`·`etf` 행에서 `open`·`high`·`low`·`volume` 중 하나가 null(5.5, 7장) [2026-11-22, #705]. 어느 프로필에서나: `volume`을 적었고 0이 아닌 `no_trade`·`halted` 행; `open`·`high`·`low`·`close` 중 하나가 있는 `halted` 행; `obs_status`도 `open`·`high`·`low`·`close`·`vwap`·`volume`·`value_traded`도 없는 행(5.5) [2026-11-23, #705] |
+| TDS-V004 | E | `obs_status = traded`인데 `close`가 null, 또는 선언한 프로필이 요구하는 bars 데이터셋의 `equity`·`etf` 행에서 `open`·`high`·`low`·`volume` 중 하나가 null(5.5, 7장) [2026-11-22, #705]. 어느 프로필에서나: `volume`을 적었고 0이 아닌 `no_trade`·`halted` 행; `open`·`high`·`low`·`close` 중 하나가 있는 `halted` 행; `obs_status`도 `open`·`high`·`low`·`close`·`vwap`·`volume`·`value_traded`도 없는 행(5.5) [2026-11-23, #705]; `open`·`high`·`low` 중 하나가 있는 `no_trade` 행(5.5) [2026-11-26, #752] |
 | TDS-V005 | E | 환율·금리 곡선 값이 0 이하(금리는 음수 허용; 환율만) |
 | TDS-V010 | W | 주식 거래량이 정수가 아님 |
 | TDS-V011 | W | 거래량 단위 의심: 종목·연도 중앙값 `value_traded / (volume × multiplier × (H+L+C)/3)`가 [0.5, 2] 밖. `price_basis`가 `raw`인 bars만, `index` 종목 제외(3.4) [v1.2, V31-16; 2026-11-10, #229] |
@@ -1168,7 +1173,7 @@ datasets:
 - 시각 글은 RFC 3339(`Z` 또는 오프셋 필수). 오프셋 없는 시각은 `timezone`을 지정해야 하고, 서머타임 겹침 시각은 오류(`TDS-S004`)로 거절. 서머타임 전환이 건너뛴 지역 시각도 옮기지 않고 오류로 거절 [2026-11-05, #257].
 - 칼럼의 `format`은 읽은 값을 같은 글로 되돌려 쓸 때만 받는다. 그렇지 않으면 값을 `format` 없이 RFC 3339(날짜는 `YYYY-MM-DD`)로 쓴다 [2026-11-05, #257].
 - `tds import csv MAPPING --out PKG`는 패키지를 쓰고 그 옆에 `import_report.json`을 쓴다. 데이터셋 블록의 `values: {칼럼: 상수}`는 칼럼 하나의 모든 행에 상수 하나를 주며, CSV의 칼럼과 아래 채움값보다 앞선다 [2026-11-05, #257].
-- CSV도 `values`도 주지 않은 `instruments` 필수 칼럼은 채운다: `lot_size`는 1(5.1의 기본값), `multiplier`는 equity(5.1)와 etf, fund에 1.0, `is_synthetic`은 equity, etf, fund면 false, index면 true로 채운다. etf와 fund의 `multiplier`와 `is_synthetic`은 5.1이 정하지 않아 가져오기 도구의 규칙이다. 채운 것은 모두 `import_report.json`의 `assumed`에 적히고, 행에 다른 `asset_class`가 있는 칼럼은 `TDS-S001`로 남는다 [2026-11-05, #257].
+- CSV도 `values`도 주지 않은 `instruments` 필수 칼럼은 채운다: `multiplier`는 equity, etf, fund에 1.0, `is_synthetic`은 equity, etf, fund면 false(5.1), index면 true(5.26)로 채운다. `lot_size`는 채우지 않는다: 모르면 그 칼럼을 빼고(null, 5.1) 1로 쓰지 않는다 [2026-11-26, #705 결정 12, 17(4)]. 채운 것은 모두 `import_report.json`의 `assumed`에 적히고, 행에 다른 `asset_class`가 있는 칼럼은 `TDS-S001`로 남는다 [2026-11-05, #257].
 - 숫자 결측은 빈칸. `NaN`, `-`, `0` 결측 표시는 대응 파일의 `missing_values`로만.
 - `calendar_sessions` 블록이 없으면 가져오기가 bars의 날짜로 `calendar_sessions`를 짓는다(5.4): 어떤 막대든 있는 날마다 세션 하나, bars가 그날 `ts_start`와 `ts_end`를 주면 그 시각에(둘 중 하나만 주면 다른 하나는 선언으로), 아니면 시장의 `open`과 `close`(그 시장의 현지 시각 `HH:MM`; `close`에는 그 시장의 정규장이 닫은 가장 늦은 시각을 적어, 과거에 더 일찍 닫던 때가 늦은 쪽으로 읽히고 이른 쪽으로는 읽히지 않게)에 열고 닫으며, `session_kind = regular`, `is_half_day`는 null, `session_ord`는 없음, `source = inferred_from_bar_dates`. 한 날짜에 서로 다른 `ts_start`나 `ts_end`가 둘이면 그 날짜와 두 값을 말하며 멈춘다. bars가 시각을 주지 않는 날이 있는데 시각도 `calendar_sessions` 블록도 없는 대응 파일, 그리고 다른 종류인데 이름이 `calendar_sessions`인 데이터셋도 무엇을 적으라는 말과 함께 멈춘다. `open`과 `close`는 대응 파일의 것이고 `markets`의 것이 아니다(3.8). 현지의 하루 안에 있는 정규장만 추론한다: `24:00`인 마감, 자정을 넘는 세션, 서머타임 전환이 건너뛴 시각은 멈춘다. 이것은 마지막 수단이다: 거래소 달력을 읽지 않고, 다른 사실도 지어내지 않는다 [2026-11-23, #705]. `calendar_sessions` 블록은 `source`를 준다(열로, 또는 `values: {source: exchange}`로). 없으면 가져오기가 멈춘다(5.4) [2026-11-23, #705].
 - 일봉(`freq: 1d`)에는 종목의 막대가 없는 달력의 세션마다 줄을 하나 넣는다(5.5, D001): 그 종목의 `listed_on`(없으면 첫 막대; 검열된 `listed_on`은 첫 막대이므로 그 앞은 없다)과 달력의 첫 세션 가운데 늦은 날부터, 그 종목의 `last_session`까지, 없으면 시장의 `complete_through`를 그 시간대로 본 날짜까지, 그것도 없으면 그 시장의 막대가 있는 마지막 날짜까지. 채운 줄은 `obs_status = missing`이고 다른 열은 모두 null(5.5)이며, 원본 줄의 `obs_status`는 원본의 것(주지 않으면 null)이다. 가져오기는 `last_session`, `delisted_on`, `complete_through`를 쓰지 않는다: 사용자의 `complete_through`가 없으면 줄은 막대를 본 데까지만 가고, D001은 `last_session` 없는 종목을 그 끝까지 판정한다(5.5). 보고는 채운 줄의 수와 `last_session` 없이 끝까지 채운 종목 수를 말한다 [2026-11-23, #705 결정 112, 113]. 일봉을 `density: sparse`로 선언한 mapping은 가져오기를 멈추고 `density: dense`를 쓰라고 말한다(5.5, TDS-M014) [2026-11-23, #705]. 일봉의 `params.price_basis`는 사용자가 적는 것이고, 없으면 가져오기가 멈추며 세 값을 말한다; 종류의 관례인 `params.bar_time`(`session`)과 `params.density`(`dense`)는 mapping이 주지 않으면 가져오기가 쓰고, 보고는 그것을 가정한 것으로 적는다(5.5, TDS-M003) [2026-11-23, #705 C5].
@@ -1503,3 +1508,4 @@ datasets:
 - 2026-11-26: **v1.4** 안에서. 첫머리 안내, K5, K6, 2의 목록, 4.1의 배치, 4.2 예시, 4.3, 4.4, 5.5, 5.6, 5.11, 5.14, 5.17, 5.18, 5.20, 5.25, 6.1, 6.2, 6.3, 6.4, 7, 8.1, 9.6, 10.1: `share_counts`, `fundamentals_events`, `fundamentals_state`, `universe_membership`, `eligibility_daily`, `feature_panels`, `label_panels`가 스키마 파일과 함께 빠지고, `tds:panels@1.0`도 함께 빠지며, `dictionary/columns`에서 `is_label`이, `corporate_actions.kind`에서 `symbol_change`가 빠진다(#725 결정 250~254; #752의 R3b-3). `tds:panels`를 선언한 패키지는 TDS-M007을 받고, 빠진 종류의 데이터셋은 스키마 파일이 없는 종류이며, `symbol_change` 행은 TDS-S006이다. 움직이는 적합성 패키지나 해시 벡터는 없다. `tds_version` `"1.0"` 그대로, `tds_draft`는 2026-11-19 그대로(12e까지, 10.5).
 - 2026-11-26: **v1.4** 안에서. K6, 4.1의 배치, 4.4, 5.1, 5.6, 5.19, 5.27, 6.1, 6.2, 6.3, 6.4, 6.5, 8.3: `classifications`가 스키마 파일과 함께 빠진다(#725 결정 247, 250; #752의 틱 단계). `dictionary/columns`에서 `alias_of`가 빠진다. 격자 원천 순서(5.27)에서 `classifications` 단계가 빠지고, 2027-11-01부터의 US 종목별 배정은 #802가 정할 때까지 원천이 없다. TDS-T004, TDS-T012, TDS-V012는 `classifications`를 더 읽지 않고, T012에는 판 필터가 없다. 그 종류의 데이터셋은 스키마 파일이 없는 종류다. 움직인 것: 적합성 사례 TDS-T012(pass와 fail)는 `instrument_symbols`로 다시 만든다. `tds_version` `"1.0"` 그대로, `tds_draft`는 2026-11-19 그대로(12e까지, 10.5).
 - 2026-11-26: **v1.4** 안에서. 4.1의 배치, 5.28, 7: 값 표 `values`, `market_values`, `symbol_values`가 스키마 파일과 함께 `stable`로 들어온다(#725 결정 219~229, 254; #752의 V1, 2026-11-26 주인의 결정). `market=`, `item=` 파티션 아래의 `instrument_id`, `date`, `value`이고, 쓸 수 있게 되는 때는 5.28이 정하며(엔진 명세서 5.1.4) 매니페스트의 `availability`도 새 6.2 규칙도 없다. 항목 선언은 `params.items`이고, 값 표는 모든 프로필에서 선택이다. 값 표가 없는 패키지는 전과 같이 읽힌다. 움직이는 적합성 패키지나 해시는 없다. `tds_version` `"1.0"` 그대로, `tds_draft`는 2026-11-19 그대로(12e까지, 10.5).
+- 2026-11-26: **v1.4** 안에서. 5.1, 5.4, 5.5, 5.11, 8.3, 9.5 (#752의 V1b): `lot_size`는 모르면 null이고 쓰는 쪽은 1을 채우지 않는다(#705 결정 12). `listed_on_censored`는 상장이 더 이를 수 있다는 뜻이다(17(1)). `etf`와 `fund`의 `multiplier`, `is_synthetic`을 적는다(17(4)). 만든 쪽은 마지막 막대 뒤의 예정된 세션을 실어도 된다(#461). bars에 선택 칼럼 `open_auction_volume`(#725 결정 242)과 거래 상태 선언 `params.obs_status_from`이 생긴다. `pay_date_status`에 `declared`가 더해지고 현금 날짜 선언 `params.pay_date_when_missing`이 생긴다(#725 결정 212~215). `resolution_date`와 `resolution_body`는 더 이상 소비자가 빠진 `pay_date`를 추정한다고 하지 않는다. TDS-V004는 이제 `open`·`high`·`low` 중 하나가 있는 `no_trade` 행도 판정하므로, 그런 행이 있어 통과하던 패키지는 `full`에서 실패한다. 움직인 것: 적합성 사례 TDS-S003의 fail 패키지는 null `lot_size`가 허용되므로 이제 `multiplier`를 비운다. 해시는 움직이지 않는다. `tds_version` `"1.0"` 그대로, `tds_draft`는 2026-11-19 그대로(12e까지, 10.5).
