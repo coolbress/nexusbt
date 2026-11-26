@@ -1196,14 +1196,7 @@ write: orders.to_csv("orders/{date}.csv")   apply to paper book: nx.fill(book, o
 | `delistings` | 모든 칼럼(TDS 5.13; v1.2 `ret_observed_includes_distributions` 포함) | 5.6.13(폐지 직전 분배와 종료가치를 한 번만, 관측 포함·관측 제외·정책 세 기준). 회수액은 `ts_value_available` 전까지 판단 크기에 넣지 않는다(금액 모르는 권리, INV-01). 정답에서는 `ts_label_available`의 입력(5.8) |
 | `market_rules` (TDS v1.2 5.27, 선택) | `rule_id, market, rule_kind, venue_group, valid_from, valid_to, price_from, price_to, tick_size, limit_ratio, source, verified` | `verified`는 출시 증거 규칙 목록에 그대로. `rule_kind = tick_band`는 가격 격자(5.6.4a), `price_limit`은 5.6.5의 `pct` 원천(`tradability_daily` 다음, 규칙 팩 표 앞). 있으면 규칙 팩 표보다 먼저 쓴다 |
 | `fx_rates` | `base, quote, rate_kind, obs_date, ts_event, ts_available, rate, source` | `[fx] series`로 계열 하나를 고른다(3.11). 판단 입력은 `ts_available <= decision_ts`, 보고용 평가는 `ts_event <= 평가 시각`(5.1.5) [TDS-D17] |
-| `share_counts` | `instrument_id, count_kind, as_of_date, shares, ts_available` | 뺐다(5.3.5a) (#752의 R3에서 코드와 함께 빠짐) |
-| `fundamentals_state` | every column (TDS 5.18) | 뺐다(5.3.5) (#752의 R3에서 코드와 함께 빠짐) |
-| `fundamentals_events` | `fact_id, instrument_id, item, period_end, statement_basis, version, value, known_on, ts_available, source, source_rank, doc_id, value_how, vendor_input` | 뺐다(5.3.5) (#752의 R3에서 코드와 함께 빠짐) |
-| `classifications` | `instrument_id, scheme, level, code, label, effective_from, effective_to, ts_known_from, ts_known_to, edition, pit_quality` | 호가 단위 단계(5.6.4a) 말고는 뺐다 (#752의 R3에서 코드와 함께 빠짐) |
-| `eligibility_daily` | `rule_id, instrument_id, session_date, is_eligible, reason` | 뺐다(3.6) (#752의 R3에서 코드와 함께 빠짐) |
-| `universe_membership` | `universe_id, instrument_id, effective_from, effective_to, ts_known_from, ts_known_to` | 뺐다(3.6) (#752의 R3에서 코드와 함께 빠짐) |
-| `feature_panels` | `instrument_id, period, as_of_date, ts_available` + 특징 칼럼 | 뺐다(5.3.5) (#752의 R3에서 코드와 함께 빠짐) |
-| `label_panels` | `instrument_id, period, entry_date, entry_price_basis, exit_date, horizon, return_definition, terminal_policy_id` + 정답 칼럼 | 뺐다(5.8) (#752의 R3에서 코드와 함께 빠짐) |
+| `classifications` | `instrument_id, scheme, level, code, label, effective_from, effective_to, ts_known_from, ts_known_to, edition, pit_quality` | 호가 단위 단계(5.6.4a) 말고는 뺐다 (#752의 호가 단위 단계 T에서 코드와 함께 빠짐) |
 | 값 표(`values`, `market_values`, `symbol_values`; `item=` 파티션) | 5.3.5의 네 낱말과 `params.items`(항목마다 선택인 종류·이월) | 5.3.5, 5.1.4. 2026-11-24에 뺀 `fundamentals_state`, `fundamentals_events`, `classifications`, `eligibility_daily`, `universe_membership`, `feature_panels`, `label_panels`, `share_counts`를 대신한다(#752) [#725 결정 250, 254] |
 | 지수 종목 (`instruments(asset_class=index)` + `bars`) | `close`(= 지수 값), `index_kind` | 벤치마크(5.7). `index_kind = TR`만 기본 벤치마크로(`"auto"`, 3.11) [TDS-D15]. 지수 행에는 거래 필드가 필요 없다. 벤치마크는 어느 기호든, 또는 사용자가 주는 수익률 계열이어도 된다 [#725 결정 217] |
 | `dictionary/columns` | 모두 | 데이터셋 속성·스텁·단위(3.2) |
@@ -1221,7 +1214,7 @@ write: orders.to_csv("orders/{date}.csv")   apply to paper book: nx.fill(book, o
 | `spinoff` | 5.6.12 (`new_instrument_id`·`ratio_new_per_old`가 있으면 처리, 없으면 지원 안 함) | `price_factor` |
 | `rights_issue` | 5.6.12 권리 정책(`lapse`/`fail`); 수량 계수 = 1(보유 수량 불변) | `price_factor`(TERP) |
 | `exchange_offer`, `other` | 지원 안 하는 사건(5.6.12, 보유 중이면 정책 `unsupported`) | `price_factor`가 있으면 적용 |
-| `symbol_change`, `name_change`, `par_change` | 회계 영향 없음(사건 기록만). `symbol_change`는 2026-11-24에 뺐다(#752): 기호 기간은 `instrument_symbols`에만 있다(5.3.6) [#725 결정 209] (#752의 R3에서 코드와 함께 빠짐) | 없음(`affects = none`) |
+| `name_change`, `par_change` | 회계 영향 없음(사건 기록만). `symbol_change`는 2026-11-24에 뺐다(#752): 기호 기간은 `instrument_symbols`에만 있다(5.3.6) [#725 결정 209] | 없음(`affects = none`) |
 
 `price_factor`가 null(`factor_method = unavailable`)인 사건: 엔진은 그 종목의 창이 그 사건의 효력 세션 e를 가로지르면(창 안에 s < e ≤ t인 행이 있으면) e 전 행의 조정 가격 칸을 NaN으로 두고 진단 `AdjustmentUnavailable` 건수를 센다(숨은 1.0 대체 금지, INV-12). 이 "없음"은 누적 계수에도 그대로 퍼진다: e를 가로지르는 `C`의 비율은 없음이다. 보유 중이면 지원 안 하는 사건 정책을 따른다. `AdjustmentUnavailable` 한 건은 (종목, 사건) 한 쌍이다: `price_factor`가 null이고 그 종목의 어떤 창이 실행 중에 효력 세션 e를 가로지른 사건은 NaN으로 둔 칸이나 행이 몇 개든 한 번 센다. 커버리지 표는 `AdjustmentUnavailable`를 종목·연도별로 세고, 보고서는 그 사건 id를 나열한다.
 
@@ -1918,7 +1911,7 @@ v1은 이 절의 정의를 규범으로 고정하고(INV-08 문구, `DecisionCon
 - `cash_merger`: 효력 세션 시작에 `q·cash_per_share` 미수금(지급일 또는 그 세션), 보유 제거, 주문 취소.
 - `rights_issue`(유상증자 권리): `[corporate_actions] rights = "lapse"`(기본)면 권리를 쓰지도 팔지도 않고 **보유 수량은 그대로**(수량 계수 1) 사건 `rights_lapsed`(추정 가치 `q·prev_close·(1 − price_factor)`, 계좌에 넣지 않음)를 남기고 보고서에 건수·추정 가치 합을 보인다(G-47). `"fail"`이면 `UnsupportedCorporateActionError`(오류 E12) [A-15].
 - `spinoff`: `new_instrument_id`와 `ratio_new_per_old`가 있으면 새 종목 `sign(q)·((|q|·num) div den)`주를 주고(숏이면 새 종목 숏도 생김) 옛 보유는 그대로. 새 종목의 첫 봉 전까지 새 보유는 **평가 없음**이다: `decision_value`·`nav_decision`·`nav_economic`에 0으로 들어가고(금액이 아직 공개되지 않은 종료 권리와 같은 `decision_value` 제외, 5.6.13; 그것과 달리 `nav_economic`에도 사후 금액이 들어가지 않는다), 모회사 마지막 가격이나 비율로 가격을 만들지 않으며, 그 세션들을 `unvalued_holdings`로 세고 E30 건수, 첫 봉의 원 종가가 여느 보유처럼 평가한다(5.6.9) — 그래서 그날 `price_pnl`이 값 전부를 나른다. 시험 G-115 (결정 2026-11-06, #310). 없으면 지원 안 하는 사건.
-- `symbol_change`, `name_change`, `par_change`: 회계 영향 없음, 사건만 기록. `symbol_change`는 2026-11-24에 뺐다(#752): 기호 기간은 `instrument_symbols`에만 있다(5.3.6) [#725 결정 209] (#752의 R3에서 코드와 함께 빠짐).
+- `name_change`, `par_change`: 회계 영향 없음, 사건만 기록. `symbol_change`는 2026-11-24에 뺐다(#752): 기호 기간은 `instrument_symbols`에만 있다(5.3.6) [#725 결정 209].
 - 지원 안 하는 사건(`exchange_offer`, `other`, 정보가 빠진 spinoff 등)이 **보유 종목**에 생기면 `unsupported = "fail"`(기본)이면 오류 E12로 멈춘다(종목을 몰래 지우거나 가짜로 남기지 않음). `"cash_at_adjustment"`면 `q·prev_close·(1 − price_factor)` 현금(`price_factor`가 null이면 이 정책도 쓸 수 없어 E12)을 그 세션에 넣고 사건 `approximated`로 표시한다 [11.4.1, 11.4.3].
 
 #### 5.6.13 상장폐지 [Q18, 11.4.3 (7)(8)]
@@ -3350,7 +3343,7 @@ v1 명세의 O1~O11, 청사진 OQ-1~OQ-15, TDS Q1~Q16을 하나로 모았고, v3
 | R-14 일정 가지치기 | 5.3.2 | M1 | v1 | T1.7a/b |
 | R-15 자르기 시험 | 6.5 | M6 | 바뀜(진단, 날짜 우선순위 SC-05, A-25, A-50) | T6.9 |
 | R-16 정답은 target만 | 6.5 | M2 | v1 | T2.6 |
-| R-17 known_on 규칙 | 5.1 | M2 | 바뀜(`available_at <= decision_ts`, fundamentals_state (#752의 R3에서 코드와 함께 빠짐)) | T2.1 |
+| R-17 known_on 규칙 | 5.1 | M2 | 바뀜(`available_at <= decision_ts`; `fundamentals_state`는 2026-11-24에 뺐다, #752) | T2.1 |
 | R-18 그날 기준 조정 | 5.3.3 | M1 | v1 | T1.8 |
 | R-19 단위·E5·`.to()` | 3.3, 5.1.5 | M2 | v1 | T2.5 |
 | R-20 스냅숏 직접 읽기 | 4장(TDS v1) | M1 | v1 | T1.1a/b |

@@ -171,7 +171,6 @@ def key(text: str) -> tuple[str, str]:
         (("", ""), "instrument_id,close\nXNYS:AAPL,1\n", "no column for session_date, the sort"),
         (("", ""), BARS + "XNYS:AAPL,,1,2\n", "year= partition needs one or more rows"),
         (("", ""), BARS.splitlines()[0] + "\n", "year= partition needs one or more rows"),
-        (key("kind: feature_panels"), "value\n1\n", "partition name=/edition=/year= is not"),
         (key("missing_values: NA"), BARS, "missing_values is a list"),
         (("", ""), TS.format("2024-01-02"), "'2024-01-02' is not a ts_us"),  # not RFC 3339
         (("", ""), TS.format("2024-01-02T21:00:00.123456789Z"), "is not a ts_us"),  # below us

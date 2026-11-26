@@ -871,7 +871,7 @@ def test_injected_event_overrides_random(tmp_path: Path, tiny: Path) -> None:
     assert (dividend["resolution_body"], dividend["ts_terms_available"]) == (None, None)
     assert dividend["ts_announced"] == dt.datetime(2020, 1, 21, 21, tzinfo=UTC)  # +09:00 read
     for wrong, error, words in (
-        ({"dataset": "fundamentals_state"}, NotImplementedError, "not generated until M2"),
+        ({"dataset": "fundamentals_state"}, ValueError, "one of the spec 4.8 datasets"),
         ({"kind": "merger"}, ValueError, "kind one of"),
         ({"ex_date": "2020-01-25"}, ValueError, "a session of its listing"),
         ({"price_factor": 0.25}, ValueError, "derived columns .'price_factor'"),
@@ -974,7 +974,7 @@ def test_injected_exits_and_halts_are_refused_with_the_reason(tmp_path: Path) ->
         (halt | {"limit_up_close": True}, NotImplementedError, "limit closes and admin_s", "small"),
         (halt | {"admin_status": "normal"}, NotImplementedError, "not injected yet", "small"),
         (halt, NotImplementedError, r"tiny writes no tradability_daily yet \(4.8 \(5\)\)", "tiny"),
-        ({"dataset": "fundamentals_events"}, NotImplementedError, "not generated until M2", "tiny"),
+        ({"dataset": "fundamentals_events"}, ValueError, "one of the spec 4.8 datasets", "tiny"),
         (exit_ | {"ref_price": 1.0}, ValueError, "derived or unknown .'ref_price'", "tiny"),
         (exit_ | {"exit_date": "2020-01-02"}, ValueError, "after its listing's first", "tiny"),
         (exit_ | {"exit_value_status": "seen"}, ValueError, "exit_value_status one of", "tiny"),
@@ -1393,7 +1393,7 @@ def test_behind_cuts_nothing_from_a_dataset_without_an_instant(tmp_path: Path) -
 
 @pytest.mark.parametrize("behind", [
     {"bars_1d": 1}, {"calendar_sessions": 1},  # a row per session: cut with its rows, not here
-    {"fundamentals_state": 1},  # not written by this generator yet
+    {"fundamentals_state": 1},  # a kind that left the standard (#752)
     {"corporate_actions": -1}, {"corporate_actions": 10_000}, {"corporate_actions": 1.5},
     {"corporate_actions": True},
 ])  # fmt: skip

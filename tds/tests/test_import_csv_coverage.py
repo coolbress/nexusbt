@@ -6,8 +6,6 @@ import json
 from pathlib import Path
 from typing import Any
 
-import pytest
-
 from nexusbt_tds import check, import_csv
 from nexusbt_tds.hash import write_hashes
 
@@ -78,30 +76,17 @@ def test_coverage_leaves_the_hashes_as_they_were(tmp_path: Path) -> None:
         assert without[key] == manifest["hashes"][key], key
 
 
-FACTS = "fact_id,instrument_id,item,period_end,value,ts_available\n"
-FACT = "f1,XNYS:AAPL,revenue,2023-12-30,119575000000,2024-02-02T21:30:00Z\n"
-
-
-@pytest.mark.parametrize("facts", [FACTS + FACT, FACTS], ids=["one row", "no row"])
-def test_kinds_without_a_session_date_and_empty_ones_check_clean(
-    tmp_path: Path, facts: str
-) -> None:
-    """`fundamentals_events` (a `market=` partition, no `session_date`) gets `instruments` and
-    `rows` per market; an empty dataset the counts alone; neither is TDS-D004 at `full`."""
+def test_kinds_without_a_session_date_and_empty_ones_check_clean(tmp_path: Path) -> None:
+    """An empty dataset with no `session_date` (`delistings`) gets the counts alone, and is not
+    TDS-D004 at `full`. The `market=` kind with no `session_date` this test also held,
+    `fundamentals_events`, left with its kind; no kept kind has that shape (#752)."""
     delistings = "delisting_id,instrument_id,exit_date\n"  # no rows, no `market=` partition
     mapping = write(tmp_path, {
-        "instruments.csv": CHAPTER_7, "bars.csv": BARS, "facts.csv": facts,
-        "delistings.csv": delistings,
-        "mapping.yaml": MINIMAL + "  fundamentals_events:\n    file: facts.csv\n"
-        "    availability: {column: ts_available}\n"
-        "  delistings:\n    file: delistings.csv\n"
+        "instruments.csv": CHAPTER_7, "bars.csv": BARS, "delistings.csv": delistings,
+        "mapping.yaml": MINIMAL + "  delistings:\n    file: delistings.csv\n"
         "    availability: {exit: ts_exit_known, value: ts_value_available}\n",
     })  # fmt: skip
     out = import_csv(mapping, tmp_path / "pkg")
     got = datasets(out)
-    n = facts.count("\n") - 1
-    assert got["fundamentals_events"]["coverage"] == {
-        "instruments": n, "by_market": {"US": {"instruments": n, "rows": n}},
-    }  # fmt: skip
     assert got["delistings"]["coverage"] == {"instruments": 0}
     assert "TDS-D004" not in codes(out)

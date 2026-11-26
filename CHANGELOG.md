@@ -30,6 +30,10 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `MissingPayDatePolicy`, and the retired errors `PointInTimeError` (E3) and
   `DatasetShapeError` (E47); their numbers are not reused (#752).
 - `nx.screen`'s result now says `universe: listed (the default universe comes with T2.4)`.
+- The engine no longer reads `share_counts`, `fundamentals_events`, `fundamentals_state`,
+  `universe_membership`, `eligibility_daily`, `feature_panels` or `label_panels` (their
+  `ENGINE_COLUMNS` rows left), and supports the profiles `tds:minimal-daily` and
+  `tds:equity-daily-core` only (#752).
 
 ### Fixed
 - `environment.machine_id` is the same in every process on a host (#635). On a host

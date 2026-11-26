@@ -58,6 +58,17 @@ package version follows the `tds_version` it checks (`1.0.x`), tagged
   it, as on any kind without an availability rule, where until now it was timeless and never
   judged; `tds manifest build` no longer names its folder's kind and drafts an `availability`
   TODO for it
+- The schema files of `share_counts`, `fundamentals_events`, `fundamentals_state`,
+  `universe_membership`, `eligibility_daily`, `feature_panels` and `label_panels`, and the
+  profile `tds:panels` (#752, TDS 5.6, 5.14, 5.17, 5.18, 5.20, 5.25, 7): a dataset of one of
+  those kinds is now a kind with no schema file (its columns, key and sort are not checked,
+  `tds hash --write` stops on it); a package declaring `tds:panels` gets TDS-M007
+- `dictionary/columns` loses `is_label` (#752, TDS 4.4): a file that still holds it gets no
+  finding, and the dataset's value hash no longer covers the column, so a package hashed with it
+  no longer matches its recorded hash (no package in this repository has one)
+- `corporate_actions.kind` loses `symbol_change` (#752, TDS 5.11; symbol periods are
+  `instrument_symbols`'s): a row holding it is TDS-S006, an error, as a value outside a closed
+  list
 
 ### Added
 - TDS-M010 at the `schema` level for an `instruments.market` not declared in `markets` (TDS 3.8,

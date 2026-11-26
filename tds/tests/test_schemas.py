@@ -185,7 +185,7 @@ def test_no_schema_file_is_an_error_not_an_empty_registry(
 def test_schema_files_cover_stable_datasets() -> None:
     status = section_status(TDS_DOC.read_text(encoding="utf-8"))
     stable = [kind for kind, n in CHAPTER_5.items() if status[n] == "stable"]
-    assert len(stable) == 17  # 5.1-5.5, 5.10-5.20, 5.25 and 5.27 less 5.3, 5.16 (5.12, 5.26 none)
+    assert len(stable) == 10  # 5.1, 5.2, 5.4, 5.5, 5.10, 5.11, 5.13, 5.15, 5.19, 5.27 (#752)
     schemas = load_schemas()
     assert [k for k in stable if k not in schemas or schemas[k].status != "stable"] == []
 
@@ -195,8 +195,8 @@ def test_every_stable_schema_column_has_a_type() -> None:
     schemas = load_schemas()
     stable = {k: s for k, s in schemas.items() if s.status == "stable"}
     assert [(k, c.name) for k, s in stable.items() for c in s.columns if c.type is None] == []
-    known_to = {c.name: c.null for c in schemas["universe_membership"].columns}["ts_known_to"]
-    assert known_to is True  # 5.20, 6.3: an open known interval
+    known_to = {c.name: c.null for c in schemas["instrument_symbols"].columns}["ts_known_to"]
+    assert known_to is True  # 5.2, 6.3: an open known interval
 
 
 _RULE = {"rule_id": "us-tick", "market": "US", "rule_kind": "tick_band", "venue_group": "*",
@@ -277,9 +277,8 @@ def test_verify_prints_the_lists_and_the_match(capsys: pytest.CaptureFixture[str
     out = capsys.readouterr().out.splitlines()
     assert out[0] == (
         "stable: bars, calendar_sessions, classifications, corporate_actions,"
-        " delistings, eligibility_daily, feature_panels, fundamentals_events,"
-        " fundamentals_state, fx_rates, instrument_symbols, instruments,"
-        " label_panels, market_rules, share_counts, tradability_daily, universe_membership"
+        " delistings, fx_rates, instrument_symbols, instruments, market_rules,"
+        " tradability_daily"
     )
     assert out[1] == "experimental: (none)"
     assert out[2:] == ["doc tables match schema files"]

@@ -14,7 +14,7 @@ import datetime as dt
 import pyarrow as pa
 import pyarrow.compute as pc
 
-#: The effective-period columns: `classifications`, `universe_membership`; `instrument_symbols`.
+#: The effective-period columns: `classifications`; `instrument_symbols`.
 EFFECTIVE = (("effective_from", "effective_to"), ("valid_from", "valid_to"))
 #: The `classifications` edition filters (5.19): the rows of an edition and of `both`.
 EDITIONS = {"strict": ("strict", "both"), "compare": ("compare", "both")}

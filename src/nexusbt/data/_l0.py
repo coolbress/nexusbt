@@ -8,7 +8,7 @@ T6.12, both following from 5.3.9 as written (#480, Decisions 2026-11-16):
     5.3.9 gives them to L1's input keys, so Y's entry must not store their values.
 (b) `l0_key` takes the resolution metadata and the files of the bars dataset, the one every
     column comes from today. An entry of a column from another dataset, such as `Q` (5.3.5a,
-    from `share_counts`), keys on that dataset's metadata and files instead."""
+    from a share-count item), keys on that dataset's metadata and files instead."""
 
 from __future__ import annotations
 

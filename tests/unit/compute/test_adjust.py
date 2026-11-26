@@ -89,8 +89,8 @@ CASH = V1 | {"kind": "cash_dividend", "ratio_num": None, "ratio_den": None,
              "gross_or_net": "gross", "price_factor": 0.98, "share_factor": 2.0,
              "affects": "total_only", "factor_method": "cash_prev_close",
              "pay_date_status": "estimated"}  # fmt: skip
-#: A symbol change on 2020-01-07 (row 3): `affects = none`, quantity effect 2 all the same.
-RENAME = V1 | {"kind": "symbol_change", "ratio_num": None, "ratio_den": None,
+#: A name change on 2020-01-07 (row 3): `affects = none`, quantity effect 2 all the same.
+RENAME = V1 | {"kind": "name_change", "ratio_num": None, "ratio_den": None,
                "ratio_new_per_old": None, "price_factor": None, "share_factor": 2.0,
                "affects": "none", "factor_method": None,
                "pay_date_status": "not_applicable"}  # fmt: skip
