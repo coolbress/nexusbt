@@ -6,6 +6,16 @@ package version follows the `tds_version` it checks (`1.0.x`), tagged
 
 ## [Unreleased]
 
+### Added
+- The schema files of the value tables `values`, `market_values` and `symbol_values` (TDS 5.28,
+  `stable`; #752's V1): `instrument_id`, `date` and an `f64` `value` under `market=` and `item=`
+  partitions. Their columns, keys and types are checked, K001 compares a key with its `market`
+  and `item`, R001 reads their `instrument_id`, and they are hashed. They carry no
+  `availability`, so TDS-T006 is `unchecked` for a package holding one, as is TDS-D003 for one
+  that gives a `processed_through_session`. `params.items`, an item name outside 5.28's rule, an
+  item in two kinds, an `availability` written for them and a row whose instrument is of another
+  market than its `market=` are not judged yet (#752). A package without them checks as before
+
 ### Removed
 - TDS-V031 (a crossed book after reconstruction) and TDS-V032 (a gap in `sequence` numbers) are
   retired, their numbers not reused, before `trades`, `quotes` and `book_deltas` leave the

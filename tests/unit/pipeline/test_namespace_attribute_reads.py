@@ -115,6 +115,21 @@ def _part(c):
 
 def through_helper(close):
     return close.mean() * _part(cfg)
+
+
+def _make():
+    space = cfg
+
+    def in_class(close):
+        class Box:
+            k = space.K
+
+        return close.mean() * Box.k
+
+    return in_class
+
+
+in_class = _make()
 """
 
 
@@ -174,3 +189,15 @@ def test_a_helpers_parameter_may_hold_a_namespace(user: Any) -> None:
     a helper's (`_part(c)`, given `cfg`) may hold a namespace, so what it reads off one is asked
     of the namespaces the helper reads: `cfg.K` is in the hash under the helper."""
     assert ("user674._part:cfg.K", 7) in _reads(user.through_helper).captured
+
+
+def test_a_namespace_a_class_body_loads_is_asked_for_every_name(user: Any) -> None:
+    """AC 3, #806's uncovered line: a class body in the function loads the closure's `space`
+    by an instruction whose chains are not followed (`LOAD_FROM_DICT_OR_DEREF`), so `space` is
+    asked for every name the code loads, as before #674: `space.K` is in the hash and
+    `space.mean`, a list, is E24. On Python 3.13 the function also loads `space` as it is to
+    build the class's closure, which ends the path by itself, so this test runs that line but
+    would still pass without it."""
+    reads = _reads(user.in_class)
+    assert ("space.K", 7) in reads.captured
+    assert reads.impure == ("space.mean",)
