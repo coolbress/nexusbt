@@ -62,7 +62,8 @@ def test_alternatives_and_experimental_status() -> None:
 
 
 @pytest.mark.parametrize("name", ["intraday-bars", "equity-daily-research", "pit-fundamentals",
-                                  "bitemporal", "alt-events", "l1-ticks", "futures"])  # fmt: skip
+                                  "bitemporal", "alt-events", "l1-ticks", "futures",
+                                  "panels"])  # fmt: skip
 def test_a_profile_that_left_is_unknown(name: str, tmp_path: Path) -> None:
     """#752: a package declaring a profile chapter 7 no longer has gets TDS-M007."""
     manifest, files = build.base()

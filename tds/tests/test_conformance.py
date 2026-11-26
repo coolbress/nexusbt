@@ -172,6 +172,17 @@ def test_S006_S007_rows(change: Any, found: list[str], tmp_path: Path) -> None:
     assert found == [] or {"TDS-S006", "TDS-S007"} & set(check(package, level="schema").unchecked)
 
 
+@pytest.mark.parametrize(("kind", "found"), [("symbol_change", True), ("name_change", False)])
+def test_a_symbol_change_row_is_S006(kind: str, found: bool, tmp_path: Path) -> None:
+    """5.11: `symbol_change` left `corporate_actions.kind` (#752; symbol periods are 5.2's)."""
+    row = {"event_id": ["US:E1"], "instrument_id": ["US:AAA"], "kind": [kind],
+           "ex_date": build.DAY, "ts_effective": _ts(END), "pay_date_status": ["not_applicable"],
+           "affects": ["none"], "factor_method": ["none"], "status": ["active"]}  # fmt: skip
+    result = check(write(tmp_path, build._add("corporate_actions", row)), level="schema")
+    s006 = [f.message for f in result.errors if f.code == "TDS-S006"]
+    assert s006 == (["kind holds 'symbol_change', not in its closed list"] if found else [])
+
+
 def test_S006_names_the_file_and_the_value(tmp_path: Path) -> None:
     """When a bar has `obs_status = "tradedd"`, `full` reports S006 with the file and value."""
     package = write(tmp_path, build._bars(obs_status=pa.array(["tradedd"])))
@@ -1639,17 +1650,19 @@ def test_T006_does_not_read_a_timeless_kind(level: Level, tmp_path: Path) -> Non
     assert "TDS-T006" not in [f.code for f in result.errors]
 
 
-def _status(ts_available: dt.datetime, availability: object) -> Any:
-    """A US `tradability_daily` row available at `ts_available`, US `complete_through` END
-    (5.10; the `fundamentals_state` row this case first held left with its kind, #752)."""
+def _symbols(ts_known_from: dt.datetime, availability: object) -> Any:
+    """A US `instrument_symbols` row known at `ts_known_from`, US `complete_through` END (5.2;
+    the `fundamentals_state` row this case first held left with its kind, #752). The named
+    column is not `ts_available`, so the case fails if T006 reads another column."""
 
     def change(m: dict[str, Any], f: Any) -> None:
         _rule("ts_end", ts_end=_ts(END))(m, f)  # bars T006 can pass
-        rel = "tradability_daily/freq=1d/market=US/year=2024/part-00000.parquet"
-        row = _TRADABLE | {"ts_available": _ts(ts_available)}
-        f[rel] = build.parquet(pa.table(row), "tradability_daily")
-        m["datasets"].append({"name": "tradability_daily", "kind": "tradability_daily",
-                              "schema_version": "1.0", "path": "tradability_daily",
+        rel = "instrument_symbols/market=US/part-00000.parquet"
+        row = {"instrument_id": ["US:AAA"], "symbol_type": ["ticker"], "symbol": ["AAA"],
+               "valid_from": build.DAY, "ts_known_from": _ts(ts_known_from)}  # fmt: skip
+        f[rel] = build.parquet(pa.table(row), "instrument_symbols")
+        m["datasets"].append({"name": "instrument_symbols", "kind": "instrument_symbols",
+                              "schema_version": "1.0", "path": "instrument_symbols",
                               "availability": availability,
                               "files": [{"path": rel, "bytes": len(f[rel])}]})  # fmt: skip
 
@@ -1658,10 +1671,10 @@ def _status(ts_available: dt.datetime, availability: object) -> Any:
 
 @pytest.mark.parametrize(
     ("change", "found", "unchecked"),
-    [  # TDS 4.2 `{"column": "ts_available"}`: T006 reads that column's statistics (#276)
-        (_status(END, {"column": "ts_available"}), [], False),
-        (_status(END + TICK, {"column": "ts_available"}), ["TDS-T006"], False),
-        (_status(END + TICK, None), [], True),  # no availability: its instant is unknown
+    [  # TDS 4.2 `{"column": "ts_known_from"}`: T006 reads that column's statistics (#276)
+        (_symbols(END, {"column": "ts_known_from"}), [], False),
+        (_symbols(END + TICK, {"column": "ts_known_from"}), ["TDS-T006"], False),
+        (_symbols(END + TICK, None), [], True),  # no availability: its instant is unknown
     ],
 )
 def test_T006_reads_the_named_column(
@@ -1669,7 +1682,7 @@ def test_T006_reads_the_named_column(
 ) -> None:
     result = check(write(tmp_path, change), level="schema")
     assert [f.code for f in result.errors] == found
-    assert {f.dataset for f in result.errors} <= {"tradability_daily"}
+    assert {f.dataset for f in result.errors} <= {"instrument_symbols"}
     assert ("TDS-T006" in result.unchecked) is unchecked
 
 
