@@ -1,11 +1,10 @@
-"""The `full` level's interval checks from the rows: T003, T004, T012 (TDS 5.2, 5.19, 5.27,
-6.3, 8.3).
+"""The `full` level's interval checks from the rows: T003, T004, T012 (TDS 5.2, 5.27, 6.3, 8.3).
 
 Rules chosen with the maintainer (#225, 2026-11-11): T012 holds the rectangle-lookup
-tables to one visible row per discriminating key and edition filter, found as two rows whose
-known and effective intervals both meet, then shown by `pit.rect_lookup` at the corner they
-share; T003 holds `market_rules`' tick bands per `(rule_id, venue_group)` on a shared date;
-the user-data kinds are not read (#752). 5.2's T003 line is T012's condition and is reported
+table to one visible row per discriminating key, found as two rows whose known and effective
+intervals both meet, then shown by `pit.rect_lookup` at the corner they share; T003 holds
+`market_rules`' tick bands per `(rule_id, venue_group)` on a shared date; the user-data kinds
+and `classifications` are not read (#752). 5.2's T003 line is T012's condition and is reported
 as T012 only. T004 reads every `[from, to)` pair of `INTERVALS`; a null end is open, and a
 row it breaks takes part in no overlap. A null `instrument_symbols.ts_known_from` is the
 session open of `valid_from` (5.2): a pair it decides leaves T012 unchecked unless another
@@ -15,7 +14,7 @@ Memory holds these tables' interval columns, grouped by key; one finding per dat
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from itertools import combinations
 from typing import Any
 
@@ -31,20 +30,18 @@ T003, T004, T012 = TIME_CODES
 KNOWN = ("ts_known_from", "ts_known_to")
 #: T004's `[from, to)` pairs, per kind.
 INTERVALS = {
-    "classifications": (("effective_from", "effective_to"), KNOWN),
     "instrument_symbols": (("valid_from", "valid_to"), KNOWN),
     "market_rules": (("valid_from", "valid_to"),),
 }
 #: Per kind: the overlap code, the key its intervals are grouped by, and the columns read besides.
 OVERLAPS = {
-    "classifications": (T012, ("instrument_id", "scheme", "level"), ("edition", "pit_quality")),
     "instrument_symbols": (T012, ("instrument_id", "symbol_type"), ()),
     "market_rules": (T003, ("rule_id", "venue_group"), ("rule_kind", "price_from", "price_to")),
 }
 SAID = {
     T003: "key(s) with overlapping intervals",
     T004: "row(s) with an interval end <= start",
-    T012: "key(s) (per edition filter) the rectangle lookup finds more than one row for",
+    T012: "key(s) the rectangle lookup finds more than one row for",
 }
 
 
@@ -82,28 +79,14 @@ def _dataset(m: Manifest, ds: Mapping[str, Any], undecided: list[bool]) -> list[
                 if r["rule_kind"] == "tick_band"]  # fmt: skip
         pairs = (*pairs, ("price_from", "price_to"))
     ids = {id(r) for r in broken}
-    groups = _group(_filtered(kind, [r for r in rows if id(r) not in ids]),
-                    lambda r: tuple(r[c] for c in (*key, "filter")))  # fmt: skip
+    groups = _group([r for r in rows if id(r) not in ids], lambda r: tuple(r[c] for c in key))
     unsure = undecided if code == T012 else []  # a null start in T003's tables is S003's
     hits = [h for g in groups.values() if (h := _overlap(g, pairs, unsure))]
     if hits:
         a, b = hits[0]
         msg = f"{len(hits)} {SAID[code]}" + (_shown_at(a, b) if code == T012 else "")
-        shown = _shown([*key, *(["filter"] if a["filter"] else [])], a)
-        out.append(Finding(code, "error", msg, name, key=shown, count=len(hits)))
+        out.append(Finding(code, "error", msg, name, key=_shown(key, a), count=len(hits)))
     return out
-
-
-def _filtered(kind: str, rows: list[dict[str, Any]]) -> Iterable[dict[str, Any]]:
-    """Each row under each edition filter it belongs to (5.19); other kinds have none."""
-    for r in rows:
-        if kind != "classifications":
-            yield r | {"filter": None}
-            continue
-        for f, editions in pit.EDITIONS.items():
-            backfilled = f == "strict" and r["pit_quality"] == "backfilled"
-            if (r["edition"] or "both") in editions and not backfilled:
-                yield r | {"filter": f}
 
 
 def _overlap(
@@ -127,6 +110,6 @@ def _shown_at(a: dict[str, Any], b: dict[str, Any]) -> str:
     cutoff, date = max(a["ts_known_from"], b["ts_known_from"]), max(a[start], b[start])
     rows, rank = ranked([a, b])  # the instants in an order Arrow holds, `cutoff` as they are
     at = rank.get(cutoff, cutoff)
-    n = pit.rect_lookup(pa.Table.from_pylist(rows), at, date, edition=a["filter"]).num_rows
+    n = pit.rect_lookup(pa.Table.from_pylist(rows), at, date).num_rows
     when = cutoff.iso() if isinstance(cutoff, Instant) else cutoff
     return f"; at known time {when} on {date}, {n} rows"

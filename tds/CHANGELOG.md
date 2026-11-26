@@ -69,6 +69,15 @@ package version follows the `tds_version` it checks (`1.0.x`), tagged
 - `corporate_actions.kind` loses `symbol_change` (#752, TDS 5.11; symbol periods are
   `instrument_symbols`'s): a row holding it is TDS-S006, an error, as a value outside a closed
   list
+- The schema file of `classifications` (#752's tick step, TDS 5.19): a dataset of that kind
+  is now a kind with no schema file, so it gets no finding at any level, TDS-T006 and at `full`
+  TDS-H002, H003 and H004 are `unchecked`, and `tds hash --write` stops on it; TDS-T004 and
+  TDS-T012 no longer read it, and T012 has no edition filter; TDS-V012 finds an instrument's
+  grid from `instruments.tick_size` or the rule set its `tick_rule_id` names only. The
+  conformance case TDS-T012 (pass and fail) is rebuilt on `instrument_symbols`
+- `dictionary/columns` loses `alias_of` (#752, TDS 4.4): a file that still holds it gets no
+  finding, and the dataset's value hash no longer covers the column (no package in this
+  repository has one)
 
 ### Added
 - TDS-M010 at the `schema` level for an `instruments.market` not declared in `markets` (TDS 3.8,

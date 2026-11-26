@@ -34,6 +34,11 @@ versions follow [Semantic Versioning](https://semver.org/).
   `universe_membership`, `eligibility_daily`, `feature_panels` or `label_panels` (their
   `ENGINE_COLUMNS` rows left), and supports the profiles `tds:minimal-daily` and
   `tds:equity-daily-core` only (#752).
+- The engine no longer reads `classifications` (its `ENGINE_COLUMNS` row left): the price
+  grid comes from `instruments.tick_size`, the `market_rules` rule set
+  `instruments.tick_rule_id` names, the market's `tick_band` rows or the rules pack (#752). The
+  US per-instrument tick assignment from 2027-11-01 has no source until #802 decides one; an
+  instrument without one keeps the pack's US 0.01.
 
 ### Fixed
 - A user function that reads a helper kept in `__wrapped__` by an object that is not a Python
