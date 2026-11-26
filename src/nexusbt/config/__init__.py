@@ -210,12 +210,6 @@ def _clock(v: Any, m: tuple[str, ...]) -> Any:
     return v
 
 
-def _bases(v: Any, m: tuple[str, ...]) -> Any:
-    """`[fund] statement_basis` (5.3.5, #705 B1): one TDS 5.17 basis, or an order of them."""
-    basis = one("consolidated", "separate", "unspecified")
-    return list_of(basis)(v, m) if isinstance(v, list) else basis(v, m)
-
-
 def _net(v: Any, m: tuple[str, ...]) -> Any:
     lo_hi = list_of(num())(v, m)
     if len(lo_hi) != 2 or not lo_hi[0] <= 0 <= lo_hi[1]:
@@ -301,7 +295,6 @@ SCHEMA: dict[str, dict[str, tuple[Any, Check]]] = {
         "exclude": ([], list_of(STR)), "microcap_pct": (0.20, num(0, 0.5, gt=True)),
         "eligibility_rule": ("investable-v1", STR),
     },
-    "panels": {"feature": ("factor_pit_monthly", STR), "label": ("label_monthly", STR)},
     "portfolio": {"anchor_date": ("start", DATE), "tiebreak": policy(TiebreakPolicy.HASH),
                   "band_entries": policy(BandEntriesPolicy.SKIP),
                   "max_missing_decisions": (1, POS)},
@@ -362,7 +355,6 @@ SCHEMA: dict[str, dict[str, tuple[Any, Check]]] = {
     "fx": {"max_stale_days_decision": (10, COUNT), "max_stale_days_valuation": (10, COUNT),
            "series": ("auto", _fx_series)},
     "benchmarks": {"*": ("auto", STR)},
-    "fund": {"max_age_days": (550, COUNT), "statement_basis": (None, _bases)},
     "evaluate": {
         "freq": ("monthly", STR), "quantiles": (5, num(2, 20, int_=True)),
         "min_pairs": (20, num(3, int_=True)),

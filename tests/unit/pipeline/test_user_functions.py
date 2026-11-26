@@ -93,7 +93,7 @@ def test_user_exception_keeps_user_frame() -> None:
     wrapped and not chained, and the frames a reader sees go from the caller straight to the
     user's line: the engine's are hidden (`__tracebackhide__`)."""
     lookup = nx.factor(window=2, inputs=[CLOSE])(_lookup)
-    registry = SchemaRegistry(columns={}, labels={})
+    registry = SchemaRegistry(columns={})
     for caller, where in ((lambda: plain([lookup], [3], 4), "plain"),
                           (lambda: bind(lookup, registry), None)):  # fmt: skip
         with pytest.raises(KeyError) as caught:
@@ -232,9 +232,9 @@ def test_out_of_window_index_E8_when_the_graph_is_built() -> None:  # noqa: N802
     its window binds, and so does a graph holding it twice."""
     mom = nx.factor(window=253, inputs=[CLOSE])(_mom_12_1_custom)
     with pytest.raises(nx.WindowError, match=r"@nx.factor\(window=273, \.\.\.\)"):
-        bind(mom.rank(), SchemaRegistry(columns={}, labels={}))
+        bind(mom.rank(), SchemaRegistry(columns={}))
     first = nx.factor(window=3, inputs=[CLOSE])(_first)
-    bind(nx.Pipeline({"a": first, "b": first.rank()}), SchemaRegistry(columns={}, labels={}))
+    bind(nx.Pipeline({"a": first, "b": first.rank()}), SchemaRegistry(columns={}))
 
 
 def _first(close: Any) -> Any:
@@ -317,7 +317,7 @@ def test_keyword_binding_makes_a_new_factor() -> None:
     got = plain([mom, mom63], [69], 70)
     assert got[graph_hash(mom63)]["value"].to_pylist()[0] == pytest.approx(169 / 106 - 1)
     assert got[graph_hash(mom)]["value"].to_pylist()[0] == pytest.approx(169 / 148 - 1)
-    bind(mom63, SchemaRegistry(columns={}, labels={}))
+    bind(mom63, SchemaRegistry(columns={}))
     with pytest.raises(TypeError, match="_momentum takes no keyword 'm'"):
         mom(m=1)
     with pytest.raises(TypeError, match="_momentum takes no keyword 'close'"):

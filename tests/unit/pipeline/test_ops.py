@@ -83,7 +83,7 @@ def test_rolling_arguments() -> None:
 def test_rolling_over_a_price_level_is_refused() -> None:
     """#243 Decisions 2026-11-18: `rolling` reads a term's values, so a price level is E17 and
     a degree-0 term passes."""
-    registry = SchemaRegistry(columns={}, labels={})
+    registry = SchemaRegistry(columns={})
     with pytest.raises(nx.TermDomainError) as caught:
         bind(ops.rolling(CLOSE, 3).mean(), registry)
     assert caught.value.code == "E17"

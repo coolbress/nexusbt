@@ -403,14 +403,16 @@ from nexusbt.factors import (Returns, DailyReturns, SimpleMovingAverage, SMA,
 | 분류 | 이름 |
 |---|---|
 | 항 | `Factor`, `Filter`, `Classifier`, `Pipeline`, `factor`, `filter`, `classifier`, `ops`(`ops.rolling`, `ops.where`, `ops.coalesce`, `ops.composite`), `factors`(3.4의 내장 팩터; 2.5) (결정 2026-11-18, #243) |
-| 데이터 | `Price`, `Meta`, `Trad`, `Market` [V31-13], `Dataset`, `universe`(그리고 `Item`, 5.3.5, 값 표 코드와 함께); 2026-11-24에 뺐다(#752): `Fund`, `Panel`, `Label`, `Macro`, `MacroTerm`, `Events`, `dataset.from_parquet`, `dataset.from_frame`, `universe.index_members` (#752의 R3에서 코드와 함께 빠짐) |
-| 전략 | `Strategy`, `param`, `monthly`, `weekly`, `daily`, `quarterly`, `annually`, `every`, `on_event`(2026-11-24에 뺐다, #752; #752의 R3에서 코드와 함께 빠짐), `top`, `bottom`, `long_short`, `portfolio`(+ 사용자 블록 데코레이터 `portfolio`), `size`(5.5.1a), `sizer`, `risk`(5.5.2·5.5.2a 내장 블록 전부), `risk_rule`, 사용자 블록 타입 `PortfolioContext`, `SizingContext`, `RiskContext`, `TargetView`, `RiskDecision`, `Scalar`, `execution`, `exits`(`exits.time_stop` 포함), `ExitRule`, `costs`, `ml`(`ml.factor`, 5.3.11), `labels`(`labels.triple_barrier`, 5.8), `LabelTerm`, `splits`(`holdout`, `walk_forward`, `cpcv`, `cscv`, 6.3a) |
+| 데이터 | `Price`, `Meta`, `Trad`, `Market` [V31-13], `Dataset`, `universe`(그리고 `Item`, 5.3.5, 값 표 코드와 함께) |
+| 전략 | `Strategy`, `param`, `monthly`, `weekly`, `daily`, `quarterly`, `annually`, `every`, `top`, `bottom`, `long_short`, `portfolio`(+ 사용자 블록 데코레이터 `portfolio`), `size`(5.5.1a), `sizer`, `risk`(5.5.2·5.5.2a 내장 블록 전부), `risk_rule`, 사용자 블록 타입 `PortfolioContext`, `SizingContext`, `RiskContext`, `TargetView`, `RiskDecision`, `Scalar`, `execution`, `exits`(`exits.time_stop` 포함), `ExitRule`, `costs`, `ml`(`ml.factor`, 5.3.11), `labels`(`labels.triple_barrier`, 5.8), `LabelTerm`, `splits`(`holdout`, `walk_forward`, `cpcv`, `cscv`, 6.3a) |
 | 함수 | `open`, `evaluate`, `backtest`, `screen`, `live`, `fill`, `reconcile`, `sweep`, `compare`, `run_pipeline`, `explain`, `check`, `describe`, `runs`, `rerun`, `book`, `override`, `record_fills`, `cash_flow` [V31-19], `acknowledge`, `preregister`, `config` |
 | 결과 | `FactorReport`, `Run`, `Screen`, `Orders`, `BookUpdate`, `ReconcileReport`, `SweepResult`, `Comparison`, `ValidationResult`(`Run.validation`), `Split`, `PipelineResult`, `Explanation`, `DecisionExplanation`, `CheckReport`, `RunTable`, `Description`, `Preregistration`, `Config`, `Snapshot`, `Book` |
 | 오류 | `NexusBTError`와 6.6의 하위 클래스 |
 | 타입 | 3장 시그니처가 쓰는 이름 — 사용자가 읽거나 주석에 쓰되 만들지는 않는 Protocol 또는 frozen dataclass: `Term`(3.5, 3.8), `BoundColumn`(3.3, 3.8), `Param`(3.7), `Schedule`(3.7, 3.8), `PortfolioRule`, `Sizer`, `RiskRule`, `ExecutionRule`, `CostModel`(3.7 `Strategy`), `Window`(3.8 `ml.factor`, `ml.rolling`), `DecisionContext`(1.2, 5.5.1, 5.9.1; `contracts`에 산다, 2.4) |
 | 모듈 | `compat`(`compat.zipline`, `compat.adapters`; 2.5), `testing`(`testing.synth`, 예제·시험용; 2.7, 4.8), `__version__`(5.3.9) |
 | 예약 (부르면 E18) | `portfolio.optimize`, `risk.ledoit_wolf`, `ml.importance`(MDA, v1.x), `size.kelly`(v1.x [R4F-02]) [SC-22]. v3.2의 예약 `splits.*`·`labels.triple_barrier`·`exits.time_stop`·`risk.group_caps`는 v3.3에서 v1로 열었다 |
+
+2026-11-24에 뺐고(#752) 이제 공개 이름이 아닌 것: 데이터의 `Fund`, `Panel`, `Label`, `Macro`, `MacroTerm`, `Events`, `dataset.from_parquet`, `dataset.from_frame`, `universe.index_members`; 전략의 `on_event`.
 
 **식별자** [머리말 "식별자 이름"]: 공개 함수·출력 표·문서는 `instrument_id` 하나만 쓴다(별칭 없음). 외부 자료의 다른 이름은 자료가 꾸러미에 들어가기 전에 사용자가 바꾼다.
 
@@ -1008,7 +1010,6 @@ write: orders.to_csv("orders/{date}.csv")   apply to paper book: nx.fill(book, o
 | `[universe] microcap_pct` | float | 0.20 | (0, 0.5] | Q17 |
 | `[universe] eligibility_rule` | str | `"investable-v1"` | `eligibility_daily.rule_id` 값 | TDS-D16 (#752의 R3에서 코드와 함께 빠짐) |
 | `[universe] exclude` | list[str] | `[]` | 3.6 `exclude` 이름 | |
-| `[panels] feature`, `label` | str | `"factor_pit_monthly"`, `"label_monthly"` | `feature_panels`/`label_panels`의 `name` | TDS-D18 (#752의 R3에서 코드와 함께 빠짐) |
 | `[portfolio] anchor_date` | date | `"start"` (= `[defaults] start`) | 목표 상태 재귀의 screen 기준점(5.5.3) | SC-02 |
 | `[portfolio] tiebreak` | str | `"hash"` | hash / id (5.4.2·3.7; zipline 프리셋은 id 고정) | |
 | `[portfolio] band_entries` | str | `"skip"` | skip / buy — 완충대로 남았지만 한 주도 산 적 없는 종목을 새로 살까(5.6.7) | |
@@ -1076,8 +1077,6 @@ write: orders.to_csv("orders/{date}.csv")   apply to paper book: nx.fill(book, o
 | `[fx] max_stale_days_valuation` | int | 10 | ≥ 0 | |
 | `[fx] series` | str 또는 {"<BASE><QUOTE>": "<rate_kind>@<source>"} | `"auto"` | auto = 그 통화쌍의 `(rate_kind, source)` 계열이 하나면 그것, 여럿이면 `rate_kind` 우선순위 fixing → close → mid, 그래도 여럿이면 `ConfigError`로 목록을 보이고 고르게 함 | TDS-D17 |
 | `[benchmarks] <MARKET>` | str | `"auto"` | `"auto"` = 그 시장의 `asset_class = index`, `index_kind = TR` 종목이 하나면 그것(여럿이면 시장 규칙 팩의 `benchmark_hint`와 같은 `name`, 그래도 여럿이면 E16로 목록), 또는 종목 id, 또는 패키지의 어느 기호든(`asset_class` 무관, 그 마지막 주인, 5.3.6), 또는 사용자가 주는 수익률 계열, 또는 `"none"`. 지수의 행에는 거래 필드가 필요 없다(4.6) [#725 결정 217]. 없으면 "n/a: not in snapshot" | 9.0 Q30, R-59, TDS-D15, OI-02 |
-| `[fund] max_age_days` | int | 550 | 0 = 끔 | 참조 생산자 패널 규칙 (#752의 R3에서 코드와 함께 빠짐) |
-| `[fund] statement_basis` | str 또는 list[str] | —(기본값 없음) | `consolidated`, `separate`, `unspecified`, 또는 그 순서 | `Fund.*`가 읽는 기준 [#705 B1] (#752의 R3에서 코드와 함께 빠짐) |
 | `[evaluate] freq`, `quantiles`, `min_pairs`, `label_entry` | | monthly, 5, 20, `"next_open"` | quantiles 2..20, min_pairs ≥ 3, label_entry next_open / close | 11.4.5; 값 표를 읽는 그래프에서 `label_entry = "close"`는 실행 전에 거절한다(E18, 5.1.4) [#752] |
 | `[evaluate] target` | str | `"fwd_return"` | fwd_return(경제: 배당락일 종가 재투자) / fwd_return_adj(조정가 비율, zipline·alphalens 비교용) | |
 | `[meta] sector`, `industry` | str 또는 {MARKET: str} | `"auto"` | `"<scheme>@<level>"`(level 생략 = 그 scheme의 최상위) | OI-07 (#752의 R3에서 코드와 함께 빠짐) |

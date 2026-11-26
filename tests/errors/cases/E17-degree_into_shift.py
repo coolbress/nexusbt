@@ -8,4 +8,4 @@ from nexusbt.pipeline import Price, bind
 
 
 def case() -> None:
-    bind(Price.close.latest.shift(1), SchemaRegistry(columns={}, labels={}))
+    bind(Price.close.latest.shift(1), SchemaRegistry(columns={}))

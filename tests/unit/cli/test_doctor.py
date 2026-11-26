@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-import datetime as dt
 import json
 import re
 from collections.abc import Callable
 from pathlib import Path
 
-import pyarrow as pa
 import pytest
 
 import nexusbt as nx
@@ -18,9 +16,7 @@ from nexusbt.artifacts import Index, RunStore
 from nexusbt.cli.main import main
 from nexusbt.contracts import PinsPolicy
 from nexusbt.data import DataConfig, open_snapshot
-from nexusbt.testing._synth_package import _write
-from nexusbt.testing.synth import make_snapshot, read
-from nexusbt_tds.hash import write_hashes
+from nexusbt.testing.synth import make_snapshot
 
 
 @pytest.fixture(scope="module")
@@ -195,43 +191,23 @@ def test_pins_not_visible_line(
     assert line.format(2) in doctor(second, capsys).splitlines()  # nexusbt.toml now names b
 
 
-def feature_panel(root: Path, *values: str) -> None:
-    """`root`'s feature panel (`[panels] feature`'s default) with one row and the value columns
-    `values`, declared in tds.json only (TDS 5.25); an earlier one is replaced."""
-    day = dt.date(2020, 1, 31)
-    columns = {"instrument_id": read(root, "instruments")["instrument_id"].slice(0, 1),
-               "period": [day], "as_of_date": [day],
-               "ts_available": pa.array([dt.datetime(2020, 2, 3, tzinfo=dt.UTC)],
-                                        pa.timestamp("us", "UTC"))}  # fmt: skip
-    columns |= {v: [0.5] for v in values}
-    name = "factor_pit_monthly"
-    entry = _write(root, f"{name}/part-00000.parquet", name, pa.table(columns))
-    data = json.loads((root / "tds.json").read_text(encoding="utf-8"))
-    data["datasets"] = [d for d in data["datasets"] if d["name"] != name]
-    data["datasets"].append({"name": name, "kind": "feature_panels", "path": name,
-                             "files": [entry], "schema_version": "1.0",
-                             "columns": [{"name": v, "type": "f64"} for v in values]})  # fmt: skip
-    (root / "tds.json").write_text(json.dumps(data), encoding="utf-8")
-    write_hashes(root)
-
-
 def test_stubs_line(
     tmp_path: Path, project: Path, monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:  # fmt: skip
-    """3.2 [R-04, R-22]: after `nexusbt stubs` the stubs are current; once the snapshot gains a
-    `Panel` column the stub lacks, `doctor` says they are stale and how to rewrite them."""
+    """3.2 [R-04, R-22]: after `nexusbt stubs` the stubs are current; once the stub file is not
+    what `stubs` writes for the snapshot, `doctor` says they are stale and how to rewrite them.
+    No class holds a snapshot's own columns until `Item` (5.3.5; `Panel` left, #752)."""
     root = _root(tmp_path / "root", "s1")
-    package = root / "s1"
-    feature_panel(package, "momentum")
-    monkeypatch.setattr(api, "_STUBS", tmp_path / "datasets.pyi")  # not the tracked file
+    stub = tmp_path / "datasets.pyi"
+    monkeypatch.setattr(api, "_STUBS", stub)  # not the tracked file
     assert main(["init", "--data-root", str(root)]) == 0
     assert main(["stubs"]) == 0
-    assert "momentum: BoundColumn" in (tmp_path / "datasets.pyi").read_text(encoding="utf-8")
+    assert "close: BoundColumn" in stub.read_text(encoding="utf-8")
     capsys.readouterr()
     assert main(["doctor"]) == 0
     assert re.search(r"^free disk .*\nstubs +current$", capsys.readouterr().out, re.M)
-    feature_panel(package, "momentum", "value")
+    stub.write_text(stub.read_text(encoding="utf-8") + "    momentum: BoundColumn\n")
     assert main(["doctor"]) == 0
     stale = r"^stubs +stale: not what nexusbt stubs writes for this snapshot's columns; run"
     stale += r" nexusbt stubs$"

@@ -15,4 +15,4 @@ def mom(close: Any) -> Any:
 
 
 def case() -> None:
-    bind(nx.factor(window=253, inputs=[Price.close])(mom), SchemaRegistry(columns={}, labels={}))
+    bind(nx.factor(window=253, inputs=[Price.close])(mom), SchemaRegistry(columns={}))

@@ -22,7 +22,7 @@ from nexusbt.factors import (
 from nexusbt.pipeline import Factor, Pipeline, Price, Term, bind, graph_hash
 from nexusbt.pipeline._degree import ZERO, degree_of
 
-NO_SNAPSHOT_COLUMNS = SchemaRegistry(columns={}, labels={})
+NO_SNAPSHOT_COLUMNS = SchemaRegistry(columns={})
 ROOT = Path(__file__).resolve().parents[3]
 
 

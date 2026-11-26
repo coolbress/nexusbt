@@ -402,14 +402,16 @@ Every public name under `nexusbt.` (a name outside this list starts with `_`):
 | Kind | Names |
 |---|---|
 | Terms | `Factor`, `Filter`, `Classifier`, `Pipeline`, `factor`, `filter`, `classifier`, `ops` (`ops.rolling`, `ops.where`, `ops.coalesce`, `ops.composite`), `factors` (the built-in factors of 3.4; 2.5) (decision 2026-11-18, #243) |
-| Data | `Price`, `Meta`, `Trad`, `Market` [V31-13], `Dataset`, `universe` (and `Item`, 5.3.5, with the value tables' code); removed 2026-11-24 (#752): `Fund`, `Panel`, `Label`, `Macro`, `MacroTerm`, `Events`, `dataset.from_parquet`, `dataset.from_frame`, `universe.index_members` (leaves with its code in #752's R3) |
-| Strategy | `Strategy`, `param`, `monthly`, `weekly`, `daily`, `quarterly`, `annually`, `every`, `on_event` (removed 2026-11-24, #752; leaves with its code in #752's R3), `top`, `bottom`, `long_short`, `portfolio` (+ the user block decorator `portfolio`), `size` (5.5.1a), `sizer`, `risk` (all the built-in blocks of 5.5.2 and 5.5.2a), `risk_rule`, the user-block types `PortfolioContext`, `SizingContext`, `RiskContext`, `TargetView`, `RiskDecision`, `Scalar`, `execution`, `exits` (including `exits.time_stop`), `ExitRule`, `costs`, `ml` (`ml.factor`, 5.3.11), `labels` (`labels.triple_barrier`, 5.8), `LabelTerm`, `splits` (`holdout`, `walk_forward`, `cpcv`, `cscv`, 6.3a) |
+| Data | `Price`, `Meta`, `Trad`, `Market` [V31-13], `Dataset`, `universe` (and `Item`, 5.3.5, with the value tables' code) |
+| Strategy | `Strategy`, `param`, `monthly`, `weekly`, `daily`, `quarterly`, `annually`, `every`, `top`, `bottom`, `long_short`, `portfolio` (+ the user block decorator `portfolio`), `size` (5.5.1a), `sizer`, `risk` (all the built-in blocks of 5.5.2 and 5.5.2a), `risk_rule`, the user-block types `PortfolioContext`, `SizingContext`, `RiskContext`, `TargetView`, `RiskDecision`, `Scalar`, `execution`, `exits` (including `exits.time_stop`), `ExitRule`, `costs`, `ml` (`ml.factor`, 5.3.11), `labels` (`labels.triple_barrier`, 5.8), `LabelTerm`, `splits` (`holdout`, `walk_forward`, `cpcv`, `cscv`, 6.3a) |
 | Functions | `open`, `evaluate`, `backtest`, `screen`, `live`, `fill`, `reconcile`, `sweep`, `compare`, `run_pipeline`, `explain`, `check`, `describe`, `runs`, `rerun`, `book`, `override`, `record_fills`, `cash_flow` [V31-19], `acknowledge`, `preregister`, `config` |
 | Results | `FactorReport`, `Run`, `Screen`, `Orders`, `BookUpdate`, `ReconcileReport`, `SweepResult`, `Comparison`, `ValidationResult` (`Run.validation`), `Split`, `PipelineResult`, `Explanation`, `DecisionExplanation`, `CheckReport`, `RunTable`, `Description`, `Preregistration`, `Config`, `Snapshot`, `Book` |
 | Errors | `NexusBTError` and the subclasses of 6.6 |
 | Types | the names the chapter 3 signatures use — Protocols or frozen dataclasses the user reads or annotates with, not constructs: `Term` (3.5, 3.8), `BoundColumn` (3.3, 3.8), `Param` (3.7), `Schedule` (3.7, 3.8), `PortfolioRule`, `Sizer`, `RiskRule`, `ExecutionRule`, `CostModel` (3.7 `Strategy`), `Window` (3.8 `ml.factor`, `ml.rolling`), `DecisionContext` (1.2, 5.5.1, 5.9.1; it lives in `contracts`, 2.4) |
 | Modules | `compat` (`compat.zipline`, `compat.adapters`; 2.5), `testing` (`testing.synth`, for examples and tests; 2.7, 4.8), `__version__` (5.3.9) |
 | Reserved (E18 when called) | `portfolio.optimize`, `risk.ledoit_wolf`, `ml.importance` (MDA, v1.x), `size.kelly` (v1.x [R4F-02]) [SC-22]. v3.2's reserved `splits.*`, `labels.triple_barrier`, `exits.time_stop` and `risk.group_caps` were opened into v1 in v3.3 |
+
+Removed 2026-11-24 (#752), and no longer public names: from Data, `Fund`, `Panel`, `Label`, `Macro`, `MacroTerm`, `Events`, `dataset.from_parquet`, `dataset.from_frame` and `universe.index_members`; from Strategy, `on_event`.
 
 **Identifier** [header "Identifier name"]: public functions, output tables and documents use only `instrument_id` (no alias). Other names in external data are changed by the user before the data enters a package.
 
@@ -1007,7 +1009,6 @@ Validation: an unknown key → `ConfigError` (suggesting similar keys). A key wh
 | `[universe] microcap_pct` | float | 0.20 | (0, 0.5] | Q17 |
 | `[universe] eligibility_rule` | str | `"investable-v1"` | a value of `eligibility_daily.rule_id` | TDS-D16 (leaves with its code in #752's R3) |
 | `[universe] exclude` | list[str] | `[]` | the `exclude` names of 3.6 | |
-| `[panels] feature`, `label` | str | `"factor_pit_monthly"`, `"label_monthly"` | the `name` of `feature_panels`/`label_panels` | TDS-D18 (leaves with its code in #752's R3) |
 | `[portfolio] anchor_date` | date | `"start"` (= `[defaults] start`) | the screen anchor of the target-state recursion (5.5.3) | SC-02 |
 | `[portfolio] tiebreak` | str | `"hash"` | hash / id (5.4.2, 3.7; the zipline preset fixes id) | |
 | `[portfolio] band_entries` | str | `"skip"` | skip / buy — whether to newly buy an instrument kept by the hold band but never bought (5.6.7) | |
@@ -1075,8 +1076,6 @@ Validation: an unknown key → `ConfigError` (suggesting similar keys). A key wh
 | `[fx] max_stale_days_valuation` | int | 10 | ≥ 0 | |
 | `[fx] series` | str or {"<BASE><QUOTE>": "<rate_kind>@<source>"} | `"auto"` | auto = that one when the currency pair has a single `(rate_kind, source)` series; with several, `rate_kind` priority fixing → close → mid; if still several, `ConfigError` shows the list and asks for a choice | TDS-D17 |
 | `[benchmarks] <MARKET>` | str | `"auto"` | `"auto"` = that market's `asset_class = index`, `index_kind = TR` instrument when there is exactly one (with several, the one whose `name` equals the market rules pack's `benchmark_hint`; if still several, E16 with the list), or an instrument id, or any symbol of the package, of any `asset_class` (its latest owner, 5.3.6), or a return series the user gives, or `"none"`; an index's rows need no trading fields (4.6) [#725 Decisions 217]. When none, "n/a: not in snapshot" | 9.0 Q30, R-59, TDS-D15, OI-02 |
-| `[fund] max_age_days` | int | 550 | 0 = off | the reference producer's panel rule (leaves with its code in #752's R3) |
-| `[fund] statement_basis` | str or list[str] | — (no default) | `consolidated`, `separate`, `unspecified`, or an order of them | the bases `Fund.*` reads [#705 B1] (leaves with its code in #752's R3) |
 | `[evaluate] freq`, `quantiles`, `min_pairs`, `label_entry` | | monthly, 5, 20, `"next_open"` | quantiles 2..20, min_pairs ≥ 3, label_entry next_open / close | 11.4.5; `label_entry = "close"` in a graph that reads a value table is refused before the run (E18, 5.1.4) [#752] |
 | `[evaluate] target` | str | `"fwd_return"` | fwd_return (economic: reinvested at the ex-date close) / fwd_return_adj (adjusted-price ratio, for comparison with zipline and alphalens) | |
 | `[meta] sector`, `industry` | str or {MARKET: str} | `"auto"` | `"<scheme>@<level>"` (level omitted = the top level of that scheme) | OI-07 (leaves with its code in #752's R3) |

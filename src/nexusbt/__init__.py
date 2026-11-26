@@ -102,12 +102,8 @@ from nexusbt import factors as factors
 # Datasets (3.1, 3.2), T1.6 (#238): the editor and the type checker read their columns from
 # the stubs `nexusbt stubs` writes; the classes themselves are `pipeline`'s.
 if _typing.TYPE_CHECKING:
-    from nexusbt._stubs.datasets import Label as Label
     from nexusbt._stubs.datasets import Meta as Meta
-    from nexusbt._stubs.datasets import Panel as Panel
     from nexusbt._stubs.datasets import Price as Price
 else:
-    from nexusbt.pipeline import Label as Label
     from nexusbt.pipeline import Meta as Meta
-    from nexusbt.pipeline import Panel as Panel
     from nexusbt.pipeline import Price as Price
