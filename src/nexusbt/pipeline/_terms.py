@@ -619,6 +619,27 @@ def _wrapper(fn: FunctionType, prefix: str, seen: set[int]) -> _Reads:
     return _Reads(held.helpers, tuple(theirs), (), decorator if unread else "")
 
 
+#: The wrappers that are not Python functions and stay pure as helpers (#695, decision
+#: 2026-11-26), by the class or one it inherits from: `functools.lru_cache`'s and
+#: `functools.cache`'s, and `numba.njit`'s dispatcher.
+_KEPT = frozenset({"functools._lru_cache_wrapper", "numba.core.dispatcher.Dispatcher"})
+
+
+def _unkept(value: object, helper: FunctionType) -> str:
+    """`module.qualname` of the first object along `value`'s `__wrapped__` chain to `helper`
+    that is not a Python function and not of a `_KEPT` class, behind a library's function too
+    (`lru_cache(deco(Memo(f)))`): built while the program ran, it holds what the hash cannot
+    read (6.5 (6), #695); empty when there is none. A Python function on the way is `_wrapper`'s
+    to judge."""
+    while value is not helper:
+        kind = type(value)
+        mro = (f"{c.__module__}.{c.__qualname__}" for c in kind.__mro__)
+        if not isinstance(value, FunctionType) and not any(n in _KEPT for n in mro):
+            return f"{kind.__module__}.{kind.__qualname__}"
+        value = getattr(value, "__wrapped__", helper)
+    return ""
+
+
 def _decorator(wrapper: FunctionType) -> str:
     """`module.name` of the library decorator that made `wrapper` (`functools.singledispatch`):
     its code's qualified name up to the decorator's locals, in the module of its globals."""
@@ -658,6 +679,8 @@ def _walk(fn: FunctionType, seen: set[int], term: bool = False) -> _Reads:
                 found += [(k, h, _reach(there, r), v) for k, h, r, v in held.found]
                 if held.decorator and f is not helper:  # not again by itself, calling itself
                     under.add((f.__name__, name, held.decorator))
+            if f is not helper and (held_by := _unkept(value, helper)):  # a library's object
+                under.add((f.__name__, name, held_by))  # (#695)
         impure.update(_opens(names, values, attrs))
         helpers += [] if f is fn else [f]
     ordered = sorted(dict.fromkeys(helpers), key=lambda h: h.__qualname__)  # once each, in order
