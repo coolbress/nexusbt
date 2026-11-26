@@ -166,6 +166,6 @@ def _pasteable(value: object) -> str:
     if isinstance(value, tuple):
         shown = ", ".join(map(_pasteable, value))
         return f"({shown},)" if len(value) == 1 else f"({shown})"
-    if isinstance(value, frozenset) and value:
-        return f"frozenset({{{', '.join(map(_pasteable, value))}}})"
+    if isinstance(value, frozenset) and value:  # items by their text: a set's order is not
+        return f"frozenset({{{', '.join(sorted(map(_pasteable, value)))}}})"  # the same each run
     return repr(value)

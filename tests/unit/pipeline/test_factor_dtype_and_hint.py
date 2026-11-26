@@ -72,3 +72,17 @@ def test_one_inside_a_bound_tuple_is_shown_as_python() -> None:
     assert got[0] == 1.0
     assert math.isnan(got[1])
     assert got[2] == -math.inf
+
+
+def test_a_bound_frozensets_items_are_shown_in_one_order() -> None:
+    """#814's uncovered line: a frozenset's items are shown sorted by their text, so the hint
+    reads the same in every run (a set of strings is met in another order in each process);
+    the order is only the message's, never a computed value or a graph hash. Pasted, it gives
+    the set back, a NaN in it too."""
+    term = nx.factor(window=2, inputs=[CLOSE])(_ratio)(n=frozenset("fbdace"))
+    with pytest.raises(ConfigError) as caught:
+        term(np.ones((2, 3)))
+    assert "n=frozenset({'a', 'b', 'c', 'd', 'e', 'f'})" in caught.value.parts["fix"]
+    got = _shown(frozenset({2.0, math.nan, -math.inf}))
+    assert {x for x in got if not math.isnan(x)} == {2.0, -math.inf}
+    assert sum(math.isnan(x) for x in got) == 1
