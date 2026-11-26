@@ -181,6 +181,7 @@
 - 관측 표는 `ts_available` 칼럼을 갖거나, 매니페스트에 **유도 규칙**(6.2의 규칙 이름)을 선언한다. 검사기·엔진은 규칙을 칼럼으로 펼쳐 같은 뜻으로 쓴다.
 - 엔진 규칙은 하나: 관측 x는 `ts_available(x) <= decision_ts`일 때만 쓴다(명세서 INV-01).
 - 날짜만 아는 공개(`known_on`)는 만든 쪽이 시각으로 바꿔 내보낸다. 기본 규칙 `next_session_open(known_on)` = 그 시장에서 `known_on` 다음 첫 세션의 `ts_open`(명세서 5.1.4와 같음).
+- 값 표(5.28)는 예외다: 그 행은 `ts_available`도 매니페스트 규칙도 없이 `date`만 지니고, 쓸 수 있게 되는 때는 5.28이 엔진 명세서 5.1.4의 규칙으로 정한다 [2026-11-26, #752].
 
 **K4. 원가격 + 사건 표 + 앞으로 누적 계수.**
 - `bars`의 가격은 원가격(그날 실제로 거래된 가격, 현지 통화). 조정 가격만 가진 사용자는 `tds:minimal-daily` 프로필에서만 허용되고 `price_basis`를 선언해야 한다(7장).
@@ -320,6 +321,9 @@
   corporate_actions/part-00000.parquet
   delistings/part-00000.parquet
   fx_rates/part-00000.parquet
+  values/market=KR/item=per/part-00000.parquet               (선택, 5.28)
+  market_values/market=KR/item=cash_rate/part-00000.parquet
+  symbol_values/market=KR/item=sector/part-00000.parquet
   ...
 ```
 
@@ -798,6 +802,51 @@ LEAN 계수 파일·Qlib `factor`·공급사 조정 종가만 있는 사용자�
 - 가격대 구간은 맞추기 전 값으로 정한다. 같은 (`rule_id`, `venue_group`, 날짜)에서 가격대 구간이 겹치면 T003.
 - 공매도 금지 기간·대차 자료는 이 표준에 두지 않는다(엔진 시장 규칙 팩의 일; 대차 가능 수량·수수료 데이터셋은 다음 MINOR 후보) [V31-LS-07].
 
+### 5.28 값 표: `values`, `market_values`, `symbol_values` — 선택 [2026-11-26, #752; #725 결정 219~229]
+
+거래 밖의 모든 값(재무, 주식 수, 업종 코드, 유니버스, 사건, 거시 계열)은 사용자의 것이고 주어진 그대로 쓰이며, 세 값 표의 행으로 엔진에 들어온다(엔진 명세서 5.3.5). 파일은 이를 TDS의 이름으로 담는다. 종목은 `instrument_id`(K1), 항목은 `item=` 파티션이다. 엔진 명세서 5.3.5의 네 낱말 `symbol`, `date`, `item`, `value`는 사용자가 이 칼럼들을 만나는 이름이고, `symbol`이 `instrument_id`를 대신한다(#725 결정 248).
+
+- **세 종류**, 모양마다 하나: `values`는 종목과 날짜별, `market_values`는 날짜별 시장 전체, `symbol_values`는 날짜 없이 종목별.
+- **파티션**은 `market=` 다음 `item=`이다. `bars`가 `market=`을 쓰는 것과 같다(3.6, 3.8): `values/market=KR/item=per/part-00000.parquet`. `market`은 매니페스트 `markets`의 키이고, `item`은 항목의 이름이며 `partitioning`에서 `code`로 형을 적는다. 둘 다 파일 안에 저장하지 않고(3.6), `partitions[]`가 파티션마다 적는다(4.2). 행의 종목은 그 `market=` 파티션의 시장에 속하고(`instruments.market`, 5.1), 그 `date`는 그 시장의 현지 날짜다(엔진 명세서 5.1.4).
+- **항목 이름**은 3.1의 칼럼 이름 규칙(소문자 snake_case, ASCII)을 따르고, `nx.Item.<name>`으로 읽을 수 있는 파이썬 이름이다. 글자로 시작하고 파이썬 예약어가 아니다. 한 항목은 세 종류 가운데 하나에만 있다.
+- **키**: `values` (`instrument_id`, `date`), `market_values` (`date`), `symbol_values` (`instrument_id`). 각각 그 `market`, `item`과 함께 비교한다(3.5, K001). 정렬 같음. 키 칸은 null이 아니다(S003).
+- **값**: `f64` 하나, 항목의 수(업종의 `1` 같은 코드도)다. 모든 `f64`처럼 NaN과 ±Inf는 쓰지 않는다(3.2). null인 값은 빈 값이고, 그 종목에서 그 항목의 이월을 끝낸다(엔진 명세서 5.3.5).
+- **쓸 수 있게 되는 때**는 여기서 정한다. 엔진 명세서 5.1.4의 규칙이다: 날짜 D의 값은 그 시장의 D 다음 거래일이 열리기 전에 알려진 것으로 읽고, 엔진은 그 값을 D의 행에, D가 거래일이 아니면 D 다음 첫 거래일의 행에 둔다. 매니페스트는 이 종류에 `availability`를 적지 않고, 6.2에는 이 종류를 위한 규칙 이름이 없다. 검사기는 이 표에서 시각을 끌어내지 않는다: TDS-T002는 비교할 규칙이 없고, TDS-T006은 이 표를 담은 패키지에서 `unchecked`(통과가 아님)이며, TDS-D003은 `processed_through_session`(4.3)을 적은 패키지에서 `unchecked`다. 구간 검사(T001, T003, T004, T012)는 이 표를 읽지 않고, `date`는 거래일이 아니어도 된다.
+- **항목마다의 선언**은 둘 다 선택이고, 데이터셋의 `params.items`에 `{"<item>": {"kind": …, "carry": …}}`로 적으며 `params`와 함께 의미 해시에 들어간다(4.5). 낱말마다 엔진 명세서 5.3.5의 말 하나에 맞대어진다:
+
+| 필드 | 값 | 엔진 명세서 5.3.5 |
+|---|---|---|
+| `kind` | `per_share` | 주당 값: D 뒤의 분할 비율로 맞춘다 |
+| `kind` | `share_count` | 주식 수: D 뒤의 분할 비율로 맞춘다 |
+| `carry` | `to_end` (`carry`가 없을 때의 기본) | 끝까지 |
+| `carry` | 양의 정수 N | N 세션 |
+| `carry` | `none` | 없음 |
+| `carry` | `next_listing` | 다음 발표까지 |
+
+- **검사**: 모든 종류가 받는 검사가 이 표를 적힌 그대로 판정한다: S002와 S003(형과 null 키), K001(두 번 적힌 키), R001(`instruments`에 없는 `instrument_id`), 해시(4.5). 검사기는 아직 `params.items`와, 이것들이 덮지 못하는 엔진 명세서 5.3.5의 멈춤 둘(위 규칙 밖의 항목 이름, 두 종류에 든 항목)을 판정하지 않는다. 그 둘은 제 검사와 함께 온다(#752). 이 종류에 적힌 `availability`와, 종목이 `market=` 파티션과 다른 시장에 속한 행도 아직 거절하지 않는다.
+
+`values` — 종목과 날짜별.
+
+| 칼럼 | 형 | null | 뜻 |
+|---|---|---|---|
+| instrument_id | id | 아니오 | K1. 사용자의 `symbol` |
+| date | date | 아니오 | 값이 발표된 그 시장의 현지 날짜(엔진 명세서 5.1.4). 거래일이 아니어도 된다 |
+| value | f64 | 예 | 항목의 값. null은 이월을 끝낸다 |
+
+`market_values` — 날짜별 시장 전체.
+
+| 칼럼 | 형 | null | 뜻 |
+|---|---|---|---|
+| date | date | 아니오 | `values`와 같다 |
+| value | f64 | 예 | `values`와 같다 |
+
+`symbol_values` — 날짜 없이 종목별.
+
+| 칼럼 | 형 | null | 뜻 |
+|---|---|---|---|
+| instrument_id | id | 아니오 | K1. 사용자의 `symbol` |
+| value | f64 | 예 | `values`와 같다 |
+
 ## 6. 시점(PIT) 의미 규범
 
 ### 6.1 시각 칼럼의 뜻 (모든 표 공통)
@@ -866,6 +915,8 @@ LEAN 계수 파일·Qlib `factor`·공급사 조정 종가만 있는 사용자�
 | `tds:fx` | `fx_rates` 또는 `instruments(fx_spot)` + bars | | |
 
 `tds:l1-ticks`, `tds:l2-book`, `tds:l3-book`, `tds:futures`, `tds:options`, `tds:crypto`는 2026-11-25에 그 종류와 함께 빠졌다(5.6). `tds:equity-daily-research`, `tds:pit-fundamentals`, `tds:bitemporal`, `tds:alt-events`, `tds:intraday-bars`는 2026-11-26에 빠졌다(5.6, 엔진 명세서 4.3: "TDS holds no intraday, tick, futures, options or crypto profile"; 분봉은 계속 `bars`가 모양을 정한다, 5.5). `tds:panels`도 같은 날 그 종류와 함께 빠졌다(5.6). 그중 하나를 선언한 패키지는 이 표에 없는 다른 프로필처럼 TDS-M007을 받는다.
+
+값 표(5.28)는 모든 프로필에서 선택이다. 어느 프로필도 값 표를 요구하지 않고, 어느 프로필의 패키지든 값 표를 담을 수 있다 [2026-11-26, #752; #705 결정 14, 17(9)].
 
 **가장 작은 예** (`tds:minimal-daily`, 손으로 만든 CSV 두 개 → `tds import csv`):
 
@@ -1451,3 +1502,4 @@ datasets:
 - 2026-11-26: **v1.4** 안에서. K1, 4.1의 배치, 4.3, 5.3, 5.6, 8.2의 T006, 8.3의 TDS-T004, 1장과 9장의 대응: `instrument_xref`가 스키마 파일과 함께 빠진다(#725 결정 252; #752의 R3a). 그 종류의 데이터셋은 이제 스키마 파일이 없는 종류라 칼럼·열쇠·정렬을 검사하지 않고, T004는 그 유효 구간을 읽지 않으며, T006은 이용 가능 규칙이 없는 다른 종류처럼 `unchecked`다. 움직이는 적합성 패키지나 해시는 없다. `tds_version` `"1.0"` 그대로, `tds_draft`는 2026-11-19 그대로(12e까지, 10.5).
 - 2026-11-26: **v1.4** 안에서. 첫머리 안내, K5, K6, 2의 목록, 4.1의 배치, 4.2 예시, 4.3, 4.4, 5.5, 5.6, 5.11, 5.14, 5.17, 5.18, 5.20, 5.25, 6.1, 6.2, 6.3, 6.4, 7, 8.1, 9.6, 10.1: `share_counts`, `fundamentals_events`, `fundamentals_state`, `universe_membership`, `eligibility_daily`, `feature_panels`, `label_panels`가 스키마 파일과 함께 빠지고, `tds:panels@1.0`도 함께 빠지며, `dictionary/columns`에서 `is_label`이, `corporate_actions.kind`에서 `symbol_change`가 빠진다(#725 결정 250~254; #752의 R3b-3). `tds:panels`를 선언한 패키지는 TDS-M007을 받고, 빠진 종류의 데이터셋은 스키마 파일이 없는 종류이며, `symbol_change` 행은 TDS-S006이다. 움직이는 적합성 패키지나 해시 벡터는 없다. `tds_version` `"1.0"` 그대로, `tds_draft`는 2026-11-19 그대로(12e까지, 10.5).
 - 2026-11-26: **v1.4** 안에서. K6, 4.1의 배치, 4.4, 5.1, 5.6, 5.19, 5.27, 6.1, 6.2, 6.3, 6.4, 6.5, 8.3: `classifications`가 스키마 파일과 함께 빠진다(#725 결정 247, 250; #752의 틱 단계). `dictionary/columns`에서 `alias_of`가 빠진다. 격자 원천 순서(5.27)에서 `classifications` 단계가 빠지고, 2027-11-01부터의 US 종목별 배정은 #802가 정할 때까지 원천이 없다. TDS-T004, TDS-T012, TDS-V012는 `classifications`를 더 읽지 않고, T012에는 판 필터가 없다. 그 종류의 데이터셋은 스키마 파일이 없는 종류다. 움직인 것: 적합성 사례 TDS-T012(pass와 fail)는 `instrument_symbols`로 다시 만든다. `tds_version` `"1.0"` 그대로, `tds_draft`는 2026-11-19 그대로(12e까지, 10.5).
+- 2026-11-26: **v1.4** 안에서. 4.1의 배치, 5.28, 7: 값 표 `values`, `market_values`, `symbol_values`가 스키마 파일과 함께 `stable`로 들어온다(#725 결정 219~229, 254; #752의 V1, 2026-11-26 주인의 결정). `market=`, `item=` 파티션 아래의 `instrument_id`, `date`, `value`이고, 쓸 수 있게 되는 때는 5.28이 정하며(엔진 명세서 5.1.4) 매니페스트의 `availability`도 새 6.2 규칙도 없다. 항목 선언은 `params.items`이고, 값 표는 모든 프로필에서 선택이다. 값 표가 없는 패키지는 전과 같이 읽힌다. 움직이는 적합성 패키지나 해시는 없다. `tds_version` `"1.0"` 그대로, `tds_draft`는 2026-11-19 그대로(12e까지, 10.5).

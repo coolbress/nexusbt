@@ -181,6 +181,7 @@ This is the canonical English text; a Korean translation is in tds-v1.4.ko.md.
 - An observation table either has a `ts_available` column or declares a **derivation rule** (a rule name from 6.2) in the manifest. The checker and the engine expand the rule into a column and use it with the same meaning.
 - The engine rule is one: observation x is used only when `ts_available(x) <= decision_ts` (specification INV-01).
 - A publication known only by date (`known_on`) is converted to an instant by the producer before export. Default rule `next_session_open(known_on)` = `ts_open` of the first session after `known_on` in that market (same as specification 5.1.4).
+- The value tables (5.28) are the exception: their rows keep a bare `date` with no `ts_available` and no manifest rule, and 5.28 fixes their availability by engine specification 5.1.4's rule [2026-11-26, #752].
 
 **K4. Raw prices + event tables + forward-cumulative factors.**
 - Prices in `bars` are raw prices (the price actually traded that day, in local currency). Users with only adjusted prices are allowed only in the `tds:minimal-daily` profile and must declare `price_basis` (chapter 7).
@@ -320,6 +321,9 @@ One package = one immutable folder (snapshot).
   corporate_actions/part-00000.parquet
   delistings/part-00000.parquet
   fx_rates/part-00000.parquet
+  values/market=KR/item=per/part-00000.parquet               (optional, 5.28)
+  market_values/market=KR/item=cash_rate/part-00000.parquet
+  symbol_values/market=KR/item=sector/part-00000.parquet
   ...
 ```
 
@@ -798,6 +802,51 @@ Key (`rule_id`, `rule_kind`, `venue_group`, `valid_from`, `price_from`). Sort sa
 - Price bands are determined by the value before snapping. Overlapping price bands within the same (`rule_id`, `venue_group`, date) are T003.
 - Short-sale ban periods and securities lending data are not in this standard (they belong to the engine's market rules pack; datasets for borrowable quantity and fees are candidates for the next MINOR) [V31-LS-07].
 
+### 5.28 Value tables: `values`, `market_values`, `symbol_values` — optional [2026-11-26, #752; #725 Decisions 219 to 229]
+
+Every value outside trading (fundamentals, share counts, sector codes, universes, events, macro series) is the user's, used as given, and reaches the engine as rows of three value tables (engine specification 5.3.5). The files store them under TDS's names, an instrument as `instrument_id` (K1) and the item as the `item=` partition, and engine specification 5.3.5's four words `symbol`, `date`, `item` and `value` are the names the user meets for them, `symbol` standing for `instrument_id` (#725 Decision 248).
+
+- **Three kinds**, one per shape: `values` per instrument and date; `market_values` market-wide by date; `symbol_values` per instrument, with no date.
+- **Partitions** `market=` then `item=`, as `bars` takes `market=` (3.6, 3.8): `values/market=KR/item=per/part-00000.parquet`. `market` is a key of the manifest `markets`; `item` is the item's name, typed `code` in `partitioning`. Neither is stored inside the files (3.6), and `partitions[]` lists each partition (4.2). A row's instrument belongs to the market of its `market=` partition (`instruments.market`, 5.1), and its `date` is that market's local date (engine specification 5.1.4).
+- **Item names** follow 3.1's column-name rule (lowercase snake_case, ASCII) and are Python names that `nx.Item.<name>` can read: they start with a letter and are not a Python keyword. An item lives in one of the three kinds only.
+- **Key**: `values` (`instrument_id`, `date`), `market_values` (`date`), `symbol_values` (`instrument_id`), each compared together with its `market` and `item` (3.5, K001). Sort the same. A key cell is never null (S003).
+- **Value**: one `f64`, the item's number (a code too, such as a sector's `1`); NaN and ±Inf are forbidden as in every `f64` (3.2). A null value is empty: it ends the item's carry for that instrument (engine specification 5.3.5).
+- **Availability** is fixed here, by engine specification 5.1.4's rule: a value dated D is known before its market's next session after D opens, and the engine keeps it in the row of D, or of the first session after D when D is not a session. The manifest writes no `availability` for these kinds, and 6.2 has no rule name for them. The checker derives no instant from them: TDS-T002 has no rule to compare, TDS-T006 is `unchecked` (never passed) for a package that holds one, and TDS-D003 is `unchecked` for one that gives a `processed_through_session` (4.3); the interval checks (T001, T003, T004, T012) do not read them, and a `date` need not be a session.
+- **Declarations per item**, both optional, in the dataset's `params.items` as `{"<item>": {"kind": …, "carry": …}}`, which enter the semantic hash with `params` (4.5). Each word is one of engine specification 5.3.5's:
+
+| Field | Value | Engine specification 5.3.5 |
+|---|---|---|
+| `kind` | `per_share` | per-share: scaled by the split ratios after D |
+| `kind` | `share_count` | share count: scaled by the split ratios after D |
+| `carry` | `to_end` (the default, when `carry` is absent) | to the end |
+| `carry` | a positive whole number N | N sessions |
+| `carry` | `none` | none |
+| `carry` | `next_listing` | next listing |
+
+- **Checks**: the checks of every kind judge these tables as written: S002 and S003 (types and null keys), K001 (a key given twice), R001 (an `instrument_id` not in `instruments`), the hashes (4.5). The checker does not yet judge `params.items` or the two stops of engine specification 5.3.5 these do not cover (an item name outside the rule above, an item in two kinds); they come with their own checks (#752). Nor does it yet refuse an `availability` written for these kinds, or a row whose instrument belongs to another market than its `market=` partition.
+
+`values` — per instrument and date.
+
+| Column | Type | Null | Meaning |
+|---|---|---|---|
+| instrument_id | id | no | K1; the user's `symbol` |
+| date | date | no | The market's local date the value was published (engine specification 5.1.4); need not be a session |
+| value | f64 | yes | The item's value; null ends the carry |
+
+`market_values` — market-wide by date.
+
+| Column | Type | Null | Meaning |
+|---|---|---|---|
+| date | date | no | As in `values` |
+| value | f64 | yes | As in `values` |
+
+`symbol_values` — per instrument, with no date.
+
+| Column | Type | Null | Meaning |
+|---|---|---|---|
+| instrument_id | id | no | K1; the user's `symbol` |
+| value | f64 | yes | As in `values` |
+
 ## 6. Point-in-time (PIT) semantics
 
 ### 6.1 Meaning of time columns (common to all tables)
@@ -866,6 +915,8 @@ A package lists the profiles it follows, with versions, in `profiles` (`tds:<nam
 | `tds:fx` | `fx_rates` or `instruments(fx_spot)` + bars | | |
 
 `tds:l1-ticks`, `tds:l2-book`, `tds:l3-book`, `tds:futures`, `tds:options` and `tds:crypto` left with their kinds on 2026-11-25 (5.6); `tds:equity-daily-research`, `tds:pit-fundamentals`, `tds:bitemporal`, `tds:alt-events` and `tds:intraday-bars` on 2026-11-26 (5.6, engine specification 4.3: "TDS holds no intraday, tick, futures, options or crypto profile"; minute bars stay shaped by `bars`, 5.5), and `tds:panels` with its kinds the same day (5.6). A package that declares one gets TDS-M007, as for any profile this table does not have.
+
+The value tables (5.28) are optional in every profile: no profile requires them, and a package of any profile may hold them [2026-11-26, #752; #705 Decisions 14, 17(9)].
 
 **The smallest example** (`tds:minimal-daily`, two hand-made CSVs → `tds import csv`):
 
@@ -1451,3 +1502,4 @@ Reference numbers are `R4F-NN`, specification v3.4's numbers for the fourth revi
 - 2026-11-26: **v1.4**, in place. K1, 4.1's layout, 4.3, 5.3, 5.6, 8.2's T006 and 8.3's TDS-T004, and the mappings of chapters 1 and 9: `instrument_xref` leaves with its schema file (#725 Decision 252; #752's R3a); a dataset of that kind is now a kind with no schema file, so its columns, key and sort are not checked, T004 no longer reads its validity intervals and T006 is `unchecked` on it like any kind without an availability rule. No conformance package or hash moves. `tds_version` stays `"1.0"`; `tds_draft` stays 2026-11-19 until 12e (10.5).
 - 2026-11-26: **v1.4**, in place. The opening note, K5, K6, 2's lists, 4.1's layout, 4.2's example, 4.3, 4.4, 5.5, 5.6, 5.11, 5.14, 5.17, 5.18, 5.20, 5.25, 6.1, 6.2, 6.3, 6.4, 7, 8.1, 9.6 and 10.1: `share_counts`, `fundamentals_events`, `fundamentals_state`, `universe_membership`, `eligibility_daily`, `feature_panels` and `label_panels` leave with their schema files, `tds:panels@1.0` with them, `dictionary/columns` loses `is_label` and `corporate_actions.kind` loses `symbol_change` (#725 Decisions 250 to 254; #752's R3b-3); a package declaring `tds:panels` gets TDS-M007, a dataset of a removed kind is a kind with no schema file, and a `symbol_change` row is TDS-S006. No conformance package or hash vector moves. `tds_version` stays `"1.0"`; `tds_draft` stays 2026-11-19 until 12e (10.5).
 - 2026-11-26: **v1.4**, in place. K6, 4.1's layout, 4.4, 5.1, 5.6, 5.19, 5.27, 6.1, 6.2, 6.3, 6.4, 6.5 and 8.3: `classifications` leaves with its schema file (#725 Decisions 247, 250; #752's tick step); `dictionary/columns` loses `alias_of`; the grid source order (5.27) loses its `classifications` step, and the US per-instrument assignment from 2027-11-01 has no source until #802 decides one; TDS-T004, TDS-T012 and TDS-V012 no longer read `classifications`, and T012 has no edition filter; a dataset of that kind is a kind with no schema file. Moved: the conformance case TDS-T012 (pass and fail) is rebuilt on `instrument_symbols`. `tds_version` stays `"1.0"`; `tds_draft` stays 2026-11-19 until 12e (10.5).
+- 2026-11-26: **v1.4**, in place. 4.1's layout, 5.28 and 7: the value tables `values`, `market_values` and `symbol_values` enter with their schema files, `stable` (#725 Decisions 219 to 229, 254; #752's V1, the owner's decisions of 2026-11-26): `instrument_id`, `date` and `value` under `market=` and `item=` partitions; their availability is fixed by 5.28 (engine specification 5.1.4), with no manifest `availability` and no new 6.2 rule; the item declarations are `params.items`; they are optional in every profile. A package without them reads as before; no conformance package or hash moves. `tds_version` stays `"1.0"`; `tds_draft` stays 2026-11-19 until 12e (10.5).

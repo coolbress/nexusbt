@@ -1196,7 +1196,7 @@ write: orders.to_csv("orders/{date}.csv")   apply to paper book: nx.fill(book, o
 | `delistings` | 모든 칼럼(TDS 5.13; v1.2 `ret_observed_includes_distributions` 포함) | 5.6.13(폐지 직전 분배와 종료가치를 한 번만, 관측 포함·관측 제외·정책 세 기준). 회수액은 `ts_value_available` 전까지 판단 크기에 넣지 않는다(금액 모르는 권리, INV-01). 정답에서는 `ts_label_available`의 입력(5.8) |
 | `market_rules` (TDS v1.2 5.27, 선택) | `rule_id, market, rule_kind, venue_group, valid_from, valid_to, price_from, price_to, tick_size, limit_ratio, source, verified` | `verified`는 출시 증거 규칙 목록에 그대로. `rule_kind = tick_band`는 가격 격자(5.6.4a), `price_limit`은 5.6.5의 `pct` 원천(`tradability_daily` 다음, 규칙 팩 표 앞). 있으면 규칙 팩 표보다 먼저 쓴다 |
 | `fx_rates` | `base, quote, rate_kind, obs_date, ts_event, ts_available, rate, source` | `[fx] series`로 계열 하나를 고른다(3.11). 판단 입력은 `ts_available <= decision_ts`, 보고용 평가는 `ts_event <= 평가 시각`(5.1.5) [TDS-D17] |
-| 값 표(`values`, `market_values`, `symbol_values`; `item=` 파티션) | 5.3.5의 네 낱말과 `params.items`(항목마다 선택인 종류·이월) | 5.3.5, 5.1.4. 2026-11-24에 뺀 `fundamentals_state`, `fundamentals_events`, `classifications`, `eligibility_daily`, `universe_membership`, `feature_panels`, `label_panels`, `share_counts`를 대신한다(#752) [#725 결정 250, 254] |
+| 값 표(`values`, `market_values`, `symbol_values`; `market=`과 `item=` 파티션, TDS 5.28) | 5.3.5의 네 낱말과 `params.items`(항목마다 선택인 종류·이월) | 5.3.5, 5.1.4. 2026-11-24에 뺀 `fundamentals_state`, `fundamentals_events`, `classifications`, `eligibility_daily`, `universe_membership`, `feature_panels`, `label_panels`, `share_counts`를 대신한다(#752) [#725 결정 250, 254] |
 | 지수 종목 (`instruments(asset_class=index)` + `bars`) | `close`(= 지수 값), `index_kind` | 벤치마크(5.7). `index_kind = TR`만 기본 벤치마크로(`"auto"`, 3.11) [TDS-D15]. 지수 행에는 거래 필드가 필요 없다. 벤치마크는 어느 기호든, 또는 사용자가 주는 수익률 계열이어도 된다 [#725 결정 217] |
 | `dictionary/columns` | 모두 | 데이터셋 속성·스텁·단위(3.2) |
 
@@ -1460,12 +1460,12 @@ class DecisionContext:
 사건 e의 해석된 판(5.3.3a)의 조건 시각 `ts_terms` `> cutoff(t)`이면, 행 t의 창은 e를 넣지 않는다(그 칸은 참조 경로). 현금 분배(`affects = total_only`)에서는 `close_tr`가, 수량 사건(`split_and_total`, 드묾·A008 경고)에서는 `close`·`close_tr`·`volume`이 대상이다. `C` 지름길은 "대기 사건 없음" 칸에만 쓴다. 엔진은 시장 블록마다 `(종목, 행)` 대기 마스크를 만든다. 계좌 처리는 5.6.10~5.6.11.
 
 #### 5.3.5 값 표(`nx.Item.<name>`) [R-63, C3; #725 결정 219~229; ADR 0048]
-거래 밖의 값은 모두 사용자의 것이고 주어진 그대로 쓴다 [#725 결정 204, 205]. 그 값은 네 낱말(`symbol`, `date`, `item`, `value`)로 된 값 표 셋으로 엔진에 온다. 표마다 데이터셋 종류 하나이고 `item=`으로 나눈다:
+거래 밖의 값은 모두 사용자의 것이고 주어진 그대로 쓴다 [#725 결정 204, 205]. 그 값은 네 낱말(`symbol`, `date`, `item`, `value`)로 된 값 표 셋으로 엔진에 온다. 표마다 데이터셋 종류 하나이고 `market=`으로, 그 아래를 `item=`으로 나눈다(TDS 5.28). 네 낱말은 사용자가 만나는 이름이고, 꾸러미는 `symbol`을 `instrument_id`로(TDS K1, 4.6), `item`을 `item=` 파티션으로 저장한다(#725 결정 248; #752):
 - `values`: 종목·날짜별(`symbol, date, item, value`); `market_values`: 날짜별 시장 전체(`date, item, value`); `symbol_values`: 종목별, 날짜 없음(`symbol, item, value`). 열쇠 칸은 비지 않고, 항목 하나는 한 표에만 있으며, 값은 숫자이고, 정답(label)을 넣는 자리는 없다 [#725 결정 219].
 - **날짜**: 값 파일은 꾸러미의 시장 하나에 속하고 그 날짜는 그 시장의 현지 날짜다. 날짜가 언제 쓸 수 있게 되는지는 5.1.4 [#725 결정 223].
 - **엔진 규칙**: D로 날짜 붙은 값은 D의 행부터(D가 세션이 아니면 D 뒤 첫 세션부터; 두 날짜가 한 세션에 겹치면 늦은 것이 이긴다) 그 종목에서 그 항목의 다음 줄까지 쓴다. 빈 값은 그 값을 끝낸다 [#725 결정 221].
-- **멈춤**: 도구는 모르는 종목, 두 번 준 열쇠, 이름 규칙 밖의 항목 이름, 두 표에 있는 항목, 빈 열쇠 칸에서 멈춘다. 값에 대해서는 그 밖에 아무것도 검사하지 않는다 [#725 결정 222].
-- **항목마다 선택 선언 둘**(데이터셋의 `params.items`): **종류** — 주당 값 또는 주식 수. 엔진이 D 뒤의 분할 비율로 맞춘다(그 값은 D의 주식 기준; 권리락일의 값은 분할 뒤 기준; 세션이 아닌 날짜는 그 날짜 그대로 맞춘다). 공급사가 이미 고쳐 낸 값은 이 선언을 하지 않는다. **이월** — 끝까지(기본), N 세션, 없음, 다음 발표까지(그 항목의 줄이 하나라도 있는 날짜가 발표일이고, 그날 줄이 없는 종목은 그날부터 비어 있다). 이것이 "행이 없으면 거짓"을 대신한다 [#725 결정 225~228].
+- **멈춤**: 도구는 모르는 종목, 두 번 준 열쇠, 이름 규칙(TDS 5.28) 밖의 항목 이름, 두 표에 있는 항목, 빈 열쇠 칸에서 멈춘다. 값에 대해서는 그 밖에 아무것도 검사하지 않는다 [#725 결정 222].
+- **항목마다 선택 선언 둘**(데이터셋의 `params.items`, 그 낱말은 TDS 5.28): **종류** — 주당 값 또는 주식 수. 엔진이 D 뒤의 분할 비율로 맞춘다(그 값은 D의 주식 기준; 권리락일의 값은 분할 뒤 기준; 세션이 아닌 날짜는 그 날짜 그대로 맞춘다). 공급사가 이미 고쳐 낸 값은 이 선언을 하지 않는다. **이월** — 끝까지(기본), N 세션, 없음, 다음 발표까지(그 항목의 줄이 하나라도 있는 날짜가 발표일이고, 그날 줄이 없는 종목은 그날부터 비어 있다). 이것이 "행이 없으면 거짓"을 대신한다 [#725 결정 225~228].
 - **읽기**: `nx.Item.<name>`(3.2). 시장 전체 항목은 단면의 분모에 들지 않고, 날짜 없는 항목은 묶는 데 쓸 수 있다. `nx.Item.<name>.age()`는 그 종목에서 그 항목의 마지막 줄 뒤 세션 수이고, 없으면 NaN이다. 사건 항을 대신한다 [#725 결정 224]. 이월이 끝나 값이 비어도 그 마지막 줄부터 계속 센다. 시장 전체 항목의 `.age()`는 그 항목의 마지막 줄부터 세고 모든 종목에 같다 [#752].
 - **꼬리표**: 결과는 읽은 항목마다 마지막 값의 날짜와 읽은 값들의 나이를 보이고, 정해진 문턱은 없다. 날짜가 맞는지, 정정, 연결·별도, 합계, 단위는 사용자의 몫이고 문서로만 안내하며 검사하지 않는다 [#725 결정 229].
 
