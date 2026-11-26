@@ -466,6 +466,30 @@ nx.run_pipeline(nx.Pipeline({"c": nx.Price.close.latest}), start="2020-01-06",
 """
 
 
+def test_an_entry_outside_the_project_that_imports_multiprocessing_reruns(
+    outside: tuple[Path, Path, str],
+) -> None:
+    """#644 Decisions (2026-11-27, A): `import multiprocessing` names the entry module
+    `__mp_main__` too. An entry outside the project folder is kept in `source/_entry/`, so
+    that name is not recorded as an outside module, and the unchanged run reruns. A run saved
+    before the fix records it; it is skipped when read, and that run reruns too."""
+    _, project, first = outside
+    elsewhere = project.parent / "elsewhere"
+    elsewhere.mkdir()
+    entry = "import multiprocessing\nimport nexusbt as nx\n" + _RUN
+    (elsewhere / "m2.py").write_text(entry, encoding="utf-8")
+    subprocess.run([sys.executable, "../elsewhere/m2.py"], check=True)
+    sealed = {p.name for p in (project / "runs").iterdir() if (p / "SEALED").is_file()}
+    (run_id,) = sealed - {first}
+    folder = project / "runs" / run_id
+    assert _manifest(folder)["source"]["outside"] == {}
+    assert nx.rerun(run_id, trust=True).comparison == _SAME  # `machine_id`: the first run's
+    found = _manifest(folder)  # as a run saved before the fix records it
+    found["source"]["outside"] = {"__mp_main__": hashlib.sha256(entry.encode()).hexdigest()}
+    _edit(folder / "manifest.json", json.dumps(found, sort_keys=True, indent=2) + "\n")
+    assert nx.rerun(run_id, trust=True).comparison == _SAME
+
+
 @pytest.mark.parametrize(("beside", "text", "name", "recorded"), [
     (False, _LOADED, "cfg", ["cfg"]),  # loaded from a file path under a name
     (False, _ALIAS, "alias", ["alias", "mylib", "mylib.helpers"]),  # another name in sys.modules

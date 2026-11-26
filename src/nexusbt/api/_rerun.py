@@ -83,17 +83,25 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+#: The entry file's own names: `__mp_main__` is the one `import multiprocessing` gives it. The
+#: entry is kept in `source/` (5.9.3), so neither is an outside module (#644 Decisions).
+_ENTRY_NAMES = ("__main__", "__mp_main__")
+
+
 def outside(modules: Mapping[str, Path], project: Path) -> dict[str, str]:
     """5.9.2 `source.outside`: module name → sha256 of each project module whose file is
     outside `project`, so not in `source/`; a name, never a path (5.9.3 "No local path")."""
     return {name: _sha256(path) for name, path in modules.items()
-            if name != "__main__" and path.is_file()
+            if name not in _ENTRY_NAMES and path.is_file()
             and not path.resolve().is_relative_to(project)}  # fmt: skip
 
 
 def _check_outside(replay: Replay) -> None:
-    """Each recorded outside module, found as the new process imports it, must hash the same."""
+    """Each recorded outside module, found as the new process imports it, must hash the same.
+    A run saved before #644's fix may record `__mp_main__`, its entry file: not checked."""
     for name, digest in replay.manifest["source"].get("outside", {}).items():
+        if name in _ENTRY_NAMES:
+            continue
         failed = False
         try:
             spec = importlib.util.find_spec(name)
