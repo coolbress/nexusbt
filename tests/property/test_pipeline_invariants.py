@@ -34,7 +34,7 @@ from nexusbt.compute import _chunks
 from nexusbt.data import Snapshot
 from nexusbt.testing.synth import make_snapshot
 from property._future import cut_after
-from property._pipelines import GRAPH, bits, build, inside, reach
+from property._pipelines import GRAPH, KINDS, WINDOWS, bits, build, inside, made, reach
 
 pytestmark = [pytest.mark.property, pytest.mark.slow]
 
@@ -69,6 +69,30 @@ CASES = settings(max_examples=5, suppress_health_check=[HealthCheck.too_slow])
 )
 def test_reach_is_the_furthest_read_worked_out_by_hand(steps: list[Any], rows: int) -> None:
     assert reach(steps) == rows
+    assert _chunks.lookback(made(steps)) == rows  # the engine's count, beside the test's
+
+
+def lookback_is_reach(steps: list[Any]) -> None:
+    """The engine's lookback (`_chunks.lookback`, the plan's furthest row) equals the test's
+    `reach` for the same steps, the last column of `build` left out, so that column cannot set
+    the number (#692): both count `W - 1` rows for a window, `k` for `shift(k)` and nothing
+    for a rank or `* 0.0`, added along a chain. With that column, `max(reach, 45)`. No
+    pipeline runs."""
+    assert _chunks.lookback(made(steps)) == reach(steps)
+    assert _chunks.lookback(list(build(steps).columns.values())) == max(reach(steps), 45)
+
+
+@pytest.mark.parametrize("w", WINDOWS)
+@pytest.mark.parametrize("kind", KINDS)
+def test_engine_lookback_is_reach_for_each_kind_alone(kind: str, w: int) -> None:
+    lookback_is_reach([(kind, 0, 0, w)])  # after the first `Returns(5)`
+
+
+@given(graph=GRAPH)
+@example(graph=DEEP)
+@example(graph=SIGNED_ZEROS)
+def test_engine_lookback_is_reach_for_drawn_graphs(graph: list[Any]) -> None:
+    lookback_is_reach(graph)
 
 
 @pytest.fixture(scope="module")

@@ -75,6 +75,14 @@ def reach(steps: Sequence[tuple[str, int, int, int]]) -> int:
     return max(back)
 
 
+def made(steps: Sequence[tuple[str, int, int, int]], mask: Any = None) -> list[Any]:
+    """Every term the steps make, after a first `Returns(5)`: `build`'s columns but its last."""
+    terms: list[Any] = [Returns(5)]
+    for kind, i, j, w in steps:
+        terms.append(term(kind, terms[i % len(terms)], terms[j % len(terms)], w, mask))
+    return terms
+
+
 def build(steps: Sequence[tuple[str, int, int, int]], mask: Any = None) -> nx.Pipeline:
     """The pipeline of every term the steps make, after a first `Returns(5)`, and a last
     column that needs every row it reads, as far back as the furthest read of the others
@@ -82,9 +90,7 @@ def build(steps: Sequence[tuple[str, int, int, int]], mask: Any = None) -> nx.Pi
     `min_periods` = window finite cells (3.3's default), `shift` the row it names. So a chunk
     that loses even the first row of its lookback changes a value (checked for `SIGNED_ZEROS`,
     #254, and `DEEP`, #683). Every rank takes `mask`."""
-    terms: list[Any] = [Returns(5)]
-    for kind, i, j, w in steps:
-        terms.append(term(kind, terms[i % len(terms)], terms[j % len(terms)], w, mask))
+    terms = made(steps, mask)
     terms.append(ops.rolling(Returns(21), 21).mean().shift(max(5, reach(steps) - 40)))
     return nx.Pipeline({f"t{k}": t for k, t in enumerate(terms)})
 
