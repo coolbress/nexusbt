@@ -181,6 +181,7 @@ This is the canonical English text; a Korean translation is in tds-v1.4.ko.md.
 - An observation table either has a `ts_available` column or declares a **derivation rule** (a rule name from 6.2) in the manifest. The checker and the engine expand the rule into a column and use it with the same meaning.
 - The engine rule is one: observation x is used only when `ts_available(x) <= decision_ts` (specification INV-01).
 - A publication known only by date (`known_on`) is converted to an instant by the producer before export. Default rule `next_session_open(known_on)` = `ts_open` of the first session after `known_on` in that market (same as specification 5.1.4).
+- The value tables (5.28) are the exception: their rows keep a bare `date` with no `ts_available` and no manifest rule, and 5.28 fixes their availability by engine specification 5.1.4's rule [2026-11-26, #752].
 
 **K4. Raw prices + event tables + forward-cumulative factors.**
 - Prices in `bars` are raw prices (the price actually traded that day, in local currency). Users with only adjusted prices are allowed only in the `tds:minimal-daily` profile and must declare `price_basis` (chapter 7).
@@ -822,7 +823,7 @@ Every value outside trading (fundamentals, share counts, sector codes, universes
 | `carry` | `none` | none |
 | `carry` | `next_listing` | next listing |
 
-- **Checks**: the checks of every kind judge these tables as written: S002 and S003 (types and null keys), K001 (a key given twice), R001 (an `instrument_id` not in `instruments`), the hashes (4.5). The checker does not yet judge `params.items` or the two stops of engine specification 5.3.5 these do not cover (an item name outside the rule above, an item in two kinds); they come with their own checks (#752).
+- **Checks**: the checks of every kind judge these tables as written: S002 and S003 (types and null keys), K001 (a key given twice), R001 (an `instrument_id` not in `instruments`), the hashes (4.5). The checker does not yet judge `params.items` or the two stops of engine specification 5.3.5 these do not cover (an item name outside the rule above, an item in two kinds); they come with their own checks (#752). Nor does it yet refuse an `availability` written for these kinds, or a row whose instrument belongs to another market than its `market=` partition.
 
 `values` — per instrument and date.
 

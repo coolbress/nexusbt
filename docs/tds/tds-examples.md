@@ -89,10 +89,11 @@ Values outside trading (fundamentals, share counts, sector codes, universes, eve
 |---|---|---|
 | KR:005930 | 2024-03-14 | 12.4 |
 | KR:005930 | 2024-05-16 | 13.1 |
-| KR:000660 | 2024-03-14 | |
+| KR:000660 | 2024-03-14 | 8.7 |
+| KR:000660 | 2024-05-16 | |
 
 - `date` is the day the value was published, in the market's local date; it need not be a trading day (a value dated on a Saturday is used from the next session).
-- The empty `value` of KR:000660 ends its `per` from that day (the carry stops).
+- KR:000660's 8.7 is carried until its empty `value` of 2024-05-16, which ends its `per` from that day.
 
 ### 3-2. `market_values` — one value for the whole market, by date
 
