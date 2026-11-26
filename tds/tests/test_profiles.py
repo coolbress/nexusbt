@@ -45,7 +45,8 @@ def test_core_stacks_on_minimal_with_raw_dense_daily_bars() -> None:
 
 
 def chapter_7_status(doc: str) -> dict[str, str]:
-    """Each profile row of TDS chapter 7's table: `experimental` where its cell says so."""
+    """Each profile row of TDS chapter 7's table: `experimental` where its cell says so. Both
+    editions write the mark in English, `(experimental)`, as their 5.x headings do."""
     rows = re.findall(r"^\| `(tds:[a-z-]+(?:@[\d.]+)?)`( \(experimental\))? \|", doc, re.M)
     return {profile_id(name): "experimental" if mark else "stable" for name, mark in rows}
 
@@ -58,6 +59,16 @@ def test_alternatives_and_experimental_status() -> None:
         assert status == {name: p.status for name, p in PROFILES.items()}
     sample = "| `tds:x@1.0` (experimental) | a |\n| `tds:y` | b |\n"  # the mark is read
     assert chapter_7_status(sample) == {"tds:x@1.0": "experimental", "tds:y@1.0": "stable"}
+
+
+@pytest.mark.parametrize("name", ["intraday-bars", "equity-daily-research", "pit-fundamentals",
+                                  "bitemporal", "alt-events", "l1-ticks", "futures"])  # fmt: skip
+def test_a_profile_that_left_is_unknown(name: str, tmp_path: Path) -> None:
+    """#752: a package declaring a profile chapter 7 no longer has gets TDS-M007."""
+    manifest, files = build.base()
+    manifest["profiles"] = [f"tds:{name}@1.0"]
+    result = check(Path(build.write(tmp_path, manifest, files)), level="manifest")
+    assert [f.code for f in result.errors] == ["TDS-M007"]
 
 
 def test_a_typo_in_the_profile_table_fails_loudly() -> None:
