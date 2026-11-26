@@ -1,6 +1,6 @@
 """`check(path, *, level, ...) -> CheckResult`: the levels manifest, schema and full (TDS 8.2).
 
-The `manifest` level reads `tds.json`, file sizes and the schema files' `status` (M001~M017);
+The `manifest` level reads `tds.json`, file sizes and the schema files' `status` (M001~M019);
 the `schema` level adds the
 Parquet footers and statistics and the `dictionary/` tables, no data rows (S001~S011, T006, part
 of D002, and of M008 the columns a profile names); the `full` level adds, so far, S006, S007
@@ -439,6 +439,9 @@ def _check_manifest(m: Manifest, only: Sequence[str] | None) -> Iterable[Finding
             yield from _processed(said, watermark, market, name)
         yield from _check_dataset(root, ds, name, listed, declared)
         yield from _check_partitions(ds, name)
+    from .items import check_items  # TDS 5.28: M018, M019 and value tables' M014 (#752)
+
+    yield from check_items(m.datasets, only)
     if only is None:
         for rel in _walk(root):
             if rel not in listed and rel != MANIFEST:

@@ -1,7 +1,8 @@
-"""TDS 5.28 (#752's V1): the value tables are judged by the checks every kind takes.
+"""TDS 5.28: the value tables are judged by the checks every kind takes (#752's V1), and by
+M018, M019 and M014 at the `manifest` level (#752's V2a, the owner's decisions of 2026-11-27).
 
-The stops of engine specification 5.3.5 that these checks do not cover (an item name outside
-5.28's rule, an item in two kinds) come with their own checks in a later pull request.
+Engine specification 5.3.5's five stops: an unknown symbol (R001), a key given twice (K001), an
+empty key cell (S003), an item name outside the rule (M018), an item in two tables (M019).
 """
 
 from __future__ import annotations
@@ -64,9 +65,17 @@ def found(path: Path) -> list[tuple[str, str | None]]:
 
 
 def test_three_tables_pass_every_level(tmp_path: Path) -> None:
-    """5.28: two items of each kind pass; the hashes cover them; the checker takes no instant
-    from them, so T006 stays `unchecked` (never passed)."""
-    path = package(tmp_path, {"per": TABLES, "sector": TABLES})
+    """5.28: two items of each kind pass, each item in one table (M019); the hashes cover them;
+    the checker takes no instant from them, so T006 stays `unchecked` (never passed)."""
+    items = {
+        "per": "values",
+        "pbr": "values",
+        "base_rate": "market_values",
+        "cpi": "market_values",
+        "sector": "symbol_values",
+        "industry": "symbol_values",
+    }
+    path = package(tmp_path, {item: {kind: TABLES[kind]} for item, kind in items.items()})
     for level in ("manifest", "schema", "full"):
         result = check(path, level=level)
         assert (result.errors, result.warnings) == ((), ())
@@ -95,3 +104,81 @@ def test_the_key_is_compared_with_its_item(tmp_path: Path) -> None:
     """3.5: the same instrument and date under two items are two keys, no K001."""
     rows = {"values": _values(["US:AAA"], [D], [1.0])}
     assert found(package(tmp_path, {"per": rows, "pbr": rows})) == []
+
+
+def manifest_codes(root: Path, *changes: Any) -> list[tuple[str, str | None]]:
+    """The `manifest` level's findings on the base package after `changes`."""
+    manifest, files = build.base()
+    for change in changes:
+        change(manifest, files)
+    result = check(build.write(root, manifest, files), level="manifest")
+    return [(f.code, f.dataset) for f in (*result.errors, *result.warnings)]
+
+
+@pytest.mark.parametrize(
+    ("item", "ok"),
+    [("per", True), ("per_ttm", True), ("x1", True), ("match", True),  # a soft keyword reads
+     ("PER", False), ("1st", False), ("_per", False), ("per-ttm", False), ("class", False),
+     ("pér", False)],
+)  # fmt: skip
+def test_M018_item_names(item: str, ok: bool, tmp_path: Path) -> None:
+    """5.28: 3.1's column-name rule, starting with a letter, not a Python keyword."""
+    want = [] if ok else [("TDS-M018", "values")]
+    assert manifest_codes(tmp_path, build._valued(("values", item))) == want
+
+
+def test_M019_one_item_in_two_tables(tmp_path: Path) -> None:
+    """5.28: an item lives in one value table, also across two datasets of one kind."""
+    twice = build._valued(("values", "per"), ("symbol_values", "per"), ("market_values", "per"))
+    assert manifest_codes(tmp_path / "a", twice) == [  # named on each later table
+        ("TDS-M019", "symbol_values"), ("TDS-M019", "market_values")]  # fmt: skip
+
+    def second_values(m: dict[str, Any], files: Any) -> None:
+        other = dict(m["datasets"][-1], name="values_b")
+        m["datasets"].append(other)  # the same files under a second name: M013 too
+
+    found_b = manifest_codes(tmp_path / "b", build._valued(("values", "per")), second_values)
+    assert ("TDS-M019", "values_b") in found_b
+
+
+def _declare(**fields: Any) -> Any:
+    def change(m: dict[str, Any], files: Any) -> None:
+        (values,) = (d for d in m["datasets"] if d["kind"] == "values")
+        values.update(fields)
+
+    return change
+
+
+@pytest.mark.parametrize(
+    ("fields", "bad"),
+    [
+        ({"params": {"items": {"per": {"kind": "per_share"}}}}, 0),
+        ({"params": {"items": {"per": {"kind": "share_count", "carry": "next_listing"}}}}, 0),
+        ({"params": {"items": {"per": {"carry": 5}, "eps": {"carry": "none"}}}}, 0),
+        ({"params": {"items": {"per": {}, "absent": {"carry": "to_end"}}}}, 0),  # not judged
+        ({"params": {"items": {"per": {"kind": "per-share"}}}}, 1),
+        ({"params": {"items": {"per": {"carry": "forever"}}}}, 1),
+        ({"params": {"items": {"per": {"carry": 0}}}}, 1),
+        ({"params": {"items": {"per": {"carry": 2.5}}}}, 1),
+        ({"params": {"items": {"per": {"carry": "3"}}}}, 1),
+        ({"params": {"items": {"per": {"carry": True}}}}, 1),
+        ({"params": {"items": {"per": {"carr": 3}}}}, 1),  # a misspelt field
+        ({"params": {"items": {"per": {"kind": "x", "carry": -1}}}}, 2),
+        ({"params": {"items": {"per": "per_share"}}}, 1),
+        ({"params": {"items": ["per"]}}, 1),
+        ({"availability": {"rule": "session_close"}}, 1),  # 5.28 fixes it
+    ],
+)  # fmt: skip
+def test_M014_declarations(fields: dict[str, Any], bad: int, tmp_path: Path) -> None:
+    """5.28's `params.items` words and shape, and no `availability`, are M014 otherwise."""
+    found_ = manifest_codes(tmp_path, build._valued(("values", "per")), _declare(**fields))
+    assert found_ == [("TDS-M014", "values")] * bad
+
+
+def test_symbol_values_carry_is_not_judged(tmp_path: Path) -> None:
+    """The owner, 2026-11-27: a `carry` on `symbol_values` is not judged."""
+
+    def carry(m: dict[str, Any], files: Any) -> None:
+        m["datasets"][-1]["params"] = {"items": {"sector": {"carry": "none"}}}
+
+    assert manifest_codes(tmp_path, build._valued(("symbol_values", "sector")), carry) == []
