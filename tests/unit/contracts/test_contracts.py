@@ -61,7 +61,7 @@ def test_engine_columns_match_spec_4_6_table() -> None:
     from nexusbt.contracts import ENGINE_COLUMNS
 
     expected = spec_4_6_rows()
-    assert len(expected) == 17
+    assert len(expected) == 10  # 17 until #752 removed seven kinds' 4.6 rows
     assert {name: set(cols) for name, cols in ENGINE_COLUMNS.items()} == expected
     assert all(isinstance(cols, frozenset) for cols in ENGINE_COLUMNS.values())
 

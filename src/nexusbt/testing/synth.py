@@ -414,7 +414,7 @@ def make_snapshot(
     `full`. Every preset writes each dataset's `coverage` (TDS 4.3) and each market's
     watermark at the period's last session (TDS 3.8; #390), neither in a hash. `full` is
     `small`'s rules over full's period, counts and lives, the M1 datasets only;
-    its M2 datasets, `full_ci` and `overrides` come with later tickets (spec 10.1: T0.8c).
+    `full_ci` and `overrides` come with later tickets (spec 10.1: T0.8c).
     `degrade` takes 4.8's core values (T0.16a, T0.16c; `_synth_degrade`) and `late_bars`
     (#354), the others with T0.16b. Each dataset is processed through the watermark session in
     every market (TDS 4.3, #192), but `behind[name]` sessions earlier for each dataset `name`

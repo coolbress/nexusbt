@@ -262,33 +262,28 @@ def test_no_value_hash_without_a_rule(tmp_path: Path, change: dict[str, Any], me
         value_hash(package(tmp_path, {**BARS, **change}, with_ts_start("us")), "bars_1d")
 
 
-#: TDS 5.25: the schema file has the key and time columns; the values are declared in tds.json.
-FEATURES = {"name": "features", "kind": "feature_panels", "path": "features",
-            "columns": [{"name": "instrument_id", "type": "id"},
-                        {"name": "ts_available", "type": "ts_us"},
-                        {"name": "momentum", "type": "f64"}]}  # fmt: skip
+#: TDS 4.5 step 1: the schema file's columns, then a column declared in tds.json only
+#: (`momentum`). On `tradability_daily` since the panels left (#752); the published vector
+#: `declared_non_schema_column` is checked as a table by the tests above.
+STATUS = {"name": "status", "kind": "tradability_daily", "path": "status",
+          "columns": [{"name": "instrument_id", "type": "id"},
+                      {"name": "ts_available", "type": "ts_us"},
+                      {"name": "momentum", "type": "f64"}]}  # fmt: skip
 
 
-def features(momentum: float) -> pa.Table:
+def status(momentum: float) -> pa.Table:
     return pa.table({
-        "instrument_id": ["US:B"], "period": [dt.date(2024, 1, 31)],
-        "as_of_date": [dt.date(2024, 1, 31)], "ts_available": pa.array([0], ARROW["ts_us"]),
+        "instrument_id": ["US:B"], "session_date": [dt.date(2024, 1, 31)],
+        "status_known": [True], "ts_available": pa.array([0], ARROW["ts_us"]),
         "momentum": [momentum],
     })  # fmt: skip
 
 
-def test_value_hash_sees_declared_feature_column(tmp_path: Path) -> None:
+def test_value_hash_sees_declared_column(tmp_path: Path) -> None:
     one, other = (
-        package(tmp_path / str(m), FEATURES, {"features/p.parquet": features(m)})
-        for m in (1.0, 999.0)
+        package(tmp_path / str(m), STATUS, {"status/p.parquet": status(m)}) for m in (1.0, 999.0)
     )
-    assert value_hash(one, "features") != value_hash(other, "features")
-
-
-def test_declared_column_vector(tmp_path: Path) -> None:
-    (vector,) = (v for v in VECTORS["vectors"] if v["name"] == "declared_non_schema_column")
-    parts = {"features/p.parquet": arrow_table(vector)}
-    assert value_hash(package(tmp_path, FEATURES, parts), "features") == vector["sha256"]
+    assert value_hash(one, "status") != value_hash(other, "status")
 
 
 @pytest.mark.parametrize("said", ["ts_ns", "i64", None])
@@ -297,10 +292,10 @@ def test_a_typed_column_takes_the_schema_type(tmp_path: Path, said: str | None) 
     # level, and the hash still takes the schema's tag (TDS 4.5 step 3, #404).
     kept = [{"name": "instrument_id", "type": "id"}, {"name": "momentum", "type": "f64"}]
     declared = [*kept, {"name": "ts_available", "type": said}] if said else kept
-    parts = {"features/p.parquet": features(1.0)}
-    other = package(tmp_path / "other", {**FEATURES, "columns": declared}, parts)
-    same = package(tmp_path / "same", FEATURES, parts)
-    assert value_hash(other, "features") == value_hash(same, "features")
+    parts = {"status/p.parquet": status(1.0)}
+    other = package(tmp_path / "other", {**STATUS, "columns": declared}, parts)
+    same = package(tmp_path / "same", STATUS, parts)
+    assert value_hash(other, "status") == value_hash(same, "status")
 
 
 def test_a_declared_unit_sets_the_bytes(tmp_path: Path) -> None:
