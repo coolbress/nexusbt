@@ -27,7 +27,7 @@ import pytest
 import nexusbt as nx
 from nexusbt.artifacts import _environment
 from nexusbt.cli.main import main
-from nexusbt.contracts import ReplayError, UntrustedRunError
+from nexusbt.contracts import ReplayError, SnapshotError, UntrustedRunError
 from nexusbt.data import table_value_hash
 from nexusbt.testing.synth import make_snapshot
 
@@ -106,21 +106,63 @@ def test_rerun_identical(copied: tuple[Path, str]) -> None:
 
 
 def test_missing_snapshot_E15(copied: tuple[Path, str]) -> None:  # noqa: N802 - the ticket's name
+    """An exact rerun whose recorded snapshot does not open: E15 with 6.6's fix line."""
     project, run_id = copied
     (project / "pkg").rename(project / "pkg-moved")
-    with pytest.raises(ReplayError, match="is not available"):
+    with pytest.raises(ReplayError, match="is not available") as raised:
         nx.rerun(run_id)
+    assert "nx.rerun(id, new_snapshot=True) creates a new run" in str(raised.value)
+
+
+def _flip(package: Path) -> None:
+    """Flip one byte in the middle of the package's first Parquet file."""
+    victim = sorted(package.rglob("*.parquet"))[0]
+    data = bytearray(victim.read_bytes())
+    data[len(data) // 2] ^= 0xFF
+    victim.write_bytes(bytes(data))
 
 
 def test_tampered_parquet_detected(copied: tuple[Path, str]) -> None:
     """A changed Parquet byte: each file's sha256 against tds.json (semantic·physical), E15."""
     project, run_id = copied
-    victim = sorted((project / "pkg").rglob("*.parquet"))[0]
-    data = bytearray(victim.read_bytes())
-    data[len(data) // 2] ^= 0xFF
-    victim.write_bytes(bytes(data))
+    _flip(project / "pkg")
     with pytest.raises(ReplayError, match="semantic·physical mismatch"):
         nx.rerun(run_id)
+
+
+@pytest.mark.parametrize("how", ["moved", "a byte flipped"])
+def test_new_snapshot_that_does_not_open_is_its_own_E14(  # noqa: N802 - the code's name
+    copied: tuple[Path, str], how: str
+) -> None:
+    """#636 Decisions 1 and 3: `new_snapshot=True` is a new run (3.8), so a snapshot that does
+    not open is its own E14, with no line telling the person to pass `new_snapshot=True`; it
+    still opens with each file's sha256 (3.11 `[data] verify`), which a flipped byte fails
+    under this project's `verify = "manifest"` default."""
+    project, run_id = copied
+    if how == "moved":
+        (project / "pkg").rename(project / "pkg-moved")
+    else:
+        _flip(project / "pkg")
+    with pytest.raises(SnapshotError) as raised:
+        nx.rerun(run_id, new_snapshot=True)
+    assert "new_snapshot" not in str(raised.value)
+
+
+@pytest.mark.parametrize("new_snapshot", [False, True])
+def test_an_error_about_another_snapshot_keeps_its_E14(  # noqa: N802 - the code's name
+    copied: tuple[Path, str], new_snapshot: bool
+) -> None:
+    """#636 Decisions 2: the entry file opens `other`, a package of its own id that does not
+    open; its E14 is not the run's snapshot being unavailable, in either mode."""
+    project, run_id = copied
+    make_snapshot(project / "other", preset="tiny", snapshot_id="other-0001")
+    _flip(project / "other")
+    entry = _ENTRY.replace('snapshot="pkg", save=True)\nnx', 'snapshot="other", save=True)\nnx')
+    _edit(project / "runs" / run_id / "source" / "scripts" / "m.py", entry)
+    with pytest.raises(SnapshotError, match="snapshot check failed") as raised:
+        nx.rerun(run_id, new_snapshot=new_snapshot)
+    assert "snapshot other-0001" in str(raised.value)
+    assert "new_snapshot" not in str(raised.value)
 
 
 def test_archived_helpers_override_local(copied: tuple[Path, str]) -> None:

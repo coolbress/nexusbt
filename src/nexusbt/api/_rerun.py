@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING, Any
 
 from nexusbt import contracts
 from nexusbt.contracts import NexusBTError, ReplayError, SnapshotError
+from nexusbt.data import _package
 
 if TYPE_CHECKING:
     from nexusbt.data import Snapshot
@@ -125,6 +126,28 @@ def check_snapshot(opened: Snapshot) -> None:
         raise unavailable(ACTIVE.run_id, ACTIVE.manifest, "it has another semantic hash")
 
 
+def _has_manifest(path: Path) -> bool:
+    try:
+        return (_package(path) / "tds.json").is_file()
+    except (OSError, ValueError):  # `LATEST` unreadable, or naming a folder outside
+        return False
+
+
+def not_opened(error: SnapshotError, path: Path | None = None) -> None:
+    """#636 Decisions: on an exact rerun, an E14 about the run's recorded snapshot is E15: its
+    layer names that snapshot, or `path`, the package that did not open, has no `tds.json` to
+    show it is another (the package moved). Any other E14, and each with `new_snapshot` (a new
+    run, 3.8), stays the snapshot's own error."""
+    if ACTIVE is None or ACTIVE.new_snapshot:
+        return
+    recorded = ACTIVE.manifest.get("snapshot_id", "-")
+    named = error.layer.startswith(f"data — snapshot {recorded} /")
+    if not named and (path is None or _has_manifest(path)):
+        return  # another snapshot, or an error raised with no package to look at
+    why = "it does not open or its files differ from tds.json (semantic·physical mismatch)"
+    raise unavailable(ACTIVE.run_id, ACTIVE.manifest, why) from error
+
+
 def unavailable(run_id: str, manifest: Mapping[str, Any], why: str) -> ReplayError:
     snapshot = manifest.get("snapshot_id", "-")
     return ReplayError(
@@ -152,9 +175,9 @@ def child(folder: Path, out: Path, new_snapshot: bool) -> int:
             _check_outside(replay)
         try:
             runpy.run_path(str(entry), run_name="__main__")
-        except SnapshotError as unread:  # the package moved, or a file's bytes differ
-            why = "it does not open or its files differ from tds.json (semantic·physical mismatch)"
-            raise unavailable(replay.run_id, replay.manifest, why) from unread
+        except SnapshotError as unread:  # E15 when it is about the run's snapshot (#636)
+            not_opened(unread)
+            raise
     except NexusBTError as error:
         fields = {"at": error.at, "subject": error.subject, "layer": error.layer, **error.parts}
         out.write_text(json.dumps({"error": {"code": error.code, **fields}}), encoding="utf-8")

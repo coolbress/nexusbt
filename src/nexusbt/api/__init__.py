@@ -34,6 +34,7 @@ from nexusbt.contracts import (
     ReplayError,
     SchemaRegistry,
     SessionNotice,
+    SnapshotError,
     UntrustedRunError,
 )
 from nexusbt.data import (
@@ -252,7 +253,11 @@ def run_pipeline(
     else:  # in a rerun, at least `schema` and each file's sha256, as 3.8 says
         folder = _snapshot_folder(snapshot) if isinstance(snapshot, _Snapshot) else snapshot
         given = DataConfig.from_config(cfg) if folder is None else DataConfig(Path(folder))
-        opened = open_snapshot(given, sha256=_rerun.ACTIVE is not None)
+        try:
+            opened = open_snapshot(given, sha256=_rerun.ACTIVE is not None)
+        except SnapshotError as unread:  # the package moved, or a file's bytes differ
+            _rerun.not_opened(unread, Path(given.path))
+            raise
         _rerun.check_snapshot(opened)
     result = _pipeline.run(pipeline, start=start, end=end, freq=freq, markets=markets,
                            snapshot=opened, cfg=cfg, registry=schema_registry)  # fmt: skip
