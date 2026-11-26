@@ -4,13 +4,12 @@ A schema file is `tds/schemas/<kind>/1.0.json`: `kind`, `schema_version`, `statu
 (`stable`|`experimental`), `section`, `key`, `sort`, `partitions` and `columns`. A column is
 `{"name", "type", "null"}` plus, for a code, `"enum": "closed"|"open"` and `"values"`, the list
 the Meaning cell names (its backticked values outside parentheses and before ` — `; a `<name>`
-in one is any non-empty text, a rule chosen in #117; only a table row is compared, so the list of
-`eligibility_daily.reason`, whose section is prose, is not). `type` is a TDS 3.2 name or
-null where the document does not state one, and `null` is true, false, the document's condition
-text, or null where unstated. A blank document cell in a row whose meaning is a section (`5.17`)
-takes that section's row of the same name (the file notes `"from"`, not checked); any other
-blank cell needs the file's value unstated too. A mismatch is reported, never fixed here: the
-TDS document is changed by its own pull request.
+in one is any non-empty text, a rule chosen in #117; only a table row is compared). `type` is a
+TDS 3.2 name or null where the document does not state one, and `null` is true, false, the
+document's condition text, or null where unstated. A blank document cell in a row whose meaning
+is a section (`5.17`) takes that section's row of the same name (the file notes `"from"`, not
+checked); any other blank cell needs the file's value unstated too. A mismatch is reported, never
+fixed here: the TDS document is changed by its own pull request.
 """
 
 from __future__ import annotations
@@ -35,10 +34,8 @@ VERSION = "1.0"
 _SECTIONS = """
 5.1 instruments; 5.2 instrument_symbols; 5.4 calendar_sessions
 5.5 bars; 5.10 tradability_daily
-5.11 corporate_actions; 5.13 delistings; 5.14 share_counts; 5.15 fx_rates
-5.17 fundamentals_events; 5.18 fundamentals_state; 5.19 classifications
-5.20 universe_membership; 5.20 eligibility_daily
-5.25 feature_panels; 5.25 label_panels; 5.27 market_rules
+5.11 corporate_actions; 5.13 delistings; 5.15 fx_rates
+5.19 classifications; 5.27 market_rules
 """
 CHAPTER_5: dict[str, str] = {kind: n for n, kind in re.findall(r"(5\.\d+) (\w+)", _SECTIONS)}
 

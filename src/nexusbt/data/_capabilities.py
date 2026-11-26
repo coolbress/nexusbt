@@ -45,10 +45,7 @@ NEEDS = {
 READS = {f: needs + {"grid": ("market_rules", "classifications")}.get(f, ())
          for f, needs in NEEDS.items()}  # fmt: skip
 #: 4.3's profile table: the profiles the v1 engine reads.
-SUPPORTED = frozenset({
-    "tds:minimal-daily@1.0", "tds:equity-daily-core@1.0", "tds:equity-daily-research@1.0",
-    "tds:panels@1.0", "tds:pit-fundamentals@1.0",
-})  # fmt: skip
+SUPPORTED = frozenset({"tds:minimal-daily@1.0", "tds:equity-daily-core@1.0"})
 SAYS = {  # F-02 and F-03 retired with F-01 and F-18 (#705)
     "F-15": "price grid = currency minor unit",
     "F-16": "volume unit unverified (TDS-V011), no repair",

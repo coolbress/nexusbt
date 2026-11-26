@@ -38,7 +38,7 @@ This is the canonical English text; a Korean translation is in tds-v1.4.ko.md.
 > Version history (continued): **v1.4, 2026-11-23 addition**: `tds import csv` writes a daily bar row with `obs_status = missing` on each session an instrument lacks, from its listing to its `last_session` or the market's watermark, and writes no completeness it was not given (9.5; #705). An edit within stage (1): `tds_draft` stays 2026-11-19 and `tds_version` stays `"1.0"`.
 > Relation: this document is **the canonical input definition referenced by chapter 4** of the engine specification v3.4 (`engine-spec-v3.4-2026-10-28.md`). Where the two differ, this document is right about the input format (difference list in chapter 12). Maintainer decisions (design document 9.0) take precedence over this document.
 > Public: this standard and the checker (`nexusbt-tds`, import `nexusbt_tds`, command `tds`) are public (Apache-2.0). Chapter 11 of the working draft (producer-specific mapping) is not normative and is not part of this public edition.
-> Examples: example rows for every dataset the engine reads (including events and macro series) are in `tds-examples.md` (same folder).
+> Examples: example rows for the datasets the engine reads are in `tds-examples.md` (same folder).
 > Notation: [verified] = the original source was opened and checked for this document. [unverified] = relies on memory or secondary sources; check the original before implementing. [est.] = estimate. [decided] = decided by this document.
 
 ## Contents
@@ -77,8 +77,8 @@ This is the canonical English text; a Korean translation is in tds-v1.4.ko.md.
 | K2 | Every time is a UTC instant `timestamp[unit, tz="UTC"]`. Tick and quote series use `ns`, everything else `us`. Local dates (`session_date` etc.) are only `date32` labels | Parquet `isAdjustedToUTC=true` means an instant. Nautilus and Databento use ns. DuckDB's default TIMESTAMPTZ is us |
 | K3 | Every observation has an **availability time** `ts_available` (a column or a derivation rule in the manifest), separate from the event time `ts_event` | Enforces engine invariant INV-01 (`ts_available <= decision_ts`) at the data-format level |
 | K4 | Prices are stored as **raw** prices. The source of adjustment is the `corporate_actions` event table; a consumer computes the cumulative factors from it, **forward-cumulative with the first listed session = 1.0**, and no check reads a factor column (the columns leave 5.5, 5.5) [2026-11-22, #705] | Factors fitted backward from the latest date (LEAN, Yahoo adjusted close) rewrite the whole past on every new event → immutable partitions and hashes break |
-| K5 | Fundamentals in two layers: raw events `fundamentals_events` (availability time, source and version per fact) + resolved state intervals `fundamentals_state` (`[ts_known_from, ts_known_to)`, no overlaps, per edition) | The engine does not re-implement fiscal-period selection rules (9.0 Q24). Combines the strengths and weaknesses of Qlib PIT and Sharadar AR/MR |
-| K6 | Changing classifications, universes and identifiers use **two time axes**: effective period (`effective_from/to`) and known time (`ts_known_from/to`) | "It was in that class then" differs from "we knew that then" (the backfill problem of industry histories filled in later) |
+| K5 | Fundamentals in two layers: raw events `fundamentals_events` (availability time, source and version per fact) + resolved state intervals `fundamentals_state` (`[ts_known_from, ts_known_to)`, no overlaps, per edition); removed, both kinds left on 2026-11-26 (5.6) | The engine does not re-implement fiscal-period selection rules (9.0 Q24). Combines the strengths and weaknesses of Qlib PIT and Sharadar AR/MR |
+| K6 | Changing classifications and identifiers use **two time axes**: effective period (`effective_from/to`) and known time (`ts_known_from/to`) | "It was in that class then" differs from "we knew that then" (the backfill problem of industry histories filled in later) |
 | K7 | Price numbers: daily bars and event amounts = `float64`; ticks and quotes = `int64` fixed point (per-dataset exponent, default 1e-9) | Book levels must be exactly equal to be the same level (Databento 1e-9). For daily bars float64 is enough and easy to handle |
 | K8 | Package = folder + `tds.json` (a skeleton **inspired by** Frictionless Data Package v2; it does not implement the Data Package `resources` structure as is — v1.1 wording fix). Per file sha256, row count and statistics; per dataset value hash and coverage; per package physical, value and semantic hashes | Aligns ideas with Frictionless tools, while TDS defines the Arrow types and time rules |
 | K9 | **Profiles** (versioned, `@1.0`): from `tds:minimal-daily` (3 tables, analysis) to `tds:equity-daily-core` [2026-11-26, #752]. A package declares the profiles it follows and the checker confirms them with three results (declared, check level, result). Consumer support is stated by the consumer | Small users start with 3–4 tables |
@@ -189,16 +189,13 @@ This is the canonical English text; a Korean translation is in tds-v1.4.ko.md.
 - Availability: a factor takes effect at the event's `ts_effective`, but for events whose amount or ratio was published late (old Korean dividends) the consumer holds the event pending using the event's `ts_terms_available` (specification 5.3.4; `ts_amount_available` in v1 was a typo). The standard therefore states that there are cells where look-ahead-free adjustment cannot be done from a cumulative factor alone (5.11).
 
 **K5. Fundamentals = fact events + resolved state intervals.**
-- `fundamentals_events`: one reported number = one row (a revision is a new row). Source, document id, availability time, recording time.
-- `fundamentals_state`: intervals of "the value to use at that time", computed by the producer's resolution rules (period selection, TTM, source priority, strict eligibility). Per `(edition, instrument_id, item)` the intervals `[ts_known_from, ts_known_to)` do not overlap.
-- The engine looks up only the state table. The event table is for explanation (`nx.explain`) and audit.
-- Small users MAY ship only the state table (`lineage_id` etc. are optional).
+- Removed [2026-11-26, #752]: `fundamentals_events` and `fundamentals_state` left the standard (5.6).
 
 **K6. Changing attributes use two time axes.**
 - Effective period `effective_from`/`effective_to` (the period the state held in the world, date or instant) and known period `ts_known_from`/`ts_known_to` (the period that record could be trusted and used).
 - Rows used at decision time t: `ts_known_from <= t < ts_known_to` and the effective period contains t (or the queried date).
 - The lookup is a **rectangle**: rows that satisfy the known condition and the effective condition together (6.3). Picking the row with the maximum known time first and then checking effectiveness is wrong (a pre-announced future-effective row hides the current row).
-- Two-time-axis tables (`classifications`, `universe_membership`, `instrument_symbols`) use the same pair of names: effective `effective_from`/`effective_to` (`instrument_symbols` keeps the v1 names `valid_from`/`valid_to` but is stated to have the same meaning), known `ts_known_from`/`ts_known_to` [v1.1].
+- Two-time-axis tables (`classifications`, `instrument_symbols`) use the same pair of names: effective `effective_from`/`effective_to` (`instrument_symbols` keeps the v1 names `valid_from`/`valid_to` but is stated to have the same meaning), known `ts_known_from`/`ts_known_to` [v1.1].
 - Data whose known period is unknown (most classification histories) MAY set `ts_known_from = the instant of effective_from` but MUST declare `pit_quality = backfilled` (per row if the row column exists, otherwise per dataset). **Strict-edition lookups exclude rows with row-level `backfilled`**; for dataset-level `backfilled`/`mixed` without row-level quality the consumer only warns (6.5) [v1.1].
 
 **K7. Number types.**
@@ -311,7 +308,7 @@ One package = one immutable folder (snapshot).
 ```
 <package>/
   tds.json                                   manifest (required)
-  dictionary/columns/part-00000.parquet      column dictionary (required if there are feature_panels)
+  dictionary/columns/part-00000.parquet      column dictionary (optional)
   dictionary/codes/part-00000.parquet        meanings of open enum values (optional)
   instruments/part-00000.parquet             (required)
   instrument_symbols/part-00000.parquet
@@ -322,15 +319,8 @@ One package = one immutable folder (snapshot).
   market_rules/part-00000.parquet           (optional, v1.2)
   corporate_actions/part-00000.parquet
   delistings/part-00000.parquet
-  share_counts/market=US/part-00000.parquet
   fx_rates/part-00000.parquet
-  fundamentals_events/market=KR/part-00000.parquet ...
-  fundamentals_state/edition=strict/market=KR/part-00000.parquet
   classifications/part-00000.parquet
-  universe_membership/part-00000.parquet
-  eligibility_daily/market=KR/year=2024/part-00000.parquet
-  feature_panels/name=factor_pit_monthly/edition=strict/year=2024/part-00000.parquet
-  label_panels/name=label_monthly/year=2024/part-00000.parquet
   ...
 ```
 
@@ -391,7 +381,7 @@ One package = one immutable folder (snapshot).
      "columns": [{"name": "instrument_id", "type": "id", "nullable": false}, "…"],
      "files": [{"path": "bars/freq=1d/market=KR/year=1995/part-00000.parquet", "rows": 123456, "bytes": 4567890,
                 "sha256": "…", "stats": {"session_date": ["1995-05-02", "1995-12-28"]}}]},
-    {"name": "fundamentals_state", "kind": "fundamentals_state", "schema_version": "1.0", "path": "fundamentals_state",
+    {"name": "instrument_symbols", "kind": "instrument_symbols", "schema_version": "1.0", "path": "instrument_symbols",
      "availability": {"column": "ts_known_from"},
      "coverage": {"by_market": {"KR": {"processed_through_session": "2026-10-23"}}}, "files": ["…"]},
     {"name": "delistings", "kind": "delistings", "schema_version": "1.0", "path": "delistings",
@@ -429,14 +419,14 @@ Each dataset records the following. With it the engine reports before a run "is 
 - `instruments`: number of distinct `instrument_id`.
 - `ts_min`, `ts_max` (or dates): the range the data covers.
 - `by_market`: the same values and row counts per market.
-- Optional `by_market.<m>.processed_through_session` [v1.4, 2026-11-12, #192]: the last session of market `<m>` that the producer has processed for this dataset, whether or not that session brought a row. For a per-session dataset (a row per instrument or calendar and session: daily `bars`, `calendar_sessions`, `tradability_daily`, `eligibility_daily`) it is usually its `last`; for an event or interval dataset (`corporate_actions`, `delistings`, `fundamentals_state` and the like) the last row is the last event, which can be weeks old on a normal day, and this field says the dataset is current all the same. Any dataset kind may give it, one without `market=` partitions too, where `<m>` is the market of its rows' instruments and `by_market.<m>` may hold this field alone. It is not earlier than the dataset's `last` in that market (rows after the session it says it processed) and not later than the market's watermark session `complete_through_session` (3.8); either is TDS-M016. A dataset with no `last` in that market (one without `market=` partitions) is bounded below by its rows instead [2026-11-12, #425]: a row whose availability instant is after the close of this session in the market's calendar (`markets.<m>.calendar_id`, 5.4 `ts_close`) is a row after it, TDS-D003 at the `full` level. The instant is the one a consumer may first see the row at: for `corporate_actions` its existence instant (5.11 step 2: the earlier of `ts_announced` and `ts_terms_available`, else `ts_effective`), not the terms instant T006 reads, since a producer that processed the session holds an event known to exist whose terms come later; for `delistings` `ts_exit_known`; under a column form (6.2) its column; under rule `column` `ts_available`. The row's market is its `market` column or `market=` partition, else its instrument's `instruments.market`; a row whose instrument is not found is R001's, not D003's. A null instant is not judged; D003 is `unchecked`, with the reason, for a market whose rows' instants are all null, a session its calendar does not have, or a dataset whose availability is another rule; a kind with no availability instant (`instruments`, `calendar_sessions`, `calendar_segments`, as for T006 in 8.2) is not judged by it. When it is missing, a per-session dataset is processed through its `last`, and any other dataset through the market's `complete_through_session`, so a package written before this field reads as it did. Required for event and interval datasets from the next minor version.
+- Optional `by_market.<m>.processed_through_session` [v1.4, 2026-11-12, #192]: the last session of market `<m>` that the producer has processed for this dataset, whether or not that session brought a row. For a per-session dataset (a row per instrument or calendar and session: daily `bars`, `calendar_sessions`, `tradability_daily`) it is usually its `last`; for an event or interval dataset (`corporate_actions`, `delistings` and the like) the last row is the last event, which can be weeks old on a normal day, and this field says the dataset is current all the same. Any dataset kind may give it, one without `market=` partitions too, where `<m>` is the market of its rows' instruments and `by_market.<m>` may hold this field alone. It is not earlier than the dataset's `last` in that market (rows after the session it says it processed) and not later than the market's watermark session `complete_through_session` (3.8); either is TDS-M016. A dataset with no `last` in that market (one without `market=` partitions) is bounded below by its rows instead [2026-11-12, #425]: a row whose availability instant is after the close of this session in the market's calendar (`markets.<m>.calendar_id`, 5.4 `ts_close`) is a row after it, TDS-D003 at the `full` level. The instant is the one a consumer may first see the row at: for `corporate_actions` its existence instant (5.11 step 2: the earlier of `ts_announced` and `ts_terms_available`, else `ts_effective`), not the terms instant T006 reads, since a producer that processed the session holds an event known to exist whose terms come later; for `delistings` `ts_exit_known`; under a column form (6.2) its column; under rule `column` `ts_available`. The row's market is its `market` column or `market=` partition, else its instrument's `instruments.market`; a row whose instrument is not found is R001's, not D003's. A null instant is not judged; D003 is `unchecked`, with the reason, for a market whose rows' instants are all null, a session its calendar does not have, or a dataset whose availability is another rule; a kind with no availability instant (`instruments`, `calendar_sessions`, `calendar_segments`, as for T006 in 8.2) is not judged by it. When it is missing, a per-session dataset is processed through its `last`, and any other dataset through the market's `complete_through_session`, so a package written before this field reads as it did. Required for event and interval datasets from the next minor version.
 - Optional `by_item`: first year and fill ratio per fundamentals or panel column (as numerator/denominator).
 
 ### 4.4 Column dictionary (`dictionary/`)
 
 | Dataset | Key | Columns |
 |---|---|---|
-| `dictionary/columns` | (`dataset`, `column`) | `dataset` string, `column` string, `type` string, `unit` string, `currency_source` string (`column:<name>` / `instrument` / `fixed:<code>` / null), `scale` i8, `freq` string (daily/monthly/event/…), `edition_class` string (name of the strict eligibility rule), `start_by_market` string (JSON text), `description` string, `alias_of` string, `std_name` string (that name if it equals a TDS standard item), `is_label` bool (if true, forbidden as a decision input) |
+| `dictionary/columns` | (`dataset`, `column`) | `dataset` string, `column` string, `type` string, `unit` string, `currency_source` string (`column:<name>` / `instrument` / `fixed:<code>` / null), `scale` i8, `freq` string (daily/monthly/event/…), `edition_class` string (name of the strict eligibility rule), `start_by_market` string (JSON text), `description` string, `alias_of` string, `std_name` string (that name if it equals a TDS standard item) |
 | `dictionary/codes` | (`field`, `code`) | `field` string, `code` string, `label` string, `description` string, `maps_to` string (value when read as a closed TDS enum) |
 
 Each column name is followed by its 3.2 type, which the value hash of 4.5 takes; the JSON-valued columns are `string`, the text as stored [2026-11-04].
@@ -595,14 +585,14 @@ Parameters (`params`): `freq` (`1d`, `1w`, `1mo`, `1h`, `30m`, `5m`, `1m`, `1s` 
 - Price check V001: `low <= min(open, close)`, `high >= max(open, close)`, `low <= high` (when all values exist). Raw prices lie on the price grid (5.27 grid norm, V012 W) [v1.2, V31-05]. The `volume` unit follows 3.4 (V011 W) [v1.2, V31-16]. V002 negative prices and volumes forbidden (instruments that allow negatives, such as indices and spread contracts, declare an exception via `instruments.category`). V004: if `obs_status = traded`, `close` is required, and on an `equity` or `etf` row of a bars dataset of which a declared profile requires them (chapter 7) also `open`, `high`, `low` and `volume` [2026-11-22, #705]; on a `no_trade` or `halted` row a written `volume` is 0, a `halted` row has no `open`, `high`, `low` or `close`, and a row without `obs_status` has a value, in every profile [2026-11-23, #705].
 - Daily close = official close (Korean closing single-price auction, US official close). If different, use an `x_` column.
 - A daily bar, like `KR_close`, means the regular-session close; after-market trades are not included (specification 1.2, 4.6). For KR this close is the KRX regular-session close: trades on NXT (Nextrade, the alternative trading system) are not included in the close, the OHLC, the volume or `value_traded`, even those made during regular-session hours (maintainer decision 2026-11-01).
-- `shares_out` (specification 4.7) is removed from bars and moved to `share_counts` (because its availability time differs from prices; chapter 12 D9). A producer convenience column `x_<ns>_shares_out` is allowed.
+- `shares_out` (specification 4.7) is not a bars column; a share count is a value-table item (engine specification 5.3.5a). A producer convenience column `x_<ns>_shares_out` is allowed.
 - Bars carry no versions in v1: a later snapshot that replaces a bar holds only the replacement, under the same key. TDS does not set which `ts_available` a replaced bar takes: under a rule it is the instant the rule derives, the same as before, and under the column rule it is what the producer writes. A consumer reads a replaced bar as it reads any bar (`ready_delay` above): with the same instant the row shows the new value, with a later instant the bar is missing in that row. Two snapshots that differ in a bar are two histories of that row, and the snapshot a run recorded is what reproduces it (4.1) [maintainer decision 2026-11-17, #494].
 
 ### 5.6 `trades` (trade ticks) — removed [2026-11-25, #752]
 
 > **Kinds outside equities** [#725 Decisions 252, 253]: `trades` (5.6), `quotes` (5.7), `book_deltas` and `book_snapshots` (5.8), `market_statistics` (5.9), `calendar_segments` (5.4), `trading_status_events` (5.10), `rates` (5.16), `roll_calendar` (5.22), `option_chain_snapshots` (5.23), `funding_rates` and `reference_prices` (5.24) left the standard on 2026-11-25, with their profiles (chapter 7) and their checks (V030, V031, V032, T008 and the `sequence_consecutive_within` declaration, retired, their numbers not reused, 8.3); `instrument_xref` (5.3) followed on 2026-11-26. Equities come first; such kinds may come later. A kind that comes later enters with a schema file whose `status` is `experimental`: outside the 1.x compatibility promise (10.2), it may change in the next MINOR, and the checker warns of a package holding it with TDS-M015. No schema is `experimental` now; the datasets this text keeps are `stable`.
 
-> **User-data kinds** [#725 Decisions 250, 254]: `events` and `series_observations` (5.21) and `dictionary/items` (4.4) left the standard on 2026-11-26, with the checks of the user-data kinds (T007, R007, R009, V041, V050, retired, 8.3) and the profiles `tds:equity-daily-research`, `tds:pit-fundamentals`, `tds:bitemporal` and `tds:alt-events` (chapter 7). `fundamentals_events` (5.17), `fundamentals_state` (5.18), `universe_membership` and `eligibility_daily` (5.20), `share_counts` (5.14), and `feature_panels` and `label_panels` (5.25) with `tds:panels` follow, with the engine's readers of them, and `classifications` (5.19) with the tick step [#752]; until then 5.17's `item` still names `dictionary/items`. A user's values outside trading go in the value tables.
+> **User-data kinds** [#725 Decisions 250, 254]: `events` and `series_observations` (5.21) and `dictionary/items` (4.4) left the standard on 2026-11-26, with the checks of the user-data kinds (T007, R007, R009, V041, V050, retired, 8.3) and the profiles `tds:equity-daily-research`, `tds:pit-fundamentals`, `tds:bitemporal` and `tds:alt-events` (chapter 7). `share_counts` (5.14), `fundamentals_events` (5.17), `fundamentals_state` (5.18), `universe_membership` and `eligibility_daily` (5.20), and `feature_panels` and `label_panels` (5.25) left on 2026-11-26 with `tds:panels` (chapter 7), the `is_label` column of `dictionary/columns` (4.4) and the engine's readers of them [#752]; `classifications` (5.19) follows with the tick step. A user's values outside trading go in the value tables.
 
 ### 5.7 `quotes` (L1 quotes / BBO) — removed [2026-11-25, #752]
 
@@ -645,7 +635,7 @@ Key `event_id`. Sort (`instrument_id`, `ex_date`, `event_id`). No partition (`ma
 |---|---|---|---|
 | event_id | id | no | Stable event id. A revision is a new id + `revision_of` |
 | instrument_id | id | no | Affected instrument (old shares) |
-| kind | code (closed) | no | `split`, `reverse_split`, `stock_dividend`, `bonus_issue` (bonus issue), `capital_reduction` (capital reduction, consolidation), `cash_dividend`, `special_dividend`, `return_of_capital`, `rights_issue`, `spinoff`, `stock_merger`, `cash_merger`, `mixed_merger`, `exchange_offer`, `symbol_change`, `name_change`, `par_change`, `other` |
+| kind | code (closed) | no | `split`, `reverse_split`, `stock_dividend`, `bonus_issue` (bonus issue), `capital_reduction` (capital reduction, consolidation), `cash_dividend`, `special_dividend`, `return_of_capital`, `rights_issue`, `spinoff`, `stock_merger`, `cash_merger`, `mixed_merger`, `exchange_offer`, `name_change`, `par_change`, `other` |
 | ex_date | date | no | Ex-rights or ex-dividend session (effective session). Must be a session (A005) |
 | ts_effective | ts_us | no | Effective instant = that session's `ts_open` (default) |
 | record_date | date | yes | Record date |
@@ -720,9 +710,9 @@ Checks: A011 (W, v1.2: there is an ex-date distribution after `last_trading_date
 
 - **An exit whose consideration is not known** [2026-11-24, #705 Decisions 8; #737]. When a producer knows that an instrument left, and when, but not what its holders received, its row holds `exit_value_status = unobserved`, with `ret_observed` and `ret_policy` null; `ret_lo`, `ret_hi` and `policy_id` may be null too, and the standard names no rule with numbers for them. `ref_date` = `last_trading_date`; `ref_price` = the raw close of the instrument's last bar that has one, on or before that date; `exit_date`, when only the last trading date is known, the first session after it in the instrument's calendar; `delist_type` `unknown` when the producer does not know it. A row whose `exit_value_status` is `observed` or `estimated` holds `ret_lo`, `ret_hi` and `policy_id` (V040). What an engine assumes for a null range is its own; engine spec 4.5 (F-13) and 5.6.13 say this engine's.
 
-### 5.14 `share_counts` (share counts, PIT)
+### 5.14 `share_counts` (share counts, PIT) — removed [2026-11-26, #752]
 
-Key (`instrument_id`, `count_kind`, `as_of_date`, `ts_available`). Sort same. Columns `instrument_id` id, `count_kind` code (`listed` (listed shares), `outstanding` (issued and outstanding), `float`, `treasury`), `as_of_date` date (the date the count is correct for), `shares` f64, `ts_available` ts_us, `source` string, `evidence_id` string. Korean listed shares (daily from the exchange) use `as_of_date = session, ts_available = session close`; US SEC dei share counts use `as_of_date = cover page date, ts_available = filing instant`.
+See 5.6.
 
 ### 5.15 `fx_rates` (exchange rates)
 
@@ -744,70 +734,13 @@ The engine takes the opposite direction as `1/rate`. When FX is used as a tradab
 
 See 5.6.
 
-### 5.17 `fundamentals_events` (fundamental facts, raw PIT events)
+### 5.17 `fundamentals_events` (fundamental facts, raw PIT events) — removed [2026-11-26, #752]
 
-Partition `market=`. Key `fact_id`. Sort (`instrument_id`, `item`, `period_end`, `ts_available`, `fact_id`).
+See 5.6.
 
-| Column | Type | Null | Meaning |
-|---|---|---|---|
-| fact_id | id | no | Stable fact id |
-| instrument_id | id | no | If fundamentals are company-level, the representative instrument (preferred shares etc. grouped via `issuer_id`) |
-| issuer_id | id | yes | |
-| item | code | no | Item from `dictionary/items` |
-| period_start | date | yes | Period start of flow items |
-| period_end | date | no | Period end (for balances, that date) |
-| period_kind | code | no | `Q`, `H`, `9M`, `A`, `TTM`, `POINT` (balance) — what each means, below |
-| fiscal_year | i16 | yes | |
-| fiscal_period | code | yes | `Q1`..`Q4`, `H1`, `FY` |
-| statement_basis | code | no | `consolidated` / `separate` / `unspecified` |
-| accounting_standard | code | yes | `K-IFRS`, `K-GAAP`, `US-GAAP`, `IFRS` … |
-| value | f64 | no | |
-| unit | code | no | 3.4 |
-| currency | code | yes | |
-| scale | i8 | no | |
-| known_on | date | yes | Publication date (when the source gives only a date) |
-| ts_available | ts_us | no | Publication instant (K3; derived by rule if only `known_on` exists) |
-| ts_recorded | ts_us | yes | Instant the producer first recorded it (system time) |
-| version | i32 | yes | Revision number for the same (instrument, item, period, basis, source) |
-| supersedes_fact_id | id | yes | Fact being revised |
-| source | code | no | Source |
-| source_rank | i16 | yes | Producer priority |
-| doc_id | string | yes | Original document id (DART receipt number, SEC accession) |
-| value_how | code | yes | `reported`, `derived` (subtraction or sum), `vendor`, `preliminary` (preliminary results; added in v1.1 — an open enum, so MINOR) |
-| strict_eligible | bool | no | Strict eligibility (transitive lineage) |
-| vendor_input | bool | no | Vendor value in the lineage |
-| pit_quality | code | no | `native` (original availability time) / `backfilled` (collected later, time estimated) |
+### 5.18 `fundamentals_state` (resolved fundamental state intervals) — removed [2026-11-26, #752]
 
-- T007 (a fact available before `period_end`) is retired, with this kind's leaving (8.3) [2026-11-25, #752].
-- `period_kind` [2026-11-24, #705 A5]: `POINT` is an instant, a balance on `period_end`; the others are durations ending on `period_end`. `Q` is a quarter, about three months, not cumulative; `H` a half, about six months, cumulative from the fiscal year's start when it is the first half (`fiscal_period = H1`) and not when it is the second; `9M` nine months and `A` the fiscal year, both cumulative from its start; `TTM` the twelve months to `period_end`, rolling, not cumulative. These are the lengths the names give; a period of another length (a fiscal-year change, a 52/53-week year) shows its own through `period_start`. No other column restates them.
-- **TDS core items** (`std_item`, optional mapping): `revenue`, `gross_profit`, `operating_income`, `pretax_income`, `net_income`, `net_income_parent`, `eps_basic`, `eps_diluted`, `dps`, `ocf`, `capex`, `fcf`, `da`, `interest_expense`, `total_assets`, `current_assets`, `cash`, `total_liabilities`, `current_liabilities`, `total_debt`, `equity`, `equity_parent`, `shares_outstanding`, `shares_weighted_basic`, `shares_weighted_diluted`, `inventory`, `receivables`, `payables`, `dividends_paid`, `buyback`. **This list is a provisional mapping and does not guarantee interoperability**: the defining sentences for consolidated/separate scope, parent share, flow period, currency, scale and sign (e.g. capex) are set in an appendix of the next version. Until then, do not assume that the same `std_item` from different producers means the same thing [v1.1, RV-I06]. Producer items are free and are mapped only through `std_item`.
-
-### 5.18 `fundamentals_state` (resolved fundamental state intervals) — the fundamentals the engine reads
-
-Partition `edition=/market=`. Key (`instrument_id`, `item`, `ts_known_from`). Sort same.
-
-| Column | Type | Null | Meaning |
-|---|---|---|---|
-| instrument_id | id | no | |
-| item | code | no | |
-| ts_known_from | ts_us | no | Instant this state became usable |
-| ts_known_to | ts_us | yes | Instant it changed to the next state (null = still current) |
-| period_end | date | no | End of the selected reporting period |
-| period_kind | code | no | 5.17 |
-| statement_basis | code | no | |
-| value | f64 | no | |
-| unit, currency, scale | | | 5.17 |
-| strict_eligible | bool | no | |
-| vendor_input | bool | no | |
-| selected_fact_id | id | yes | Chosen fact |
-| lineage_id | id | yes | Lineage (for TTM, the list of component facts; expanded in an `x_` extension table or `fundamentals_events`) |
-| resolution_policy | id | no | Resolution rule version |
-
-- Intervals are half-open and do not overlap per `(edition, instrument_id, item)`; `ts_known_to > ts_known_from`. T003 and T004 no longer read this kind (8.3) [2026-11-26, #752].
-- The manifest `availability` is `{"column": "ts_known_from"}` (6.2) [2026-11-05].
-- The strict edition contains only states with `strict_eligible = true`. A gap is the absence of an interval (engine NaN). The engine does not fill from another edition.
-- Value at decision time t: the one interval with `ts_known_from <= t < ts_known_to`. Filtering stale values (`max_age_days`) is an engine setting (specification 5.3.5).
-- Small users: MAY ship only this table without `fundamentals_events` (event → state conversion is the producer's job). Conversely, for users with only events, a reference converter `tds derive fundamentals-state --policy latest-available` (value of the latest period with the latest publication; revisions applied) is provided (8.4).
+See 5.6.
 
 ### 5.19 `classifications` (classifications, two time axes)
 
@@ -819,11 +752,9 @@ Columns: `instrument_id` id, `scheme` code (e.g. `gics`, `krx_sector`, `sic`, `i
 - `dictionary/columns.alias_of` can map a consumer name (e.g. `sector`) to `"<scheme>@<level>"`.
 - The `valid_from_utc/valid_to_utc/known_at_utc` of specification 4.13 are replaced by these two axes (chapter 12 D12).
 
-### 5.20 Universe: `universe_membership`, `eligibility_daily`
+### 5.20 Universe: `universe_membership`, `eligibility_daily` — removed [2026-11-26, #752]
 
-`universe_membership` (periods such as index membership): key (`universe_id`, `instrument_id`, `effective_from`, `ts_known_from`), lookup is the rectangle (6.3). Columns `universe_id` id (e.g. `index:KOSPI200`, `index:SP500`), `instrument_id` id, `effective_from` date, `effective_to` date null, `ts_known_from` ts_us, `ts_known_to` ts_us null, `weight` f64 null, `source` string. Index changes are announced before they take effect, so both axes are needed.
-
-`eligibility_daily` (the producer's investable-universe judgement): partition `market=/year=`, key (`rule_id`, `instrument_id`, `session_date`), sort (`session_date`, `instrument_id`, `rule_id`) — the session date first, as daily bars (5.5). Columns `rule_id` id (e.g. `investable-v1`), `instrument_id` id, `session_date` date, `is_eligible` bool, `reason` code null (open: `not_common`, `administrative`, `unit`, `preferred`, `fund`, `no_price`, `no_mcap` …), `ts_available` ts_us (v1.1 **default `session_close`** — the judgement usually uses that day's information, so a conservative default; `session_open` only when the producer declares that the judgement uses only pre-open information) [RV-C09]. Need not be dense. **Read rule** (v1.1): at decision session s only that session's one row is looked at; if there is no row or `ts_available > decision time`, it is **not eligible (false)** — a true from a previous session is not carried forward (`params.missing_means = false` declares this meaning, and v1.1 has no other value). Producers that need carried-forward state resolve the carry in advance and export dense rows.
+See 5.6.
 
 ### 5.21 Events and alternative data: `events`, `series_observations` — removed [2026-11-26, #752]
 
@@ -841,11 +772,9 @@ See 5.6.
 
 See 5.6.
 
-### 5.25 `feature_panels`, `label_panels` (wide tables computed by the producer)
+### 5.25 `feature_panels`, `label_panels` (wide tables computed by the producer) — removed [2026-11-26, #752]
 
-`feature_panels` — partition `name=/edition=/year=`. Key (`instrument_id`, `period`). Columns `instrument_id` id, `period` date (first day of the period, e.g. day 1 for a month), `as_of_date` date (economic reference date), `ts_available` ts_us (required per row; e.g. a monthly panel uses the open of the session after `as_of_date`), and the feature columns (each with unit, meaning and `is_label = false` in `dictionary/columns`). Lineage marker columns (`x_ex_fin_strict_row` etc.) are extension columns.
-
-`label_panels` — the same shape + `entry_date` date, `entry_price_basis` code, `exit_date` date, `horizon` string, `return_definition` code (e.g. `econ_reinvest_ex_close`, `adj_ratio`), `terminal_policy_id` id, and optional time columns `ts_label_start` ts_us, `ts_label_end` ts_us (end of the outcome), `ts_label_available` ts_us (the first instant that label value could be computed — including late-published delisting recoveries and dividend amounts) [v1.1, RV-C04]. Without the time columns, the consumer builds the first two from `entry/exit_date` and `entry_price_basis` and assumes `ts_label_available = ts_label_end` (assumption recorded). Every value column has `is_label = true`. **The engine does not read them as decision inputs** (specification R-16). A `label_panels` column name does not also name a `feature_panels` column (its check V050 is retired, 8.3).
+See 5.6.
 
 ### 5.26 Benchmarks
 
@@ -890,7 +819,7 @@ Key (`rule_id`, `rule_kind`, `venue_group`, `valid_from`, `price_from`). Sort sa
 | `ts_recorded` | Instant the producer system first recorded it (system time) | Producer |
 | `known_on` | Publication date (the original value when only a date exists) | Source data |
 
-- For a state or classification row (`fundamentals_state`, `classifications`) with `pit_quality = native`, `ts_known_from` is both the start of the period the row could be used in and the instant the producer recorded it: the producer writes the row when it knows it, and those datasets carry no `ts_recorded` (6.4). For a `backfilled` row (K6, 2.2), `ts_known_from` is only the start of the period: the instant the producer recorded the row is not kept, and `pit_quality` (on the row, or on the dataset where it has no row column) says so [2026-11-12].
+- For a classification row (`classifications`) with `pit_quality = native`, `ts_known_from` is both the start of the period the row could be used in and the instant the producer recorded it: the producer writes the row when it knows it, and that dataset carries no `ts_recorded` (6.4). For a `backfilled` row (K6, 2.2), `ts_known_from` is only the start of the period: the instant the producer recorded the row is not kept, and `pit_quality` (on the row, or on the dataset where it has no row column) says so [2026-11-12].
 
 ### 6.2 Availability-time derivation rules (manifest `availability.rule`)
 
@@ -910,22 +839,22 @@ Key (`rule_id`, `rule_kind`, `venue_group`, `valid_from`, `price_from`). Sort sa
 - Different availability times per column (e.g. pre-open information and close results in `tradability_daily`) get a rule per group with `params.availability_by_column` (required for `tradability_daily`, 5.10).
 - Rule names are **mandatory interpretation rules**: a consumer that meets an unknown rule name MUST reject it, not ignore it (checker M014, 10.3) [v1.1].
 - `corporate_actions` has two availability times: effect `ts_effective`, terms `ts_terms_available` (if null, `ts_announced`; if both null, `ts_effective`). The manifest `availability` is written as `{"effect": "ts_effective", "terms": "ts_terms_available"}` (verified by T002) [v1.1].
-- **Column forms** [2026-11-05]: a dataset that carries its availability instant in a column of its own writes the manifest `availability` as `{"column": "<name>"}`; `{"column": "ts_available"}` is rule `column`. The interval and two-axis datasets looked up by `ts_known_from` (6.3 rules 2 and 3) write `{"column": "ts_known_from"}`: `instrument_symbols` (5.2), `fundamentals_state` (5.18), `classifications` (5.19) and `universe_membership` (5.20). A null in the named column has the fallback its dataset's section gives (`instrument_symbols`: the session open of `valid_from`).
+- **Column forms** [2026-11-05]: a dataset that carries its availability instant in a column of its own writes the manifest `availability` as `{"column": "<name>"}`; `{"column": "ts_available"}` is rule `column`. The two-axis datasets looked up by `ts_known_from` (6.3 rule 3) write `{"column": "ts_known_from"}`: `instrument_symbols` (5.2) and `classifications` (5.19). A null in the named column has the fallback its dataset's section gives (`instrument_symbols`: the session open of `valid_from`).
 - `delistings` (5.13) has two availability times: exit `ts_exit_known` (if null, the open of the exit session) and value `ts_value_available` (if null, `ts_exit_known`; if both null, the open of the exit session). The manifest `availability` is written as `{"exit": "ts_exit_known", "value": "ts_value_available"}`, the shape of the `corporate_actions` form [2026-11-05].
 - An `availability` that is neither a rule (bare or `{"rule": …}`) nor one of these forms (`{"column": …}`, `{"effect": …, "terms": …}`, `{"exit": …, "value": …}`, each value a column name) is TDS-M014, never accepted silently. A column a form names must be in the dataset's files (T002; at the `schema` level, 8.2) [2026-11-05].
 
 ### 6.3 Lookup semantics (what the engine and the reference implementation must follow)
 
-1. **Point observations** (bars, FX, panels): at decision t only rows with `ts_available <= t`. The "latest" for the same key target is the maximum `ts_event` (or `period`).
-2. **State intervals** (`fundamentals_state`): the one row with `ts_known_from <= t < ts_known_to` (one axis; the producer keeps them from overlapping, 5.18).
-3. **Two time axes — rectangle lookup** (`classifications`, `universe_membership`, `instrument_symbols`): per discriminating key, rows with `ts_known_from <= t < ts_known_to` **and** an effective period that contains the query date. The two conditions are filtered **together**: picking the single row with the maximum known time first lets a pre-announced future-effective row hide the current effective row. Pinned examples (same as the specification 5.3.6 table, checker T012 conformance): ① pre-announcement: A effective [2019-01-01, ∞), known [2018-12-01, 2020-03-06); A′ (same code, effective [2019-01-01, 2020-03-20)), known [2020-03-06, ∞); B effective [2020-03-20, ∞), known [2020-03-06, ∞) → the answer for (t = 2020-03-10, q = 2020-03-10) is A′; ② late discovery: effective date passed but before known → the old row; ③ correction: the new row instead of the old row whose known interval is closed; ④ level: one per level; ⑤ edition: one per strict/compare filter.
+1. **Point observations** (bars, FX): at decision t only rows with `ts_available <= t`. The "latest" for the same key target is the maximum `ts_event` (or `period`).
+2. **State intervals**: removed with `fundamentals_state` (5.18) [2026-11-26, #752].
+3. **Two time axes — rectangle lookup** (`classifications`, `instrument_symbols`): per discriminating key, rows with `ts_known_from <= t < ts_known_to` **and** an effective period that contains the query date. The two conditions are filtered **together**: picking the single row with the maximum known time first lets a pre-announced future-effective row hide the current effective row. Pinned examples (same as the specification 5.3.6 table, checker T012 conformance): ① pre-announcement: A effective [2019-01-01, ∞), known [2018-12-01, 2020-03-06); A′ (same code, effective [2019-01-01, 2020-03-20)), known [2020-03-06, ∞); B effective [2020-03-20, ∞), known [2020-03-06, ∞) → the answer for (t = 2020-03-10, q = 2020-03-10) is A′; ② late discovery: effective date passed but before known → the old row; ③ correction: the new row instead of the old row whose known interval is closed; ④ level: one per level; ⑤ edition: one per strict/compare filter.
 4. **Corporate actions whose effect and terms publication differ**: the 5.11 resolution procedure. In decisions they are included in adjustment when both the effect and the terms publication are `<= t` (specification 5.3.3, 5.3.4).
 5. **Session close basis**: the value of market-axis row s uses only information available up to its freeze time `ready_m(s) = ts_close(s) + Δ_m` (specification 5.1.2, which sets `Δ_m` from the bars' availability rule). This is an engine rule; the data format provides only `ts_available`.
 
 ### 6.4 Two history modes
 
 - **Economic history** (`history_mode = economic`, default): old disclosures collected later are used at their original availability time. Only `ts_available` is looked at.
-- **System history** (`history_mode = system`): replays "what the producer's system actually knew then". At decision t, a row of `fundamentals_events` is visible only when `ts_recorded <= t`, and a row of `classifications` or `fundamentals_state`, which have no `ts_recorded`, only when `ts_known_from <= t` (the only time axis those rows have, 6.1). A `backfilled` row is therefore visible in the replay from its `ts_known_from`, earlier than the producer knew it, and `pit_quality = backfilled` is the reader's warning of that [2026-11-12]. `events` and the `tds:bitemporal` profile, which made `ts_recorded` required, left the standard (5.6) [2026-11-26, #752].
+- **System history** (`history_mode = system`): replays "what the producer's system actually knew then". At decision t, a row of `classifications`, which has no `ts_recorded`, is visible only when `ts_known_from <= t` (the only time axis its rows have, 6.1). A `backfilled` row is therefore visible in the replay from its `ts_known_from`, earlier than the producer knew it, and `pit_quality = backfilled` is the reader's warning of that [2026-11-12]. `events` and the `tds:bitemporal` profile, which made `ts_recorded` required, left the standard (5.6) [2026-11-26, #752].
 
 ### 6.5 `pit_quality`
 
@@ -941,10 +870,9 @@ A package lists the profiles it follows, with versions, in `profiles` (`tds:<nam
 |---|---|---|---|
 | `tds:minimal-daily@1.0` | `instruments`, `bars(freq=1d)`, `calendar_sessions` | bars: only `close` required, of an `equity` or `etf` instrument too [2026-11-22, #705: what is required is what the profile's features read]. Any `price_basis` (declaration required). `obs_status` may be null on a row with values (its state not stated, 5.5) [2026-11-23, #705]. `calendar_sessions` as every daily profile; a writer with no exchange calendar builds it from bar dates with `tds import csv` (9.5, 5.4) [2026-11-23, #705] | **Analysis path only** (NexusBT v1: `run_pipeline`, `screen(factor)`, `evaluate(target="fwd_return_adj")`). With adjusted prices, dividend, quantity and terminal-value accounting are undefined, so economic backtests and economic labels are not supported (the v1 promise of a "close-fill backtest" was removed) [v1.1, RV-I03] |
 | `tds:equity-daily-core@1.0` | above + `calendar_sessions`, `corporate_actions` (empty table allowed), `delistings` (empty table allowed) | bars `price_basis = raw`, `density = dense`, `obs_status` on every row [2026-11-23, #705], `close`, and of a bars dataset whose `instrument_id` names an `equity` or `etf` instrument also `open`, `high`, `low` and `volume`, while `index` and `rate` carry `close` only [2026-11-22, #705]; corporate_actions factor columns | All of `backtest` and `screen` in specification v1 (OHLC fill rules, splits, dividends, delistings) |
-| `tds:panels@1.0` | `feature_panels`, `label_panels`, `dictionary/columns` | Row-level `ts_available` | `Panel.*`, `evaluate(target=Label.*)` |
 | `tds:fx` | `fx_rates` or `instruments(fx_spot)` + bars | | |
 
-`tds:l1-ticks`, `tds:l2-book`, `tds:l3-book`, `tds:futures`, `tds:options` and `tds:crypto` left with their kinds on 2026-11-25 (5.6); `tds:equity-daily-research`, `tds:pit-fundamentals`, `tds:bitemporal`, `tds:alt-events` and `tds:intraday-bars` on 2026-11-26 (5.6, engine specification 4.3: "TDS holds no intraday, tick, futures, options or crypto profile"; minute bars stay shaped by `bars`, 5.5). A package that declares one gets TDS-M007, as for any profile this table does not have.
+`tds:l1-ticks`, `tds:l2-book`, `tds:l3-book`, `tds:futures`, `tds:options` and `tds:crypto` left with their kinds on 2026-11-25 (5.6); `tds:equity-daily-research`, `tds:pit-fundamentals`, `tds:bitemporal`, `tds:alt-events` and `tds:intraday-bars` on 2026-11-26 (5.6, engine specification 4.3: "TDS holds no intraday, tick, futures, options or crypto profile"; minute bars stay shaped by `bars`, 5.5), and `tds:panels` with its kinds the same day (5.6). A package that declares one gets TDS-M007, as for any profile this table does not have.
 
 **The smallest example** (`tds:minimal-daily`, two hand-made CSVs → `tds import csv`):
 
@@ -968,7 +896,6 @@ tds check PATH [--profile P ...] [--level manifest|schema|full] [--datasets a,b]
 tds hash PATH [--write] [--tmp-dir DIR]  # compute file, dataset and package hashes (physical, value, semantic) (--write updates tds.json)
 tds manifest build PATH            # scan a folder and draft tds.json (rules and descriptions filled in by a person)
 tds describe PATH [DATASET]        # summary of coverage, columns, profiles
-tds derive fundamentals-state ...  # 5.18 reference conversion
 tds import {csv|zipline|lean|nautilus|dbn|qlib|massive} ...   # chapter 9
 tds export {zipline-bundle|nautilus-catalog|wide-parquet} ... # 9.8
 ```
@@ -984,7 +911,6 @@ tds export {zipline-bundle|nautilus-catalog|wide-parquet} ... # 9.8
 | `tds check`, `tds hash`, `tds describe` | Implemented (engine M0–M1) |
 | `tds import csv`, `tds manifest build` | Implemented (engine M1) |
 | `tds export zipline-bundle` | Implemented on the test side (for parity, `tests/parity`); public command planned |
-| `tds derive fundamentals-state` | Planned (reference conversion, 5.18) |
 | `tds import zipline|lean|nautilus|dbn|qlib|massive` | Planned (the chapter 9 mapping tables are design notes; once implemented, each adapter writes a conversion report) |
 | `tds export nautilus-catalog|wide-parquet` | Planned (E4) |
 
@@ -1205,7 +1131,7 @@ datasets:
 
 ### 9.6 Qlib → TDS
 
-`instruments/all.txt` → `instruments` (listed_on/last_session), `calendars/day.txt` → `calendar_sessions` (open and close [supply]), `features/<s>/<f>.day.bin` (first value = calendar position, float32) → `bars` (not price_basis = total_adjusted but **raw prices restored with the Qlib factor**: `raw = adj / factor`), `factor` changes → 5.12 event back-solving. PIT `*_q.data` (date, period, value, _next) → `fundamentals_events` (`known_on = date`, period integer → period_end) [loss: original precision is float32].
+`instruments/all.txt` → `instruments` (listed_on/last_session), `calendars/day.txt` → `calendar_sessions` (open and close [supply]), `features/<s>/<f>.day.bin` (first value = calendar position, float32) → `bars` (not price_basis = total_adjusted but **raw prices restored with the Qlib factor**: `raw = adj / factor`), `factor` changes → 5.12 event back-solving. PIT `*_q.data` (date, period, value, _next) has no TDS kind since `fundamentals_events` left (5.6).
 
 ### 9.7 Massive (formerly Polygon) flat files → TDS
 
@@ -1228,7 +1154,7 @@ datasets:
 | Subject | Format | Example |
 |---|---|---|
 | Standard | `tds_version` = `MAJOR.MINOR` | `1.0` |
-| Dataset schema | per dataset kind `schema_version` = `MAJOR.MINOR` | `bars 1.0`, `fundamentals_state 1.1` |
+| Dataset schema | per dataset kind `schema_version` = `MAJOR.MINOR` | `bars 1.0`, `instruments 1.1` |
 | Package (data) | `version` / `snapshot_id` (producer's choice; a sortable string recommended) | `20261027-143144` |
 | Draft text (while a draft, 10.5) | `tds_draft` = `YYYY-MM-DD` | `2026-11-19` |
 
@@ -1530,3 +1456,4 @@ Reference numbers are `R4F-NN`, specification v3.4's numbers for the fourth revi
 - 2026-11-26: **v1.4**, in place. The relation to current work, K9, 2's scope, 4.1, 4.2's example, 4.4, 5.5, 5.6, 5.21, 6.1, 6.3, 6.4 and 7: `events`, `series_observations` and `dictionary/items` leave with their schema files, and the profiles `tds:equity-daily-research`, `tds:pit-fundamentals`, `tds:bitemporal` and `tds:alt-events` with them (#725 Decision 250; engine specification 4.3; #752's R2a-2). A package declaring one gets TDS-M007. Moved: the conformance case TDS-M008's fail package (now `tds:minimal-daily` without `calendar_sessions`); no other package's hash. `tds_version` stays `"1.0"`; `tds_draft` stays 2026-11-19 until 12e (10.5).
 - 2026-11-26: **v1.4**, in place. The relation to current work, K9, 5.5's `freq<1d` and 7: the profile `tds:intraday-bars@1.0` leaves (engine specification 4.3; #752); a package declaring it gets TDS-M007. Minute bars and the meaning of `freq<1d` (#80) do not change. No conformance package or hash moves. `tds_version` stays `"1.0"`; `tds_draft` stays 2026-11-19 until 12e (10.5).
 - 2026-11-26: **v1.4**, in place. K1, 4.1's layout, 4.3, 5.3, 5.6, 8.2's T006 and 8.3's TDS-T004, and the mappings of chapters 1 and 9: `instrument_xref` leaves with its schema file (#725 Decision 252; #752's R3a); a dataset of that kind is now a kind with no schema file, so its columns, key and sort are not checked, T004 no longer reads its validity intervals and T006 is `unchecked` on it like any kind without an availability rule. No conformance package or hash moves. `tds_version` stays `"1.0"`; `tds_draft` stays 2026-11-19 until 12e (10.5).
+- 2026-11-26: **v1.4**, in place. The opening note, K5, K6, 2's lists, 4.1's layout, 4.2's example, 4.3, 4.4, 5.5, 5.6, 5.11, 5.14, 5.17, 5.18, 5.20, 5.25, 6.1, 6.2, 6.3, 6.4, 7, 8.1, 9.6 and 10.1: `share_counts`, `fundamentals_events`, `fundamentals_state`, `universe_membership`, `eligibility_daily`, `feature_panels` and `label_panels` leave with their schema files, `tds:panels@1.0` with them, `dictionary/columns` loses `is_label` and `corporate_actions.kind` loses `symbol_change` (#725 Decisions 250 to 254; #752's R3b-3); a package declaring `tds:panels` gets TDS-M007, a dataset of a removed kind is a kind with no schema file, and a `symbol_change` row is TDS-S006. No conformance package or hash vector moves. `tds_version` stays `"1.0"`; `tds_draft` stays 2026-11-19 until 12e (10.5).

@@ -95,9 +95,6 @@ _CORE = (
 _TABLE = (
     Profile("tds:minimal-daily@1.0", "stable", _needs(*_MINIMAL)),
     Profile("tds:equity-daily-core@1.0", "stable", _needs(*_CORE)),
-    Profile(
-        "tds:panels@1.0", "stable", _needs("feature_panels", "label_panels", "dictionary/columns")
-    ),
     Profile("tds:fx@1.0", "stable", _needs("fx_rates|instruments+bars")),
 )
 
@@ -112,7 +109,6 @@ _TRADED = {"equity-daily-core": {_CORE[1]: _OHLV}}
 _COLUMNS = {
     "minimal-daily": {_MINIMAL[1]: "close"},
     "equity-daily-core": {_CORE[1]: "close obs_status"},
-    "panels": {"feature_panels": "ts_available", "label_panels": "ts_available"},
 }
 #: Chapter 7's "`obs_status` on every row" (5.5's null cell, #705 Decisions 129): core;
 #: `minimal-daily` leaves it null on a row with values, its state not stated.

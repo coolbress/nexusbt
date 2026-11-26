@@ -3,7 +3,7 @@ corporate action that both injected and random events take.
 
 An `EventSpec` is a dict of TDS column names plus a `"dataset"` key. It injects
 `corporate_actions` rows, `delistings` rows and full-day KR halts as `tradability_daily` rows
-(#300); `fundamentals_*` are not generated until M2.
+(#300); `fundamentals_*` left the standard (#752) and are refused as any other name.
 """
 
 from __future__ import annotations
@@ -20,7 +20,6 @@ from nexusbt.contracts import ID_COLUMN as ID
 
 SHARE_KINDS = ("split", "reverse_split", "bonus_issue")
 KINDS = (*SHARE_KINDS, "cash_dividend")
-M2 = ("fundamentals_events", "fundamentals_state")
 NEEDS = {"cash_dividend": ("cash_per_share",)}  # a share event needs a ratio, checked below
 KEYS = ("dataset", ID, "kind", "ex_date")
 #: Columns the generator derives from the terms and the version chain; given ones could
@@ -79,8 +78,6 @@ def check(
     """Refuse an `EventSpec` the generator cannot inject, before anything is written."""
     for spec in events:
         name, kind = spec.get("dataset"), spec.get("kind")
-        if name in M2:
-            raise NotImplementedError(f"EventSpec dataset {name!r}: not generated until M2")
         if name == "delistings":
             _exit(spec)
         elif name == "tradability_daily":

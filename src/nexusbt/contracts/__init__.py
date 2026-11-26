@@ -56,9 +56,8 @@ class Unit(StrEnum):
 
 #: Dataset → the columns the engine must read from it (spec 4.6), names only; their types are TDS
 #: chapter 5's, checked when a snapshot is opened. "every column" rows hold the whole TDS table;
-#: the panels hold only their fixed columns, as the producer names the feature and label ones.
-#: A column a 4.6 row marks "+ optional" (the `ts_label_*` of `label_panels`) is not here.
-#: Each list is in the spec's order, space-separated, with `ID_COLUMN` for the key's name.
+#: a column a 4.6 row marks "+ optional" is not here. Each list is in the spec's order,
+#: space-separated, with `ID_COLUMN` for the key's name.
 ENGINE_COLUMNS: Mapping[str, frozenset[str]] = MappingProxyType(
     {
         dataset: frozenset(names.split())
@@ -85,24 +84,11 @@ ENGINE_COLUMNS: Mapping[str, frozenset[str]] = MappingProxyType(
             " delist_type crsp_dlstcd_equiv ref_date ref_price exit_value_status ret_observed"
             " ret_observed_includes_distributions ts_value_available ret_policy ret_lo ret_hi"
             " policy_id pay_date handled_by_event_id reason_code evidence_id",
-            "share_counts": f"{ID_COLUMN} count_kind as_of_date shares ts_available",
             "market_rules": "rule_id market rule_kind venue_group valid_from valid_to price_from"
             " price_to tick_size limit_ratio source verified",
             "fx_rates": "base quote rate_kind obs_date ts_event ts_available rate source",
-            # every column, TDS 5.18
-            "fundamentals_state": f"{ID_COLUMN} item ts_known_from ts_known_to period_end"
-            " period_kind statement_basis value unit currency scale strict_eligible vendor_input"
-            " selected_fact_id lineage_id resolution_policy",
-            "fundamentals_events": f"fact_id {ID_COLUMN} item period_end statement_basis version"
-            " value known_on ts_available source source_rank doc_id value_how vendor_input",
             "classifications": f"{ID_COLUMN} scheme level code label effective_from effective_to"
             " ts_known_from ts_known_to edition pit_quality",
-            "eligibility_daily": f"rule_id {ID_COLUMN} session_date is_eligible reason",
-            "universe_membership": f"universe_id {ID_COLUMN} effective_from effective_to"
-            " ts_known_from ts_known_to",
-            "feature_panels": f"{ID_COLUMN} period as_of_date ts_available",
-            "label_panels": f"{ID_COLUMN} period entry_date entry_price_basis exit_date horizon"
-            " return_definition terminal_policy_id",
         }.items()
     }
 )
