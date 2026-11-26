@@ -79,4 +79,50 @@ snapshots/2026-11-02_buildK/
 
 ## 3. 거래 밖의 값
 
-거래 밖의 값(재무, 주식 수, 업종 코드, 유니버스, 사건, 거시 계열)은 TDS 종류가 아니라 값 표(엔진 명세서 5.3.5)다. 그 TDS 문구와 예시는 #752의 값 표 단계와 함께 온다.
+거래 밖의 값(재무, 주식 수, 업종 코드, 유니버스, 사건, 거시 계열)은 사용자의 것이고, 값 표 셋에 담긴다(`tds-v1.4.ko.md` 5.28, 엔진 명세서 5.3.5). 파일 하나는 시장 하나, 항목 하나의 행을 담는다. 폴더 이름이 둘을 말하므로(`market=`, `item=`) 행에는 `instrument_id`, `date`, `value`만 있다. 사용자는 `instrument_id`를 `symbol`로 만나고, 항목을 `nx.Item.<name>`으로 읽는다.
+
+### 3-1. `values` — 종목·날짜별
+
+`values/market=KR/item=per/part-00000.parquet`
+
+| instrument_id | date | value |
+|---|---|---|
+| KR:005930 | 2024-03-14 | 12.4 |
+| KR:005930 | 2024-05-16 | 13.1 |
+| KR:000660 | 2024-03-14 | |
+
+- `date`는 값이 발표된 날, 그 시장의 현지 날짜다. 거래일이 아니어도 된다(토요일 날짜의 값은 다음 거래일부터 쓴다).
+- KR:000660의 빈 `value`는 그날부터 그 종목의 `per`를 끝낸다(이월이 멈춘다).
+
+### 3-2. `market_values` — 시장 전체에 하나, 날짜별
+
+`market_values/market=KR/item=base_rate/part-00000.parquet`
+
+| date | value |
+|---|---|
+| 2024-01-11 | 3.50 |
+| 2024-10-11 | 3.25 |
+
+### 3-3. `symbol_values` — 종목별, 날짜 없음
+
+`symbol_values/market=KR/item=sector/part-00000.parquet`
+
+| instrument_id | value |
+|---|---|
+| KR:005930 | 1 |
+| KR:000660 | 1 |
+| KR:123456 | 2 |
+
+- 코드도 숫자다(`nx.Item.sector.eq(1)`). `1`이 무엇인지는 사용자의 것이다.
+
+### 3-4. 항목 선언 (선택)
+
+`tds.json`에서 데이터셋의 `params.items`가 항목의 종류와 이월을 선언할 수 있다:
+
+```json
+"params": {"items": {"shares_out": {"kind": "share_count"},
+                     "dps": {"kind": "per_share", "carry": "none"}}}
+```
+
+- `kind`: `per_share` 또는 `share_count` — 엔진이 뒤의 분할로 값을 다시 맞춘다.
+- `carry`: `to_end`(기본), 세션 수 N, `none`, `next_listing`.

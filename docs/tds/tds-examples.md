@@ -79,4 +79,50 @@ The engine takes only this one folder path: `nx.open("snapshots/2026-11-02_build
 
 ## 3. Values outside trading
 
-Values outside trading (fundamentals, share counts, sector codes, universes, events, macro series) are value tables (engine specification 5.3.5), not TDS kinds; their TDS text and examples come with the value-table step of #752.
+Values outside trading (fundamentals, share counts, sector codes, universes, events, macro series) are the user's, in three value tables (`tds-v1.4.md` 5.28, engine specification 5.3.5). A file holds the rows of one market and one item: its folder names both (`market=`, `item=`), so the rows carry only `instrument_id`, `date` and `value`. The user meets `instrument_id` as `symbol` and reads an item as `nx.Item.<name>`.
+
+### 3-1. `values` — per instrument and date
+
+`values/market=KR/item=per/part-00000.parquet`
+
+| instrument_id | date | value |
+|---|---|---|
+| KR:005930 | 2024-03-14 | 12.4 |
+| KR:005930 | 2024-05-16 | 13.1 |
+| KR:000660 | 2024-03-14 | |
+
+- `date` is the day the value was published, in the market's local date; it need not be a trading day (a value dated on a Saturday is used from the next session).
+- The empty `value` of KR:000660 ends its `per` from that day (the carry stops).
+
+### 3-2. `market_values` — one value for the whole market, by date
+
+`market_values/market=KR/item=base_rate/part-00000.parquet`
+
+| date | value |
+|---|---|
+| 2024-01-11 | 3.50 |
+| 2024-10-11 | 3.25 |
+
+### 3-3. `symbol_values` — per instrument, no date
+
+`symbol_values/market=KR/item=sector/part-00000.parquet`
+
+| instrument_id | value |
+|---|---|
+| KR:005930 | 1 |
+| KR:000660 | 1 |
+| KR:123456 | 2 |
+
+- Codes are numbers too (`nx.Item.sector.eq(1)`); what `1` means is the user's.
+
+### 3-4. Item declarations (optional)
+
+In `tds.json`, the dataset's `params.items` may declare an item's kind and carry:
+
+```json
+"params": {"items": {"shares_out": {"kind": "share_count"},
+                     "dps": {"kind": "per_share", "carry": "none"}}}
+```
+
+- `kind`: `per_share` or `share_count` — the engine rescales the value by later splits.
+- `carry`: `to_end` (default), a number of sessions N, `none`, or `next_listing`.
