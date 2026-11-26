@@ -878,6 +878,10 @@ def _stated(state: str | None, **cells: float | None) -> Any:
         (_stated("no_trade", volume=5.0), ["TDS-V004"]),  # a written volume of no trade is 0
         (_stated("no_trade", close=9.9, volume=0.0), []),  # close: the reference price
         (_stated("no_trade"), []),  # a null volume states nothing (168)
+        # #752: a no_trade row's open, high and low are emptied, its close kept (spec 4.3)
+        (_stated("no_trade", open=9.9, close=9.9, volume=0.0), ["TDS-V004"]),
+        (_stated("no_trade", high=9.9, close=9.9), ["TDS-V004"]),
+        (_stated("no_trade", low=9.9), ["TDS-V004"]),
         (_stated("halted", close=10.0, volume=0.0), ["TDS-V004"]),  # a halt has no price
         (_stated("halted", volume=7.0), ["TDS-V004"]),
         (_stated("halted"), []),

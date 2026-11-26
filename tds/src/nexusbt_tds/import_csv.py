@@ -412,17 +412,15 @@ def _read(
 
 _PLAIN = ("equity", "etf", "fund")
 #: Required `instruments` columns filled when neither the CSV nor `values` gives them (#257).
+#: `lot_size` is not among them: not known, it stays null, never 1 (TDS 5.1, #705 Decisions 12).
 _FILLS = {
-    "lot_size": "TDS 5.1: default 1",
-    "multiplier": "TDS 5.1: equities 1.0; equity, etf, fund only",
-    "is_synthetic": "importer rule, 5.1 states none: equity, etf, fund false, index true",
+    "multiplier": "TDS 5.1: equity, etf, fund 1.0",
+    "is_synthetic": "TDS 5.1, 5.26: equity, etf, fund false, index true",
 }
 
 
 def _fill(column: str, asset_class: str | None) -> float | bool | None:
     """The fill of one row, or None: the column is then left out and stays TDS-S001."""
-    if column == "lot_size":
-        return 1.0
     if column == "multiplier":
         return 1.0 if asset_class in _PLAIN else None
     return {**dict.fromkeys(_PLAIN, False), "index": True}.get(str(asset_class))
