@@ -7,6 +7,23 @@ package version follows the `tds_version` it checks (`1.0.x`), tagged
 ## [Unreleased]
 
 ### Added
+- TDS-M018 and TDS-M019, errors at the `manifest` level (TDS 5.28, 8.3; #752): a value-table
+  item name (`item=`) outside 5.28's rule, and one item in two value tables. TDS-M014 also
+  finds a value table's `params.items` word or shape outside 5.28's table and an
+  `availability` written for a value table. Conformance cases TDS-M018 and TDS-M019 (pass and
+  fail). A package without value tables checks as before
+
+### Changed
+- TDS-V004 also finds a `no_trade` bar with an `open`, `high` or `low` (TDS 5.5, #752): a package
+  holding one passed and now fails at `full`; its `close` (the reference price) stays allowed
+- `tds import csv` no longer fills `instruments.lot_size` with 1 (TDS 5.1, #705 Decisions 12):
+  a CSV and `values` that do not give it leave the column out, and `import_report.json`'s
+  `assumed` no longer lists it; the notes on `multiplier` and `is_synthetic` now cite 5.1, which
+  states them for `etf` and `fund`. `instruments.lot_size` may be null (schema file)
+- The `bars` schema file gains the optional `open_auction_volume` (`f64`, TDS 5.5); a package
+  without it hashes as before
+
+### Added
 - The schema files of the value tables `values`, `market_values` and `symbol_values` (TDS 5.28,
   `stable`; #752's V1): `instrument_id`, `date` and an `f64` `value` under `market=` and `item=`
   partitions. Their columns, keys and types are checked, K001 compares a key with its `market`

@@ -14,6 +14,13 @@ versions follow [Semantic Versioning](https://semver.org/).
 ### Added
 - Initial skeleton
 
+### Changed
+- `@nx.factor(dtype=...)` takes `"float64"` only, the dtype a Factor's values are in; any
+  other value (`"float32"`, `"int64"`, a misspelling) is now refused when the term is built
+  (`ConfigError`, E16), where before it was taken, ignored, and gave the term a graph hash of
+  its own (#638). Code that writes another value gets E16: write `dtype="float64"` or leave
+  `dtype` out; the graph hash of either is as before.
+
 ### Removed
 - `nx.Panel`, `nx.Label` and `nexusbt.pipeline.Fund`, the config tables `[panels]` and
   `[fund]`, and the reading of `dictionary/columns`' `is_label` (#752). A `nexusbt.toml`
@@ -41,6 +48,9 @@ versions follow [Semantic Versioning](https://semver.org/).
   instrument without one keeps the pack's US 0.01.
 
 ### Fixed
+- The `.function(...)` call E16 shows for a user Factor called with an array writes a bound
+  NaN or infinity as `float("nan")`, `float("inf")` or `float("-inf")`, also inside a bound
+  tuple or frozenset, so the call runs as pasted (#624).
 - A constant a library wrapper's closure holds and one the function it wraps reads under the
   same name are both in the graph hash, so editing either changes it (#797): a chain of names
   that starts inside a wrapper is marked `@` (`…inner[fast>@g]:k` beside `…inner[fast>g]:k`).

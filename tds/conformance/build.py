@@ -612,6 +612,40 @@ _FUTURE = {"root": pa.array(["AA"]), "ts_expiry": pa.array([NEW_YEAR], TS_UTC),
            "settlement_type": pa.array(["cash"])}  # fmt: skip
 
 #: Code → (pass change, fail change). M005, M011 and S005 are warnings: their fail package warns.
+VALUE_PARTITIONING = [{"name": "market", "type": "code"}, {"name": "item", "type": "code"}]
+
+
+def _valued(*placed: tuple[str, str]) -> Change:
+    """Value tables (TDS 5.28): per (kind, item), US:AAA's one row of 2024-01-02 at
+    `<kind>/market=US/item=<item>/`, with `partitions[]` and `value_sha256` from the checker's
+    own hashes (4.2), so that only the item names are judged."""
+    tables = {
+        "values": {"instrument_id": ["US:AAA"], "date": DAY, "value": [1.0]},
+        "market_values": {"date": DAY, "value": [1.0]},
+        "symbol_values": {"instrument_id": ["US:AAA"], "value": [1.0]},
+    }
+
+    def change(m: dict[str, Any], files: Files) -> None:
+        from nexusbt_tds.hash import package_hashes
+
+        entries: dict[str, dict[str, Any]] = {}
+        for kind, item in placed:
+            rel, table = f"{kind}/market=US/item={item}/part-00000.parquet", pa.table(tables[kind])
+            files[rel] = parquet(table, kind)
+            entry = entries.setdefault(kind, {
+                "name": kind, "kind": kind, "schema_version": "1.0", "path": kind,
+                "partitioning": VALUE_PARTITIONING, "files": []})  # fmt: skip
+            entry["files"].append({"path": rel, "rows": 1, "bytes": len(files[rel])})
+        m["datasets"] += entries.values()
+        with tempfile.TemporaryDirectory() as tmp:
+            hashes = package_hashes(write(Path(tmp), m, files))
+        for entry in entries.values():
+            entry["partitions"] = hashes["partitions"][entry["name"]]
+            entry["value_sha256"] = hashes["datasets"][entry["name"]]
+
+    return change
+
+
 CASES: dict[str, tuple[Change, Change]] = {
     "TDS-M001": (_keep, lambda m, f: m.clear()),  # `[]` is written, see write()
     "TDS-M002": (_set("tds_version", "1.4"), _set("tds_version", "2.0")),
@@ -653,12 +687,18 @@ CASES: dict[str, tuple[Change, Change]] = {
     ),
     "TDS-M016": (_processed("2024-01-02"), _processed("2024-01-01")),  # rows after it (#192)
     "TDS-M017": (_keep, _set("tds_draft", "2026-11-13")),  # an older draft text (#529)
+    # TDS 5.28 (#752): an item name outside 3.1's rule; one item in two value tables
+    "TDS-M018": (_valued(("values", "per_ttm")), _valued(("values", "PER"))),
+    "TDS-M019": (
+        _valued(("values", "per"), ("market_values", "base_rate")),
+        _valued(("values", "per"), ("market_values", "per")),
+    ),
     "TDS-S001": (_bars(ts_end=TS), _bars(session_date=None)),
     "TDS-S002": (_keep, _bars(close=pa.array(["10.0"]))),
     "TDS-S003": (
         lambda m, f: rewrite(m, f, INSTRUMENTS, instruments(name=pa.array([None], pa.string()))),
         lambda m, f: rewrite(
-            m, f, INSTRUMENTS, instruments(lot_size=pa.array([None], pa.float64()))
+            m, f, INSTRUMENTS, instruments(multiplier=pa.array([None], pa.float64()))
         ),
     ),
     "TDS-S004": (_bars(ts_end=TS), _bars(ts_end=TS.cast(pa.timestamp("us")))),
@@ -837,6 +877,8 @@ FAILS: dict[str, tuple[str | None, ...]] = {
     ], ("instruments",)),
     "TDS-M014": ("bars_1d", "instruments"),  # the unknown rule, the unknown object
     "TDS-M016": ("bars_1d",),
+    "TDS-M018": ("values",),
+    "TDS-M019": ("market_values",),  # named on the second table holding the item
     "TDS-T002": ("delistings", "instrument_symbols"),  # the two-instant form, the one-column
     **dict.fromkeys(["TDS-D001", "TDS-D004"], ("bars_1d",)),
     **dict.fromkeys(["TDS-T001", "TDS-T005", "TDS-K001"], ("bars_1d",)),
