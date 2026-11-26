@@ -536,6 +536,8 @@ def test_full_is_small_rules_at_full_scale(tmp_path: Path, monkeypatch: pytest.M
     small = make_snapshot(tmp_path / "small", preset="small", start=dt.date(1995, 1, 2),
                           end=dt.date(2024, 12, 31), **few)  # fmt: skip
     data, same = files_of(full), files_of(small)
+    # small's value tables are its own: full holds the M1 datasets (4.8, #752 V2b)
+    same = {p: b for p, b in same.items() if p.split("/")[0] not in synth_values.KINDS}
     assert data.pop("tds.json") != same.pop("tds.json")  # the name synth-full, the hashes alike
     assert data == same
     manifest = json.loads((full / "tds.json").read_text(encoding="utf-8"))
@@ -673,6 +675,10 @@ def test_small_declares_availability_for_every_dataset_with_an_instant(small: Pa
         "market_rules": None,  # 5.27 has no instant column, only its validity dates
         "bars_1d": {"rule": "ts_end"},
         "tradability_daily": None,  # its rules are `params.availability_by_column` (6.2, 5.10)
+        # TDS 5.28 fixes a value table's availability, never written (M014; #752 V2b)
+        "market_values": None,
+        "symbol_values": None,
+        "values": None,
     }
     (status,) = (d for d in manifest["datasets"] if d["name"] == "tradability_daily")
     assert status["params"]["availability_by_column"]
