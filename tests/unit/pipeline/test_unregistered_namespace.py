@@ -9,6 +9,7 @@ import sys
 import warnings
 from collections.abc import Callable
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 
 import pytest
@@ -118,6 +119,21 @@ def test_a_library_submodule_not_in_sys_modules_is_not_lost() -> None:
     its top package is loaded from outside the project."""
     lazy = type("Lazy", (), {"__module__": "numpy.not_loaded_690", "LIMIT": 1})
     for cfg in (sys.monitoring, lazy):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            _terms(cfg)
+        assert not [w for w in caught if "cannot be found by its name" in str(w.message)]
+
+
+def test_a_namespace_named_by_no_string_is_not_lost() -> None:
+    """#794's uncovered line: a class whose `__module__` is not a string, and a module whose
+    `__name__` is not, give no module to look for, so they are left as before #690."""
+    nameless = type("Nameless", (), {"LIMIT": 1})
+    nameless.__module__ = None  # type: ignore[assignment]
+    module = ModuleType("m690")
+    module.__name__ = 690  # type: ignore[assignment]
+    vars(module)["LIMIT"] = 1
+    for cfg in (nameless, module):
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             _terms(cfg)
