@@ -129,7 +129,8 @@ def _run(args: argparse.Namespace) -> int:
             raise NotImplementedError("nexusbt rerun --save-detail: tier-3 outputs come later")
         run = api.rerun(args.run_id, new_snapshot=args.new_snapshot, trust=args.trust)
         print(f"run {run.run_id} from {args.run_id}\n{run.comparison}")  # the line says if equal
-        # 3.10 (#655): the code follows the comparison line; a new snapshot's run (3.8) is 0
-        differ = str(run.comparison).startswith("outputs differ")
+        # 3.10 (#655): the code follows the comparison line; a new snapshot's run (3.8) is 0.
+        # #637: after "environment differs; ", outputs differ beyond the tolerance is 4 too
+        differ = "outputs differ" in str(run.comparison)
         return 4 if differ and not args.new_snapshot else 0
     raise NotImplementedError(f"nexusbt {args.command}: not built yet (its ticket is in spec 10.1)")

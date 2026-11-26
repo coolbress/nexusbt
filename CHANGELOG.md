@@ -13,6 +13,13 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ### Added
 - Initial skeleton
+- `rerun` compares the run's captured engine and project `uv.lock` with the current ones
+  (#637). When either differs, or a project lock is on one side only, the comparison line
+  starts `environment differs;`. The tables' values are then compared cell by cell within
+  8.1's L1-a tolerance, `|a−b| ≤ 1e-9 + 1e-9·|b|`; their bytes are not compared.
+  `nexusbt rerun` exits 0 within the tolerance and 4 beyond it. With the same locks the
+  comparison is exact, as before. `--env`, which rebuilds the run's environment, moved
+  to #820.
 
 ### Changed
 - `@nx.factor(dtype=...)` takes `"float64"` only, the dtype a Factor's values are in; any

@@ -21,12 +21,18 @@ import runpy
 import subprocess
 import sys
 import tempfile
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import numpy as np
+import pyarrow as pa
+import pyarrow.compute as pc
+import pyarrow.parquet as pq
+
 from nexusbt import contracts
+from nexusbt.api._pipeline import COUNT_KEYS, KEYS
 from nexusbt.contracts import NexusBTError, ReplayError, SnapshotError
 from nexusbt.data import DataConfig, _package, open_snapshot
 
@@ -243,6 +249,72 @@ def compare(old: Mapping[str, Any], new: Mapping[str, Any]) -> str:
     return "outputs differ: " + "; ".join(differ) + note
 
 
+#: #637 Decisions: a run without NAV is compared within L1-a's tolerance (8.1) when the
+#: environment differs: `|a - b| <= ABS_TOL + REL_TOL·|b|`, cell by cell on the same keys.
+ABS_TOL = REL_TOL = 1e-9
+_TOLERANCE = f"|a{chr(0x2212)}b| ≤ 1e-9 + 1e-9·|b|"  # 8.1's minus sign (U+2212), as approved
+#: The key each table's rows are matched on: the one its value hash orders rows by (5.9.2).
+_KEYS = {"pipeline.parquet": KEYS, "term_diagnostics.parquet": COUNT_KEYS}
+
+
+def _lock_sha256(path: Path) -> str | None:
+    return _sha256(path) if path.is_file() else None
+
+
+def environment_differs(folder: Path, project: Path) -> bool:
+    """#637 Decisions 1: the captured engine or project `uv.lock` against the current one, by
+    sha256; a project lock on one side only differs too."""
+    from nexusbt.artifacts._runstore import _engine_lock  # as a saved run reads it (5.9.3)
+
+    engine = hashlib.sha256(_engine_lock()).hexdigest()
+    kept = folder / "source"
+    return (_lock_sha256(kept / "engine-uv.lock") != engine
+            or _lock_sha256(kept / "uv.lock") != _lock_sha256(project / "uv.lock"))  # fmt: skip
+
+
+def _beyond(old: pa.Table, new: pa.Table, keys: Sequence[str]) -> bool:
+    """Whether `new` differs from `old` beyond the tolerance: the same columns and keys, each
+    float cell within it (NaN agreeing with NaN, null with null), every other cell equal."""
+    if old.schema.names != new.schema.names or old.num_rows != new.num_rows:
+        return True
+    order = [(k, "ascending") for k in keys]
+    old, new = old.sort_by(order), new.sort_by(order)
+    for name in old.schema.names:
+        a, b = old[name], new[name]
+        if not pa.types.is_floating(a.type) or name in keys:
+            if not a.equals(b):
+                return True
+            continue
+        if not pc.equal(pc.is_null(a), pc.is_null(b)).to_numpy().all():
+            return True
+        x = a.to_numpy(zero_copy_only=False).astype(np.float64)
+        y = b.to_numpy(zero_copy_only=False).astype(np.float64)
+        both_nan = np.isnan(x) & np.isnan(y)
+        with np.errstate(invalid="ignore"):
+            near = np.abs(x - y) <= ABS_TOL + REL_TOL * np.abs(y)
+        if not (near | both_nan).all():
+            return True
+    return False
+
+
+def within(old: Path, new: Path) -> str:
+    """#637 Decisions 1, 2: the line when the environment differs; values only, no bytes."""
+    was, now = read(old)["outputs"], read(new)["outputs"]
+    beyond = []
+    for name in sorted(k for k in was if not k.startswith("source/")):
+        keys = _KEYS.get(name)
+        if name not in now:
+            beyond.append(name)
+        elif keys is None:  # a table of no known key: its value hash, exactly
+            if was[name].get("value_sha256") != now[name].get("value_sha256"):
+                beyond.append(name)
+        elif _beyond(pq.read_table(old / name), pq.read_table(new / name), keys):
+            beyond.append(name)
+    if beyond:
+        return "environment differs; outputs differ beyond tolerance: " + "; ".join(beyond)
+    return f"environment differs; outputs within tolerance ({_TOLERANCE})"
+
+
 def rerun(folder: Path, *, new_snapshot: bool) -> tuple[str, str]:
     """The new run's id and the comparison line (5.9.4) once `folder`'s run ran again."""
     manifest = read(folder)
@@ -264,4 +336,7 @@ def rerun(folder: Path, *, new_snapshot: bool) -> tuple[str, str]:
     match = [(r, m) for r, m in same if h6 and (s := _H6.search(r)) and s[1] == h6[1]] or same
     if not match:
         raise RuntimeError(f"rerun of {folder.name}: it sealed no {manifest['kind']} run")
-    return match[0][0], compare(manifest, match[0][1])
+    new_id, new_manifest = match[0]
+    if environment_differs(folder, project()):  # 5.9.4: another environment, within tolerance
+        return new_id, within(folder, folder.parent / new_id)
+    return new_id, compare(manifest, new_manifest)

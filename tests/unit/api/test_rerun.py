@@ -579,6 +579,65 @@ def test_the_cli_new_snapshot_exits_0_when_the_outputs_differ(
     assert capsys.readouterr().out.splitlines()[1].startswith("outputs differ: ")
 
 
+#: #637 Decisions: L1-a's tolerance (8.1), the one a run without NAV is compared within when
+#: the environment differs.
+L1_A_ABS = L1_A_REL = 1e-9
+_WITHIN = f"environment differs; outputs within tolerance (|a{chr(0x2212)}b| ≤ 1e-9 + 1e-9·|b|)"
+_BEYOND = "environment differs; outputs differ beyond tolerance: pipeline.parquet"
+
+
+def _nudge(folder: Path, times: float) -> None:
+    """Move the run's first `close` by `times` L1-a's tolerance for it, rewriting the file
+    only (its bytes then differ, its recorded hashes not)."""
+    table = pq.read_table(folder / "pipeline.parquet")
+    close = table["close"].to_pylist()
+    close[0] += times * (L1_A_ABS + L1_A_REL * abs(close[0]))
+    table = table.set_column(table.schema.get_field_index("close"), "close", pa.array(close))
+    pq.write_table(table, _edit(folder / "pipeline.parquet"))
+
+
+def _another_lock(folder: Path) -> None:
+    """The run's captured engine `uv.lock` as another environment's (#637 Decisions 1)."""
+    lock = folder / "source" / "engine-uv.lock"
+    _edit(lock, lock.read_text(encoding="utf-8") + "# another environment\n")
+
+
+def test_the_tolerance_is_l1_a(copied: tuple[Path, str]) -> None:
+    """#637 Decisions 2: the tolerance used is 8.1's L1-a, 1e-9 absolute and relative."""
+    from nexusbt.api import _rerun
+
+    assert (_rerun.ABS_TOL, _rerun.REL_TOL) == (L1_A_ABS, L1_A_REL)
+
+
+@pytest.mark.parametrize(("times", "line", "code"), [
+    (0.5, _WITHIN, 0),  # half the tolerance: within, though the bytes differ
+    (2.0, _BEYOND, 4),  # twice the tolerance: beyond it
+])  # fmt: skip
+def test_another_engine_lock_compares_within_l1_a(
+    copied: tuple[Path, str], capsys: pytest.CaptureFixture[str], times: float, line: str,
+    code: int,
+) -> None:  # fmt: skip
+    """#637 Decisions: a captured engine lock that is not the current one says "environment
+    differs" and compares the values within L1-a's tolerance, not the bytes; the CLI exits
+    0 within it and 4 beyond it."""
+    project, run_id = copied
+    folder = project / "runs" / run_id
+    _another_lock(folder)
+    _nudge(folder, times)
+    assert main(["rerun", run_id]) == code
+    assert capsys.readouterr().out.splitlines()[1] == line
+
+
+def test_a_project_lock_on_one_side_only_is_another_environment(
+    copied: tuple[Path, str],
+) -> None:
+    """#637 Decisions 1: the run kept no project `uv.lock`; the working folder has one now."""
+    project, run_id = copied
+    assert not (project / "runs" / run_id / "source" / "uv.lock").exists()
+    (project / "uv.lock").write_text("version = 1\n", encoding="utf-8")
+    assert nx.rerun(run_id).comparison == _WITHIN
+
+
 def test_the_cli_missing_snapshot_is_still_exit_code_1(
     copied: tuple[Path, str], capsys: pytest.CaptureFixture[str]
 ) -> None:
