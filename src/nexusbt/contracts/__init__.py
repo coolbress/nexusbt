@@ -87,8 +87,6 @@ ENGINE_COLUMNS: Mapping[str, frozenset[str]] = MappingProxyType(
             "market_rules": "rule_id market rule_kind venue_group valid_from valid_to price_from"
             " price_to tick_size limit_ratio source verified",
             "fx_rates": "base quote rate_kind obs_date ts_event ts_available rate source",
-            "classifications": f"{ID_COLUMN} scheme level code label effective_from effective_to"
-            " ts_known_from ts_known_to edition pit_quality",
         }.items()
     }
 )
@@ -642,7 +640,7 @@ _EXAMPLES: dict[str, tuple[str, str, str, str, str, str, str]] = {
     "E42": ("", "drawdown_brake", "drawdown_brake: not evaluated (no account)", "screen, risk rule drawdown_brake", "the rule needs an account's history, and screen has none", "use --ledger BOOK or --as-backtest", "spec 5.5.2a"),  # noqa: E501
     "E43": ("", "erc", "erc did not converge on 3 of 60 decisions; inverse_vol used (reasons a/b/c: 2/1/0)", "sizer erc, 2020-01-02 → 2024-12-30", "the fallback sizes the portfolio another way", "raise lookback, add shrink=0.1, or use size.inverse_vol", "spec 5.5.1a; tds check snap --level full"),  # noqa: E501
     "E44": ("", "ml", "fits used 4 threads; rerun compares predictions with tolerance 1e-9", "[ml] threads", "parallel fits may differ in the last bits", "[ml] threads = 1 for bit-identical reruns", "spec 5.3.11"),  # noqa: E501
-    "E45": ("", "classifications", "skipped 1 dataset for reason optional_data_unread", "dataset classifications", "work the run planned was not done", "see the reason code in skips.toml", "spec 6.6 (no silent failure); tds check snap --level full"),  # noqa: E501
+    "E45": ("", "market_rules", "skipped 1 dataset for reason optional_data_unread", "dataset market_rules", "work the run planned was not done", "see the reason code in skips.toml", "spec 6.6 (no silent failure); tds check snap --level full"),  # noqa: E501
     "E46": ("", "run r1", "this is a NexusBT bug, not your code or data", "run r1", "an engine invariant does not hold", "please report: nexusbt bugreport r1", "spec 6.6 E46"),  # noqa: E501
     "E48": ("strategy.py:25", "model", "model m1 was trained on data up to 2021-12-30; decision 2021-06-30 is before it", "ml.pretrained model m1", "the model has seen the period it would decide on", "start after 2022-01-14, or nx.ml.pretrained(..., allow_overlap=True) to mark instead of fail", "spec 5.3.11"),  # noqa: E501
     "E49": ("strategy.py:25", "model", "6 decisions use a pretrained model that saw their period", "ml.pretrained model m1", "results on those decisions are optimistic", "read the marked rows before trusting the result", "spec 5.3.11"),  # noqa: E501
@@ -690,7 +688,7 @@ _EXAMPLE_LAYERS: dict[str, str] = {
     "E41": "your code — strategy.py:30 in my_rule (risk slot)",
     "E42": "config — argument ledger=None",
     "E43": f"data — {_data('bars', 'close')}", "E44": "config — nexusbt.toml [ml] threads = 4",
-    "E45": f"data — {_data('classifications', 'code')}", "E46": f"engine bug — {_BUG}",
+    "E45": f"data — {_data('market_rules', 'tick_size')}", "E46": f"engine bug — {_BUG}",
     "E48": "your code — strategy.py:25 in model", "E49": "your code — strategy.py:25 in model",
 }
 # fmt: on

@@ -42,7 +42,7 @@ NEEDS = {
 }
 #: The kinds a feature reads without needing them: two of one turn it off all the same (4.3,
 #: #551), where none takes the feature's fallback.
-READS = {f: needs + {"grid": ("market_rules", "classifications")}.get(f, ())
+READS = {f: needs + {"grid": ("market_rules",)}.get(f, ())
          for f, needs in NEEDS.items()}  # fmt: skip
 #: 4.3's profile table: the profiles the v1 engine reads.
 SUPPORTED = frozenset({"tds:minimal-daily@1.0", "tds:equity-daily-core@1.0"})
@@ -253,10 +253,10 @@ def _no_grid(
     extent: BarsExtent, market_of: Mapping[str, str],
 ) -> list[FallbackRecord]:  # fmt: skip
     """F-15: a market with a pack where no instrument has a usable source of 4.3's grid chain
-    (#453): a non-null `instruments.tick_size`; a `tick_rule_id`, of a `classifications` row
-    of that scheme or of `instruments`, that is the `rule_id` of a `market_rules` `tick_band`
-    rule set (5.6.4a); `tick_band` rows of the market; a `tick_table` or `base_unit` in its
-    pack. Dates are not read: whether a row applies on a day is the grid lookup's (T3.24)."""
+    (#453): a non-null `instruments.tick_size`; an `instruments.tick_rule_id` that is the
+    `rule_id` of a `market_rules` `tick_band` rule set (5.6.4a); `tick_band` rows of the market;
+    a `tick_table` or `base_unit` in its pack. Dates are not read: whether a row applies on a
+    day is the grid lookup's (T3.24)."""
     # a market without a pack is not here: nothing runs there (4.4-4)
     packed = {m: load_pack(p.split("@")[0])["grid"] for m, p in rules.items() if p is not None}
     bare = [m for m, grid in packed.items() if not {"tick_table", "base_unit"} & grid.keys()]
@@ -272,11 +272,6 @@ def _no_grid(
         tick = dict(zip(held, ticks, strict=True))
         if tick.get("tick_size") is not None or tick.get("tick_rule_id") in named:
             sourced.add(market_of.get(i))
-    for f in kinds.get("classifications", {}).get("files", []) if named else ():  # only then
-        table = pq.read_table(folder / f["path"], columns=[ID_COLUMN, "code"],
-                              filters=[("scheme", "=", "tick_rule_id")])  # fmt: skip
-        ids, codes = table[ID_COLUMN].to_pylist(), table["code"].to_pylist()
-        sourced |= {market_of.get(i) for i, c in zip(ids, codes, strict=True) if c in named}
     unsourced = [m for m in bare if m not in sourced]
     by_market = extent.by_market() if unsourced else {}  # read for the records' counts only
     return [FallbackRecord("F-15", "market_rules", m, int(by_market.get(m, {}).get(

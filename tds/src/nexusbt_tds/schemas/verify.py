@@ -35,7 +35,7 @@ _SECTIONS = """
 5.1 instruments; 5.2 instrument_symbols; 5.4 calendar_sessions
 5.5 bars; 5.10 tradability_daily
 5.11 corporate_actions; 5.13 delistings; 5.15 fx_rates
-5.19 classifications; 5.27 market_rules
+5.27 market_rules
 """
 CHAPTER_5: dict[str, str] = {kind: n for n, kind in re.findall(r"(5\.\d+) (\w+)", _SECTIONS)}
 

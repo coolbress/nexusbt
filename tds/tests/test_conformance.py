@@ -569,15 +569,6 @@ def test_k001_memory_holds_a_batch_not_every_key(tmp_path: Path) -> None:
     assert (peaks[1] - peaks[0]) / 30_000 < 20, told  # bytes per row added
 
 
-def test_classification_levels_not_duplicate(tmp_path: Path) -> None:
-    manifest, files = build.base()
-    build._gics(1, 3)(manifest, files)  # GICS level 1 and 3, same day (5.19)
-    rows = pq.read_table(pa.BufferReader(files["classifications/part-00000.parquet"])).to_pylist()
-    assert {r["level"] for r in rows} == {1, 3}
-    assert len({(r["effective_from"], r["ts_known_from"]) for r in rows}) == 1
-    assert codes(build.write(tmp_path, manifest, files), "full") == []
-
-
 R_CODES = [f"TDS-R{n:03}" for n in (1, 2, 3, 4, 5, 6, 8)]  # R007 and R009 are retired (#752)
 
 
@@ -1083,16 +1074,6 @@ def _closes(*prices: float) -> Any:
 _rules = build._rules
 
 
-def _assigned(day: int) -> Any:
-    """`classifications` scheme `tick_rule_id` (5.19): US:AAA on `us-tick` from January `day`."""
-    return build._add("classifications", {
-        "instrument_id": ["US:AAA"], "scheme": ["tick_rule_id"], "level": pa.array([0], pa.int8()),
-        "code": ["us-tick"], "effective_from": pa.array([dt.date(2024, 1, day)]),
-        "ts_known_from": pa.array([build.NEW_YEAR], build.TS_UTC), "edition": ["both"],
-        "pit_quality": ["native"], "source": ["synthetic"],
-    })  # fmt: skip
-
-
 _CENT = build._instruments(tick_size=pa.array([0.01]))
 _RULED = build._instruments(tick_rule_id=pa.array(["us-tick"]))
 _US = _rules((None, 1.0, 0.0001), (1.0, None, 0.01))  # a null `price_from` is 0
@@ -1124,9 +1105,6 @@ _ADJUSTED = build._set("params", {"freq": "1d", "price_basis": "total_adjusted"}
         ((_RULED, _rules((0.0, None, 0.01), until=dt.date(2024, 1, 3)), _closes(1.005, 1.005)),
          1, "bars_1d"),  # `valid_to` is exclusive: no rule on the 3rd
         ((_RULED, _closes(1.005)), 0, ""),  # the rule set is not in the package
-        # the dated assignment comes before the fixed tick, from its `effective_from`
-        ((_CENT, _assigned(2), _rules((0.0, None, 0.005)), _closes(10.005)), 0, ""),
-        ((_CENT, _assigned(3), _rules((0.0, None, 0.005)), _closes(10.005, 10.005)), 1, "bars_1d"),
     ],
 )  # fmt: skip
 def test_V012_rows(changes: tuple[Any, ...], count: int, dataset: str, tmp_path: Path) -> None:
@@ -2121,51 +2099,28 @@ def test_T_codes(code: str, tmp_path: Path) -> None:
     test_K_codes(code, tmp_path)
 
 
-_E = ("E", "2024-01-02", None, "2024-01-01", None, 1, "strict", "native")
-_F = ("F", "2024-01-02", None, "2024-01-01", None, 1, "compare", "native")
-_G = ("G", "2024-01-02", None, "2024-01-01", None, 2, "both", "native")  # in both editions
-_H = ("H", "2024-01-02", None, "2024-01-01T12:00", None, 1, "strict", "backfilled")  # not strict
-
-
 @pytest.mark.parametrize(
-    ("rows", "query", "edition", "answer"),
-    [  # TDS 6.3 ③; dates and times as in the spec, the known time at 00:00 UTC
-        ([build._A, build._A2, build._B], ("2020-03-10", "2020-03-10"), None, ["A"]),  # A2
-        ([("O", "2010-01-01", None, "2010-01-01", "2017-01-01", 1, "both", "native"),
-          ("C", "2015-06-01", None, "2017-01-01", None, 1, "both", "native")],
-         ("2016-01-01", "2016-01-01"), None, ["O"]),  # ② effective, not yet known: the old row
-        ([("D", "2018-01-01", None, "2018-01-02", "2019-05-01", 1, "both", "native"),
-          ("D2", "2018-01-01", None, "2019-05-01", None, 1, "both", "native")],
-         ("2019-06-01", "2018-06-01"), None, ["D2"]),  # ③ the correction
-        ([("L1", "2024-01-02", None, "2024-01-01", None, 1, "both", "native"),
-          ("L3", "2024-01-02", None, "2024-01-01", None, 3, "both", "native")],
-         ("2024-01-05", "2024-01-05"), None, ["L1", "L3"]),  # ④ one per level
-        ([_F, _E, _H, _G], ("2024-01-05", "2024-01-05"), "strict", ["E", "G"]),  # ⑤
-        ([_F, _E, _H, _G], ("2024-01-05", "2024-01-05"), "compare", ["F", "G"]),
+    ("rows", "query", "answer"),
+    [  # TDS 6.3 ③; dates and times as in the spec, the known time at 00:00 UTC; on
+       # `instrument_symbols` since `classifications` left with examples ④ and ⑤ (#752)
+        ([build._A, build._A2, build._B], ("2020-03-10", "2020-03-10"), ["A"]),  # A2
+        ([("O", "2010-01-01", None, "2010-01-01", "2017-01-01"),
+          ("C", "2015-06-01", None, "2017-01-01", None)],
+         ("2016-01-01", "2016-01-01"), ["O"]),  # ② effective, not yet known: the old row
+        ([("D", "2018-01-01", None, "2018-01-02", "2019-05-01"),
+          ("D2", "2018-01-01", None, "2019-05-01", None)],
+         ("2019-06-01", "2018-06-01"), ["D2"]),  # ③ the correction
     ],
 )  # fmt: skip
-def test_T012_rectangle_examples_1_to_5(
-    rows: list[Any], query: tuple[str, str], edition: str | None, answer: list[str],
-    tmp_path: Path,
-) -> None:  # fmt: skip
+def test_T012_rectangle_examples_1_to_3(
+    rows: list[Any], query: tuple[str, str], answer: list[str], tmp_path: Path
+) -> None:
     """`rect_lookup` answers each example; its package has no T012, and T012 is judged."""
     cutoff = dt.datetime.fromisoformat(query[0]).replace(tzinfo=dt.UTC)
-    table = build.classified_table(rows)
-    found = pit.rect_lookup(table, cutoff, dt.date.fromisoformat(query[1]), edition=edition)
-    assert found["code"].to_pylist() == answer
-    result = check(write(tmp_path, build._classified(*rows)), level="full")
+    found = pit.rect_lookup(build.ticker_table(rows), cutoff, dt.date.fromisoformat(query[1]))
+    assert found["symbol"].to_pylist() == answer
+    result = check(write(tmp_path, build._symbol_rows(*rows)), level="full")
     assert (result.errors, result.warnings, "TDS-T012" in result.unchecked) == ((), (), False)
-
-
-def test_rect_lookup_reads_a_null_edition_and_pit_quality() -> None:
-    """5.19: a null `edition` is `both`; a null `pit_quality` is not `backfilled`."""
-    table = build.classified_table([(*_G[:6], None, None)])
-    noon = dt.datetime(2024, 1, 5, 12, tzinfo=dt.UTC)
-    without = table.drop_columns(["edition", "pit_quality"])  # no column: the same defaults
-    for edition in ("strict", "compare"):
-        for rows in (table, without):
-            found = pit.rect_lookup(rows, noon, dt.date(2024, 1, 5), edition=edition)
-            assert found["code"].to_pylist() == ["G"]
 
 
 def _tickers(second_known: dt.datetime | None) -> Any:
@@ -2190,9 +2145,9 @@ def _at(day: int, hour: int) -> dt.datetime:
         (_tickers(_at(2, 0)), ["TDS-T012"], []),  # both known on the 2nd, both valid the 3rd on
         (_tickers(_at(3, 0)), [], []),  # A1 known as A0 stops being known
         (_tickers(None), [], ["TDS-T012"]),  # a null known start: undecided, as K010 is
-        (build._both(build._classified(  # a null edition is `both` (5.19), in each filter
-            ("N1", "2024-01-02", None, "2024-01-01", None, 1, None, None),
-            ("N2", "2024-01-03", None, "2024-01-01", None, 1, None, None),
+        (build._both(build._symbol_rows(  # two findings of two kinds in one package
+            ("N1", "2024-01-02", None, "2024-01-01", None),
+            ("N2", "2024-01-03", None, "2024-01-01", None),
         ), build.CASES["TDS-T003"][1]), ["TDS-T012", "TDS-T003"], []),
         (_rules((0.0, 1.0, 0.0001), (0.5, None, 0.01)), ["TDS-T003"], []),  # bands overlap
         (_rules((0.0, 1.0, 0.0001), (1.0, None, 0.01), until=dt.date(2024, 1, 2)),
