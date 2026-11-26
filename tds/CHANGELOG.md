@@ -40,7 +40,8 @@ package version follows the `tds_version` it checks (`1.0.x`), tagged
 - TDS-R009 (an `item` not in `dictionary/items`, a panel column not in `dictionary/columns`) is
   retired, its number not reused, before `dictionary/items` and the panels leave (#752); `tds
   check` lists it as `unchecked` at no level. TDS-K003 and TDS-D004 no longer read a panel's
-  `period`. `dictionary/columns` stays
+  `period`: a panel's K003 is `unchecked`, and D004 no longer compares its `coverage` `ts_min`
+  and `ts_max`. `dictionary/columns` stays
 
 ### Added
 - TDS-M010 at the `schema` level for an `instruments.market` not declared in `markets` (TDS 3.8,
