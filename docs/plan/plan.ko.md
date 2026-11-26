@@ -402,7 +402,7 @@ v3는 3자 검토 합의대로 **M0을 계약만으로 줄이고**, 검사기 fu
 - Acceptance: `tests/unit/research/test_labels.py::test_econ_reinvest_at_ex_close`, `::test_adj_ratio_label`, `::test_delisting_terminal_policies`, `::test_terminal_uses_shared_resolver`, `::test_purge_uses_label_available`, `::test_no_entry_counted`, `tests/golden/test_time.py::test_T16_label_times`, `::test_T21_economic_label_10pct`, `::test_T22_purge_uses_label_available`, 그리고 (2026-11-04) `tests/unit/research/test_labels.py::test_econ_exit_on_ex_date_keeps_right_as_cash`(T-21 (b)·(d)), `::test_econ_ignores_unread_bars`(T-21 (c): e 종가를 바꿔도 `R` 그대로), `::test_label_available_covers_every_read_value`(T-21 (a)·(e)), `tests/golden/test_time.py::test_T21_cases`(8.2의 T-21 표).
 
 **T2.8 `feat(research): IC, Newey-West, quantiles, turnover and coverage`** · `M2` `research` · M · Blocked by: T2.7 · §5.8
-- Done means: 손으로 만든 IC 계열에서 NW t와 L이 시험 기대값과 같게 출력.
+- Done means: 손으로 만든 IC 계열에서 NW t와 L이 시험 기대값과 같게 출력; 5.8의 순위 자기상관이 시장마다 이웃한 두 판단의 종목으로 계산됨(#764, 결정 2026-11-25).
 - Acceptance: `tests/unit/research/test_factor_stats.py::test_spearman_min_pairs`, `::test_newey_west_known_value`, `::test_quantile_ties`, `::test_turnover`, `::test_coverage_counts`, `tests/docs/test_tool_cards.py::test_card[ic-newey-west]`, `::test_every_tool_has_a_card_row`(D19, #219).
 
 **T2.16 `feat(research): naive breadth, implied IR and cohort BHY-adjusted p`** · `M2` `research` · S · Blocked by: T2.8, T2.9 · §5.8 [SC-08, SC-09]
@@ -410,7 +410,7 @@ v3는 3자 검토 합의대로 **M0을 계약만으로 줄이고**, 검사기 fu
 - Acceptance: `tests/unit/research/test_hygiene_stats.py::test_bhy_known_values`, `::test_bhy_cohort_excludes_other_horizon`, `::test_breadth_naive_definition`, `::test_implied_ir`, `::test_bhy_limit_sentence_present`, `tests/docs/test_tool_cards.py::test_card[bhy]`(D19, #219).
 
 **T2.10a `feat(api): evaluate and FactorReport`** · `M2` `api` · M · Blocked by: T2.8, T2.9, T2.4, T2.16 · §3.8, §3.9
-- Done means: `uv run nexusbt evaluate examples/factors/momentum.py`가 3.9 모양의 FactorReport(정답 정의·naive breadth·BHY(cohort) 줄 포함)와 `report.html` 경로를 출력.
+- Done means: `uv run nexusbt evaluate examples/factors/momentum.py`가 3.9 모양의 FactorReport(정답 정의·naive breadth·BHY(cohort) 줄, 그리고 3.9의 시뮬레이션 결과 줄 포함, #764, 결정 2026-11-25)와 `report.html` 경로를 출력.
 - Acceptance: `tests/unit/api/test_evaluate.py::test_report_lines_match_template`, `::test_counts_next_to_rates`, `::test_saved_run_folder`, `::test_hygiene_block`, `::test_mapping_terms_are_separate_candidates`, `::test_minimal_daily_adj_label_only`.
 
 **T2.10b `feat(artifacts): report.html template with structural test`** · `M2` `artifacts` · S · Blocked by: T2.10a · §3.9
@@ -510,7 +510,7 @@ v3는 3자 검토 합의대로 **M0을 계약만으로 줄이고**, 검사기 fu
 - Acceptance: `tests/unit/execution/test_orders.py::test_allowed_transitions_only`, `::test_quantity_conservation`, `::test_partial_cancel_is_qty_event_not_status`, `::test_frozen_shares_from_decision_value`, `::test_decision_price_recorded`, `tests/unit/execution/test_simconfig.py::test_knobs_match_appendix_C`, `tests/unit/execution/test_loop.py::test_phase_order_skeleton`, `tests/golden/test_execution.py::test_G15`, `tests/unit/test_import_rules.py::test_step_seam_signatures_arrow_only`(`nx.execution._step` 이음새), `tests/golden/test_time.py::test_G_TIME_LATE_order_intents`(G-TIME-LATE: 8.4 표의 주문 의도, 그 목표에서, 각 행이 전제하는 보유는 계좌 상태에 넣어서; 결정 2026-11-10, #356).
 
 **T3.8 `feat(execution): cost models, general impact form and cost table coverage`** · `M3a` `execution` · M · Blocked by: T3.4 · §5.6.8, §4.7 [SC-11]
-- Done means: `nx.costs.realistic()`를 미검증 표로 고르면 E23이 빈 (시장, 기간, 구성요소)를 나열; provisional은 E22; a2=0.5·a3=1에서 제곱근 식과 같은 값; 충격은 세션 누적 수량에 대해 매겨 여러 체결로 나뉜 주문이 주문 하나와 최소 단위 반올림 전에 같은 충격을 냄(5.6.8; #311, 결정 2026-11-10); 비용 구성요소가 최소 단위 정수로 기입.
+- Done means: `nx.costs.realistic()`를 미검증 표로 고르면 E23이 빈 (시장, 기간, 구성요소)를 나열; provisional은 E22; a2=0.5·a3=1에서 제곱근 식과 같은 값; 충격은 세션 누적 수량에 대해 매겨 여러 체결로 나뉜 주문이 주문 하나와 최소 단위 반올림 전에 같은 충격을 냄(5.6.8; #311, 결정 2026-11-10); 비용 구성요소가 최소 단위 정수로 기입; 기본 프로필은 시장별 고정 bp인 `provisional`로 남고, ½스프레드와 충격은 `realistic`에만 있으며 반 호가 단위 하한은 없음(5.6.8; #764, 결정 2026-11-25).
 - Acceptance: `tests/unit/execution/test_costs.py::test_provisional_bps_from_pack`, `::test_per_share_min`, `::test_abdi_ranaldo_known_value`, `::test_general_impact_equals_sqrt_default`, `::test_spread_floor_without_high_low`, `::test_coverage_E23`, `::test_components_rounded_to_minor_units`.
 
 **T3.5a `feat(execution): market fills at open with tradability rules`** · `M3a` `execution` · M · Blocked by: T3.4, T3.Ga · §5.6.3–5.6.5
@@ -543,7 +543,7 @@ v3는 3자 검토 합의대로 **M0을 계약만으로 줄이고**, 검사기 fu
 - Acceptance: `test_execution.py::test_G30`, `tests/unit/execution/test_loop.py::test_simulate_equals_stepwise`, `::test_resume_at_phase_boundary`.
 
 **T3.13a `feat(api): single-market backtest and metrics`** · `M3a` `api` · M · Blocked by: T3.12, T3.2, T2.9, T2.18, T3.Ge · §5.7, §3.8, §3.9 Run
-- Done means: `uv run nexusbt backtest examples/strategies/mom_kr.py`가 3.9 Run 모양(net/gross, 가정 줄, 비용 직접/경로, 폐지 lo/hi, PSR)을 출력; 5.7의 Calmar 행이 G-110(#310)과 맞는다; Sharpe·PSR·DSR·MinTRL이 5.7의 초과 수익 `r_t − rf_t`로 계산되고 `assumptions` 줄이 3.9의 시계열 꼴이나 상수 꼴을 보인다(#313, 결정 2026-11-10).
+- Done means: `uv run nexusbt backtest examples/strategies/mom_kr.py`가 3.9 Run 모양(net/gross, 가정 줄, 비용 직접/경로, 폐지 lo/hi, PSR)을 출력; 5.7의 Calmar 행이 G-110(#310)과 맞는다; Sharpe·PSR·DSR·MinTRL이 5.7의 초과 수익 `r_t − rf_t`로 계산되고 `assumptions` 줄이 3.9의 시계열 꼴이나 상수 꼴을 보인다(#313, 결정 2026-11-10); 첫 화면이 3.9의 시뮬레이션 결과 줄을 싣는다(#764, 결정 2026-11-25).
 - Acceptance: `tests/unit/api/test_backtest.py::test_run_summary_template`, `::test_assumption_lines_present`, `::test_observation_recorded`, `::test_evaluation_label_and_fixed_sample_line`(3.9 `evaluation` 줄과 확인 2에서 PSR·DSR 줄의 "fixed-sample statistic; n looks", #269), `tests/unit/research/test_metrics.py::test_cagr_sharpe_mdd_turnover_known_values`, `::test_cost_drag_direct_vs_path`, `tests/golden/test_metrics.py::test_G60_metrics_and_month_compounding`, `::test_mdd_includes_inception_nav`(G-61 (a)), `tests/unit/api/test_backtest.py::test_assumption_ex_post_volume_cap`, `tests/unit/research/test_metrics.py::test_cagr_from_twr_index_equals_nav_ratio_without_flows`, `::test_turnover_long_only_unchanged`, `tests/docs/test_tool_cards.py::test_card[linear]`, `tests/unit/report/test_next_line.py::test_entries_from_run_facts_not_values`(D19, #218, #219).
 
 **T3.13b `feat(api): named scenarios with a single zero-cost replay`** · `M3a` `api` · S · Blocked by: T3.13a · §3.8, §5.7 [SC-06 인자 모양]
@@ -978,7 +978,7 @@ v3는 3자 검토 합의대로 **M0을 계약만으로 줄이고**, 검사기 fu
 - Acceptance: `tests/unit/api/test_sweep.py::test_shared_nodes_computed_once`, `::test_candidates_registered`.
 
 **T6.14 `feat(api): capacity scenario`** · `M6` `api` · S · Blocked by: T6.7, T6.5 · §3.8, §5.7 [SC-06, OQ-4]
-- Done means: `backtest(..., scenarios=[..., "capacity"])`가 ×10·×100 CAGR, 상한 걸린 비율, 평균 참여율과 "cap binds at ≈ K" 줄을 출력; `sweep` 최종 후보 보고에 자동으로 켜짐.
+- Done means: `backtest(..., scenarios=[..., "capacity"])`가 ×10·×100 CAGR, 상한 걸린 비율, 평균 참여율과 "cap binds at ≈ K" 줄을 출력; `sweep` 최종 후보 보고에 자동으로 켜짐; 기본 프로필 `provisional`에서는 거래 단위당 비용(bp)이 주문 크기에 따라 늘지 않고 한계는 거래량 상한으로만 드러난다고 결과가 밝힘(5.7; #764, 결정 2026-11-25).
 - Acceptance: `tests/unit/api/test_capacity.py::test_capacity_rows`, `::test_binds_at_definition`, `::test_sweep_final_candidates_have_capacity`.
 
 **T6.8 `feat(research): PSR, DSR and PBO via CSCV over cohorts`** · `M6` `research` · M · Blocked by: T6.7, T2.9 · §5.7, §6.3
