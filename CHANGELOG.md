@@ -36,6 +36,14 @@ versions follow [Semantic Versioning](https://semver.org/).
   `tds:equity-daily-core` only (#752).
 
 ### Fixed
+- A user function that reads a helper kept in `__wrapped__` by an object that is not a Python
+  function, such as an instance of a library's class (`joblib.Memory.cache`'s), is E24 with
+  the L1 cache off, the message naming the function that reads it and the class (#695). Only
+  `functools.lru_cache`'s and `functools.cache`'s wrappers and `numba.njit`'s dispatcher stay
+  pure (`numba.jit` is that dispatcher too). Also E24 now: an instance of a library's class
+  that holds no state; numba's other wrappers, such as `numba.vectorize`'s, `numba.cfunc`'s
+  and `numba.cuda.jit`'s; and a `staticmethod` object read as a global. Call the undecorated
+  function inside the term.
 - `environment.machine_id` is the same in every process on a host (#635). On a host
   with no machine-id file where Python finds no hardware address (seen on macOS), it
   was the hash of a random number chosen anew in each process; it is now the hardware
