@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import re
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -11,12 +12,13 @@ import pyarrow as pa
 import pytest
 
 from nexusbt_tds import PROFILES, CheckResult, ProfileStatus, check
-from nexusbt_tds.profiles import describe, profile_id
+from nexusbt_tds.profiles import describe, meets, profile_id
+from nexusbt_tds.schemas.verify import DOC as TDS_DOC
 
 from .conformance_build import build
 
 #: TDS 7, the profile column of the table, in its order (`tds:fx` without `@`).
-CHAPTER_7 = "minimal-daily equity-daily-core panels intraday-bars fx"
+CHAPTER_7 = "minimal-daily equity-daily-core panels fx"
 
 
 def test_every_chapter_7_profile_is_in_the_table() -> None:
@@ -42,11 +44,20 @@ def test_core_stacks_on_minimal_with_raw_dense_daily_bars() -> None:
     ]
 
 
+def chapter_7_status(doc: str) -> dict[str, str]:
+    """Each profile row of TDS chapter 7's table: `experimental` where its cell says so."""
+    rows = re.findall(r"^\| `(tds:[a-z-]+(?:@[\d.]+)?)`( \(experimental\))? \|", doc, re.M)
+    return {profile_id(name): "experimental" if mark else "stable" for name, mark in rows}
+
+
 def test_alternatives_and_experimental_status() -> None:
     together = (("instruments", ()), ("bars", ()))  # TDS 7: `instruments(fx_spot)` + bars
     assert PROFILES["tds:fx@1.0"].requires == (((("fx_rates", ()),), together),)
-    assert PROFILES["tds:intraday-bars@1.0"].status == "experimental"
-    assert PROFILES["tds:minimal-daily@1.0"].status == "stable"
+    for edition in ("tds-v1.4.md", "tds-v1.4.ko.md"):  # the table's status is chapter 7's mark
+        status = chapter_7_status((TDS_DOC.parent / edition).read_text(encoding="utf-8"))
+        assert status == {name: p.status for name, p in PROFILES.items()}
+    sample = "| `tds:x@1.0` (experimental) | a |\n| `tds:y` | b |\n"  # the mark is read
+    assert chapter_7_status(sample) == {"tds:x@1.0": "experimental", "tds:y@1.0": "stable"}
 
 
 def test_a_typo_in_the_profile_table_fails_loudly() -> None:
@@ -122,24 +133,12 @@ def _add(kind: str) -> Callable[[dict[str, Any]], object]:
 @pytest.mark.parametrize(
     ("freq", "met"),
     [(f, True) for f in ("1h", "30m", "1s", "23h")]
-    + [(f, False) for f in ("1d", "24h", "1440m", "0h", "1w", "1mo", "1 h", "")],
+    + [(f, False) for f in ("1d", "24h", "1440m", "0h", "1w", "1mo", "1 h", "", None)],
 )
-def test_intraday_bars_need_bars_under_one_day(freq: str, met: bool, tmp_path: Path) -> None:
-    # TDS 7 `bars(freq<1d)`; #80 Decisions: `<n>h`, `<n>m` or `<n>s` under one day
-    def change(m: dict[str, Any]) -> None:
-        _add("calendar_sessions")(m)
-        _bars_params(freq=freq)(m)
-
-    found = _m008(tmp_path, "tds:intraday-bars@1.0", change)
-    assert found == ([] if met else ["tds:intraday-bars@1.0 requires dataset bars(freq<1d)"])
-
-
-def test_intraday_bars_without_freq_is_not_met(tmp_path: Path) -> None:
-    def change(m: dict[str, Any]) -> None:
-        _add("calendar_sessions")(m)
-        build.bars(m)["params"] = {}
-
-    assert _m008(tmp_path, "tds:intraday-bars@1.0", change)
+def test_a_freq_under_one_day(freq: str | None, met: bool) -> None:
+    # TDS 5.5 `freq<1d`; #80 Decisions: `<n>h`, `<n>m` or `<n>s` under one day; None: no `freq`.
+    # The value hash takes the intraday key by it; no profile asks it since 2026-11-26 (#752)
+    assert meets({} if freq is None else {"freq": freq}, "freq", "<1d") is met
 
 
 def test_fx_is_fx_rates_or_instruments_with_bars(tmp_path: Path) -> None:
@@ -205,7 +204,6 @@ def test_the_columns_chapter_7_names_per_profile() -> None:
         "minimal-daily": {"bars(freq=1d, price_basis)": "close"},
         "equity-daily-core": core,
         "panels": {"feature_panels": "ts_available", "label_panels": "ts_available"},
-        "intraday-bars": {"bars(freq<1d)": "ts_start ts_end session_date"},
     }
 
 

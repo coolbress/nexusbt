@@ -48,6 +48,9 @@ package version follows the `tds_version` it checks (`1.0.x`), tagged
   is now a kind with no schema file, so its columns, key and sort are not checked and at `full`
   TDS-H002, H003 and H004 are `unchecked` (no value hash without its types), while the rules
   that read any kind still apply; a package declaring one of those profiles gets TDS-M007
+- The profile `tds:intraday-bars@1.0` (#752, engine specification 4.3): a package declaring it
+  gets TDS-M007. Minute bars themselves are checked as before, and `freq<1d` still picks the
+  intraday key of `bars` (TDS 5.5)
 
 ### Added
 - TDS-M010 at the `schema` level for an `instruments.market` not declared in `markets` (TDS 3.8,

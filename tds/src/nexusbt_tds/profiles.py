@@ -3,11 +3,12 @@
 A requirement is a tuple of alternatives, each one or more datasets that must all be present
 (`instruments + bars`). A dataset is met by one whose `kind` (for the 4.4 dictionaries, whose
 `path`) matches and whose `params` meet each condition: `=value`, declared at all (`""`), or
-`<1d`, a `freq` under one day. The manifest level sees only kinds, paths and params. `columns`
-holds the columns a row names, by the dataset that holds them, for the schema level (#352); a
-cell that names none adds none. Row conditions (`instruments(fx_spot)`) are left to the full
-level. The tick, book, futures, options and crypto profiles left on 2026-11-25, research,
-pit-fundamentals, bitemporal and alt-events on 2026-11-26 (#752, spec 4.3).
+`<1d`, a `freq` under one day (no profile asks it now; the value hash reads it). The manifest
+level sees only kinds, paths and params. `columns` holds the columns a row names, by the
+dataset that holds them, for the schema level (#352); a cell that names none adds none. Row
+conditions (`instruments(fx_spot)`) are left to the full level. The tick, book, futures,
+options and crypto profiles left on 2026-11-25, research, pit-fundamentals, bitemporal,
+alt-events and intraday-bars on 2026-11-26 (#752, spec 4.3).
 """
 
 from __future__ import annotations
@@ -70,7 +71,7 @@ def meets(params: Mapping[str, Any], key: str, condition: str) -> bool:
     value = params.get(key)
     if value is None:  # null is not declared (#80 Decisions, item 1)
         return False
-    if condition == "<1d":  # TDS 7 `bars(freq<1d)`; read as chosen in #80 Decisions
+    if condition == "<1d":  # TDS 5.5 `freq<1d`; read as chosen in #80 Decisions
         match = _FREQ.fullmatch(value) if isinstance(value, str) else None
         return match is not None and 0 < int(match[1]) * _SECONDS[match[2]] < _DAY_SECONDS
     return condition == "" or value == condition.removeprefix("=")
@@ -91,16 +92,11 @@ _CORE = (
     "corporate_actions",
     "delistings",
 )
-_X = "experimental"
-
 _TABLE = (
     Profile("tds:minimal-daily@1.0", "stable", _needs(*_MINIMAL)),
     Profile("tds:equity-daily-core@1.0", "stable", _needs(*_CORE)),
     Profile(
         "tds:panels@1.0", "stable", _needs("feature_panels", "label_panels", "dictionary/columns")
-    ),
-    Profile(
-        "tds:intraday-bars@1.0", _X, _needs("instruments", "calendar_sessions", "bars:freq<1d")
     ),
     Profile("tds:fx@1.0", "stable", _needs("fx_rates|instruments+bars")),
 )
@@ -117,7 +113,6 @@ _COLUMNS = {
     "minimal-daily": {_MINIMAL[1]: "close"},
     "equity-daily-core": {_CORE[1]: "close obs_status"},
     "panels": {"feature_panels": "ts_available", "label_panels": "ts_available"},
-    "intraday-bars": {"bars:freq<1d": "ts_start ts_end session_date"},
 }
 #: Chapter 7's "`obs_status` on every row" (5.5's null cell, #705 Decisions 129): core;
 #: `minimal-daily` leaves it null on a row with values, its state not stated.
