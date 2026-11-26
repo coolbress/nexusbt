@@ -102,10 +102,12 @@ def _check_outside(replay: Replay) -> None:
         except Exception:  # finding a submodule imports its package, whose changed code may raise
             spec, failed = None, True
         file = Path(spec.origin) if spec and spec.origin else None
+        if spec is None and not failed:
+            raise _not_found(name, replay.run_id)
         if failed:
             how = "changed"
         elif file is None or not file.is_file():
-            how = "is missing"
+            how = "is missing"  # the name resolves, but no file is where it points
         elif _sha256(file) != digest:
             how = "changed"
         else:
@@ -117,6 +119,21 @@ def _check_outside(replay: Replay) -> None:
             fix=f"restore {name} as it was at the run", more="spec 5.9.2 source.outside",
             subject=f"run {replay.run_id}", layer=f"data — run {replay.run_id} / source",
         )  # fmt: skip
+
+
+def _not_found(name: str, run_id: str) -> ReplayError:
+    """#644 Decisions: a recorded name no finder resolves in the new process (a module loaded
+    from a path, an alias, one beside an entry outside the project) is not shown to be the
+    same code; it is not shown to be gone either, so nothing is to be restored."""
+    return ReplayError(
+        what=f"helper module {name} cannot be found by its name from the rerun's process; it was "
+             f"outside the project folder at run {run_id}, so only its name and sha256 are kept",
+        where=f"module {name}", why="a rerun needs the exact code it ran",
+        fix=f"make {name} importable by its name (install it, or put its folder on sys.path), or "
+            "keep it inside the project folder, where the run keeps the file",
+        more="spec 5.9.2 source.outside", subject=f"run {run_id}",
+        layer=f"data — run {run_id} / source",
+    )  # fmt: skip
 
 
 def check_snapshot(opened: Snapshot) -> None:
