@@ -978,7 +978,7 @@ v3는 3자 검토 합의대로 **M0을 계약만으로 줄이고**, 검사기 fu
 - Acceptance: `tests/unit/api/test_sweep.py::test_shared_nodes_computed_once`, `::test_candidates_registered`.
 
 **T6.14 `feat(api): capacity scenario`** · `M6` `api` · S · Blocked by: T6.7, T6.5 · §3.8, §5.7 [SC-06, OQ-4]
-- Done means: `backtest(..., scenarios=[..., "capacity"])`가 ×10·×100 CAGR, 상한 걸린 비율, 평균 참여율과 "cap binds at ≈ K" 줄을 출력; `sweep` 최종 후보 보고에 자동으로 켜짐; 기본 프로필 `provisional`에서는 비용이 주문 크기에 따라 늘지 않고 한계는 거래량 상한으로만 드러난다고 결과가 밝힘(5.7; #764, 결정 2026-11-25).
+- Done means: `backtest(..., scenarios=[..., "capacity"])`가 ×10·×100 CAGR, 상한 걸린 비율, 평균 참여율과 "cap binds at ≈ K" 줄을 출력; `sweep` 최종 후보 보고에 자동으로 켜짐; 기본 프로필 `provisional`에서는 거래 단위당 비용(bp)이 주문 크기에 따라 늘지 않고 한계는 거래량 상한으로만 드러난다고 결과가 밝힘(5.7; #764, 결정 2026-11-25).
 - Acceptance: `tests/unit/api/test_capacity.py::test_capacity_rows`, `::test_binds_at_definition`, `::test_sweep_final_candidates_have_capacity`.
 
 **T6.8 `feat(research): PSR, DSR and PBO via CSCV over cohorts`** · `M6` `research` · M · Blocked by: T6.7, T2.9 · §5.7, §6.3

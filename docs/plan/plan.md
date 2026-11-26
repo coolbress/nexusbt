@@ -978,7 +978,7 @@ Following the three-reviewer consensus, v3 **cut M0 down to contracts only**, an
 - Acceptance: `tests/unit/api/test_sweep.py::test_shared_nodes_computed_once`, `::test_candidates_registered`.
 
 **T6.14 `feat(api): capacity scenario`** · `M6` `api` · S · Blocked by: T6.7, T6.5 · §3.8, §5.7 [SC-06, OQ-4]
-- Done means: `backtest(..., scenarios=[..., "capacity"])` prints ×10 and ×100 CAGR, the share capped, the average participation rate and a "cap binds at ≈ K" line; switched on automatically in the `sweep` final candidate report; under the default profile `provisional` the result says that cost does not grow with order size and the limit shows only through the volume caps (5.7; #764, decision 2026-11-25).
+- Done means: `backtest(..., scenarios=[..., "capacity"])` prints ×10 and ×100 CAGR, the share capped, the average participation rate and a "cap binds at ≈ K" line; switched on automatically in the `sweep` final candidate report; under the default profile `provisional` the result says that the cost per unit traded (its bp) does not grow with order size and the limit shows only through the volume caps (5.7; #764, decision 2026-11-25).
 - Acceptance: `tests/unit/api/test_capacity.py::test_capacity_rows`, `::test_binds_at_definition`, `::test_sweep_final_candidates_have_capacity`.
 
 **T6.8 `feat(research): PSR, DSR and PBO via CSCV over cohorts`** · `M6` `research` · M · Blocked by: T6.7, T2.9 · §5.7, §6.3
