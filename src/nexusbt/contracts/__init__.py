@@ -672,7 +672,7 @@ _BUG = "please report: nexusbt bugreport r1"
 _EXAMPLE_LAYERS: dict[str, str] = {
     "E1": "your code — strategy.py:8 in mom", "E2": "your code — strategy.py:9 in value",
     "E4": "your code — strategy.py:5 in value", "E5": "your code — strategy.py:11 in value",
-    "E6": f"data — {_data('bars_1d', 'close')}",
+    "E6": f"data — {_data('bars', 'close')}",
     "E7": "your code — strategy.py:12 in value", "E8": "your code — strategy.py:14 in mom",
     "E9": "config — argument start=2020-01-01", "E10": "config — argument segment='test'",
     "E11": "config — nexusbt.toml [execution] order = 'limit'",
@@ -699,7 +699,7 @@ _EXAMPLE_LAYERS: dict[str, str] = {
     "E36": f"data — {_data('bars', 'close')}",
     "E37": "config — nexusbt.toml [defaults] capital = 10000000",
     "E38": "config — nexusbt.toml [shorting] max_gross = 1.0",
-    "E39": f"data → your code — {_data('bars_1d', 'close')} → strategy.py:6 in listed",
+    "E39": f"data → your code — {_data('bars', 'close')} → strategy.py:6 in listed",
     "E40": "config — nexusbt.toml [validate] max_fits = 200",
     "E41": "your code — strategy.py:30 in my_rule (risk slot)",
     "E42": "config — argument ledger=None",
