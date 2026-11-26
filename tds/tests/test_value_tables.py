@@ -133,12 +133,25 @@ def test_M019_one_item_in_two_tables(tmp_path: Path) -> None:
     assert manifest_codes(tmp_path / "a", twice) == [  # named on each later table
         ("TDS-M019", "symbol_values"), ("TDS-M019", "market_values")]  # fmt: skip
 
-    def second_values(m: dict[str, Any], files: Any) -> None:
-        other = dict(m["datasets"][-1], name="values_b")
-        m["datasets"].append(other)  # the same files under a second name: M013 too
+    def second(name: str) -> Any:
+        def change(m: dict[str, Any], files: Any) -> None:
+            m["datasets"].append(dict(m["datasets"][-1], name=name))  # same files: M013 too
 
-    found_b = manifest_codes(tmp_path / "b", build._valued(("values", "per")), second_values)
-    assert ("TDS-M019", "values_b") in found_b
+        return change
+
+    for named in ("values_b", "values"):  # a shared name hides nothing (#752 review)
+        found_b = manifest_codes(tmp_path / named, build._valued(("values", "per")), second(named))
+        assert ("TDS-M019", named) in found_b
+
+
+def test_M019_with_a_subset_names_only_the_subset(tmp_path: Path) -> None:
+    """`check(datasets=…)` judges those datasets: M019 when one of them is the later table."""
+    manifest, files = build.base()
+    build._valued(("values", "per"), ("market_values", "per"))(manifest, files)
+    path = build.write(tmp_path, manifest, files)
+    for subset, want in ((["values"], []), (["market_values"], ["market_values"])):
+        result = check(path, level="manifest", datasets=subset)
+        assert [f.dataset for f in result.errors if f.code == "TDS-M019"] == want
 
 
 def _declare(**fields: Any) -> Any:
@@ -166,6 +179,7 @@ def _declare(**fields: Any) -> Any:
         ({"params": {"items": {"per": {"kind": "x", "carry": -1}}}}, 2),
         ({"params": {"items": {"per": "per_share"}}}, 1),
         ({"params": {"items": ["per"]}}, 1),
+        ({"params": {"items": None}}, 1),  # null is no object (#752 review)
         ({"availability": {"rule": "session_close"}}, 1),  # 5.28 fixes it
     ],
 )  # fmt: skip

@@ -28,22 +28,22 @@ CARRIES = ("to_end", "none", "next_listing")
 
 
 def check_items(datasets: Sequence[Mapping[str, Any]], only: Sequence[str] | None) -> list[Finding]:
+    """With `only`, the findings of those datasets: M019 when one of them is the later table."""
     out: list[Finding] = []
-    owner: dict[str, str] = {}  # item → the first value table holding it
-    for ds in datasets:
+    owner: dict[str, tuple[int, str]] = {}  # item → the first value table holding it
+    for at, ds in enumerate(datasets):  # by place: two datasets may share a name (#752 review)
         kind = ds.get("kind")
         if not isinstance(kind, str) or kind not in VALUE_KINDS:  # `["values"]`: M001's
             continue
         name = str(ds.get("name"))
         mine = only is None or name in only
-        items = sorted(set(_items(ds)))
-        for item in items:
+        for item in sorted(set(_items(ds))):
             if mine and not (_NAME.fullmatch(item) and not keyword.iskeyword(item)):
                 msg = f"item {item!r} of {name}: not a value-table item name (TDS 5.28)"
                 out.append(Finding("TDS-M018", "error", msg, dataset=name))
-            first = owner.setdefault(item, name)
-            if first != name and (mine or first in (only or ())):
-                msg = f"item {item!r} is in {first} and {name}: an item lives in one value table"
+            first, where = owner.setdefault(item, (at, name))
+            if first != at and mine:
+                msg = f"item {item!r} is in {where} and {name}: an item lives in one value table"
                 out.append(Finding("TDS-M019", "error", f"{msg} (TDS 5.28)", dataset=name))
         if mine:
             out += [Finding("TDS-M014", "error", m, dataset=name) for m in _declared(ds)]
@@ -51,12 +51,13 @@ def check_items(datasets: Sequence[Mapping[str, Any]], only: Sequence[str] | Non
 
 
 def _items(ds: Mapping[str, Any]) -> Iterable[str]:
+    """Each listed file's `item=` value; of two in one path the last, as the hash reads it."""
     files = ds.get("files")
     for entry in files if isinstance(files, list) else []:
         rel = entry.get("path") if isinstance(entry, dict) else None
-        for part in PurePosixPath(rel).parent.parts if isinstance(rel, str) else ():
-            if part.startswith("item="):
-                yield part.removeprefix("item=")
+        parts = PurePosixPath(rel).parent.parts if isinstance(rel, str) else ()
+        named = [p.removeprefix("item=") for p in parts if p.startswith("item=")]
+        yield from named[-1:]
 
 
 def _declared(ds: Mapping[str, Any]) -> Iterable[str]:
@@ -64,9 +65,9 @@ def _declared(ds: Mapping[str, Any]) -> Iterable[str]:
     if "availability" in ds:
         yield "availability is written: a value table's is 5.28's, never declared (TDS 5.28)"
     params = ds.get("params")
-    items = params.get("items") if isinstance(params, dict) else None
-    if items is None:
+    if not isinstance(params, dict) or "items" not in params:
         return
+    items = params["items"]  # `null` is no object either (5.28)
     if not isinstance(items, dict):
         yield f"params.items {items!r} is not an object of item declarations (TDS 5.28)"
         return
