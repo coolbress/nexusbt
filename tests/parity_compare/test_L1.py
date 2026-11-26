@@ -9,6 +9,7 @@ import datetime as dt
 import importlib.util
 import json
 import platform
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -161,6 +162,7 @@ def engine_terms(market: str) -> dict[str, Any]:
     assert spec is not None
     assert spec.loader is not None
     users = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = users  # as `import` does: a class read by name is found (#690)
     spec.loader.exec_module(users)
     return {"close_latest": USEquityPricing.close.latest,
             **{f"returns_{w}": Returns(w) for w in (2, 21, 252)},
