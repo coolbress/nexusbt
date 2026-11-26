@@ -34,6 +34,7 @@ from nexusbt.contracts import (
 # Running a user term's function is in `_run` (#800); named here too, for the modules importing
 # them from here.
 from ._run import SCALE as SCALE
+from ._run import _pasteable
 from ._run import _user_line as _user_line
 from ._run import call_user as call_user
 from ._run import check_adjustment as check_adjustment
@@ -263,7 +264,8 @@ def _called_with_arrays(
 ) -> ConfigError:
     """3.3 (#582): E16 for `f(prices)`, its fix the `.function` call with the bound values."""
     name = fn.__name__
-    args = [*list(inspect.signature(fn).parameters)[:windows], *(f"{k}={v!r}" for k, v in bound)]
+    shown = (f"{k}={_pasteable(v)}" for k, v in bound)  # pasteable, NaN too (#624)
+    args = [*list(inspect.signature(fn).parameters)[:windows], *shown]
     return ConfigError(
         what=f"{name} was called with an array; a call binds keyword values and makes a Factor",
         where=f"{name}(...)",
@@ -344,6 +346,7 @@ def factor(
 ) -> Callable[[Callable[..., Any]], Factor]:
     """3.3 `@nx.factor`: the node, its hash (source, captured constants and the declared
     `adjustment`) and the function the executor runs on its windows (5.3.7)."""
+    _one_of("@nx.factor", "dtype", dtype, ("float64",))  # a Factor's values are float64 (#638)
     if adjustment not in (None, "degree 0", "degree 1"):
         raise ConfigError(
             what=f"adjustment={adjustment!r} is not a declaration @nx.factor takes",

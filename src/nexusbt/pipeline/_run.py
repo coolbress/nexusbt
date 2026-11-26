@@ -6,6 +6,7 @@ the messages point at (6.6 header). What a user function reads, for the hash and
 from __future__ import annotations
 
 import inspect
+import math
 import re
 import sys
 import traceback
@@ -154,3 +155,17 @@ def _user_line() -> str:
     name = frame.f_code.co_name
     where = f"{Path(frame.f_code.co_filename).name}:{frame.f_lineno}"
     return f"{where} in {name if name.isidentifier() else 'module'}"
+
+
+def _pasteable(value: object) -> str:
+    """`value` as Python a user can paste into a call (#624): `repr`, but a NaN or an infinity,
+    whose `repr` (`nan`, `inf`) is not Python, as `float("nan")`, `float("inf")` or
+    `float("-inf")`, also inside a tuple or a frozenset of bound values (6.5 (6))."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return f'float("{value}")'
+    if isinstance(value, tuple):
+        shown = ", ".join(map(_pasteable, value))
+        return f"({shown},)" if len(value) == 1 else f"({shown})"
+    if isinstance(value, frozenset) and value:
+        return f"frozenset({{{', '.join(map(_pasteable, value))}}})"
+    return repr(value)
