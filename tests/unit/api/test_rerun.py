@@ -150,6 +150,38 @@ def test_new_snapshot_that_does_not_open_is_its_own_E14(  # noqa: N802 - the cod
         assert "TDS-H001" in str(raised.value)
 
 
+def test_a_snapshot_whose_latest_names_a_folder_outside_is_E15(  # noqa: N802 - the code's name
+    copied: tuple[Path, str],
+) -> None:
+    """#636 Decisions 2: `pkg` replaced by a folder whose `LATEST` names one outside it (4.2):
+    no `tds.json` can be reached to show it is another snapshot, so on an exact rerun it is
+    the run's own, E15 (`_has_manifest`'s refusal of that `LATEST`)."""
+    project, run_id = copied
+    shutil.rmtree(project / "pkg")
+    (project / "pkg").mkdir()
+    (project / "pkg" / "LATEST").write_text("../elsewhere\n", encoding="utf-8")
+    with pytest.raises(ReplayError, match="is not available"):
+        nx.rerun(run_id)
+
+
+def test_an_E14_naming_the_run_s_snapshot_raised_by_the_entry_file_is_E15(  # noqa: N802
+    copied: tuple[Path, str],
+) -> None:
+    """#636 Decisions 2: an E14 the entry file raises outside any opening, whose layer names
+    the run's recorded snapshot, is E15 on an exact rerun and stays E14 with `new_snapshot`."""
+    project, run_id = copied
+    recorded = _manifest(project / "runs" / run_id)["snapshot_id"]
+    layer = f"data — snapshot {recorded} / prices / column - / producer -"
+    entry = ("from nexusbt.contracts import SnapshotError\n"
+             "raise SnapshotError(what='a file is unreadable', where='-', why='-', fix='-',"
+             f" more='-', layer='{layer}')\n")  # fmt: skip
+    _edit(project / "runs" / run_id / "source" / "scripts" / "m.py", entry)
+    with pytest.raises(ReplayError, match=f"snapshot {recorded} is not available"):
+        nx.rerun(run_id)
+    with pytest.raises(SnapshotError, match="a file is unreadable"):
+        nx.rerun(run_id, new_snapshot=True)
+
+
 def test_a_moved_snapshot_the_entry_file_opens_itself_is_E15(  # noqa: N802 - the code's name
     copied: tuple[Path, str],
 ) -> None:
@@ -386,17 +418,20 @@ def test_an_outside_helper_is_recorded_by_name_and_reruns(
     assert nx.rerun(run_id).comparison == _SAME
 
 
-@pytest.mark.parametrize(("text", "how"), [
-    ("SCALE = 2\n", "changed"),
-    ("SCALE = 1 / 0\n", "changed"),  # raises when `mylib` imports it during the check
-    (None, "is missing"),
+@pytest.mark.parametrize(("file", "text", "said"), [
+    ("helpers.py", "SCALE = 2\n", "mylib.helpers changed since run"),
+    ("helpers.py", "SCALE = 1 / 0\n", "mylib.helpers changed since run"),  # raises on import
+    ("__init__.py", None, "mylib is missing since run"),  # `mylib` resolves, to no file
+    ("helpers.py", None, "mylib.helpers cannot be found by its name"),
 ])  # fmt: skip
 def test_a_changed_or_missing_outside_helper_is_refused(
-    outside: tuple[Path, Path, str], tmp_path: Path, text: str | None, how: str
+    outside: tuple[Path, Path, str], tmp_path: Path, file: str, text: str | None, said: str
 ) -> None:
-    """E15 naming the module, with no absolute path or home folder (#250 Decisions)."""
+    """E15 naming the module, with no absolute path or home folder (#250 Decisions). A name
+    that resolves to no file is "missing"; a name no finder resolves cannot be found by it,
+    with nothing to restore (#644 Decisions 2)."""
     ext, _, run_id = outside
-    helper = ext / "mylib" / "helpers.py"
+    helper = ext / "mylib" / file
     if text is None:
         helper.unlink()
     else:
@@ -404,9 +439,89 @@ def test_a_changed_or_missing_outside_helper_is_refused(
     with pytest.raises(ReplayError) as refused:
         nx.rerun(run_id)
     text = str(refused.value)
-    assert f"helper module mylib.helpers {how} since run {run_id}" in text
+    assert f"helper module {said}" in text
+    assert ("restore" in text) is ("cannot be found" not in text)
     assert str(tmp_path.parent) not in text
     assert str(Path.home()) not in text
+
+
+_LOADED = """\
+import importlib.util
+import sys
+import nexusbt as nx
+spec = importlib.util.spec_from_file_location("cfg", "../elsewhere/cfg.py")
+cfg = sys.modules["cfg"] = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(cfg)
+"""
+_ALIAS = """\
+import sys
+import nexusbt as nx
+import mylib.helpers
+sys.modules["alias"] = mylib.helpers
+"""
+_BESIDE = "import nexusbt as nx\nimport side\n"
+_RUN = """\
+nx.run_pipeline(nx.Pipeline({"c": nx.Price.close.latest}), start="2020-01-06",
+                end="2020-01-06", snapshot="pkg", save=True)
+"""
+
+
+def test_an_entry_outside_the_project_that_imports_multiprocessing_reruns(
+    outside: tuple[Path, Path, str],
+) -> None:
+    """#644 Decisions (2026-11-27, A): `import multiprocessing` names the entry module
+    `__mp_main__` too. An entry outside the project folder is kept in `source/_entry/`, so
+    that name is not recorded as an outside module, and the unchanged run reruns. A run saved
+    before the fix records it; it is skipped when read, and that run reruns too."""
+    _, project, first = outside
+    elsewhere = project.parent / "elsewhere"
+    elsewhere.mkdir()
+    entry = "import multiprocessing\nimport nexusbt as nx\n" + _RUN
+    (elsewhere / "m2.py").write_text(entry, encoding="utf-8")
+    subprocess.run([sys.executable, "../elsewhere/m2.py"], check=True)
+    sealed = {p.name for p in (project / "runs").iterdir() if (p / "SEALED").is_file()}
+    (run_id,) = sealed - {first}
+    folder = project / "runs" / run_id
+    assert _manifest(folder)["source"]["outside"] == {}
+    assert nx.rerun(run_id, trust=True).comparison == _SAME  # `machine_id`: the first run's
+    found = _manifest(folder)  # as a run saved before the fix records it
+    found["source"]["outside"] = {"__mp_main__": hashlib.sha256(entry.encode()).hexdigest()}
+    _edit(folder / "manifest.json", json.dumps(found, sort_keys=True, indent=2) + "\n")
+    assert nx.rerun(run_id, trust=True).comparison == _SAME
+
+
+@pytest.mark.parametrize(("beside", "text", "name", "recorded"), [
+    (False, _LOADED, "cfg", ["cfg"]),  # loaded from a file path under a name
+    (False, _ALIAS, "alias", ["alias", "mylib", "mylib.helpers"]),  # another name in sys.modules
+    (True, _BESIDE, "side", ["side"]),  # beside an entry outside the project folder
+])  # fmt: skip
+def test_an_unchanged_outside_helper_not_found_by_its_name_is_refused_as_such(
+    outside: tuple[Path, Path, str], beside: bool, text: str, name: str, recorded: list[str]
+) -> None:
+    """#644 Decisions 1: nothing changed, but the recorded name resolves to nothing in the new
+    process, so the code is not shown to be the same: E15 saying it cannot be found by its
+    name, not that it is missing and must be restored. The run records only the modules the
+    entry imported from outside the project folder, so the refusal is about `name`."""
+    _, project, first = outside
+    elsewhere = project.parent / "elsewhere"
+    elsewhere.mkdir()
+    if name in ("cfg", "side"):
+        (elsewhere / f"{name}.py").write_text("SCALE = 1\n", encoding="utf-8")
+    ((elsewhere if beside else project) / "m2.py").write_text(text + _RUN, encoding="utf-8")
+    if beside:  # run from the project folder, as `python ../elsewhere/m2.py`
+        subprocess.run([sys.executable, "../elsewhere/m2.py"], check=True)
+    else:
+        subprocess.run([sys.executable, "m2.py"], check=True)
+    sealed = {p.name for p in (project / "runs").iterdir() if (p / "SEALED").is_file()}
+    (run_id,) = sealed - {first}
+    assert sorted(_manifest(project / "runs" / run_id)["source"]["outside"]) == recorded
+    with pytest.raises(ReplayError) as refused:
+        nx.rerun(run_id, trust=True)  # this process's `machine_id` is the first run's (#635)
+    said = str(refused.value)
+    assert f"helper module {name} cannot be found by its name from the rerun's process" in said
+    assert f"make {name} importable by its name" in said
+    assert "is missing" not in said
+    assert "restore" not in said
 
 
 def test_the_cli_prints_the_comparison(
