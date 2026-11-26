@@ -175,7 +175,7 @@ def screen(
         opened = snapshot
     else:
         source = DataConfig.from_config(cfg) if snapshot is None else DataConfig(Path(snapshot))
-        opened = open_snapshot(source)
+        opened = _rerun.open_data(source)
     columns: dict[str, pipeline.Term] = {"score": obj, "rank": obj.rank(ascending=False)}
     if top is not None:
         columns["kept"] = obj.top(top)
@@ -252,7 +252,7 @@ def run_pipeline(
     else:  # in a rerun, at least `schema` and each file's sha256, as 3.8 says
         folder = _snapshot_folder(snapshot) if isinstance(snapshot, _Snapshot) else snapshot
         given = DataConfig.from_config(cfg) if folder is None else DataConfig(Path(folder))
-        opened = open_snapshot(given, sha256=_rerun.ACTIVE is not None)
+        opened = _rerun.open_data(given, sha256=_rerun.ACTIVE is not None)
         _rerun.check_snapshot(opened)
     result = _pipeline.run(pipeline, start=start, end=end, freq=freq, markets=markets,
                            snapshot=opened, cfg=cfg, registry=schema_registry)  # fmt: skip
@@ -563,4 +563,4 @@ def _unmanaged(snapshot_id: str, run_id: str, reason: str) -> DataProfileWarning
 
 def open(path: str | Path) -> Snapshot:  # noqa: A001 - the 3.1 name `nx.open`
     """One package folder, or a parent folder whose `LATEST` names one (4.2, V31-PUB-03)."""
-    return open_snapshot(DataConfig(Path(path)))
+    return _rerun.open_data(DataConfig(Path(path)))
