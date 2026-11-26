@@ -12,6 +12,7 @@ import functools
 import hashlib
 import importlib.util
 import inspect
+import itertools
 import json
 import sys
 import sysconfig
@@ -595,8 +596,8 @@ def _reads(fn: FunctionType) -> _Reads:
     and the wrapper's by `_wrapper`, not again through the project function."""
     inner = _helper(fn)
     if inner is None or inner is fn:
-        return _walk(fn, set())
-    own = _walk(inner, set())
+        return _walk(fn, set(), term=True)
+    own = _walk(inner, set(), term=True)
     held = _wrapper(fn, "", {id(inner), *map(id, own.helpers)})
     helpers = sorted((*own.helpers, *held.helpers), key=lambda h: h.__qualname__)
     found = (*own.found, *held.found)
@@ -625,9 +626,11 @@ def _decorator(wrapper: FunctionType) -> str:
     return f"{home}.{wrapper.__code__.co_qualname.split('.<locals>')[0]}"
 
 
-def _walk(fn: FunctionType, seen: set[int]) -> _Reads:
+def _walk(fn: FunctionType, seen: set[int], term: bool = False) -> _Reads:
     """What `fn` and the project helpers it reaches read, skipping the functions in `seen`; each
-    constant with the object holding it and the names by which `fn` reaches that (#689)."""
+    constant with the object holding it and the names by which `fn` reaches that (#689). `term`:
+    `fn` is a term's own function, whose parameters hold its input windows and bound constants
+    (#674); a helper's or a wrapper's hold whatever their caller passes."""
     found: list[_Found] = [(k, id(fn), "", v) for k, v in _defaults(fn).items()]
     helpers: list[FunctionType] = []
     impure: set[str] = set()
@@ -643,7 +646,8 @@ def _walk(fn: FunctionType, seen: set[int]) -> _Reads:
         values = _values(f, names)
         prefix = "" if f is fn else _prefix(f)
         mine: dict[str, Any] = {}
-        judged = _judge(sorted(values.items()), attrs, prefix, mine, impure, lost)
+        wanted = _wanted(f, attrs, term and f is fn)
+        judged = _judge(sorted(values.items()), wanted, prefix, mine, impure, lost)
         found += [(k, id(f), reach, v) for k, v in mine.items()]
         for name, value, helper in judged:
             there = _reach(reach, name)
@@ -686,7 +690,7 @@ def _values(f: FunctionType, names: set[str]) -> dict[str, Any]:
 
 def _judge(
     reads: list[tuple[str, Any]],
-    attrs: set[str],
+    wanted: Callable[[str], Collection[str]],
     prefix: str,
     found: dict[str, Any],
     impure: set[str],
@@ -694,11 +698,11 @@ def _judge(
 ) -> list[tuple[str, Callable[..., Any], FunctionType]]:
     """Sort what one function reads, last name first: a constant into `found` (under `prefix`),
     a class or module that cannot be found by its name into `lost` (#690), a project namespace
-    into the attributes read of it, data or a callable not found again by reference into
-    `impure`; the project helpers it reaches are returned, in the order met, each with the name
-    and the value it is read by (a library's wrapper keeping it, #676)."""
+    into the attributes `wanted` says are read off it (#674), data or a callable not found again
+    by reference into `impure`; the project helpers it reaches are returned, in the order met,
+    each with the name and the value it is read by (a library's wrapper keeping it, #676)."""
     helpers: list[tuple[str, Callable[..., Any], FunctionType]] = []
-    spaces = set[int]()
+    spaces = set[tuple[int, tuple[str, ...]]]()
     while reads:
         name, value = reads.pop()
         if _constant(value):
@@ -706,9 +710,10 @@ def _judge(
         elif isinstance(value, ModuleType | type) and (gone := _unnamed(value)):
             lost.add((name, *gone))
         elif isinstance(value, ModuleType | type):  # `cfg.LIMIT`: a project namespace's
-            if _project_space(value) and id(value) not in spaces:
-                spaces.add(id(value))
-                reads += [(f"{name}.{a}", getattr(value, a)) for a in sorted(attrs)
+            asked = tuple(sorted(wanted(name)))
+            if _project_space(value) and (id(value), asked) not in spaces:
+                spaces.add((id(value), asked))
+                reads += [(f"{name}.{a}", getattr(value, a)) for a in asked
                           if hasattr(value, a)]  # fmt: skip
         elif _held(value):  # an array, a list, a dict, a DataFrame, an object holding one,
             impure.add(name)  # also when it keeps a function in `__wrapped__`
@@ -771,6 +776,91 @@ def _lookup(module: ModuleType, dotted: str) -> object:
     for part in dotted.split("."):
         found = getattr(found, part, None)
     return found
+
+
+#: Instructions for #674: those that read an attribute off what was loaded just before; those
+#: that load a value an attribute may be read off, a global or a closure's cell, or a local; and
+#: those that load a name in a class body, whose chains are not followed.
+_ATTRS = frozenset({"LOAD_ATTR", "LOAD_METHOD"})
+_BASES = frozenset({"LOAD_GLOBAL", "LOAD_NAME", "LOAD_DEREF", "LOAD_FAST"})
+_IN_CLASS = frozenset({"LOAD_FROM_DICT_OR_DEREF", "LOAD_FROM_DICT_OR_GLOBALS"})
+_POSITIONS = (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD,
+              inspect.Parameter.KEYWORD_ONLY)  # fmt: skip
+
+
+@dataclass
+class _Chains:
+    """What one function's code (and the code nested in it) reads attributes off (#674): by
+    dotted path off a global or a closure's cell (`cfg.sub.LIMIT` gives `cfg` → `sub`, `cfg.sub`
+    → `LIMIT`), the paths where a chain stops and the value is used as it is (`c = cfg`), and the
+    attributes read off anything else but a parameter of the function (a call's result, a local,
+    a default, an item), which may be any namespace."""
+
+    paths: dict[str, set[str]] = field(default_factory=dict)
+    ends: set[str] = field(default_factory=set)
+    unknown: set[str] = field(default_factory=set)
+
+
+def _wanted(f: FunctionType, attrs: set[str], term: bool) -> Callable[[str], Collection[str]]:
+    """The attributes a project namespace that `f` reads at a dotted path (`cfg`, `cfg.sub`) is
+    asked for (#674, Decisions 1, 2): those `f`'s code reads straight off that path, and those it
+    reads off something whose value the code does not show (`get().K`, `c.K` with `c=cfg` a
+    default, `globals()["cfg"].K`); every attribute name the code loads, as before, when it uses
+    the path some other way (`c = cfg`, `getattr(cfg, n)`) or reaches it by no chain the code
+    shows. An attribute read off a parameter with no default that the code never sets, of a
+    term's own function (`term`: `close.mean()`, the input window's), is not asked of any
+    namespace; a helper's parameter may hold one. An attribute read where two paths of the code
+    meet (`(c or cfg.sub).K`) is asked of every namespace."""
+    params = inspect.signature(f).parameters.values() if term else ()
+    plain = {p.name for p in params if p.kind in _POSITIONS and p.default is p.empty}
+    seen = _Chains()
+    _chain(f.__code__, frozenset(f.__code__.co_freevars), frozenset(plain - _set(f.__code__)), seen)
+    return lambda path: (attrs if path in seen.ends or path not in seen.paths
+                         else seen.paths[path] | seen.unknown)  # fmt: skip
+
+
+def _chain(code: CodeType, free: frozenset[str], plain: frozenset[str], seen: _Chains) -> None:
+    """`seen` with what `code` reads attributes off; `free` and `plain` are the closure's names
+    and the plain parameters of the function, as `code` sees them (a name it defines itself is
+    its own)."""
+    ops = list(dis.get_instructions(code))
+    taken = set[int]()
+    for i, op in enumerate(ops):
+        if op.opname in _IN_CLASS:
+            seen.ends.add(op.argval)
+        if op.opname not in _BASES:
+            continue
+        chain = list(itertools.takewhile(lambda o: o.opname in _ATTRS and not o.is_jump_target,
+                                         ops[i + 1 :]))  # fmt: skip
+        taken.update(range(i + 1, i + 1 + len(chain)))
+        if op.opname in ("LOAD_FAST", "LOAD_DEREF") and op.argval in plain:
+            continue  # a parameter's attributes: the input window's, not a namespace's
+        if op.opname in ("LOAD_FAST", "LOAD_DEREF") and op.argval not in free:
+            seen.unknown.update(o.argval for o in chain)  # a local: its value is not shown
+            continue
+        path = op.argval
+        for nxt in chain:
+            seen.paths.setdefault(path, set()).add(nxt.argval)
+            path = f"{path}.{nxt.argval}"
+        seen.ends.add(path)
+    loose = (o.argval for i, o in enumerate(ops) if o.opname in _ATTRS and i not in taken)
+    seen.unknown.update(loose)  # off a call's result, an item, ...: its value is not shown
+    for const in code.co_consts:
+        if isinstance(const, CodeType):
+            own = set(const.co_varnames) | set(const.co_cellvars)
+            _chain(const, free - own, plain - own, seen)
+
+
+def _set(code: CodeType) -> set[str]:
+    """The local names the code (and the code nested in it) sets or deletes."""
+    names = set[str]()
+    for op in dis.get_instructions(code):
+        if op.opname.startswith(("STORE_FAST", "DELETE_FAST", "STORE_DEREF", "DELETE_DEREF")):
+            names.update(op.argval if isinstance(op.argval, tuple) else (op.argval,))
+    for const in code.co_consts:
+        if isinstance(const, CodeType):
+            names |= _set(const)
+    return names
 
 
 def _loads(code: CodeType) -> tuple[set[str], set[str]]:
