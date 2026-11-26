@@ -799,7 +799,7 @@ def _defaults(fn: FunctionType) -> dict[str, Any]:
 
 def _values(f: FunctionType, names: set[str]) -> dict[str, Any]:
     """The values `f` reads by name: the globals it loads, then its closure's cells."""
-    values = {n: f.__globals__[n] for n in names if n in f.__globals__}
+    values = {n: f.__globals__[n] for n in sorted(names) if n in f.__globals__}
     for name, cell in zip(f.__code__.co_freevars, f.__closure__ or (), strict=True):
         try:
             values[name] = cell.cell_contents
