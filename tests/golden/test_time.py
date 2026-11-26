@@ -121,7 +121,7 @@ def _tri(cells: list[Any]) -> list[Any]:
 def test_T24_filter_unknown() -> None:  # noqa: N802 - spec 10.1's name
     """T-24: every row of the three-valued table through the kernels, from the case's inputs,
     and the `Price` rows through the reference executor (5.4.1, 3.3; #245 Decisions 2026-11-18:
-    the executor reads no `Meta` or `Trad` column yet)."""
+    the executor reads no item or `Trad` column yet)."""
     case = yaml.safe_load((CASES / "T-24.yaml").read_text())
     given = case["input"]
     prev, close = (np.array(given[k], dtype=np.float64) for k in ("close_prev", "close"))
@@ -140,7 +140,7 @@ def test_T24_filter_unknown() -> None:  # noqa: N802 - spec 10.1's name
         "(Price.close.latest > 10000) | Price.close.latest.isnan()": k.kleene_or(*up, *nan),
         "(Price.close.latest > 10000).all(2)": k.kleene_all(*windows),
         "(Price.close.latest > 10000).any(2)": k.kleene_any(*windows),
-        'Meta.sector.eq("x")': k.codes_in(codes, np.array([table.index("x")], np.int32)),
+        "nx.Item.sector.eq(1)": k.codes_in(codes, np.array([table.index(1)], np.int32)),
         "~Trad.halted": ok,
         "(~Trad.halted).fillna(True)": filled,
         "(Price.close.latest > 10000) & ~Trad.halted": k.kleene_and(*up, *ok),

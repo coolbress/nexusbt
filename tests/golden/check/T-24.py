@@ -14,7 +14,7 @@ type Cell = bool | str
 # KR:T00001, KR:T00002, KR:T00003. KR:T00003 is halted at d: no close.
 CLOSE_PREV = (nan, 12_000.0, 8_000.0)  # the session before d (`.all(2)`, `.any(2)`)
 CLOSE = (12_000.0, 8_000.0, nan)
-SECTOR = ("x", "y", None)  # None: the missing code -1
+SECTOR = (1, 2, None)  # None: the missing code -1
 HALTED: tuple[Cell, ...] = (False, U, True)
 
 
@@ -42,9 +42,9 @@ def as_factor(a: Cell) -> float:
     return nan if a == U else float(a)
 
 
-def is_x(code: str | None) -> Cell:
-    """`Meta.sector.eq("x")`: the missing code gives unknown."""
-    return U if code is None else code == "x"
+def is_one(code: int | None) -> Cell:
+    """`nx.Item.sector.eq(1)`: the missing code gives unknown."""
+    return U if code is None else code == 1
 
 
 def fill_true(a: Cell) -> Cell:
@@ -75,7 +75,7 @@ ROWS = (
         or_(up_a0, up_a), or_(up_b0, up_b), or_(up_c0, up_c)),
     {"term": "(Price.close.latest > 10000).as_factor()",
      "values": [as_factor(up_a), as_factor(up_b), as_factor(up_c)], "final": None},
-    row('Meta.sector.eq("x")', is_x(SECTOR[0]), is_x(SECTOR[1]), is_x(SECTOR[2])),
+    row("nx.Item.sector.eq(1)", is_one(SECTOR[0]), is_one(SECTOR[1]), is_one(SECTOR[2])),
     row("~Trad.halted", ok_a, ok_b, ok_c),
     row("(~Trad.halted).fillna(True)", fill_true(ok_a), fill_true(ok_b), fill_true(ok_c)),
     row("(Price.close.latest > 10000) & ~Trad.halted",
