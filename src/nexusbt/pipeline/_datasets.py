@@ -1,21 +1,21 @@
 """The datasets of 3.2: namespaces whose attributes are column terms.
 
-A fixed column (`Price`, `Meta`) is checked where it is written. A snapshot's columns (`Panel`,
-`Label`) are not known there, as `pipeline` reads no data (2.5): `bind` checks them against the
-`SchemaRegistry` that `api` builds from the opened snapshot. Both raise E7 with similar names.
+A fixed column (`Price`, `Meta`) is checked where it is written, E7 with similar names. A
+snapshot's own names (`Item`, 5.3.5) come with the value tables' code; `Panel` and `Label` were
+removed 2026-11-24 (#752). `bind` takes the `SchemaRegistry` `api` builds from the opened
+snapshot, as `pipeline` reads no data (2.5).
 """
 
 from __future__ import annotations
 
 import difflib
 from collections.abc import Collection, Iterator, Mapping
-from keyword import iskeyword
 from types import MappingProxyType
 from typing import Any, ClassVar
 
 import numpy as np
 
-from nexusbt.contracts import ENGINE_COLUMNS, ColumnNameError, LabelLeakError, SchemaRegistry
+from nexusbt.contracts import ColumnNameError, SchemaRegistry
 
 from ._degree import check_degrees
 from ._terms import BoundColumn, Classifier, Filter, Pipeline, Term, _node, _user_line, call_user
@@ -64,80 +64,36 @@ class Meta(metaclass=_Dataset):
     _aliases = MappingProxyType({"country": "market", "exchange": "venue_mic"})
 
 
-class Panel(metaclass=_Dataset): ...
-
-
-class Label(metaclass=_Dataset): ...
-
-
 def bind(graph: Term | Pipeline, registry: SchemaRegistry) -> None:
-    """2.5: check the graph's `Panel` and `Label` columns against the snapshot's registry (E7).
-
-    A label read through `Panel` is E2 (8.4); a term of known non-zero degree fed to `shift` or
-    a window is E17 (3.3, 3.4); a user function is called once on `(W, 3)` windows of 1.0, so a
-    row before its window or a result of another shape is E8 before any data is read (6.5 (5))."""
+    """2.5: check the graph before any data is read. A term of known non-zero degree fed to
+    `shift` or a window is E17 (3.3, 3.4); a user function is called once on `(W, 3)` windows
+    of 1.0, so a row before its window or a result of another shape is E8 (6.5 (5)). No column
+    of the graph is the snapshot's own until `Item` (5.3.5): `registry` is not read yet."""
     __tracebackhide__ = True  # down to a user function (R-42)
     check_degrees(_roots(graph))
-    names, leaks = _snapshot_columns(registry)
     for term in _terms(graph):
         params = dict(term.params)
         if term.op == "user":
             call_user(term, [np.ones((params["window"], 3))] * len(term.inputs), 3)
-        known = names.get(params["dataset"]) if term.op == "column" else None
-        if known is not None and params["column"] not in known:
-            if params["dataset"] == "Panel" and params["column"] in leaks:
-                raise _label_leak(params["column"])
-            raise _no_column(params["dataset"], params["column"], known)
 
 
 _STUB = """\
 # Written by `nexusbt stubs` from the snapshot's dictionary (spec 3.2); not edited by hand.
 from nexusbt.pipeline._terms import BoundColumn, Classifier, Filter
-
-class _Snapshot(type):  # another snapshot holds other columns: any name is one
-    def __getattr__(cls, name: str) -> BoundColumn: ...
 """
 
 
 def stub_source(registry: SchemaRegistry | None = None) -> str:
-    """`_stubs/datasets.pyi`: the fixed columns and aliases, and the snapshot's `Panel` and
-    `Label` columns when a registry names them, for the editor and the type checker (3.2)."""
-    names = _snapshot_columns(registry)[0] if registry else {}
+    """`_stubs/datasets.pyi`: the fixed columns and aliases, for the editor and the type
+    checker (3.2). No class holds a snapshot's own columns until `Item` (5.3.5), so a registry
+    adds nothing yet."""
     text = _STUB
-    for cls in (Price, Meta, Panel, Label):
-        columns = names.get(cls.__name__, [*(cls._fixed or ()), *cls._aliases])
+    for cls in (Price, Meta):
+        columns = [*(cls._fixed or ()), *cls._aliases]
         kinds = {c: cls._kinds.get(cls._aliases.get(c, c), cls._kind).__name__ for c in columns}
-        body = [f"    {c}: {k}" for c, k in kinds.items() if _writable(c)]
-        head = f"class {cls.__name__}" + ("" if cls._fixed else "(metaclass=_Snapshot)")
-        # the formatter's shape: no blank line between two classes without a body
-        gap = "\n" if body or not text.endswith("): ...\n") else ""
-        text += gap + "\n".join([f"{head}:" if body else f"{head}: ...", *body]) + "\n"
+        body = [f"    {c}: {k}" for c, k in kinds.items()]
+        text += "\n" + "\n".join([f"class {cls.__name__}:", *body]) + "\n"
     return text
-
-
-def _writable(name: str) -> bool:
-    """A column the stub can list: a name Python reads after a dot, that the dataset gives
-    (not `_x`) and that does not hide a type the stub names."""
-    hides = name in ("BoundColumn", "Classifier", "Filter")
-    return name.isidentifier() and not (iskeyword(name) or name.startswith("_") or hides)
-
-
-def _snapshot_columns(registry: SchemaRegistry) -> tuple[dict[str, list[str]], frozenset[str]]:
-    """`Panel`'s and `Label`'s columns in the registry, and the names that are labels.
-
-    `Panel` holds the feature columns of the dataset `registry.feature`, `Label` the columns of
-    `registry.label` that `dictionary/columns` marks `is_label`. A label is in `Label` only: a
-    name marked in either dataset is not a `Panel` column."""
-    features = registry.columns.get(registry.feature, ())
-    labels = registry.columns.get(registry.label, ())
-    marked = registry.labels.get(registry.label, frozenset())
-    leaks = marked | registry.labels.get(registry.feature, frozenset())
-    hidden = ENGINE_COLUMNS["feature_panels"] | leaks
-    names = {
-        "Panel": [name for name, _ in features if name not in hidden],
-        "Label": [name for name, _ in labels if name in marked],
-    }
-    return names, leaks
 
 
 def _terms(graph: Term | Pipeline) -> Iterator[Term]:
@@ -156,17 +112,6 @@ def _roots(graph: Term | Pipeline) -> list[Term]:
     if isinstance(graph, Term):
         return [graph]
     return [*graph.columns.values(), *([] if graph.screen is None else [graph.screen])]
-
-
-def _label_leak(name: str) -> LabelLeakError:
-    line = _user_line()
-    return LabelLeakError(
-        what=f"Panel.{name} is a label (forward-looking)", where="dataset Panel",
-        why="a label is known only after the decision, so it is a column of Label only",
-        fix=f"test it with nx.evaluate(f, target=Label.{name})",
-        more="spec 3.2 (Label) and 6.5 check 2", layer=f"your code — {line}",
-        at=line.split(" in ")[0], subject=f"Panel.{name}",
-    )  # fmt: skip
 
 
 def _no_column(dataset: str, name: str, names: Collection[str]) -> ColumnNameError:

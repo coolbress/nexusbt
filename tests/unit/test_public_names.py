@@ -28,7 +28,7 @@ PUBLIC = {
     " EvaluateTargetPolicy RoundingModePolicy",
     "nexusbt.config": "load_config Config",
     "nexusbt.data": "open_snapshot Snapshot",
-    "nexusbt.pipeline": "Term Factor Filter Classifier Pipeline Price Fund Meta Panel Label"
+    "nexusbt.pipeline": "Term Factor Filter Classifier Pipeline Price Meta"
     " factor filter classifier factors graph_hash static_check",
     "nexusbt.compute": "compute ComputePolicy TermCache",
     "nexusbt.portfolio": "build_targets PortfolioRule",

@@ -490,10 +490,8 @@ def config() -> Config:
 
 
 def schema_registry(snapshot: Snapshot, cfg: Config) -> SchemaRegistry:
-    """2.5: what `pipeline` binds column names against, from the opened snapshot and the two
-    datasets `[panels]` names."""
-    panels = cfg.values["panels"]
-    return SchemaRegistry(*dataset_columns(snapshot), panels["feature"], panels["label"])
+    """2.5: what `pipeline` binds column names against, from the opened snapshot."""
+    return SchemaRegistry(dataset_columns(snapshot))
 
 
 #: The stub file 3.2 names, which `stubs` writes and `stubs_current` reads.

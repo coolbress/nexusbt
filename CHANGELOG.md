@@ -14,6 +14,13 @@ versions follow [Semantic Versioning](https://semver.org/).
 ### Added
 - Initial skeleton
 
+### Removed
+- `nx.Panel`, `nx.Label` and `nexusbt.pipeline.Fund`, the config tables `[panels]` and
+  `[fund]`, and the reading of `dictionary/columns`' `is_label` (#752). A `nexusbt.toml`
+  that still has `[panels]` or `[fund]` is refused (E16); remove the table. A package's
+  values outside trading become value-table items (`nx.Item`, spec 5.3.5), which come
+  later. `nexusbt stubs` writes `Price` and `Meta` only.
+
 ### Fixed
 - `environment.machine_id` is the same in every process on a host (#635). On a host
   with no machine-id file where Python finds no hardware address (seen on macOS), it

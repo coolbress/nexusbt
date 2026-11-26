@@ -1,9 +1,6 @@
 # Written by `nexusbt stubs` from the snapshot's dictionary (spec 3.2); not edited by hand.
 from nexusbt.pipeline._terms import BoundColumn, Classifier, Filter
 
-class _Snapshot(type):  # another snapshot holds other columns: any name is one
-    def __getattr__(cls, name: str) -> BoundColumn: ...
-
 class Price:
     open: BoundColumn
     high: BoundColumn
@@ -28,6 +25,3 @@ class Meta:
     is_financial: Filter
     country: Classifier
     exchange: Classifier
-
-class Panel(metaclass=_Snapshot): ...
-class Label(metaclass=_Snapshot): ...

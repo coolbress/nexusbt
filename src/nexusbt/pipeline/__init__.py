@@ -6,9 +6,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from ._datasets import Label as Label
 from ._datasets import Meta as Meta
-from ._datasets import Panel as Panel
 from ._datasets import Price as Price
 from ._datasets import bind as bind
 from ._datasets import stub_source as stub_source
@@ -27,9 +25,6 @@ from . import factors as factors  # the 2.4 "`factors` module"  # isort: skip
 
 @dataclass(frozen=True, slots=True)
 class Finding: ...
-
-
-class Fund: ...  # T2.2
 
 
 def filter(  # noqa: A001 - the 3.1 name `nx.filter`

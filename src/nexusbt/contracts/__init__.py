@@ -357,13 +357,9 @@ class SchemaRegistry:
     """What a snapshot's datasets hold, for `pipeline` to bind column names against (2.5).
 
     `columns`: per dataset name, its (column, TDS type) pairs in the order the package resolves
-    them; `labels`: per dataset name, the columns `dictionary/columns` marks `is_label`;
-    `feature` and `label`: the datasets `Panel` and `Label` read (3.11 `[panels]`)."""
+    them."""
 
     columns: Mapping[str, tuple[tuple[str, str | None], ...]]
-    labels: Mapping[str, frozenset[str]]
-    feature: str = "factor_pit_monthly"
-    label: str = "label_monthly"
 
 
 class ActionEffects(Protocol):

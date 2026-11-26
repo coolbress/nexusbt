@@ -7,12 +7,11 @@ from pathlib import Path
 import pytest
 
 import nexusbt as nx
-from nexusbt import Label, Meta, Panel, Price
+from nexusbt import Meta, Price
 from nexusbt.cli.main import main as nexusbt_main
 from nexusbt.contracts import SchemaRegistry
 from nexusbt.pipeline import BoundColumn, bind, stub_source
 
-ODD = ("class", "1m", "_x", "Filter")  # column names a stub cannot list
 TYPO = "clsoe"  # by `getattr`: the stubs make `Price.clsoe` a type error too
 #: 3.2, the `Price` table, in its order.
 PRICE = "open high low close close_tr close_unadjusted volume volume_unadjusted value_traded"
@@ -62,52 +61,21 @@ def test_meta_has_no_hindsight_columns(name: str) -> None:
     assert name not in dir(Meta)
 
 
-#: A snapshot with the 4.8 panels: `ret_fwd_1m_dl` is a label, also where a producer put one
-#: into the feature panel.
-KEYS = [("instrument_id", "id"), ("period", "date"), ("as_of_date", "date")]
-MARKED = frozenset({"ret_fwd_1m_dl"})
-REGISTRY = SchemaRegistry(
-    columns={
-        "factor_pit_monthly": (*KEYS, ("ts_available", "ts_us"), ("bm", "f64"),
-                               ("mom_12_1", "f64"), ("ret_fwd_1m_dl", "f64")),
-        "label_monthly": (*KEYS, ("entry_date", "date"), ("ret_fwd_1m_dl", "f64")),
-    },
-    labels={"factor_pit_monthly": MARKED, "label_monthly": MARKED},
-)  # fmt: skip
-
-
-def test_is_label_columns_only_in_Label() -> None:  # noqa: N802 - the spec's name (10.1 T1.6)
-    bind(Label.ret_fwd_1m_dl, REGISTRY)
-    only_label_marked = SchemaRegistry(REGISTRY.columns, {"label_monthly": MARKED})
-    for registry in (REGISTRY, only_label_marked):  # 8.4: a label read like a `Panel` is E2
-        with pytest.raises(nx.LabelLeakError, match=r"Panel\.ret_fwd_1m_dl is a label"):
-            bind(Panel.ret_fwd_1m_dl.latest, registry)
-    for not_a_label in ("entry_date", "bm"):
-        with pytest.raises(nx.ColumnNameError, match=f"Label has no column '{not_a_label}'"):
-            bind(getattr(Label, not_a_label), REGISTRY)
+#: A snapshot's column set as `api` hands it to `bind` (2.5).
+REGISTRY = SchemaRegistry({"bars_1d": (("instrument_id", "id"), ("close", "f64"))})
 
 
 def test_schema_registry_injected_at_binding() -> None:
-    """2.5: `pipeline` reads no data, so a snapshot's columns are checked when the graph meets
-    the registry, wherever the column sits in it."""
-    graph = Panel.bm.latest.rank(mask=Panel.mom_12_1.latest > 0) + Price.close.latest
+    """2.5: `pipeline` reads no data, so a graph meets the snapshot's registry at binding,
+    wherever its nodes sit; a chain deeper than the call stack binds (a loop, not recursion)."""
+    graph = Price.close.latest.rank(mask=Price.volume.latest > 0) + Price.open.latest
     bind(graph, REGISTRY)
-    bind(nx.Pipeline({"value": graph}, screen=Panel.bm.latest > 0), REGISTRY)
-    typo = Panel.bmm.latest  # not known where it is written
-    for wrong in (typo, graph.rank(mask=typo > 0), nx.Pipeline({"x": graph}, screen=typo > 0)):
-        with pytest.raises(nx.ColumnNameError, match=r"'bmm'\. Did you mean: bm\?\n"):
-            bind(wrong, REGISTRY)
-    with pytest.raises(nx.ColumnNameError, match="Panel has no column 'period'"):  # a key
-        bind(Panel.period, REGISTRY)
-    deep = Panel.bmm.latest
+    bind(nx.Pipeline({"value": graph}, screen=Price.close.latest > 0), REGISTRY)
+    deep = Price.close.latest
     for _ in range(3000):  # deeper than the call stack
         deep = deep + 1
-    with pytest.raises(nx.ColumnNameError):
-        bind(deep, REGISTRY)
-    other = SchemaRegistry({"value_m": (("bmm", "f64"),)}, {}, feature="value_m")
-    bind(typo, other)  # `[panels] feature` names the dataset
-    with pytest.raises(nx.ColumnNameError, match="Panel has no column 'bm'"):
-        bind(Panel.bm.latest, SchemaRegistry({}, {}))  # a snapshot without panels
+    bind(deep, REGISTRY)
+    bind(deep, SchemaRegistry({}))  # a snapshot's columns are not read until `Item` (5.3.5)
 
 
 def test_stub_file_generated(
@@ -122,16 +90,12 @@ def test_stub_file_generated(
         "    market: Classifier\n",
         "    is_financial: Filter\n",
         "    country: Classifier\n",
-        "class Label(metaclass=_Snapshot): ...\n",
     ):
         assert line in fixed
     assert "delisted_on" not in fixed
-    bound = stub_source(SchemaRegistry(
-        {**REGISTRY.columns, "label_monthly": (*((c, "f64") for c in ("ret_fwd_1m_dl", *ODD)),)},
-        {"label_monthly": frozenset({"ret_fwd_1m_dl", *ODD})}))  # fmt: skip
-    assert "class Panel(metaclass=_Snapshot):\n    bm: BoundColumn\n    mom_12_1: Bound" in bound
-    # a label is a `Label` column only; a name Python cannot write after a dot is left out
-    assert bound.endswith("class Label(metaclass=_Snapshot):\n    ret_fwd_1m_dl: BoundColumn\n")
+    for removed in ("Panel", "Label"):  # 2026-11-24 (#752)
+        assert removed not in fixed
+    assert stub_source(REGISTRY) == fixed  # no class holds a snapshot's columns until `Item`
     stub = Path(nx.__file__).parent / "_stubs" / "datasets.pyi"
     assert stub.read_text(encoding="utf-8") == fixed  # the committed file: no snapshot
     monkeypatch.chdir(tmp_path)  # no nexusbt.toml: no snapshot to read

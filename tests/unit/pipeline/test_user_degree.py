@@ -45,7 +45,7 @@ def test_a_declared_degree_1_is_refused_through_shift_and_a_window() -> None:
     """3.3, 3.4, #499's check: a user function declared degree 1 is E17 through `shift(k ≥ 1)`
     and as the `Factor` input of a window of two rows or more; one declared degree 0, and one
     with no declaration, are not refused."""
-    registry = SchemaRegistry(columns={}, labels={})
+    registry = SchemaRegistry(columns={})
     level = nx.factor(window=1, inputs=[CLOSE], adjustment="degree 1")(_last)
     for fed in (level.shift(1), nx.factor(window=2, inputs=[level])(_ratio)):
         with pytest.raises(nx.TermDomainError, match="_last") as caught:
