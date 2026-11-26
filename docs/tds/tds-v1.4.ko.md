@@ -78,7 +78,7 @@
 | K3 | 모든 관측에 **공개 시각** `ts_available`(칼럼 또는 매니페스트의 유도 규칙). 사건 시각 `ts_event`와 따로 | 엔진 불변식 INV-01(`ts_available <= decision_ts`)을 자료 형식 수준에서 강제 |
 | K4 | 가격은 **원가격**(raw)을 저장한다. 조정은 `corporate_actions` 사건 표가 원본이고, 소비자가 거기서 누적 계수를 **상장 첫 세션 = 1.0인 앞으로 누적**(forward-cumulative)으로 계산한다. 계수 칼럼을 읽는 검사는 없다(그 칼럼은 5.5에서 빠진다, 5.5) [2026-11-22, #705] | 뒤에서 앞으로 맞추는 계수(LEAN·Yahoo 수정종가)는 새 사건마다 과거 전체를 다시 쓴다 → 바뀌지 않는 파티션·해시가 깨진다 |
 | K5 | 빠졌다 [2026-11-26, #752]: 재무 종류가 표준에서 빠졌다(5.6) | |
-| K6 | 바뀌는 분류·유니버스·식별자는 **두 시간축**: 효력 기간(`effective_from/to`)과 알게 된 시각(`ts_known_from/to`) | "그때 그 분류였다"와 "그때 그걸 알았다"는 다르다 (나중에 채운 업종 이력의 backfill 문제) |
+| K6 | 바뀌는 분류·식별자는 **두 시간축**: 효력 기간(`effective_from/to`)과 알게 된 시각(`ts_known_from/to`) | "그때 그 분류였다"와 "그때 그걸 알았다"는 다르다 (나중에 채운 업종 이력의 backfill 문제) |
 | K7 | 가격 수: 일봉·사건 금액 = `float64`, 틱·호가 = `int64` 고정소수점(데이터셋별 지수, 기본 1e-9) | 호가 수준은 값이 정확히 같아야 같은 수준이다(Databento 1e-9). 일봉은 float64면 충분하고 다루기 쉽다 |
 | K8 | 패키지 = 폴더 + `tds.json`(Frictionless Data Package v2에서 **영감을 받은** 뼈대; Data Package의 `resources` 구조를 그대로 구현하지는 않는다 — v1.1 문구 고침). 파일마다 sha256·행 수·통계, 데이터셋마다 값 해시·적용 범위, 패키지마다 물리·값·의미 해시 | Frictionless 도구와 생각을 맞추되 Arrow 형과 시점 규칙은 TDS가 정함 |
 | K9 | **프로필**(판 붙음, `@1.0`): `tds:minimal-daily`(표 3개, 분석용)부터 `tds:equity-daily-core`까지, 그리고 `tds:intraday-bars`(experimental) [2026-11-26, #752]. 패키지는 지키는 프로필을 선언하고 검사기가 세 결과(선언·검사 단계·결과)로 확인. 소비자 지원은 소비자가 밝힘 | 작은 사용자는 표 3~4개로 시작 |
@@ -154,7 +154,7 @@
 
 - **목표**: (1) 자료를 만드는 쪽과 엔진을 완전히 떼어 놓는다. (2) 누구든 이 형식을 지키면 자기 자료로 엔진을 쓸 수 있다. (3) 형식만 보고도 "언제 무엇을 알 수 있었나"가 결정된다. (4) 같은 내용이면 같은 해시.
 - **v1에서 엔진이 쓰는 것**: 한국·미국 주식 일봉 자료(`tds:equity-daily-core`)와 값 표.
-- **v1에서 모양만 정하는 것**: 분봉·시간봉, 외환, 대체·사건 자료. 체결, 호가, 선물, 옵션, 코인은 2026-11-25에 표준에서 빠졌다(5.6).
+- **v1에서 모양만 정하는 것**: 분봉·시간봉, 외환(대체·사건 자료는 2026-11-26에 빠졌다, 5.6). 체결, 호가, 선물, 옵션, 코인은 2026-11-25에 표준에서 빠졌다(5.6).
 - **하지 않는 것**: 저장 엔진(DuckDB·ArcticDB 등) 지정, 수집·정제 방법, 비용 표(엔진 자원 파일, 명세서 4.17), 엔진의 실행 기록 형식(명세서 5.9).
 
 ### 2.2 결정 K1~K12 (이유와 버린 대안)
@@ -367,7 +367,7 @@
   "editions": {"default": "strict",
                "values": {"strict": "filing-sourced lineage only (strict-by-column-v1)",
                           "compare": "vendor values allowed (comparison)"}},
-  "policies": {"fundamentals_resolution": "fund-resolution-v1", "delisting": "exit-value-v1",
+  "policies": {"delisting": "exit-value-v1",
                "adjustment": "adj-forward-cum-v1", "eligibility": "investable-v1",
                "availability_default": "next_session_open"},
   "roll_rules": {},
@@ -423,7 +423,7 @@
 - `ts_min`, `ts_max`(또는 날짜): 자료가 덮는 범위.
 - `by_market`: 시장별 같은 값과 행 수.
 - 선택 `by_market.<m>.processed_through_session` [v1.4, 2026-11-12, #192]: 생산자가 시장 `<m>`에서 이 데이터셋을 처리한 마지막 세션. 그 세션에 행이 생겼든 아니든 같다. 세션마다 행이 있는 데이터셋(종목이나 달력과 세션마다 한 행: 일봉 `bars`, `calendar_sessions`, `tradability_daily`, `eligibility_daily`)에서는 보통 그 `last`다. 사건·구간 데이터셋(`corporate_actions`, `delistings` 등)은 마지막 행이 마지막 사건이라 평범한 날에도 몇 주 전일 수 있는데, 이 필드는 그래도 데이터셋이 최신이라고 말한다. 어느 종류의 데이터셋이든 줄 수 있고, `market=` 파티션이 없는 데이터셋도 그렇다. 그때 `<m>`은 행의 종목이 속한 시장이고 `by_market.<m>`에는 이 필드만 있어도 된다. 이 값은 그 시장에서 데이터셋의 `last`보다 이르지 않고(처리했다는 세션 뒤의 행), 시장의 워터마크 세션 `complete_through_session`(3.8)보다 늦지 않다. 어느 쪽을 어겨도 TDS-M016이다. 그 시장에 `last`가 없는 데이터셋(`market=` 파티션이 없는 것)은 대신 행이 아래 경계를 정한다 [2026-11-12, #425]: 이용 가능 시각이 시장 달력(`markets.<m>.calendar_id`, 5.4 `ts_close`)에서 이 세션의 마감보다 뒤인 행은 그 세션 뒤의 행이고, `full` 단계의 TDS-D003이다. 그 시각은 소비자가 그 행을 처음 볼 수 있는 시각이다: `corporate_actions`는 존재 시각(5.11 2단계: `ts_announced`와 `ts_terms_available` 중 이른 것, 둘 다 없으면 `ts_effective`)이고 T006이 읽는 조건 시각이 아니다. 그 세션까지 처리한 생산자도 존재는 알려졌고 조건은 나중에 나오는 사건을 갖고 있기 때문이다. `delistings`는 `ts_exit_known`, 열 형식(6.2)은 그 열, 규칙 `column`은 `ts_available`이다. 행의 시장은 그 `market` 열이나 `market=` 파티션이고, 없으면 그 종목의 `instruments.market`이다. 종목을 찾지 못한 행은 R001의 것이고 D003의 것이 아니다. null 시각은 판단하지 않는다. 행의 시각이 모두 null인 시장, 달력에 없는 세션, 다른 규칙의 이용 가능 시각을 가진 데이터셋이면 D003은 이유와 함께 `unchecked`다. 이용 가능 시각이 없는 종류(`instruments`, `instrument_xref`, `calendar_sessions`, `calendar_segments`, 8.2의 T006과 같다)는 D003이 판단하지 않는다. 값이 없으면 세션마다 행이 있는 데이터셋은 그 `last`까지, 다른 데이터셋은 시장의 `complete_through_session`까지 처리한 것으로 본다. 그래서 이 필드 이전에 쓴 패키지도 전처럼 읽힌다. 다음 마이너 판부터 사건·구간 데이터셋에는 필수다.
-- 선택 `by_item`: 재무·패널 칼럼별 첫 해·채움 비율(분자/분모로).
+- 선택 `by_item`: 패널 칼럼별 첫 해·채움 비율(분자/분모로).
 
 ### 4.4 칼럼 사전 (`dictionary/`)
 
@@ -908,7 +908,6 @@ tds check PATH [--profile P ...] [--level manifest|schema|full] [--datasets a,b]
 tds hash PATH [--write] [--tmp-dir DIR]  # 파일·데이터셋·패키지 해시(물리·값·의미) 계산(--write면 tds.json 갱신)
 tds manifest build PATH            # 폴더를 훑어 tds.json 초안 생성(규칙·설명은 사람이 채움)
 tds describe PATH [DATASET]        # 적용 범위·칼럼·프로필 요약
-tds derive fundamentals-state ...  # 5.18 참조 변환
 tds import {csv|zipline|lean|nautilus|dbn|qlib|massive} ...   # 9장
 tds export {zipline-bundle|nautilus-catalog|wide-parquet} ... # 9.8
 ```
@@ -924,7 +923,6 @@ tds export {zipline-bundle|nautilus-catalog|wide-parquet} ... # 9.8
 | `tds check`, `tds hash`, `tds describe` | 구현(엔진 M0~M1) |
 | `tds import csv`, `tds manifest build` | 구현(엔진 M1) |
 | `tds export zipline-bundle` | 시험 쪽 구현(대조용, `tests/parity`), 공개 명령은 예정 |
-| `tds derive fundamentals-state` | 예정(참조 변환, 5.18) |
 | `tds import zipline|lean|nautilus|dbn|qlib|massive` | 예정(9장 대응표는 설계 메모; 구현되면 각 어댑터가 변환 보고서를 낸다) |
 | `tds export nautilus-catalog|wide-parquet` | 예정(E4) |
 
@@ -1467,4 +1465,4 @@ datasets:
 - 2026-11-25: **v1.4** 안에서. 5.1, 5.17, 5.21, 5.25, 7, 8.3: TDS-T007, TDS-R007, TDS-V041, TDS-V050은 은퇴하고 번호는 다시 쓰지 않는다. 그 종류가 빠지기 전이다(#725 결정 250; #752의 R2b-1). TDS-V020은 `issuer_id`를 묻지 않는다(결정 255). 움직인 것: 적합성 사례 TDS-T007, TDS-R007, TDS-V041, TDS-V050이 없어짐; 다른 패키지의 해시는 없음. `tds_version` `"1.0"` 그대로, `tds_draft`는 2026-11-19 그대로(12e까지, 10.5).
 - 2026-11-26: **v1.4** 안에서. 5.18, 6.3, 8.3: TDS-T001은 봉만, TDS-T003은 `market_rules`만 읽고, TDS-T004와 TDS-T012는 `fundamentals_state`와 `universe_membership`을 더는 읽지 않는다(#725 결정 250; #752의 R2b-2). `classifications`는 빠질 때까지 읽는다. 움직인 것: 적합성 사례 TDS-T001, TDS-T003, TDS-T004, TDS-K001(pass와 fail), TDS-S005(pass)를 봉과 `market_rules`로 다시 썼다; 다른 패키지의 해시는 없음. `tds_version` `"1.0"` 그대로, `tds_draft`는 2026-11-19 그대로(12e까지, 10.5).
 - 2026-11-26: **v1.4** 안에서. 4.4, 8.3: TDS-R009는 은퇴하고 번호는 다시 쓰지 않는다. `dictionary/items`와 패널이 빠지기 전이다(#725 결정 250; #752의 R2a-1). TDS-K003과 TDS-D004는 패널의 `period`를 더는 읽지 않는다. `dictionary/columns`는 남는다(#752, 2026-11-26). 움직인 것: 적합성 사례 TDS-R009가 없어짐; 다른 패키지의 해시는 없음. `tds_version` `"1.0"` 그대로, `tds_draft`는 2026-11-19 그대로(12e까지, 10.5).
-- 2026-11-26: **v1.4** 안에서. 지금 할 일과의 관계, K5, K6, K9, 2의 범위, 4.1, 4.2 예시와 coverage, 4.4, 5.5, 5.6, 5.17, 5.18, 5.20, 5.21, 6.1, 6.2, 6.3, 6.4, 7, 9, 10.1: `fundamentals_events`, `fundamentals_state`, `universe_membership`, `events`, `series_observations`, `dictionary/items`가 스키마 파일과 함께 빠지고, 프로필 `tds:equity-daily-research`, `tds:pit-fundamentals`, `tds:bitemporal`, `tds:alt-events`도 함께 빠진다(#725 결정 250; 엔진 명세서 4.3; #752의 R2a-2). 그중 하나를 선언한 패키지는 TDS-M007을 받는다. 움직인 것: 적합성 사례 TDS-M008의 fail 꾸러미(이제 `calendar_sessions` 없는 `tds:minimal-daily`); 다른 패키지의 해시는 없음. `tds_version` `"1.0"` 그대로, `tds_draft`는 2026-11-19 그대로(12e까지, 10.5).
+- 2026-11-26: **v1.4** 안에서. 지금 할 일과의 관계, K5, K6, K9, 2의 범위, 4.1, 4.2 예시와 coverage, 4.4, 5.5, 5.6, 5.17, 5.18, 5.20, 5.21, 6.1, 6.2, 6.3, 6.4, 7, 8.1, 9, 10.1: `fundamentals_events`, `fundamentals_state`, `universe_membership`, `events`, `series_observations`, `dictionary/items`가 스키마 파일과 함께 빠지고, 프로필 `tds:equity-daily-research`, `tds:pit-fundamentals`, `tds:bitemporal`, `tds:alt-events`도 함께 빠진다(#725 결정 250; 엔진 명세서 4.3; #752의 R2a-2). 그중 하나를 선언한 패키지는 TDS-M007을 받는다. 움직인 것: 적합성 사례 TDS-M008의 fail 꾸러미(이제 `calendar_sessions` 없는 `tds:minimal-daily`); 다른 패키지의 해시는 없음. `tds_version` `"1.0"` 그대로, `tds_draft`는 2026-11-19 그대로(12e까지, 10.5).

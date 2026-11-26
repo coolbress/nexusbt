@@ -78,7 +78,7 @@ This is the canonical English text; a Korean translation is in tds-v1.4.ko.md.
 | K3 | Every observation has an **availability time** `ts_available` (a column or a derivation rule in the manifest), separate from the event time `ts_event` | Enforces engine invariant INV-01 (`ts_available <= decision_ts`) at the data-format level |
 | K4 | Prices are stored as **raw** prices. The source of adjustment is the `corporate_actions` event table; a consumer computes the cumulative factors from it, **forward-cumulative with the first listed session = 1.0**, and no check reads a factor column (the columns leave 5.5, 5.5) [2026-11-22, #705] | Factors fitted backward from the latest date (LEAN, Yahoo adjusted close) rewrite the whole past on every new event → immutable partitions and hashes break |
 | K5 | Removed [2026-11-26, #752]: the fundamentals kinds left the standard (5.6) | |
-| K6 | Changing classifications, universes and identifiers use **two time axes**: effective period (`effective_from/to`) and known time (`ts_known_from/to`) | "It was in that class then" differs from "we knew that then" (the backfill problem of industry histories filled in later) |
+| K6 | Changing classifications and identifiers use **two time axes**: effective period (`effective_from/to`) and known time (`ts_known_from/to`) | "It was in that class then" differs from "we knew that then" (the backfill problem of industry histories filled in later) |
 | K7 | Price numbers: daily bars and event amounts = `float64`; ticks and quotes = `int64` fixed point (per-dataset exponent, default 1e-9) | Book levels must be exactly equal to be the same level (Databento 1e-9). For daily bars float64 is enough and easy to handle |
 | K8 | Package = folder + `tds.json` (a skeleton **inspired by** Frictionless Data Package v2; it does not implement the Data Package `resources` structure as is — v1.1 wording fix). Per file sha256, row count and statistics; per dataset value hash and coverage; per package physical, value and semantic hashes | Aligns ideas with Frictionless tools, while TDS defines the Arrow types and time rules |
 | K9 | **Profiles** (versioned, `@1.0`): from `tds:minimal-daily` (3 tables, analysis) to `tds:equity-daily-core`, and `tds:intraday-bars` (experimental) [2026-11-26, #752]. A package declares the profiles it follows and the checker confirms them with three results (declared, check level, result). Consumer support is stated by the consumer | Small users start with 3–4 tables |
@@ -154,7 +154,7 @@ This is the canonical English text; a Korean translation is in tds-v1.4.ko.md.
 
 - **Goals**: (1) fully separate the data producer from the engine. (2) Anyone who follows this format can use the engine with their own data. (3) The format alone determines "what could be known when". (4) Same content gives the same hash.
 - **What the v1 engine uses**: Korean and US equity daily data (`tds:equity-daily-core`) and the value tables.
-- **What v1 only shapes**: minute and hour bars, FX, alternative and event data. Trades, quotes, books, futures, options and crypto left the standard on 2026-11-25 (5.6).
+- **What v1 only shapes**: minute and hour bars, FX (alternative and event data left on 2026-11-26, 5.6). Trades, quotes, books, futures, options and crypto left the standard on 2026-11-25 (5.6).
 - **Out of scope**: choice of storage engine (DuckDB, ArcticDB etc.), collection and cleaning methods, cost tables (engine resource files, specification 4.17), the engine's run record format (specification 5.9).
 
 ### 2.2 Decisions K1–K12 (reasons and rejected alternatives)
@@ -367,7 +367,7 @@ One package = one immutable folder (snapshot).
   "editions": {"default": "strict",
                "values": {"strict": "filing-sourced lineage only (strict-by-column-v1)",
                           "compare": "vendor values allowed (comparison)"}},
-  "policies": {"fundamentals_resolution": "fund-resolution-v1", "delisting": "exit-value-v1",
+  "policies": {"delisting": "exit-value-v1",
                "adjustment": "adj-forward-cum-v1", "eligibility": "investable-v1",
                "availability_default": "next_session_open"},
   "roll_rules": {},
@@ -423,7 +423,7 @@ Each dataset records the following. With it the engine reports before a run "is 
 - `ts_min`, `ts_max` (or dates): the range the data covers.
 - `by_market`: the same values and row counts per market.
 - Optional `by_market.<m>.processed_through_session` [v1.4, 2026-11-12, #192]: the last session of market `<m>` that the producer has processed for this dataset, whether or not that session brought a row. For a per-session dataset (a row per instrument or calendar and session: daily `bars`, `calendar_sessions`, `tradability_daily`, `eligibility_daily`) it is usually its `last`; for an event or interval dataset (`corporate_actions`, `delistings` and the like) the last row is the last event, which can be weeks old on a normal day, and this field says the dataset is current all the same. Any dataset kind may give it, one without `market=` partitions too, where `<m>` is the market of its rows' instruments and `by_market.<m>` may hold this field alone. It is not earlier than the dataset's `last` in that market (rows after the session it says it processed) and not later than the market's watermark session `complete_through_session` (3.8); either is TDS-M016. A dataset with no `last` in that market (one without `market=` partitions) is bounded below by its rows instead [2026-11-12, #425]: a row whose availability instant is after the close of this session in the market's calendar (`markets.<m>.calendar_id`, 5.4 `ts_close`) is a row after it, TDS-D003 at the `full` level. The instant is the one a consumer may first see the row at: for `corporate_actions` its existence instant (5.11 step 2: the earlier of `ts_announced` and `ts_terms_available`, else `ts_effective`), not the terms instant T006 reads, since a producer that processed the session holds an event known to exist whose terms come later; for `delistings` `ts_exit_known`; under a column form (6.2) its column; under rule `column` `ts_available`. The row's market is its `market` column or `market=` partition, else its instrument's `instruments.market`; a row whose instrument is not found is R001's, not D003's. A null instant is not judged; D003 is `unchecked`, with the reason, for a market whose rows' instants are all null, a session its calendar does not have, or a dataset whose availability is another rule; a kind with no availability instant (`instruments`, `instrument_xref`, `calendar_sessions`, `calendar_segments`, as for T006 in 8.2) is not judged by it. When it is missing, a per-session dataset is processed through its `last`, and any other dataset through the market's `complete_through_session`, so a package written before this field reads as it did. Required for event and interval datasets from the next minor version.
-- Optional `by_item`: first year and fill ratio per fundamentals or panel column (as numerator/denominator).
+- Optional `by_item`: first year and fill ratio per panel column (as numerator/denominator).
 
 ### 4.4 Column dictionary (`dictionary/`)
 
@@ -908,7 +908,6 @@ tds check PATH [--profile P ...] [--level manifest|schema|full] [--datasets a,b]
 tds hash PATH [--write] [--tmp-dir DIR]  # compute file, dataset and package hashes (physical, value, semantic) (--write updates tds.json)
 tds manifest build PATH            # scan a folder and draft tds.json (rules and descriptions filled in by a person)
 tds describe PATH [DATASET]        # summary of coverage, columns, profiles
-tds derive fundamentals-state ...  # 5.18 reference conversion
 tds import {csv|zipline|lean|nautilus|dbn|qlib|massive} ...   # chapter 9
 tds export {zipline-bundle|nautilus-catalog|wide-parquet} ... # 9.8
 ```
@@ -924,7 +923,6 @@ tds export {zipline-bundle|nautilus-catalog|wide-parquet} ... # 9.8
 | `tds check`, `tds hash`, `tds describe` | Implemented (engine M0–M1) |
 | `tds import csv`, `tds manifest build` | Implemented (engine M1) |
 | `tds export zipline-bundle` | Implemented on the test side (for parity, `tests/parity`); public command planned |
-| `tds derive fundamentals-state` | Planned (reference conversion, 5.18) |
 | `tds import zipline|lean|nautilus|dbn|qlib|massive` | Planned (the chapter 9 mapping tables are design notes; once implemented, each adapter writes a conversion report) |
 | `tds export nautilus-catalog|wide-parquet` | Planned (E4) |
 
@@ -1467,4 +1465,4 @@ Reference numbers are `R4F-NN`, specification v3.4's numbers for the fourth revi
 - 2026-11-25: **v1.4**, in place. 5.1, 5.17, 5.21, 5.25, 7 and 8.3: TDS-T007, TDS-R007, TDS-V041 and TDS-V050 are retired, their numbers never reused, before their kinds leave (#725 Decision 250; #752's R2b-1); TDS-V020 asks no `issuer_id` (Decision 255). Moved: the conformance cases TDS-T007, TDS-R007, TDS-V041 and TDS-V050 are gone; no other package's hash. `tds_version` stays `"1.0"`; `tds_draft` stays 2026-11-19 until 12e (10.5).
 - 2026-11-26: **v1.4**, in place. 5.18, 6.3 and 8.3: TDS-T001 reads bars only, TDS-T003 `market_rules` only, TDS-T004 and TDS-T012 no longer `fundamentals_state` or `universe_membership` (#725 Decision 250; #752's R2b-2); `classifications` stays read until it leaves. Moved: the conformance cases TDS-T001, TDS-T003, TDS-T004 and TDS-K001 (pass and fail) and TDS-S005 (pass) are rewritten on bars and `market_rules`; no other package's hash. `tds_version` stays `"1.0"`; `tds_draft` stays 2026-11-19 until 12e (10.5).
 - 2026-11-26: **v1.4**, in place. 4.4 and 8.3: TDS-R009 is retired, its number never reused, before `dictionary/items` and the panels leave (#725 Decision 250; #752's R2a-1); TDS-K003 and TDS-D004 no longer read a panel's `period`. `dictionary/columns` stays (#752, 2026-11-26). Moved: the conformance case TDS-R009 is gone; no other package's hash. `tds_version` stays `"1.0"`; `tds_draft` stays 2026-11-19 until 12e (10.5).
-- 2026-11-26: **v1.4**, in place. The relation to current work, K5, K6, K9, 2's scope, 4.1, 4.2's example and coverage, 4.4, 5.5, 5.6, 5.17, 5.18, 5.20, 5.21, 6.1, 6.2, 6.3, 6.4, 7, 9 and 10.1: `fundamentals_events`, `fundamentals_state`, `universe_membership`, `events`, `series_observations` and `dictionary/items` leave with their schema files, and the profiles `tds:equity-daily-research`, `tds:pit-fundamentals`, `tds:bitemporal` and `tds:alt-events` with them (#725 Decision 250; engine specification 4.3; #752's R2a-2). A package declaring one gets TDS-M007. Moved: the conformance case TDS-M008's fail package (now `tds:minimal-daily` without `calendar_sessions`); no other package's hash. `tds_version` stays `"1.0"`; `tds_draft` stays 2026-11-19 until 12e (10.5).
+- 2026-11-26: **v1.4**, in place. The relation to current work, K5, K6, K9, 2's scope, 4.1, 4.2's example and coverage, 4.4, 5.5, 5.6, 5.17, 5.18, 5.20, 5.21, 6.1, 6.2, 6.3, 6.4, 7, 8.1, 9 and 10.1: `fundamentals_events`, `fundamentals_state`, `universe_membership`, `events`, `series_observations` and `dictionary/items` leave with their schema files, and the profiles `tds:equity-daily-research`, `tds:pit-fundamentals`, `tds:bitemporal` and `tds:alt-events` with them (#725 Decision 250; engine specification 4.3; #752's R2a-2). A package declaring one gets TDS-M007. Moved: the conformance case TDS-M008's fail package (now `tds:minimal-daily` without `calendar_sessions`); no other package's hash. `tds_version` stays `"1.0"`; `tds_draft` stays 2026-11-19 until 12e (10.5).
