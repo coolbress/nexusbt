@@ -1,0 +1,33 @@
+{
+  "kind": "fundamentals_events", "schema_version": "1.0", "status": "stable", "section": "5.17",
+  "key": ["fact_id"], "sort": ["instrument_id", "item", "period_end", "ts_available", "fact_id"], "partitions": ["market="],
+  "columns": [
+    {"name": "fact_id", "type": "id", "null": false},
+    {"name": "instrument_id", "type": "id", "null": false},
+    {"name": "issuer_id", "type": "id", "null": true},
+    {"name": "item", "type": "code", "null": false},
+    {"name": "period_start", "type": "date", "null": true},
+    {"name": "period_end", "type": "date", "null": false},
+    {"name": "period_kind", "type": "code", "null": false},
+    {"name": "fiscal_year", "type": "i16", "null": true},
+    {"name": "fiscal_period", "type": "code", "null": true},
+    {"name": "statement_basis", "type": "code", "null": false},
+    {"name": "accounting_standard", "type": "code", "null": true},
+    {"name": "value", "type": "f64", "null": false},
+    {"name": "unit", "type": "code", "null": false},
+    {"name": "currency", "type": "code", "null": true},
+    {"name": "scale", "type": "i8", "null": false},
+    {"name": "known_on", "type": "date", "null": true},
+    {"name": "ts_available", "type": "ts_us", "null": false},
+    {"name": "ts_recorded", "type": "ts_us", "null": true},
+    {"name": "version", "type": "i32", "null": true},
+    {"name": "supersedes_fact_id", "type": "id", "null": true},
+    {"name": "source", "type": "code", "null": false},
+    {"name": "source_rank", "type": "i16", "null": true},
+    {"name": "doc_id", "type": "string", "null": true},
+    {"name": "value_how", "type": "code", "null": true},
+    {"name": "strict_eligible", "type": "bool", "null": false},
+    {"name": "vendor_input", "type": "bool", "null": false},
+    {"name": "pit_quality", "type": "code", "null": false}
+  ]
+}

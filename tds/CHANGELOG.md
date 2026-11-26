@@ -42,8 +42,7 @@ package version follows the `tds_version` it checks (`1.0.x`), tagged
   check` lists it as `unchecked` at no level. TDS-K003 and TDS-D004 no longer read a panel's
   `period`: a panel's K003 is `unchecked`, and D004 no longer compares its `coverage` `ts_min`
   and `ts_max`. `dictionary/columns` stays
-- The schema files of `fundamentals_events`, `fundamentals_state`, `universe_membership`,
-  `events`, `series_observations` and `dictionary/items`, and the profiles
+- The schema files of `events`, `series_observations` and `dictionary/items`, and the profiles
   `tds:equity-daily-research`, `tds:pit-fundamentals`, `tds:bitemporal` and `tds:alt-events`
   (#752, TDS 5.6, engine specification 4.3): a dataset of one of those kinds
   is now a kind with no schema file, so its columns, key and sort are not checked and at `full`
