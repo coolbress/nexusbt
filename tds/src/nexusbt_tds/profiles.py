@@ -6,7 +6,8 @@ A requirement is a tuple of alternatives, each one or more datasets that must al
 `<1d`, a `freq` under one day. The manifest level sees only kinds, paths and params. `columns`
 holds the columns a row names, by the dataset that holds them, for the schema level (#352); a
 cell that names none adds none. Row conditions (`instruments(fx_spot)`) are left to the full
-level. The tick, book, futures, options and crypto profiles left on 2026-11-25 (#752).
+level. The tick, book, futures, options and crypto profiles left on 2026-11-25, research,
+pit-fundamentals, bitemporal and alt-events on 2026-11-26 (#752, spec 4.3).
 """
 
 from __future__ import annotations
@@ -27,8 +28,6 @@ class Profile:
     name: str
     status: str  # "stable", or "experimental" where chapter 7 marks it
     requires: Needs
-    #: Required only when the package declares more than one market (`fx_rates`).
-    requires_multi_market: Needs = ()
     #: The columns each dataset of the package that meets the `Need` must hold (`_COLUMNS`).
     columns: tuple[tuple[Need, tuple[str, ...]], ...] = ()
     #: The columns such a dataset must also hold when its `instrument_id` names an instrument
@@ -92,61 +91,37 @@ _CORE = (
     "corporate_actions",
     "delistings",
 )
-_RESEARCH = (
-    *_CORE,
-    "tradability_daily",
-    "eligibility_daily",
-    "instrument_symbols",
-    "fundamentals_state",
-    "classifications",
-    "dictionary/columns",
-    "dictionary/items",
-)
 _X = "experimental"
 
 _TABLE = (
     Profile("tds:minimal-daily@1.0", "stable", _needs(*_MINIMAL)),
     Profile("tds:equity-daily-core@1.0", "stable", _needs(*_CORE)),
-    Profile("tds:equity-daily-research@1.0", "stable", _needs(*_RESEARCH), _needs("fx_rates")),
     Profile(
         "tds:panels@1.0", "stable", _needs("feature_panels", "label_panels", "dictionary/columns")
     ),
     Profile(
-        "tds:pit-fundamentals@1.0", "stable", _needs("fundamentals_events", "fundamentals_state")
-    ),
-    Profile("tds:bitemporal@1.0", "stable", ()),
-    Profile(
         "tds:intraday-bars@1.0", _X, _needs("instruments", "calendar_sessions", "bars:freq<1d")
     ),
     Profile("tds:fx@1.0", "stable", _needs("fx_rates|instruments+bars")),
-    Profile("tds:alt-events@1.0", "stable", _needs("events|series_observations")),
 )
 
-#: Chapter 7's equity daily profiles: `close` on every bars dataset, and in core and research,
-#: on one that holds an `equity` or `etf` instrument, the other four as well; `index` and `rate`
-#: carry `close` only. `minimal-daily` asks `close` alone of every row (#705, 2026-11-22).
+#: Chapter 7's equity daily profiles: `close` on every bars dataset, and in core, on one that
+#: holds an `equity` or `etf` instrument, the other four as well; `index` and `rate` carry
+#: `close` only. `minimal-daily` asks `close` alone of every row (#705, 2026-11-22).
 TRADED = frozenset({"equity", "etf"})
 _OHLV = "open high low volume"
-_TRADED = {"equity-daily-core": {_CORE[1]: _OHLV}, "equity-daily-research": {_CORE[1]: _OHLV}}
+_TRADED = {"equity-daily-core": {_CORE[1]: _OHLV}}
 #: Chapter 7's "required" cell: the columns it names, under the dataset that holds them. Where
-#: the cell names no dataset, the row's dataset whose schema lists the column (10.3). The
-#: `tds:bitemporal` cell names the two datasets whose schema carries `ts_recorded` (5.17);
-#: `classifications` and `fundamentals_state` carry `ts_known_from` instead (#397 Decisions).
+#: the cell names no dataset, the row's dataset whose schema lists the column (10.3).
 _COLUMNS = {
     "minimal-daily": {_MINIMAL[1]: "close"},
     "equity-daily-core": {_CORE[1]: "close obs_status"},
-    "equity-daily-research": {_CORE[1]: "close obs_status"},  # "above +"
     "panels": {"feature_panels": "ts_available", "label_panels": "ts_available"},
-    "pit-fundamentals": {"fundamentals_events": "fact_id doc_id"}
-    | {"fundamentals_state": "lineage_id"},
-    "bitemporal": dict.fromkeys(("events", "fundamentals_events"), "ts_recorded"),
     "intraday-bars": {"bars:freq<1d": "ts_start ts_end session_date"},
-    "alt-events": {"events": "ts_available", "series_observations": "ts_available"},
 }
-#: Chapter 7's "`obs_status` on every row" (5.5's null cell, #705 Decisions 129): core and above;
+#: Chapter 7's "`obs_status` on every row" (5.5's null cell, #705 Decisions 129): core;
 #: `minimal-daily` leaves it null on a row with values, its state not stated.
-_EVERY_ROW = {"equity-daily-core": {_CORE[1]: "obs_status"},
-              "equity-daily-research": {_CORE[1]: "obs_status"}}  # fmt: skip
+_EVERY_ROW = {"equity-daily-core": {_CORE[1]: "obs_status"}}
 
 
 def _with_columns(p: Profile) -> Profile:
