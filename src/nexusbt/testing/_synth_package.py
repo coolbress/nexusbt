@@ -21,6 +21,7 @@ import pyarrow.parquet as pq
 from nexusbt.contracts import ID_COLUMN as ID
 from nexusbt.testing import _synth_degrade as dg
 from nexusbt.testing._synth_daily import PRODUCER, _market_rules
+from nexusbt.testing._synth_values import ITEMS, Parts
 
 NAMESPACES = {"KR": "synthetic KR", "US": "synthetic US", "ZZ": "synthetic test market"}
 HINTS = {
@@ -70,6 +71,11 @@ FIELDS: dict[str, dict[str, Any]] = {
         "path": "tradability_daily/freq=1d", "params": {"availability_by_column": BY_COLUMN},
         "partitioning": PARTITIONING,
         "columns": _typed((ID, "id"), ("session_date", "date"))},
+    # `small`'s value tables (4.8, TDS 5.28): `market=` then `item=`, no availability (#752)
+    **{kind: {"partitioning": [{"name": "market", "type": "code"},
+                               {"name": "item", "type": "code"}]}
+       | ({"params": {"items": items}} if items else {})
+       for kind, items in ITEMS.items()},
 }  # fmt: skip
 
 
@@ -201,12 +207,12 @@ def datasets(
 def write(
     root: Path, made: Mapping[str, Callable[[], pa.Table]],
     tables: Mapping[str, Mapping[str, Any]], about: Mapping[str, Any], degrade: Sequence[str],
-    through: Callable[[str], Mapping[str, str]],
+    through: Callable[[str], Mapping[str, str]], valued: Parts | None = None,
 ) -> Path:  # fmt: skip
     """Writes the package to `root`: `made`'s datasets but those `degrade` leaves out, the
-    daily ones of `tables`, and a tds.json from `about` (its name, created, snapshot id and
-    each market's entry) with each dataset processed through `through(name)` per market,
-    whose hashes the `tds` command then writes."""
+    daily ones of `tables`, the value tables' partitions `valued`, and a tds.json from `about`
+    (its name, created, snapshot id and each market's entry) with each dataset processed
+    through `through(name)` per market, whose hashes the `tds` command then writes."""
     files: dict[str, list[Any]] = {}
     cover: dict[str, Any] = {}  # dataset → its `coverage` field, or nothing (TDS 4.3)
     for name, make in made.items():
@@ -215,6 +221,13 @@ def write(
             files[name] = [_write(root, f"{name}/part-00000.parquet", name, table)]
             cover[name] = _coverage({None: table})
     _daily(root, tables, files, cover)
+    by_kind: dict[str, dict[str | None, list[pa.Table]]] = {}
+    for (kind, market, item), rows in (valued or {}).items():  # TDS 5.28's folders
+        rel = f"{kind}/market={market}/item={item}/part-00000.parquet"
+        files.setdefault(kind, []).append(_write(root, rel, kind, rows))
+        by_kind.setdefault(kind, {}).setdefault(market, []).append(rows)
+    for kind, parts in by_kind.items():
+        cover[kind] = _coverage({m: pa.concat_tables(t) for m, t in parts.items()})
     for name in files:  # every dataset, in every market (#192)
         by_market = cover[name].setdefault("coverage", {}).setdefault("by_market", {})
         for market, day in through(name).items():

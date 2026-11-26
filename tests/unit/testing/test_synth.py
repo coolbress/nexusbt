@@ -32,6 +32,7 @@ from nexusbt.testing import _synth_events as events
 from nexusbt.testing import _synth_exits as delist
 from nexusbt.testing import _synth_package as pkg
 from nexusbt.testing import _synth_trade as trade
+from nexusbt.testing import _synth_values as synth_values
 from nexusbt.testing import synth
 from nexusbt.testing.synth import main, make_snapshot, read
 
@@ -389,10 +390,56 @@ def test_small_hashes_match_on_macos_and_linux(tmp_path: Path) -> None:
     package = make_snapshot(tmp_path / "d", preset="small")  # default markets KR, US; seed 0
     hashes = json.loads((package / "tds.json").read_text())["hashes"]
     assert (hashes["value_sha256"], hashes["semantic_sha256"]) == (
-        # #752 R3a: three datasets left; the other eight's value hashes are unchanged
-        "ca09c1277cbcd2f8cef6117bb419ef30c3dacaef1b57fed30ae30772f8b8232a",
-        "a09fe87b47bc1c3af06a042b6d67b054b20b2ec83bf21c69ff0627efaf019765",
+        # #752 V2b: the three value tables joined; the other eight datasets' value hashes and
+        # file bytes are unchanged (R3a's pair was ca09c127…, a09fe87b…)
+        "b3b1047b48655dc91651cf9c7f80d3d72a53815b2e2f407f6ca0f099f71121b1",
+        "36e224fa523cd1842a46802bd9da3739bbc3270e567d64cf8d5c7931459d448b",
     )
+
+
+def test_small_writes_the_five_example_items(small: Path) -> None:
+    # 4.8, #752 V2b (the owner, 2026-11-27): example data, names the engine does not expect
+    _, datasets = manifest_of(small)
+    items = {name: sorted({f["path"].split("/")[2] for f in d["files"]})
+             for name, d in datasets.items() if d["kind"] in synth_values.KINDS}  # fmt: skip
+    assert items == {"market_values": ["item=cash_rate"], "symbol_values": ["item=sector"],
+                     "values": ["item=eps", "item=in_index", "item=shares_out"]}  # fmt: skip
+    assert datasets["values"]["params"] == {"items": synth_values.ITEMS["values"]}
+    assert "availability" not in datasets["values"]  # TDS 5.28 fixes it
+    assert {r["value"] for r in rows(small, "symbol_values")} <= set(map(float, range(1, 11)))
+    rates = [r["value"] for r in rows(small, "market_values")]
+    assert rates
+    assert all(r == int(r) and r % 25 == 0 for r in rates)  # whole bp a year (spec 3.11)
+
+
+def test_shares_out_is_in_its_dates_share_basis(small: Path) -> None:
+    # 5.3.5: a share count dated D is in D's share basis, so across an effective split an
+    # instrument's quarterly count moves by the split's exact ratio (TDS 5.11's integer rule)
+    actions = rows(small, "corporate_actions")
+    revised = {a["revision_of"] for a in actions if a["revision_of"]}
+    files = manifest_of(small)[1]["values"]["files"]
+    counts = [r for f in files if "item=shares_out" in f["path"]  # one file per market
+              for r in pq.read_table(small / f["path"]).to_pylist()]  # fmt: skip
+    moved = 0
+    for a in actions:
+        if a["kind"] != "split" or a["status"] != "effective" or a["event_id"] in revised:
+            continue
+        mine = sorted((r["date"], r["value"]) for r in counts
+                      if r["instrument_id"] == a["instrument_id"])  # fmt: skip
+        before = [v for d, v in mine if d < a["ex_date"]]
+        after = [v for d, v in mine if d >= a["ex_date"]]
+        if before and after and not [b for b in actions if b is not a and b["kind"] in (
+                "split", "reverse_split", "stock_dividend", "bonus_issue")
+                and b["instrument_id"] == a["instrument_id"]]:  # fmt: skip
+            assert after[0] == before[-1] * a["ratio_num"] // a["ratio_den"]
+            moved += 1
+    assert moved  # small holds such a split
+
+
+def test_tiny_writes_no_value_tables(tiny: Path) -> None:
+    # 4.8, #752 V2b: tiny is the golden cases' hand-set table
+    _, datasets = manifest_of(tiny)
+    assert not set(datasets) & set(synth_values.KINDS)
 
 
 #: Calls that go through platform code (SIMD paths, the system libm), so their last bits can
