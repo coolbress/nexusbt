@@ -1648,17 +1648,20 @@ def test_T006_does_not_read_instrument_xref(level: Level, tmp_path: Path) -> Non
     assert "TDS-T006" not in [f.code for f in result.errors]
 
 
-def _status(available: dt.datetime, availability: object) -> Any:
-    """A US `tradability_daily` row available at `available`, US `complete_through` END."""
+def _state(ts_known_from: dt.datetime, availability: object) -> Any:
+    """A US `fundamentals_state` row known at `ts_known_from`, US `complete_through` END."""
 
     def change(m: dict[str, Any], f: Any) -> None:
         _rule("ts_end", ts_end=_ts(END))(m, f)  # bars T006 can pass
-        rel = "tradability_daily/freq=1d/market=US/year=2024/part-00000.parquet"
-        row = {"instrument_id": ["US:AAA"], "session_date": build.DAY, "status_known": [True],
-               "ts_available": _ts(available)}  # fmt: skip
-        f[rel] = build.parquet(pa.table(row), "tradability_daily")
-        m["datasets"].append({"name": "tradability_daily", "kind": "tradability_daily",
-                              "schema_version": "1.0", "path": "tradability_daily",
+        rel = "fundamentals_state/market=US/part-00000.parquet"
+        row = {"instrument_id": ["US:AAA"], "item": ["revenue"], "period_end": build.DAY,
+               "ts_known_from": _ts(ts_known_from), "period_kind": ["FY"],
+               "statement_basis": ["consolidated"], "value": [1.0], "unit": ["USD"],
+               "scale": pa.array([0], pa.int8()), "strict_eligible": [True],
+               "vendor_input": [False], "resolution_policy": ["fund-resolution-v1"]}  # fmt: skip
+        f[rel] = build.parquet(pa.table(row), "fundamentals_state")
+        m["datasets"].append({"name": "fundamentals_state", "kind": "fundamentals_state",
+                              "schema_version": "1.0", "path": "fundamentals_state",
                               "availability": availability,
                               "files": [{"path": rel, "bytes": len(f[rel])}]})  # fmt: skip
 
@@ -1667,10 +1670,10 @@ def _status(available: dt.datetime, availability: object) -> Any:
 
 @pytest.mark.parametrize(
     ("change", "found", "unchecked"),
-    [  # TDS 4.2 `{"column": "ts_available"}`: T006 reads that column's statistics (#276)
-        (_status(END, {"column": "ts_available"}), [], False),
-        (_status(END + TICK, {"column": "ts_available"}), ["TDS-T006"], False),
-        (_status(END + TICK, None), [], True),  # no availability: its instant is unknown
+    [  # TDS 4.2 `{"column": "ts_known_from"}`: T006 reads that column's statistics (#276)
+        (_state(END, {"column": "ts_known_from"}), [], False),
+        (_state(END + TICK, {"column": "ts_known_from"}), ["TDS-T006"], False),
+        (_state(END + TICK, None), [], True),  # no availability: its instant is unknown
     ],
 )
 def test_T006_reads_the_named_column(
@@ -1678,7 +1681,7 @@ def test_T006_reads_the_named_column(
 ) -> None:
     result = check(write(tmp_path, change), level="schema")
     assert [f.code for f in result.errors] == found
-    assert {f.dataset for f in result.errors} <= {"tradability_daily"}
+    assert {f.dataset for f in result.errors} <= {"fundamentals_state"}
     assert ("TDS-T006" in result.unchecked) is unchecked
 
 

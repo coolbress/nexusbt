@@ -86,7 +86,7 @@
 | K11 | 결정적 쓰기: 같은 내용이면 같은 바이트, 같은 값 해시(4.5 정규 직렬화 — 쓰기 도구·언어와 무관). 파일·행 정렬, row group 경계 고정 | 엔진 INV-09, 생산자 빌드 지문 원칙과 같다 |
 | K12 | 적합성 검사기 `tds check`: 단계 3개(`manifest` / `schema` / `full`), 오류 코드 `TDS-<영역><번호>`, JSON 출력 | 엔진 `SnapshotError`(E14)는 이 코드를 그대로 싣는다 |
 
-**지금 할 일과의 관계.** v1 엔진은 그래프가 쓰는 기능에 필요한 데이터셋만 요구한다(가장 넓게는 `tds:equity-daily-core`와 값 표) [2026-11-26, #752]. 분봉은 `bars`와 실험 판인 `tds:intraday-bars` 프로필이 모양을 정한다. 틱·호가·선물·옵션·코인은 2026-11-25에 표준에서 빠졌다. 나중에 오는 종류는 `experimental` 스키마로 들어오고, 무손실 가져오기와 재생 고정 사례가 생긴 뒤 stable로 올린다(5.6).
+**지금 할 일과의 관계.** v1 엔진은 그래프가 쓰는 기능에 필요한 데이터셋만 요구한다(가장 넓게는 `tds:equity-daily-core`와 `tradability_daily`·`instrument_symbols`·`fx_rates`, 그리고 사용자의 값 표, 엔진 명세서 4.3) [2026-11-26, #752]. 분봉은 `bars`와 실험 판인 `tds:intraday-bars` 프로필이 모양을 정한다. 틱·호가·선물·옵션·코인은 2026-11-25에 표준에서 빠졌다. 나중에 오는 종류는 `experimental` 스키마로 들어오고, 무손실 가져오기와 재생 고정 사례가 생긴 뒤 stable로 올린다(5.6).
 
 ---
 
@@ -153,7 +153,7 @@
 ### 2.1 목표와 범위
 
 - **목표**: (1) 자료를 만드는 쪽과 엔진을 완전히 떼어 놓는다. (2) 누구든 이 형식을 지키면 자기 자료로 엔진을 쓸 수 있다. (3) 형식만 보고도 "언제 무엇을 알 수 있었나"가 결정된다. (4) 같은 내용이면 같은 해시.
-- **v1에서 엔진이 쓰는 것**: 한국·미국 주식 일봉 자료(`tds:equity-daily-core`)와 값 표.
+- **v1에서 엔진이 쓰는 것**: 한국·미국 주식 일봉 자료(`tds:equity-daily-core`와 `tradability_daily`·`instrument_symbols`·`fx_rates`)와 사용자의 값 표(엔진 명세서 4.3).
 - **v1에서 모양만 정하는 것**: 분봉·시간봉, 외환(대체·사건 자료는 2026-11-26에 빠졌다, 5.6). 체결, 호가, 선물, 옵션, 코인은 2026-11-25에 표준에서 빠졌다(5.6).
 - **하지 않는 것**: 저장 엔진(DuckDB·ArcticDB 등) 지정, 수집·정제 방법, 비용 표(엔진 자원 파일, 명세서 4.17), 엔진의 실행 기록 형식(명세서 5.9).
 
@@ -606,7 +606,7 @@
 
 > **주식 밖의 종류** [#725 결정 252, 253]: `trades`(5.6), `quotes`(5.7), `book_deltas`와 `book_snapshots`(5.8), `market_statistics`(5.9), `calendar_segments`(5.4), `trading_status_events`(5.10), `rates`(5.16), `roll_calendar`(5.22), `option_chain_snapshots`(5.23), `funding_rates`와 `reference_prices`(5.24)는 2026-11-25에 표준에서 빠졌다. 그 프로필(7장)과 검사(V030, V031, V032, T008과 선언 `sequence_consecutive_within`: 은퇴, 번호는 다시 쓰지 않음, 8.3)도 함께다. `instrument_xref`(5.3)가 뒤따른다. 주식이 먼저이고, 그런 종류는 나중에 올 수 있다. 나중에 오는 종류는 `status`가 `experimental`인 스키마 파일로 들어온다: 1.x 호환 약속(10.2) 밖이고 다음 MINOR에서 바뀔 수 있으며, 검사기는 그것을 담은 패키지에 TDS-M015로 경고한다. 지금은 `experimental` 스키마가 없다. 이 문서에 남은 데이터셋은 `stable`이다.
 
-> **사용자 자료 종류** [#725 결정 250, 254]: `events`와 `series_observations`(5.21), `dictionary/items`(4.4)는 2026-11-26에 표준에서 빠졌다. 사용자 자료 종류의 검사(T007, R007, R009, V041, V050: 은퇴, 8.3)와 프로필 `tds:equity-daily-research`, `tds:pit-fundamentals`, `tds:bitemporal`, `tds:alt-events`(7장)도 함께다. `fundamentals_events`(5.17), `fundamentals_state`(5.18), `universe_membership`과 `eligibility_daily`(5.20), `share_counts`(5.14), 그리고 `feature_panels`와 `label_panels`(5.25)와 `tds:panels`는 그것을 읽는 엔진 코드와 함께 뒤따른다 [#752]. 거래 밖 사용자의 값은 값 표에 넣는다.
+> **사용자 자료 종류** [#725 결정 250, 254]: `events`와 `series_observations`(5.21), `dictionary/items`(4.4)는 2026-11-26에 표준에서 빠졌다. 사용자 자료 종류의 검사(T007, R007, R009, V041, V050: 은퇴, 8.3)와 프로필 `tds:equity-daily-research`, `tds:pit-fundamentals`, `tds:bitemporal`, `tds:alt-events`(7장)도 함께다. `fundamentals_events`(5.17), `fundamentals_state`(5.18), `universe_membership`과 `eligibility_daily`(5.20), `share_counts`(5.14), 그리고 `feature_panels`와 `label_panels`(5.25)와 `tds:panels`는 그것을 읽는 엔진 코드와 함께, `classifications`(5.19)는 틱 단계와 함께 뒤따른다 [#752]. 그때까지 5.17의 `item`은 아직 `dictionary/items`를 가리킨다. 거래 밖 사용자의 값은 값 표에 넣는다.
 
 ### 5.7 `quotes` (호가 L1 / BBO) — 빠짐 [2026-11-25, #752]
 

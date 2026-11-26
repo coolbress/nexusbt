@@ -86,7 +86,7 @@ This is the canonical English text; a Korean translation is in tds-v1.4.ko.md.
 | K11 | Deterministic writing: same content gives the same bytes and the same value hash (4.5 canonical serialisation — independent of writer tool and language). File and row order and row-group boundaries are fixed | Same as engine INV-09 and the producer build-fingerprint principle |
 | K12 | Conformance checker `tds check`: 3 levels (`manifest` / `schema` / `full`), error codes `TDS-<area><number>`, JSON output | The engine's `SnapshotError` (E14) carries these codes as is |
 
-**Relation to current work.** The v1 engine requires only the datasets needed by the features a graph uses (at the widest, `tds:equity-daily-core` and the value tables) [2026-11-26, #752]. Minute bars are shaped by `bars` and the `tds:intraday-bars` profile, which is experimental. Ticks, quotes, futures, options and crypto left the standard on 2026-11-25; a kind that comes later enters with an `experimental` schema and is promoted to stable after lossless import and pinned replay cases exist (5.6).
+**Relation to current work.** The v1 engine requires only the datasets needed by the features a graph uses (at the widest, `tds:equity-daily-core` with `tradability_daily`, `instrument_symbols` and `fx_rates`, and the user's value tables, engine specification 4.3) [2026-11-26, #752]. Minute bars are shaped by `bars` and the `tds:intraday-bars` profile, which is experimental. Ticks, quotes, futures, options and crypto left the standard on 2026-11-25; a kind that comes later enters with an `experimental` schema and is promoted to stable after lossless import and pinned replay cases exist (5.6).
 
 ---
 
@@ -153,7 +153,7 @@ This is the canonical English text; a Korean translation is in tds-v1.4.ko.md.
 ### 2.1 Goals and scope
 
 - **Goals**: (1) fully separate the data producer from the engine. (2) Anyone who follows this format can use the engine with their own data. (3) The format alone determines "what could be known when". (4) Same content gives the same hash.
-- **What the v1 engine uses**: Korean and US equity daily data (`tds:equity-daily-core`) and the value tables.
+- **What the v1 engine uses**: Korean and US equity daily data (`tds:equity-daily-core` with `tradability_daily`, `instrument_symbols` and `fx_rates`) and the user's value tables (engine specification 4.3).
 - **What v1 only shapes**: minute and hour bars, FX (alternative and event data left on 2026-11-26, 5.6). Trades, quotes, books, futures, options and crypto left the standard on 2026-11-25 (5.6).
 - **Out of scope**: choice of storage engine (DuckDB, ArcticDB etc.), collection and cleaning methods, cost tables (engine resource files, specification 4.17), the engine's run record format (specification 5.9).
 
@@ -606,7 +606,7 @@ Parameters (`params`): `freq` (`1d`, `1w`, `1mo`, `1h`, `30m`, `5m`, `1m`, `1s` 
 
 > **Kinds outside equities** [#725 Decisions 252, 253]: `trades` (5.6), `quotes` (5.7), `book_deltas` and `book_snapshots` (5.8), `market_statistics` (5.9), `calendar_segments` (5.4), `trading_status_events` (5.10), `rates` (5.16), `roll_calendar` (5.22), `option_chain_snapshots` (5.23), `funding_rates` and `reference_prices` (5.24) left the standard on 2026-11-25, with their profiles (chapter 7) and their checks (V030, V031, V032, T008 and the `sequence_consecutive_within` declaration, retired, their numbers not reused, 8.3); `instrument_xref` (5.3) follows. Equities come first; such kinds may come later. A kind that comes later enters with a schema file whose `status` is `experimental`: outside the 1.x compatibility promise (10.2), it may change in the next MINOR, and the checker warns of a package holding it with TDS-M015. No schema is `experimental` now; the datasets this text keeps are `stable`.
 
-> **User-data kinds** [#725 Decisions 250, 254]: `events` and `series_observations` (5.21) and `dictionary/items` (4.4) left the standard on 2026-11-26, with the checks of the user-data kinds (T007, R007, R009, V041, V050, retired, 8.3) and the profiles `tds:equity-daily-research`, `tds:pit-fundamentals`, `tds:bitemporal` and `tds:alt-events` (chapter 7). `fundamentals_events` (5.17), `fundamentals_state` (5.18), `universe_membership` and `eligibility_daily` (5.20), `share_counts` (5.14), and `feature_panels` and `label_panels` (5.25) with `tds:panels` follow, with the engine's readers of them [#752]. A user's values outside trading go in the value tables.
+> **User-data kinds** [#725 Decisions 250, 254]: `events` and `series_observations` (5.21) and `dictionary/items` (4.4) left the standard on 2026-11-26, with the checks of the user-data kinds (T007, R007, R009, V041, V050, retired, 8.3) and the profiles `tds:equity-daily-research`, `tds:pit-fundamentals`, `tds:bitemporal` and `tds:alt-events` (chapter 7). `fundamentals_events` (5.17), `fundamentals_state` (5.18), `universe_membership` and `eligibility_daily` (5.20), `share_counts` (5.14), and `feature_panels` and `label_panels` (5.25) with `tds:panels` follow, with the engine's readers of them, and `classifications` (5.19) with the tick step [#752]; until then 5.17's `item` still names `dictionary/items`. A user's values outside trading go in the value tables.
 
 ### 5.7 `quotes` (L1 quotes / BBO) — removed [2026-11-25, #752]
 
