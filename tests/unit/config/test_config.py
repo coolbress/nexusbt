@@ -77,7 +77,8 @@ def test_defaults_match_spec_table(tmp_path: Path) -> None:
             continue
         assert config.values[table][key] == expected, f"[{table}] {key}"
         compared += 1
-    assert compared >= 100
+    # Catches a parser that reads nothing; 93 rows since #752 removed keys (was >= 100).
+    assert compared >= 90
     config.values["data"]["require_profiles"].append("x")  # each Config owns its defaults
     assert load_config().values["data"]["require_profiles"] == []
 
@@ -90,6 +91,23 @@ def test_removed_panels_and_fund_tables_are_refused(toml: str, tmp_path: Path) -
     """3.11: `[panels]` and `[fund]` left with `Panel`, `Label` and `Fund` (#752)."""
     with pytest.raises(ConfigError):
         load_config(write(tmp_path, toml))
+
+
+@pytest.mark.parametrize(
+    "toml",
+    ['[data]\nshare_count_kinds = ["listed"]\n', "[universe]\ninvestable = false\n",
+     '[universe]\neligibility_rule = "x"\n', '[dividends]\nmissing_pay_date = "fail"\n',
+     "[dividends]\nfallback_pay_lag_days = {KR = 30}\n",
+     "[dividends]\nestimate_window_years = 3\n", "[dividends]\nestimate_min_obs = 5\n",
+     '[meta]\nsector = "auto"\n', '[meta]\nindustry = "auto"\n'],
+)  # fmt: skip
+def test_removed_keys_are_refused_with_e16(toml: str, tmp_path: Path) -> None:
+    """3.11: the keys removed 2026-11-24 (#752) left with their code; one still written is
+    E16, which names it and says to remove it."""
+    with pytest.raises(ConfigError) as caught:
+        load_config(write(tmp_path, toml))
+    assert caught.value.code == "E16"
+    assert caught.value.parts["fix"].startswith("remove it")
 
 
 def test_unknown_key_suggests(tmp_path: Path) -> None:

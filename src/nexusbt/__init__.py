@@ -47,7 +47,6 @@ from nexusbt.contracts import CostTableError as CostTableError
 from nexusbt.contracts import CoverageWarning as CoverageWarning
 from nexusbt.contracts import DataAvailabilityError as DataAvailabilityError
 from nexusbt.contracts import DataProfileWarning as DataProfileWarning
-from nexusbt.contracts import DatasetShapeError as DatasetShapeError
 from nexusbt.contracts import EngineBugError as EngineBugError
 from nexusbt.contracts import FillWarning as FillWarning
 from nexusbt.contracts import FitLeakError as FitLeakError
@@ -61,7 +60,6 @@ from nexusbt.contracts import MLDeterminismWarning as MLDeterminismWarning
 from nexusbt.contracts import NexusBTError as NexusBTError
 from nexusbt.contracts import OrderSanityWarning as OrderSanityWarning
 from nexusbt.contracts import PayDateEstimatedWarning as PayDateEstimatedWarning
-from nexusbt.contracts import PointInTimeError as PointInTimeError
 from nexusbt.contracts import PretrainedLeakError as PretrainedLeakError
 from nexusbt.contracts import PretrainedOverlapWarning as PretrainedOverlapWarning
 from nexusbt.contracts import ProvisionalCostWarning as ProvisionalCostWarning

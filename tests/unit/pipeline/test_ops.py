@@ -93,8 +93,8 @@ def test_rolling_over_a_price_level_is_refused() -> None:
 def test_coalesce_explicit_fill() -> None:
     """INV-12: `coalesce` takes, cell by cell, the first of its terms that is not NaN, and
     fills nothing it is not given: with one term, a NaN stays NaN."""
-    a, b = VALUE, Price.market_cap.latest
-    columns = {"value_traded": [1, NAN, NAN], "market_cap": [10, 20, NAN]}
+    a, b = VALUE, Price.close_unadjusted.latest
+    columns = {"value_traded": [1, NAN, NAN], "close_unadjusted": [10, 20, NAN]}
     same(run(ops.coalesce(a, b), **columns), [1.0, 20.0, NAN])
     same(run(ops.coalesce(a, b, 0.0), **columns), [1.0, 20.0, 0.0])
     same(run(ops.coalesce(a), **columns), [1.0, NAN, NAN])

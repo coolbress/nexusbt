@@ -24,8 +24,8 @@ SOME: Degree = "some"
 #: `.latest` of the `Price` columns the table of 3.2 adjusts to t, and of those it does not.
 ADJUSTED: dict[str, Degree] = {
     **dict.fromkeys(("open", "high", "low", "close", "close_tr"), (Fraction(1), Fraction(0))),
-    **dict.fromkeys(("volume", "shares_out"), (Fraction(0), Fraction(1))),
-    **dict.fromkeys(("close_unadjusted", "volume_unadjusted", "value_traded", "market_cap"), ZERO),
+    "volume": (Fraction(0), Fraction(1)),
+    **dict.fromkeys(("close_unadjusted", "volume_unadjusted", "value_traded"), ZERO),
 }
 _AS_INPUT = ("neg", "abs", "shift")
 _CROSS = ("rank", "zscore", "demean", "winsorize", "pct_rank")

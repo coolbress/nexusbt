@@ -20,6 +20,16 @@ versions follow [Semantic Versioning](https://semver.org/).
   that still has `[panels]` or `[fund]` is refused (E16); remove the table. A package's
   values outside trading become value-table items (`nx.Item`, spec 5.3.5), which come
   later. `nexusbt stubs` writes `Price` and `Meta` only.
+- `Meta.sector`, `Meta.industry`, `Meta.is_financial`, `Price.shares_out` and
+  `Price.market_cap` (now E7, "has no column"); a sector or a share count becomes a
+  value-table item (`nx.Item`, spec 3.2, 5.3.5a), which comes later (#752).
+- The config keys `[data] share_count_kinds`, `[universe] investable` and
+  `eligibility_rule`, `[dividends] missing_pay_date`, `fallback_pay_lag_days`,
+  `estimate_window_years` and `estimate_min_obs`, and `[meta] sector` and `industry`; one
+  still written is refused (E16): remove it. The market rules packs lose `[dividends]`.
+- `MissingPayDatePolicy`, and the retired errors `PointInTimeError` (E3) and
+  `DatasetShapeError` (E47); their numbers are not reused (#752).
+- `nx.screen`'s result now says `universe: listed (the default universe comes with T2.4)`.
 
 ### Fixed
 - `environment.machine_id` is the same in every process on a host (#635). On a host
