@@ -4,9 +4,9 @@ modules (INV-09; T1.27, #256).
 The decision-path modules (`data`, `compute`, `pipeline`, `portfolio`, `risk`, `accounting`,
 `execution`, `research`) use no wall clock, no random numbers, no `uuid1`/`uuid4`, no
 `os.urandom` and no `secrets`; a `numpy.random.Generator` is taken as an argument, so the name
-may appear in an annotation only. Ruff's `banned-api` bans in every module of `src/**` what no
-module uses; this test bans the whole list in the decision modules, as one ruff table cannot be
-scoped by module (#256's Decisions, 2026-11-26).
+may be read (an annotation, an `isinstance`) but not called. Ruff's `banned-api` bans in
+every module of `src/**` what no module uses; this test bans the whole list in the decision
+modules, as one ruff table cannot be scoped by module (#256's Decisions, 2026-11-26).
 
 Where iteration over a `set` or `frozenset` sets an order, it goes through `sorted(...)`. Read
 from the code as written (#256's Decisions, 2026-11-26): in a function, an iteration (a `for`,
@@ -31,9 +31,12 @@ DECISION = ("data", "compute", "pipeline", "portfolio", "risk", "accounting", "e
             "research")  # fmt: skip
 #: Spec 2.5's list, as qualified names; a name below one of them is banned too.
 BANNED = ("datetime.datetime.now", "datetime.datetime.utcnow", "datetime.datetime.today",
-          "datetime.date.today", "time.time", "time.monotonic", "time.perf_counter", "random",
-          "numpy.random", "uuid.uuid1", "uuid.uuid4", "os.urandom", "secrets")  # fmt: skip
-#: Taken as an argument (2.5): allowed in an annotation and in its import.
+          "datetime.date.today", "time.time", "time.monotonic", "time.perf_counter",
+          "time.time_ns", "time.monotonic_ns", "time.perf_counter_ns",  # the same clocks
+          "random", "numpy.random", "uuid.uuid1", "uuid.uuid4", "os.urandom",
+          "secrets")  # fmt: skip
+#: Taken as an argument (2.5): its name may be imported and read (an annotation, an
+#: `isinstance`), not called; `numpy.random` itself may be imported to read it.
 ARGUMENT = "numpy.random.Generator"
 ORDERLESS = {"set", "frozenset", "any", "all", "len", "sorted", "min", "max"}
 
@@ -68,32 +71,23 @@ def qualified(node: ast.AST, names: dict[str, str]) -> str | None:
     return None
 
 
-def annotated(tree: ast.AST) -> set[ast.AST]:
-    """Every node inside an annotation."""
-    roots: list[ast.AST] = []
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            args = node.args
-            every = [*args.posonlyargs, *args.args, *args.kwonlyargs, args.vararg, args.kwarg]
-            roots += [a.annotation for a in every if a is not None and a.annotation is not None]
-            roots += [node.returns] if node.returns else []
-        elif isinstance(node, ast.AnnAssign):
-            roots.append(node.annotation)
-    return {n for r in roots for n in ast.walk(r)}
+def toward_argument(name: str) -> bool:
+    return name == ARGUMENT or ARGUMENT.startswith(name + ".")
 
 
 def wallclock_or_rng(where: str, source: str) -> list[str]:
     """The uses of spec 2.5's sources of non-determinism, one per line."""
     tree = ast.parse(source)
-    names, typed = aliases(tree), annotated(tree)
+    names = aliases(tree)
+    called = {id(n.func) for n in ast.walk(tree) if isinstance(n, ast.Call)}
     hits: dict[int, str] = {}
     for node in ast.walk(tree):
         if isinstance(node, (ast.Import, ast.ImportFrom)):
             bound = aliases(ast.Module(body=[node], type_ignores=[]))
-            used = [q for q in bound.values() if banned(q) and q != ARGUMENT]
+            used = [q for q in bound.values() if banned(q) and not toward_argument(q)]
         elif isinstance(node, (ast.Name, ast.Attribute)) and (q := qualified(node, names)):
-            argument = node in typed and (q == ARGUMENT or ARGUMENT.startswith(q + "."))
-            used = [q] if banned(q) and not argument else []
+            read = toward_argument(q) and not (q == ARGUMENT and id(node) in called)
+            used = [q] if banned(q) and not read else []
         else:
             continue
         if used:
@@ -182,6 +176,8 @@ def test_no_unsorted_set_iteration_in_event_paths() -> None:
         "import uuid\nx = uuid.uuid4()",
         "import os\nx = os.urandom(8)",
         "from secrets import token_hex",
+        "import time\nx = time.time_ns()",
+        "import numpy.random as npr\nx = npr.default_rng()",
     ],
 )
 def test_wallclock_or_rng_caught(source: str) -> None:
@@ -193,6 +189,8 @@ def test_wallclock_or_rng_caught(source: str) -> None:
     [
         "import numpy as np\ndef f(rng: np.random.Generator) -> None: ...",
         "from numpy.random import Generator\ndef f(rng: Generator) -> None: ...",
+        "import numpy.random as npr\ndef f(rng: npr.Generator) -> None: ...",
+        "import numpy as np\nok = isinstance(rng, np.random.Generator)",
         "import datetime as dt\nx = dt.datetime(2020, 1, 1, tzinfo=dt.UTC)",
         "import time\ntime.sleep(0)",
         "import uuid\nx = uuid.UUID(int=0)",

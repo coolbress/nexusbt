@@ -244,11 +244,12 @@ def test_P_DET_cross_process_hashseed(  # noqa: N802 - spec 10.1's name
     tests = Path(__file__).resolve().parents[1]
     path = os.pathsep.join([str(tests), os.environ.get("PYTHONPATH", "")])
     env = {**os.environ, "PYTHONPATH": path}
-    ids = [subprocess.run([sys.executable, "-c", FRESH, str(roots["small"])], cwd=project,  # noqa: S603 - this interpreter, a script of this module
-
-                          env=env | {"PYTHONHASHSEED": seed}, capture_output=True, text=True,
-                          check=True).stdout.split()[-1]
-           for seed in HASH_SEEDS]  # fmt: skip
+    done = [subprocess.run([sys.executable, "-c", FRESH, str(roots["small"])], cwd=project,  # noqa: S603 - this interpreter, a script of this module
+                           env=env | {"PYTHONHASHSEED": seed}, capture_output=True, text=True,
+                           check=False)
+            for seed in HASH_SEEDS]  # fmt: skip
+    assert [d.returncode for d in done] == [0, 0], [d.stderr[-2000:] for d in done]
+    ids = [d.stdout.split()[-1] for d in done]
     outputs = [json.loads((project / "runs" / i / "manifest.json").read_text())["outputs"]
                for i in ids]  # fmt: skip
     tables = ("pipeline.parquet", "term_diagnostics.parquet")
