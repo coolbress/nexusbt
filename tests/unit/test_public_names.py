@@ -21,7 +21,7 @@ PUBLIC = {
     " CHECKPOINT_SCHEMA NexusBTError FactorFrame TargetFrame TargetState DecisionGrid"
     " DecisionContext DecisionInputs SchemaRegistry ResolvedActions SessionInputs MarketView"
     " EventSink DelistingPolicy RightsPolicy UnsupportedPolicy DecimalRatioPolicy"
-    " MissingPayDatePolicy BonusSharesTradablePolicy UnknownInclusionPolicy EditionPolicy"
+    " BonusSharesTradablePolicy UnknownInclusionPolicy EditionPolicy"
     " VerifyPolicy PinsPolicy FallbacksPolicy TiebreakPolicy BandEntriesPolicy AccountTypePolicy"
     " OrderTypePolicy ExecutionAtPolicy BandModePolicy LimitFillPolicy UnknownTradabilityPolicy"
     " CostProfilePolicy TaxesProfilePolicy TaxesPayPolicy TaxesBasisPolicy LabelEntryPolicy"
@@ -79,11 +79,11 @@ BUILT = {
 #: 6.6, the classes whose kind is block or fail: the sub-errors of `NexusBTError`. The warnings
 #: and notices are checked with every E1~E39 code in `contracts/test_errors.py`.
 ERRORS = (
-    "LookAheadError LabelLeakError PointInTimeError UnitError ColumnNameError WindowError"
+    "LookAheadError LabelLeakError UnitError ColumnNameError WindowError"
     " UnsupportedCorporateActionError AccountingDataError SnapshotError ReplayError ConfigError"
     " TermDomainError CapabilityError DataAvailabilityError FxStaleError CostTableError"
     " FitLeakError UntrustedRunError BookConflictError BlockOutputError EngineBugError"
-    " DatasetShapeError PretrainedLeakError"
+    " PretrainedLeakError"
 )
 
 NAMES = [(module, name) for module, names in PUBLIC.items() for name in names.split()]

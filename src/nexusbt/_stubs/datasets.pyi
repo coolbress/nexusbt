@@ -1,5 +1,5 @@
 # Written by `nexusbt stubs` from the snapshot's dictionary (spec 3.2); not edited by hand.
-from nexusbt.pipeline._terms import BoundColumn, Classifier, Filter
+from nexusbt.pipeline._terms import BoundColumn, Classifier
 
 class Price:
     open: BoundColumn
@@ -11,8 +11,6 @@ class Price:
     volume: BoundColumn
     volume_unadjusted: BoundColumn
     value_traded: BoundColumn
-    shares_out: BoundColumn
-    market_cap: BoundColumn
 
 class Meta:
     market: Classifier
@@ -20,8 +18,5 @@ class Meta:
     asset_class: Classifier
     venue_mic: Classifier
     category: Classifier
-    sector: Classifier
-    industry: Classifier
-    is_financial: Filter
     country: Classifier
     exchange: Classifier

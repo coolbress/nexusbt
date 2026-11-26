@@ -276,9 +276,6 @@ class Snapshot:
     def instruments(self, market: str) -> pa.Table:
         raise NotImplementedError
 
-    def share_counts(self, market: str, cutoffs: object) -> PITBlock:
-        raise NotImplementedError
-
     def explain(self, instrument_id: str, field: str, ts: object) -> Explanation:
         raise NotImplementedError
 

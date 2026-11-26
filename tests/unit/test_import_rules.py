@@ -177,7 +177,8 @@ def test_banned_imports_absent_in_src() -> None:
 
 
 def spec_3_1_names() -> set[str]:
-    """The 3.1 table's names, a parenthesis's examples left out; "the subclasses of 6.6" read."""
+    """The 3.1 table's names, a parenthesis's examples left out; "the subclasses of 6.6" read,
+    but a number 6.6 marks retired (its class left with its code)."""
     text = SPEC.read_text(encoding="utf-8")
     table = text[text.index("Every public name under `nexusbt.`") : text.index("**Identifier**")]
     names: set[str] = set()
@@ -185,7 +186,8 @@ def spec_3_1_names() -> set[str]:
         while (bare := re.sub(r"\([^()]*\)", "", cell)) != cell:
             cell = bare
         names |= {token.split(".")[0] for token in re.findall(r"`([^`]+)`", cell)}
-    return names | set(re.findall(r"^\| E\d+ \| `(\w+)`", text, flags=re.MULTILINE))
+    six = re.findall(r"^\| E\d+ \| `(\w+)`[^|]*\|[^|]+\| (?!retired )", text, flags=re.MULTILINE)
+    return names | set(six)
 
 
 def root_names() -> dict[str, bool]:

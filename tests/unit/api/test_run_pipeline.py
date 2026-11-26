@@ -194,14 +194,6 @@ def test_a_pipeline_without_columns_is_refused(tiny: Path) -> None:
         run(nx.Pipeline({}, screen=SMA(5) > 0), tiny, "2020-01-02", "2020-01-31")
 
 
-def test_share_count_columns_not_read_yet(tiny: Path) -> None:
-    """#249 Decisions 2026-11-19: `shares_out` and `market_cap` are a lookup of `share_counts`
-    (3.2, 5.3.5a), T2.15's; `run_pipeline` says so before reading the bars, for either."""
-    for column in (nx.Price.shares_out, nx.Price.market_cap):
-        with pytest.raises(NotImplementedError, match=r"share_counts .* comes with T2\.15"):
-            run(nx.Pipeline({"x": column.latest}), tiny, "2020-01-02", "2020-01-03")
-
-
 def test_across_markets_not_supported_yet(tiny: Path) -> None:
     """#249 Decisions 2026-11-19: a term with `across_markets=True` is T4.3's; `run_pipeline`
     says so before anything is computed rather than giving one market's values."""

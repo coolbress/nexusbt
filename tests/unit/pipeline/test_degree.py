@@ -165,8 +165,8 @@ def test_the_message_follows_the_degree_not_the_first_column() -> None:
     assert "split-adjusted share count" in caught.value.parts["what"]
     assert "inputs=[Price.volume]" in caught.value.parts["fix"]
     with pytest.raises(nx.TermDomainError) as caught:
-        check(Price.shares_out.latest.shift(2))
-    assert "unadjusted" not in caught.value.parts["fix"]  # no raw share count to name
+        check(Price.close_tr.latest.shift(2))
+    assert "unadjusted" not in caught.value.parts["fix"]  # no raw twin to name
 
 
 @pytest.mark.parametrize(

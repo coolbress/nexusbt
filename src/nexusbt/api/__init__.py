@@ -152,8 +152,8 @@ def screen(
     **common: Any,
 ) -> Screen:
     """3.8 `screen(factor, top=n)`: the top n of one factor per market on `asof` (default each
-    market's last snapshot session), among the listed instruments until T2.4's investable
-    universe; sealed as a `kind="screen"` run (3.8: an exposure record, whose rows are T2.9's)."""
+    market's last snapshot session), among the listed instruments until T2.4's default universe
+    (3.6); sealed as a `kind="screen"` run (3.8: an exposure record, whose rows are T2.9's)."""
     if not isinstance(obj, pipeline.Factor):
         what = type(obj).__name__
         raise NotImplementedError(f"screen of a {what} comes with its ticket; a Factor screens")
