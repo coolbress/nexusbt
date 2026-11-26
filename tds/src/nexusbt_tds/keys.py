@@ -1,7 +1,7 @@
 """The `full` level's key checks from the rows: K001~K004 (TDS 3.5, 3.6), K010 (5.2), K011 (5.4).
 
 Rules chosen with the maintainer (#224, 2026-11-05): a `year=` or `date=` folder holds the rows
-whose `session_date` (`period` for the 5.25 panels) falls in it, and a kind without that column
+whose `session_date` falls in it, and a kind without that column
 leaves K003 unchecked; a file's time range is its `<ts_min>_<ts_max>` name (3.6), so a
 `part-NNNNN` file has none. A null in a sort column sorts last, as Arrow sorts it.
 """
@@ -37,7 +37,6 @@ from .manifest import Manifest
 
 K001, K002, K003, K004, K010, K011 = KEY_CODES
 TIME_PARTS = ("year", "date")  # the partitions that are time ranges, K003's (TDS 3.5)
-PANELS = frozenset({"feature_panels", "label_panels"})
 _STAMP = r"(\d{4}-\d\d-\d\dT\d\d)-(\d\d)-(\d\d)(?:-(\d{1,9}))?(Z|[+-]\d\d-\d\d)"
 _RANGE = re.compile(rf"{_STAMP}_{_STAMP}\.parquet")  # 3.6, `:` and `.` written as `-`
 
@@ -170,7 +169,7 @@ def _scan(
     sort: list[str] | None, blind: set[str], runs: SortedRuns, notes: list[str],
 ) -> list[Finding]:  # fmt: skip
     """One pass over the files in path order, so each folder's files come in name order (3.5)."""
-    date, kept = "period" if kind in PANELS else "session_date", KEPT.get(kind, ())
+    date, kept = "session_date", KEPT.get(kind, ())
     files, typed = sorted(listed(root, ds)), time_columns(ds)
     unseen = {c for c, cols in ((K001, key), (K002, sort)) if cols is None}  # not judged
     pending: list[Record] = []  # K001: keys not yet in a sorted run

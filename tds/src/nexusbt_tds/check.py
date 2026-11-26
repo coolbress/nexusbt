@@ -6,7 +6,7 @@ Parquet footers and statistics and the `dictionary/` tables, no data rows (S001~
 of D002, and of M008 the columns a profile names); the `full` level adds, so far, S006, S007
 and S009 from the rows (`cells`), the key
 checks (K001~K004, K010, K011; `keys`), the
-reference checks (R001~R006, R008, R009; `refs`), the adjustment and value checks (`adjustments`,
+reference checks (R001~R006, R008; `refs`), the adjustment and value checks (`adjustments`,
 `values`), the interval checks (T003, T004, T012;
 `times`), the instant checks (T001, T002, T005, T010, T011; `instants`), the
 density checks (D001~D004;
@@ -50,7 +50,7 @@ Severity = Literal["error", "warning"]
 #: the schema files' `status` (#391).
 _ROW_CODES = (
     "S001 S002 S003 S004 S005 S006 S007 S008 S009 S010 S011 K001 K002 K003 K004 K010 K011"
-    " R001 R002 R003 R004 R005 R006 R008 R009 T001 T002 T003 T004 T005 T006"
+    " R001 R002 R003 R004 R005 R006 R008 T001 T002 T003 T004 T005 T006"
     " T010 T011 T012 D001 D002 D003 D004 A003 A004 A005 A006 A007 A008 A009 A010 A011"
     " V001 V002 V004 V005 V010 V011 V012 V020 V040 H001 H002 H003 H004"
 )
@@ -242,8 +242,8 @@ def check(
 #: The declared hashes against the computed ones (TDS 4.5); `full` checks these and the keys.
 HASH_CODES = ("TDS-H001", "TDS-H002", "TDS-H003", "TDS-H004")
 KEY_CODES = ("TDS-K001", "TDS-K002", "TDS-K003", "TDS-K004", "TDS-K010", "TDS-K011")  # `keys`
-#: `refs` checks them; R007 is retired with the user-data kinds (#752).
-REF_CODES = tuple(f"TDS-R{n:03}" for n in (1, 2, 3, 4, 5, 6, 8, 9))
+#: `refs` checks them; R007 and R009 are retired with the user-data kinds (#752).
+REF_CODES = tuple(f"TDS-R{n:03}" for n in (1, 2, 3, 4, 5, 6, 8))
 #: `adjustments` checks them; A001 and A002 are retired with `cum_factor_*` (TDS 8.3, #705).
 ACTION_CODES = tuple(f"TDS-A{n:03}" for n in range(3, 12))
 #: `values` checks them; V030, V031, V032, V041 and V050 are retired with their kinds (#752).

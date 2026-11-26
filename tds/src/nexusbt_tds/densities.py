@@ -35,7 +35,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from .check import DENSITY_CODES, TIMELESS, Finding, _day, _instant
-from .keys import PANELS, batches, listed, time_columns
+from .keys import batches, listed, time_columns
 from .manifest import Manifest
 from .refs import _rows
 
@@ -238,7 +238,7 @@ def _coverage(
     declared: Mapping[str, Any],
 ) -> list[str]:  # fmt: skip
     """The `coverage` keys present that differ from the rows (4.2's example)."""
-    date = "period" if ds.get("kind") in PANELS else "session_date"
+    date = "session_date"
     ids: defaultdict[Any, set[Any]] = defaultdict(set)  # market (None: all) → instrument ids
     spans: dict[Any, list[Any]] = {}  # market → [first, last, rows]
     typed = time_columns(ds)
