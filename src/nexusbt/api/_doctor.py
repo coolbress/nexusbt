@@ -151,8 +151,7 @@ def doctor() -> str:
     if (root / ".publishing").exists():  # a distribution convention outside TDS (3.10)
         return "publishing in progress: wait for the new snapshot, then run nexusbt doctor again"
     s = open_snapshot(data)
-    lines = [("snapshot", s.id), ("semantic", s.semantic_hash),
-             ("edition", str(cfg.values["data"]["edition"]))]  # fmt: skip
+    lines = [("snapshot", s.id), ("semantic", s.semantic_hash)]
     for name, p in s.profiles.items():  # declared / check level / supported (4.3)
         said = f"declared {_yes(p.declared)}  checked {p.verified_level}  result {p.result}"
         supported = _yes(name in s.capabilities.supported)

@@ -191,6 +191,31 @@ def test_index_before_families_is_migrated_once(tmp_path: Path) -> None:
     assert copy.read_bytes() == copied
 
 
+def test_an_index_with_the_former_edition_column_still_opens(tmp_path: Path) -> None:
+    """#752 (the owner, 2026-11-27): `runs.edition` left new indexes; an index an earlier
+    engine wrote with it opens, and its rows read as stored."""
+    from nexusbt.artifacts import _index
+
+    runs = tmp_path / "runs"
+    runs.mkdir()
+    tables = dict(_index._TABLES)
+    at = tables["runs"].index("segment TEXT")
+    tables["runs"] = (*tables["runs"][:at], "edition TEXT", *tables["runs"][at:])
+    with connect(runs) as db, db:  # the index as the engine before #752 created it
+        for table, columns in tables.items():
+            db.execute(f"CREATE TABLE {table} ({', '.join(columns)})")
+        db.execute(
+            "INSERT INTO runs (run_id, kind, name, ts_created, edition, status, path)"
+            " VALUES ('r1', 'pipeline', 'old', '2026-11-01T00:00:00+09:00', 'strict', 'sealed',"
+            " 'runs/r1')"
+        )
+    RunStore(runs)  # opens: no "not those of 5.9.5"
+    with connect(runs) as db:
+        assert db.execute("SELECT run_id, name, edition FROM runs").fetchall() == [
+            ("r1", "old", "strict")]  # fmt: skip
+        refused(db, "DELETE FROM runs")  # the append-only triggers are in place
+
+
 def test_migration_without_family_id_warns_until_the_toml_has_it(tmp_path: Path) -> None:
     runs, toml = tmp_path / "runs", tmp_path / "nexusbt.toml"
     toml.write_text("[research]\n", encoding="utf-8")

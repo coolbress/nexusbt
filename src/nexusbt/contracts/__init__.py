@@ -156,13 +156,6 @@ class UnknownInclusionPolicy(StrEnum):
     ERROR = "error"
 
 
-class EditionPolicy(StrEnum):
-    """`[data] edition` (5.3.5)."""
-
-    STRICT = "strict"
-    COMPARE = "compare"
-
-
 class VerifyPolicy(StrEnum):
     """`[data] verify` (4.4)."""
 
@@ -601,7 +594,7 @@ _EXAMPLES: dict[str, tuple[str, str, str, str, str, str, str]] = {
     "E2": ("strategy.py:9", "fwd", "fwd is a forward-looking label", "the signal of Strategy 'value'", "a label is known only after the decision, so it cannot drive one", "remove it from the signal; test it with nx.evaluate(f, target=fwd)", "spec 5.3.11 (label ports)"),  # noqa: E501
     "E4": ("", "universe", "a fixed list of 40 securities is used from 2000-01-03 to 2024-12-30; 0 delisted included", "Strategy 'value', universe", "a list of names alive today hides the ones that failed", "nx.universe('KR') & ... .top(n) or index_members('KOSPI200'); keep with survivorship_ok='reason'", "spec 6.6 E4"),  # noqa: E501
     "E5": ("strategy.py:11", "value_traded", "value_traded is in local currency (KRW for KR, USD for US)", "rank across markets KR, US", "numbers in two currencies are not comparable", "remove across_markets=True, .to('USD'), or use a ratio", "nx.describe(Price.value_traded)"),  # noqa: E501
-    "E6": ("", "screen", "the screen keeps 120 of 2400 names on 2020-03-02 (5%)", "NaN counts: Price.close 2100, Price.volume 180", "most of the universe is missing, so results describe a few names", "accept (coverage table recorded), edition='compare', or start=...", "nx.check(strategy); tds check snap --level full"),  # noqa: E501
+    "E6": ("", "screen", "the screen keeps 120 of 2400 names on 2020-03-02 (5%)", "NaN counts: Price.close 2100, Price.volume 180", "most of the universe is missing, so results describe a few names", "accept (coverage table recorded), or start=...", "nx.check(strategy); tds check snap --level full"),  # noqa: E501
     "E7": ("strategy.py:12", "Price.clsoe", "Price has no column 'clsoe'. Did you mean: close, close_tr?", "dataset Price", "Price's columns are fixed (spec 3.2)", "nx.describe(Price)", "spec 3.2 (dataset columns)"),  # noqa: E501
     "E8": ("strategy.py:14", "mom", "mom reads close[-253] but window=252", "factor mom, input close", "the row is outside the window the engine loads", "@nx.factor(window=253, ...)", "spec 3.3 and 5.3.7 (windows)"),  # noqa: E501
     "E9": ("", "start", "start 2020-01-01 is not a KR session; using 2020-01-02", "argument start", "runs begin on a session", "start='2020-01-02'", "spec 6.6 E9"),  # noqa: E501

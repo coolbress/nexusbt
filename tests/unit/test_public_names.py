@@ -21,7 +21,7 @@ PUBLIC = {
     " CHECKPOINT_SCHEMA NexusBTError FactorFrame TargetFrame TargetState DecisionGrid"
     " DecisionContext DecisionInputs SchemaRegistry ResolvedActions SessionInputs MarketView"
     " EventSink DelistingPolicy RightsPolicy UnsupportedPolicy DecimalRatioPolicy"
-    " BonusSharesTradablePolicy UnknownInclusionPolicy EditionPolicy"
+    " BonusSharesTradablePolicy UnknownInclusionPolicy"
     " VerifyPolicy PinsPolicy FallbacksPolicy TiebreakPolicy BandEntriesPolicy AccountTypePolicy"
     " OrderTypePolicy ExecutionAtPolicy BandModePolicy LimitFillPolicy UnknownTradabilityPolicy"
     " CostProfilePolicy TaxesProfilePolicy TaxesPayPolicy TaxesBasisPolicy LabelEntryPolicy"

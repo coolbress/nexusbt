@@ -25,7 +25,6 @@ from nexusbt.contracts import (
     CostProfilePolicy,
     DecimalRatioPolicy,
     DelistingPolicy,
-    EditionPolicy,
     EvaluateTargetPolicy,
     ExecutionAtPolicy,
     FallbacksPolicy,
@@ -270,7 +269,7 @@ SCHEMA: dict[str, dict[str, tuple[Any, Check]]] = {
     "research": {"family_id": (None, match(UUID4))},  # None until `nexusbt init` writes it (6.2)
     "data": {
         "root": (None, STR), "snapshot": ("latest", STR), "path": (None, STR),
-        "edition": policy(EditionPolicy.STRICT), "verify": policy(VerifyPolicy.MANIFEST),
+        "verify": policy(VerifyPolicy.MANIFEST),
         "require_profiles": ([], list_of(STR)), "pins": policy(PinsPolicy.INDEX_ROOT),
         "fallbacks": policy(FallbacksPolicy.WARN), "history_mode": fixed("economic"),
     },

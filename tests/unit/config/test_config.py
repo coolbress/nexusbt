@@ -99,7 +99,8 @@ def test_removed_panels_and_fund_tables_are_refused(toml: str, tmp_path: Path) -
      '[universe]\neligibility_rule = "x"\n', '[dividends]\nmissing_pay_date = "fail"\n',
      "[dividends]\nfallback_pay_lag_days = {KR = 30}\n",
      "[dividends]\nestimate_window_years = 3\n", "[dividends]\nestimate_min_obs = 5\n",
-     '[meta]\nsector = "auto"\n', '[meta]\nindustry = "auto"\n'],
+     '[meta]\nsector = "auto"\n', '[meta]\nindustry = "auto"\n',
+     '[data]\nedition = "strict"\n'],  # left 2026-11-27 with the editions (#752)
 )  # fmt: skip
 def test_removed_keys_are_refused_with_e16(toml: str, tmp_path: Path) -> None:
     """3.11: the keys removed 2026-11-24 (#752) left with their code; one still written is

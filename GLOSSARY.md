@@ -10,7 +10,7 @@ This file explains in plain words the terms the spec defines in its terms table 
 - **Term** (`Factor`, `Filter`, `Classifier`): a node of the computation graph, built from columns and combined with other terms. Same names and meanings as the zipline Pipeline.
 - **Strategy** (`Strategy`): a value object with ten slots — schedule, universe, signal, construction, sizing, risk, decide, execution, exits, costs.
 - **Run**: one call of `evaluate`, `backtest`, `screen`, `sweep` or `live`. Sealed into `runs/<run_id>/`.
-- **Config** (`nexusbt.toml`): project defaults in two parts. Part 1 is what changes results most (data path, edition, capital, base currency, sleeves, account type, shorting, costs, taxes, segments); part 2 is advanced. `nexusbt config check` and `nexusbt config show` explain it.
+- **Config** (`nexusbt.toml`): project defaults in two parts. Part 1 is what changes results most (data path, capital, base currency, sleeves, account type, shorting, costs, taxes, segments); part 2 is advanced. `nexusbt config check` and `nexusbt config show` explain it.
 
 ## Data and time
 
@@ -23,7 +23,7 @@ This file explains in plain words the terms the spec defines in its terms table 
 - **Capability**: whether the snapshot has the data a graph needs. Missing capability fails with `CapabilityError` (E18) or triggers a defined fallback.
 - **Capability result set**: declared / checked up to a level (verified@manifest, schema, full) / supported by this engine. What was not checked is not called passing.
 - **Fallback**: a defined engine behaviour when a profile or column is missing. Always warned (E30) and recorded in the manifest; never hidden.
-- **Edition**: `strict` (default; only values whose lineage has no vendor input or after-the-fact publication) or `compare` (vendor values included, for comparison).
+- **Edition**: removed 2026-11-27 (#752). It was `strict` (default; only values whose lineage has no vendor input or after-the-fact publication) or `compare` (vendor values included, for comparison); the engine reads no edition, and TDS's `editions` field is decided in #752's 12e.
 - **Market**: a key of TDS `markets` (for example `KR` = XKRX/KRW, `US` = XNYS/USD). Never hard-coded. A **supported market** has a market rules pack (`resources/markets/<M>.toml`).
 - **Market rules pack**: per-market rules — price limits, tick grid, rounding, provisional costs, settlement and short-sale ban dates, margin seeds. Seeds marked unverified are reported as such.
 - **Session**: one trading day of a market calendar. `ts_open` and `ts_close` are the real instants; the date is a label.
