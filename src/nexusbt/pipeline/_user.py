@@ -12,7 +12,7 @@ from typing import Any, Literal
 
 from nexusbt.contracts import ConfigError
 
-from ._terms import BoundColumn, Factor, Filter, _impure, _one_of, _readable, _reads
+from ._terms import BoundColumn, Classifier, Factor, Filter, _impure, _one_of, _readable, _reads
 
 
 def factor(
@@ -65,8 +65,8 @@ def user_filter(
         if not isinstance(fn, FunctionType):
             raise TypeError(f"@nx.filter decorates a function, not {type(fn).__name__}")
         reads = _reads(fn)
-        source = "".join(f"\n{h.__qualname__}\n{_readable(h)}" for h in reads.helpers)
-        digest = hashlib.sha256((_readable(fn) + source).encode()).hexdigest()
+        source = "".join(f"\n{h.__qualname__}\n{_readable(h, 'filter')}" for h in reads.helpers)
+        digest = hashlib.sha256((_readable(fn, "filter") + source).encode()).hexdigest()
         params = {"window": window, "mask": mask, "function": fn.__name__, "source": digest,
                   "captured": reads.captured}  # fmt: skip
         if reads.e24:
@@ -74,5 +74,29 @@ def user_filter(
                               "filter")  # fmt: skip
             warnings.warn(str(warning), stacklevel=2)
         return Filter("user", tuple(inputs), tuple(params.items()), function=fn)
+
+    return wrap
+
+
+def user_classifier(
+    window: int, inputs: Sequence[BoundColumn | Factor], *, mask: Filter | None = None
+) -> Callable[[Callable[..., Any]], Classifier]:
+    """3.3 `@nx.classifier`: a Classifier from a window function returning integer codes
+    `(n_alive,)`, -1 the missing group; its node, hash and checks are `@nx.filter`'s (#620)."""
+
+    def wrap(fn: Callable[..., Any]) -> Classifier:
+        if not isinstance(fn, FunctionType):
+            raise TypeError(f"@nx.classifier decorates a function, not {type(fn).__name__}")
+        reads = _reads(fn)
+        made = "classifier"
+        source = "".join(f"\n{h.__qualname__}\n{_readable(h, made)}" for h in reads.helpers)
+        digest = hashlib.sha256((_readable(fn, made) + source).encode()).hexdigest()
+        params = {"window": window, "mask": mask, "function": fn.__name__, "source": digest,
+                  "captured": reads.captured}  # fmt: skip
+        if reads.e24:
+            warning = _impure(fn.__name__, reads.impure, reads.decorator, reads.under, reads.lost,
+                              made)  # fmt: skip
+            warnings.warn(str(warning), stacklevel=2)
+        return Classifier("user", tuple(inputs), tuple(params.items()), function=fn)
 
     return wrap

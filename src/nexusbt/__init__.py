@@ -89,6 +89,7 @@ from nexusbt.pipeline import Factor as Factor
 from nexusbt.pipeline import Filter as Filter
 from nexusbt.pipeline import Pipeline as Pipeline
 from nexusbt.pipeline import Term as Term
+from nexusbt.pipeline import classifier as classifier
 from nexusbt.pipeline import factor as factor
 from nexusbt.pipeline import filter as filter  # noqa: A004 - the 3.1 name `nx.filter`
 

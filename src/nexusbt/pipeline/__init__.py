@@ -19,7 +19,7 @@ from ._terms import Term as Term
 from ._terms import describe_term as describe_term
 from ._terms import graph_hash as graph_hash
 from ._user import factor as factor
-from ._user import user_filter
+from ._user import user_classifier, user_filter
 
 from . import factors as factors  # the 2.4 "`factors` module"  # isort: skip
 
@@ -38,7 +38,9 @@ def filter(  # noqa: A001 - the 3.1 name `nx.filter`
 def classifier(
     window: int, inputs: Sequence[BoundColumn | Factor], *, mask: Filter | None = None
 ) -> Callable[[Callable[..., Any]], Classifier]:
-    raise NotImplementedError
+    """3.3 `@nx.classifier`: a Classifier from a window function returning integer codes
+    `(n_alive,)`, -1 the missing group (#620)."""
+    return user_classifier(window, inputs, mask=mask)
 
 
 def static_check(graph: object, ctx: object) -> list[Finding]:

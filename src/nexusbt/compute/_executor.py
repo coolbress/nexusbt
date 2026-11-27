@@ -381,7 +381,8 @@ class _Chunk:
 
     def user(self, term: Term, t: int) -> F64:
         __tracebackhide__ = True  # down to a user function (R-42)
-        out, size = np.full(len(self.block.instrument_ids), np.nan), dict(term.params)["window"]
+        empty = -1.0 if isinstance(term, Classifier) else np.nan  # 3.3: the missing group (#620)
+        out, size = np.full(len(self.block.instrument_ids), empty), dict(term.params)["window"]
         if t - size + 1 < 0:
             return out  # the window starts before the axis: nothing is there to read
         inside = self.domain(term, t)  # 3.3 `mask`: the columns the function computes on
