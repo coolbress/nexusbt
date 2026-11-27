@@ -225,7 +225,7 @@ NexusBT는 이 다섯을 한 엔진에 모은다. 각 엔진에서 가져온 장
 | R-57 | 미래 잠금은 없다. 사용자가 `nexusbt.toml [split]`에서 train/validation/test 구간을 정하고, 실행은 `segment=`로 고른다. 엔진은 시도 수와 노출을 기록하고 DSR을 표시한다 | 9.0 Q26 |
 | R-58 | 초소형주는 기본 포함, 설정 한 줄(`exclude_microcap = true`)로 제외. 숨은 제외 없음 | 9.0 Q31 |
 | R-59 | 벤치마크 기본값은 KOSPI·S&P 500 배당 포함 지수. 스냅숏에 지수 종목이 없으면 "없음"이라고 표시하고 만들지 않는다 | 9.0 Q30 |
-| R-60 | 배당 지급일이 없으면 사용자가 현금이 들어오는 때를 한 번 선언한다: 배당락일, 또는 그 몇 달력일 뒤. 그 선언이 없으면 도구가 멈추고 묻는다(5.6.11). 나라별 보통 간격으로 추정하던 것(결정 2026-11-01)은 2026-11-24에 뺐다(#752) [#725 결정 214, 215] | 9.0 Q29 |
+| R-60 | 배당 지급일이 없을 때: 5.6.11. 나라별 보통 간격으로 추정하던 것(결정 2026-11-01)은 2026-11-24에 뺐다(#752) [#725 결정 214, 215] | 9.0 Q29 |
 | R-61 | 비용 표가 검증되기 전에는 임시 bp 비용(`provisional`)을 기본으로 쓰고 보고서에 "provisional costs"를 표시한다 | 9.0 Q28 |
 | R-62 | 한국·미국은 따로 자금 댄 슬리브. 기준 시계는 설정으로 유지. 판단마다 UTC `decision_ts`를 기록한다 | 9.0 Q23 |
 | R-63 | ~~`Fund.*`은 TDS `fundamentals_state` 구간 조회만 한다.~~ 2026-11-24 대체(#752): 재무 값은 사용자의 값 표이고 주어진 그대로 읽는다(5.3.5). 엔진은 회계 선택 규칙을 다시 만들지 않는다 | 9.0 Q24, C3 |
@@ -1123,7 +1123,7 @@ write: orders.to_csv("orders/{date}.csv")   apply to paper book: nx.fill(book, o
 |---|---|---|
 | `Price.*`, `run_pipeline`, `screen(factor)`, `evaluate`(`fwd_return_adj`) | `instruments`, `bars(1d)` | `bars` 종가가 없으면 E14; 값이 하나도 없는 `volume`이나 `value_traded`를 읽는 항은 E18(4.4 3단계) |
 | 원가격 + 조정(`close`, `close_tr` 정확), `evaluate`(`fwd_return`) | 위 + `bars.price_basis = raw` + `corporate_actions`(빈 표 허용) + `calendar_sessions` | 조정가 패키지(`tds:minimal-daily`): `Price.close` = 그 값, `close_tr`·`fwd_return` → E18("economic labels need raw prices and corporate actions"); 조정된 칼럼을 읽는 Filter나 출력: 아래 |
-| `backtest`, 전략 `screen`, `live` | 위 + `delistings`(빈 표 허용), `bars` OHLCV·`obs_status`(`status` 칼럼이나 거래 상태 선언에서, 아래)·`density = dense`, 배당 현금 날짜(`pay_date`나 선언한 규칙, 5.6.11) | 4.5 F-13(F-03 은퇴, #705); `minimal-daily`면 E18; 배당 행에 `pay_date`가 없고 규칙 선언도 없으면 그 선언을 말하는 E18(5.6.11) |
+| `backtest`, 전략 `screen`, `live` | 위 + `delistings`(빈 표 허용), `bars` OHLCV·`obs_status`(`status` 칼럼이나 거래 상태 선언에서, 아래)·`density = dense`, 배당 현금 날짜(`pay_date`나 선언한 규칙, 5.6.11) | 4.5 F-13(F-03 은퇴, #705); `minimal-daily`면 E18; 배당 행에 `pay_date`가 없고 규칙 선언도 없으면 5.6.11 |
 | 거래 가능 규칙 | `tradability_daily` | 없으면 `obs_status`만으로 막고 E30 |
 | `nx.Item.<name>` | 그 항목을 담은 값 표(5.3.5) | E18 [#725 결정 219] |
 | 여러 시장 슬리브, `.to(ccy)` | `fx_rates` | E18 |
@@ -3189,7 +3189,7 @@ v1 명세의 O1~O11, 청사진 OQ-1~OQ-15, TDS Q1~Q16을 하나로 모았고, v3
 | A-05 | 내보내기에 정수 sid·session_idx(E0) vs 하드링크·불변 조각(Codex) | 9.2-13, C9, 설계 7(1)(3) | 파일에는 `instrument_id`·`session_date`만. 정수 색인은 엔진 메모리에서(사전 색인 매핑으로 속도 회복) | Codex > 본문 |
 | A-06 | 2026-11-24 대체(#752): 재무 `fundamentals_events` ASOF + `.lag()`·`.ttm()`(원본) vs `fundamentals_state`(Codex) | 9.3 Q24, C3 | 사용자 결정(9.0)이 Codex안을 확정. 엔진에 `.lag/.ttm` 없음, 참조 생산자 해석 항목으로 | 사용자 |
 | A-07 | 홀드아웃 2022-01-01 + `HoldoutError` 막기(원본) vs 전향적 잠금(Codex) | 9.3 Q26, R-36 | 사용자 결정 9.0: 잠그지 않음. 구간(train/validation/test) 설정 + 노출 기록 + DSR. 검증 시작 2022-01-01은 기본값. E10은 알림 | 사용자 |
-| A-08 | 지급일 결측: 확정 공시 다음 날(원본) vs 멈춤(Codex) | 9.3 Q29 | 사용자 결정 9.0: 나라별 보통 간격 추정 + "estimated" 표시, `fail` 선택 가능; 2026-11-24 대체(#752): 사용자가 지급일 규칙을 선언하고, 없으면 도구가 멈추고 묻는다(5.6.11) | 사용자 |
+| A-08 | 지급일 결측: 확정 공시 다음 날(원본) vs 멈춤(Codex) | 9.3 Q29 | 사용자 결정 9.0: 나라별 보통 간격 추정 + "estimated" 표시, `fail` 선택 가능; 2026-11-24 대체(#752): 5.6.11 | 사용자 |
 | A-09 | 현금 부족 "비례 축소"(설계 3.6) vs "정해진 순서로 줄임, 재분배 없음"(Codex) | 11.4.2 | 비례 축소(결정적) 뒤 반올림 잔여만 정해진 순서로 줄임, 남는 현금 재분배 없음 — 둘을 함께 만족. **v3**: 금액은 실제 비용 함수, 줄이는 순서는 체결 비율 높은 후보부터(A-108) | Codex 문구 안에서 본문 |
 | A-10 | `on_rebalance` 콜백·완충대(UX, Q6 "portfolio 옵션") vs v1 제외(Codex) | 9.3 Q32, C6 | v1에서 뺀다(R-13 순수 목표 보장); 2026-11-24에 일부 대체(#752): 계좌를 읽는 판단마다의 블록은 `decide`(3.7)로 v1이고, `on_rebalance`는 여전히 없다. 완충대는 v1 뒤 `top(..., band=)`로(지금은 `hold=`, A-47) — Q6 결정의 핵심(비용 표·0·1·2배)은 v1에 있음 | Codex (사용자 결정 충돌 없음) |
 | A-11 | 탈출 손절 일간 규칙만(설계 Q21 추천) vs 주문 종류 v1 구현(사용자 9.0) | 9.1 Q21, 9.0 | 사용자 결정: 손절·지정가·손절지정가·TIF·부분 체결을 v1 상태 기계에 구현, 일봉 불리한 쪽 규칙, 장중 순서는 E4 | 사용자 > Codex |
