@@ -1164,7 +1164,7 @@ write: orders.to_csv("orders/{date}.csv")   apply to paper book: nx.fill(book, o
 | F-05 | 한국 현금배당의 `ex_date`가 실제로는 기준일 | 엔진은 `ex_date`를 그대로 쓴다(고치지 않음). KR 현금배당 중 `ex_date = record_date`이고 `x_*_ex_date_method` 칼럼이 없는 행 수를 세어 E30("dividend ex_date may equal record date for {n} KR events; entitlement may be one session late" + `producer.hints`의 `fallback:F-05` 문장이 있으면 그것)과 매니페스트에 남긴다; 매니페스트는 건수와 키 `fallback:F-05`만 두고 문장은 두지 않는다(5.9.3) | `degrade=["kr_ex_is_record"]` |
 | F-06, F-07, F-08 | `fundamentals_state`, `eligibility_daily`, `share_counts`와 함께 2026-11-24에 은퇴(#752). 번호는 다시 쓰지 않는다 [#725 결정 251] | — | — |
 | F-09 | 미국 배당 금액이 분할 조정 값이고 날짜(기준일·결의일·지급일) 없음 | 지급일 없음 → 5.6.11의 사용자 지급일 선언(R-60; 추정 경로는 2026-11-24에 뺐다, #752) [#725 결정 214, 215]. 금액 축척은 엔진이 알 수 없으므로 `full` 검사의 `TDS-A004`(현금 계수 ≠ `1 − D/ref_price`) 경고 수를 시장별로 세어, 0보다 크면 매니페스트 `assumptions`에 "US dividend amounts unverified (A004 n)"과 보고서 경고 한 줄. 고치지 않는다 | `degrade=["us_div_split_adjusted_no_dates"]` |
-| F-10 | `corporate_actions.ts_terms_available`·`ts_announced` 둘 다 null | TDS 규칙대로 조건을 `ts_effective`에 안 것으로 본다(대기 처리 없음). E30 + 매니페스트 기록. 그런 사건이 있는 데이터셋은 `pit_quality`가 `backfilled`/`mixed`여야 하고, strict 실행이면 E30(4.4-4) | 단위 시험 |
+| F-10 | `corporate_actions.ts_terms_available`·`ts_announced` 둘 다 null | TDS 규칙대로 조건을 `ts_effective`에 안 것으로 본다(대기 처리 없음). E30 + 매니페스트 기록. 그런 사건이 있는 데이터셋은 `pit_quality`가 `backfilled`/`mixed`여야 하고, 그것을 쓰는 실행은 E30(4.4-4) | 단위 시험 |
 | F-11 | `fundamentals_events`와 함께 2026-11-24에 은퇴(#752). 번호는 다시 쓰지 않는다 [#725 결정 251] | — | — |
 | F-12 | 벤치마크 지수 종목 없음 | "n/a: not in snapshot"과 E30, 엔진이 지수를 만들지 않음(R-59) | T4.6 |
 | F-14 | 바뀔 수 있는 종목 속성(`category`, `venue_mic`)의 시점 표가 없음 | `Meta.category`·`Meta.venue_mic`이 `instruments`의 현재 값을 쓰고, 판단 입력에 닿으면 E30 "current value used for history"(건수) | `tests/unit/pipeline/test_meta.py::test_hindsight_attribute_warned` |
@@ -2154,6 +2154,8 @@ SQLite(WAL). 덧붙이기만: 아래 표는 `BEFORE UPDATE/DELETE` 트리거가 
 | `pins` | snapshot_id, holder_id, holder_kind(run/book), ts_created, ts_released |
 | `books` | book_id PK, kind(paper|manual), ts_created, base_ccy, sleeves_json, definition_sha256 |
 
+**옛 칼럼** (2026-11-27, #752): `runs.edition`은 판과 함께 빠졌다. 그 칼럼을 가진, 앞선 엔진이 쓴 색인도 그대로 열리고 그 칸은 저장된 대로 읽힌다. 엔진은 그 칸에 쓰지 않는다. 가족(families) 전의 색인은 그 칼럼 없이 다시 지어지고, 그 값은 `index.sqlite.before-families` 사본에 남는다(아래 가족으로 옮기기).
+
 `nexusbt runs --prune`은 폴더를 지우고 `status = pruned`만 바꾼다. 시도 수는 줄지 않는다 [R-34]. `nexusbt runs --prune-detail`은 실행의 `detail/` 폴더(3단계, 5.9.1)만 지우고 그 `runs` 행에 `detail_pruned = 1`을 둔다; 폴더의 나머지, 봉인, 상태, 시도 수는 그대로다(결정 2026-11-04, #206).
 
 **가족으로 옮기기** [#196]: `families`가 없는 색인은 처음 열 때 한 번 옮긴다. 이유 `linked at migration`과 프로젝트의 `[research] family_id`(toml에 없으면 새로 만들고, 쓸 때까지 실행마다 경고에 "add `[research] family_id = "{id}"` to nexusbt.toml" 줄을 싣는다; 엔진은 toml을 직접 고치지 않는다)로 가족 하나를 만들고, 기존 study·실행·노출·사전 등록 모두에 그 가족을 붙인다. 그 밖에는 바뀌지 않는다: 봉인된 보고서는 글, 집단, `cohort_sha256`을 그대로 둔다.
@@ -2467,7 +2469,7 @@ primary, reference, diagnostics의 모든 값은 평가 기간과 `n_valid`/`n_t
 | E27 | `TradabilityUnknownWarning` | 경고 | 거래 가능 여부를 모르는 체결 > 0 | 건수·기간 / "[execution] unknown_tradability='block' to see the sensitivity" |
 | E28 | `PayDateEstimatedWarning` | 경고 | 추정 지급일 사용 | 건수 / `estimated`로 표시된 날짜(`pay_date_status`) |
 | E29 | `FitLeakError` | 막음 | `ml.factor` 학습 창·검증 폴드에서 시험 묶음 정답이 훈련에 들어갈 수 있음(5.3.11, 6.3a); (예약) 맞춤 상태 변환의 맞춤 구간이 평가 구간과 겹치거나 붙음 [SC-19] | "{term} is fitted on {fit} which overlaps {segment}" / "set fit_segment='train' and embargo_sessions" |
-| E30 | `DataProfileWarning` | 경고 | 4.5의 대체 동작 사용, strict 실행에서 데이터셋 단위 `backfilled` 사용, 의심 자료(F-05, F-09, F-16 거래량 단위), 사후 속성(F-14), 늦은 봉(`LateBar`), untested 시장 규칙, 격자 없음(F-15), 사용자가 고른 십진 리터럴 비율(`ratio_decimal_literal`), 숏 net 배당 세전 복원, 루트 핀 못 씀(`retention: unmanaged`), 폐지 분배 포함 여부 모름, 공매도 금지 예외 편입 자료 없음, 지급일이 배당락보다 이른 배당(`pay_before_ex`, 5.6.11), 첫 봉 전의 spinoff 보유(`unvalued_holdings`, 5.6.12) | 대체 id·데이터셋·시장·건수(+ `producer.hints`) / "[data] fallbacks='fail' to stop instead" |
+| E30 | `DataProfileWarning` | 경고 | 4.5의 대체 동작 사용, 데이터셋 단위 `backfilled`나 `mixed` 데이터셋 사용, 의심 자료(F-05, F-09, F-16 거래량 단위), 사후 속성(F-14), 늦은 봉(`LateBar`), untested 시장 규칙, 격자 없음(F-15), 사용자가 고른 십진 리터럴 비율(`ratio_decimal_literal`), 숏 net 배당 세전 복원, 루트 핀 못 씀(`retention: unmanaged`), 폐지 분배 포함 여부 모름, 공매도 금지 예외 편입 자료 없음, 지급일이 배당락보다 이른 배당(`pay_before_ex`, 5.6.11), 첫 봉 전의 spinoff 보유(`unvalued_holdings`, 5.6.12) | 대체 id·데이터셋·시장·건수(+ `producer.hints`) / "[data] fallbacks='fail' to stop instead" |
 | E31 | `UntrustedRunError` | 실패 | 다른 기계에서 만든 실행 폴더를 `rerun` [SC-27] | "run {id} was created on another machine; its source/ will be executed" / "nx.rerun(id, trust=True) after reading source/" |
 | E32 | `StartDependenceWarning` | 경고 | 시작일 탐침 차이(6.5) [SC-04] | "{node} on {d} changed when the run started {k} sessions earlier" / "remove state carried across windows (globals, recursion)" |
 | E33 | `ReconcileMismatch` | 알림(CLI 종료 코드 4) | 대조 첫 차이(5.9.7) [SC-14] | 날짜·종목·단계·두 값 / 이유 후보 + "nexusbt reconcile --restate; if the snapshot is identical, nexusbt bugreport {run_id}" |
@@ -2734,7 +2736,7 @@ T-18 직사각형 조회 — 미리 발표된 미래 효력 행이 현재 행을
 | M-START | P-START와 같음 | 목표 상태 재귀 꺼짐 | |
 
 ### 8.4 미래 정보·위생 시험 목록 [R-51, R-52]
-`tests/unit/test_determinism_rules.py`: 결정 경로 모듈의 벽시계·난수·`uuid4` 호출 0건, 정렬 없는 `set` 순회가 사건 순서를 정하는 곳 0건(AST). `tests/unit/test_leaks.py`: 음수 shift(E1 정적), **주입한 미래 읽기 소스**(시험용 리더가 스냅숏 전체 기간 배열을 클로저로 넘겨 받아 판단일 뒤 값을 읽는 함수 → 탐침 E1; `::test_probe_catches_injected_future_reader`), 창 안에서만 도는 `np.roll(close, -5)`(미래를 읽지 않으므로 **E1이 나지 않아야 함**; `::test_bounded_roll_not_flagged`), 전역에 미리 계산한 전체 기간 평균을 쓰는 함수(E24 + 탐침 + L1 끔), 상수 전역 `THRESHOLD` 바꿈(캐시 열쇠 바뀜, E24 없음), 정답 입력(E2), 생존 편향 목록(E4), 통화 섞기(E5), 구간 노출 기록(E10), 창 밖 상태를 쓰는 함수(전역 누적 → E32 시작일 탐침), 탐침 날짜 선택 우선순위(6.5 a/b/c), strict 실행의 `backfilled` 데이터셋(E30).
+`tests/unit/test_determinism_rules.py`: 결정 경로 모듈의 벽시계·난수·`uuid4` 호출 0건, 정렬 없는 `set` 순회가 사건 순서를 정하는 곳 0건(AST). `tests/unit/test_leaks.py`: 음수 shift(E1 정적), **주입한 미래 읽기 소스**(시험용 리더가 스냅숏 전체 기간 배열을 클로저로 넘겨 받아 판단일 뒤 값을 읽는 함수 → 탐침 E1; `::test_probe_catches_injected_future_reader`), 창 안에서만 도는 `np.roll(close, -5)`(미래를 읽지 않으므로 **E1이 나지 않아야 함**; `::test_bounded_roll_not_flagged`), 전역에 미리 계산한 전체 기간 평균을 쓰는 함수(E24 + 탐침 + L1 끔), 상수 전역 `THRESHOLD` 바꿈(캐시 열쇠 바뀜, E24 없음), 정답 입력(E2), 생존 편향 목록(E4), 통화 섞기(E5), 구간 노출 기록(E10), 창 밖 상태를 쓰는 함수(전역 누적 → E32 시작일 탐침), 탐침 날짜 선택 우선순위(6.5 a/b/c), `backfilled` 데이터셋 사용(E30).
 
 **G-TIME-LATE** (늦은 봉; 5.1.2와 5.3.1의 보임 규칙) [결정 2026-11-04]: 봉이 칼럼 규칙(`{"column": "ts_available"}`)이고 `ready_delay`가 없어 `Δ = 0`(`ready(t) = ts_close(t)`)인 시장 KR, 종목 A와 B, 세션 종가마다 판단, 주문은 다음 세션 시가. 세션 s의 A 봉(종가 18)은 `ts_available = ready(s+2)`이고 나머지 봉은 모두 제때 오며, B는 모든 세션 종가 12.2. 전략: `close`의 `SMA(3)`, `top(1)`, 실행은 세션 s에서 시작. 마지막 칸은 어떤 스냅숏이 그 봉을 갖자마자 읽는 규칙이 낼 값이며, 나오면 안 된다.
 

@@ -60,7 +60,9 @@ def _names(table: str) -> list[str]:
 
 
 #: Columns an earlier engine's index holds and this one no longer writes: an index file with
-#: one still opens, its cells read as stored and never written (`runs.edition`, #752).
+#: one still opens, its cells read as stored and never written (`runs.edition`, #752). An index
+#: from before families is rebuilt without them; their values stay in its
+#: `index.sqlite.before-families` copy (5.9.5).
 _FORMER = {"runs": ("edition",)}
 
 
