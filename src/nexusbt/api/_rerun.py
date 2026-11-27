@@ -232,7 +232,15 @@ def _error(found: dict[str, Any]) -> NexusBTError:
     return next((c for c in errors if c.code == code), NexusBTError)(**found)
 
 
-def compare(old: Mapping[str, Any], new: Mapping[str, Any]) -> str:
+def _unrecorded(old: Mapping[str, Any], new_snapshot: bool) -> str:
+    """The note after outputs that differ (#250, #815 Decisions): a manifest saved before
+    `source.outside` is "not recorded", never `{}`, so its outside helpers were not checked;
+    a new run's (`new_snapshot`, 3.8) difference is expected and takes no note."""
+    unrecorded = not new_snapshot and "outside" not in old.get("source", {})
+    return "; this run's outside helpers were not recorded" if unrecorded else ""
+
+
+def compare(old: Mapping[str, Any], new: Mapping[str, Any], *, new_snapshot: bool) -> str:
     """5.9.4: each table of the reproduced run against the new run's, by value and bytes."""
     tables = {k: v for k, v in old["outputs"].items() if not k.startswith("source/")}
     kinds = [h for h in ("value", "physical") if any(f"{h}_sha256" in v for v in tables.values())]
@@ -243,10 +251,7 @@ def compare(old: Mapping[str, Any], new: Mapping[str, Any]) -> str:
             differ.append(f"{name} ({', '.join(which)})")
     if not differ:
         return f"outputs identical ({', '.join(kinds)})"
-    # #250 Decisions: a manifest saved before `source.outside` is "not recorded", never `{}`
-    unrecorded = "outside" not in old.get("source", {})
-    note = "; this run's outside helpers were not recorded" if unrecorded else ""
-    return "outputs differ: " + "; ".join(differ) + note
+    return "outputs differ: " + "; ".join(differ) + _unrecorded(old, new_snapshot)
 
 
 #: #637 Decisions: a run without NAV is compared within L1-a's tolerance (8.1) when the
@@ -298,9 +303,10 @@ def _beyond(old: pa.Table, new: pa.Table, keys: Sequence[str]) -> bool:
     return False
 
 
-def within(old: Path, new: Path) -> str:
+def within(old: Path, new: Path, *, new_snapshot: bool) -> str:
     """#637 Decisions 1, 2: the line when the environment differs; values only, no bytes."""
-    was, now = read(old)["outputs"], read(new)["outputs"]
+    manifest = read(old)
+    was, now = manifest["outputs"], read(new)["outputs"]
     beyond = []
     for name in sorted(k for k in was if not k.startswith("source/")):
         keys, hashes = _KEYS.get(name), was[name]
@@ -314,7 +320,8 @@ def within(old: Path, new: Path) -> str:
         elif _beyond(pq.read_table(kept), pq.read_table(new / name), keys):
             beyond.append(name)
     if beyond:
-        return "environment differs; outputs differ beyond tolerance: " + "; ".join(beyond)
+        line = "environment differs; outputs differ beyond tolerance: " + "; ".join(beyond)
+        return line + _unrecorded(manifest, new_snapshot)  # #815 Decisions 2
     return f"environment differs; outputs within tolerance ({_TOLERANCE})"
 
 
@@ -341,5 +348,5 @@ def rerun(folder: Path, *, new_snapshot: bool) -> tuple[str, str]:
         raise RuntimeError(f"rerun of {folder.name}: it sealed no {manifest['kind']} run")
     new_id, new_manifest = match[0]
     if environment_differs(folder, project()):  # 5.9.4: another environment, within tolerance
-        return new_id, within(folder, folder.parent / new_id)
-    return new_id, compare(manifest, new_manifest)
+        return new_id, within(folder, folder.parent / new_id, new_snapshot=new_snapshot)
+    return new_id, compare(manifest, new_manifest, new_snapshot=new_snapshot)
