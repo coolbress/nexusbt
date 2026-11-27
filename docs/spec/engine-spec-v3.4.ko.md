@@ -1056,7 +1056,7 @@ write: orders.to_csv("orders/{date}.csv")   apply to paper book: nx.fill(book, o
 | `[corporate_actions] rights` | str | `"lapse"` | lapse / fail | A-15 |
 | `[corporate_actions] unsupported` | str | `"fail"` | fail / cash_at_adjustment | 11.4.3 |
 | `[corporate_actions] bonus_shares_tradable` | str | `"at_pay_date"` | at_ex / at_pay_date | 11.4.3 |
-| `[corporate_actions] decimal_ratio` | str | `"exclude_instrument"` | exclude_instrument / require_exact / literal: 각각이 하는 일은 5.6.1이 정한다(기본 `exclude_instrument`, 사용자 결정 2026-10-29); literal은 매니페스트 `policies.corporate_actions`에 남는다 | |
+| `[corporate_actions] decimal_ratio` | str | `"exclude_instrument"` | exclude_instrument / require_exact / literal: 각각이 하는 일은 5.6.1이 정한다(기본 `exclude_instrument`, 사용자 결정 2026-10-29); require_exact = 그런 사건이 하나라도 실행 범위에 있으면 E13; literal은 매니페스트 `policies.corporate_actions`에 남는다 | |
 | `[delisting] unknown_inclusion` | str | `"conservative"` | conservative / error. 폐지 분배 포함 여부 모름(5.6.13): conservative = 슬리브 가치를 덜 만드는 해석 + E30, error = E13 | |
 | `[delisting] policy` | str | `"observed_then_policy"` | observed_then_policy / observed_only / lo / hi | Q18 |
 | `[delisting] scenarios` | bool | true | | |
@@ -1883,7 +1883,7 @@ v1은 이 절의 정의를 규범으로 고정하고(INV-08 문구, `DecisionCon
 - **NAV·손익 다리** (INV-06): 슬리브·통화마다 매일 `bridge` 행: `price_pnl`(Σ 보유 × 평가가 변화, 체결 가격 대비 평가 포함; 숏은 음수 수량이라 가격 상승이 손실), `distributions`(배당·자본 반환·현금 대가·단주 현금 기입; **숏 배당 지급은 음수**), `action_corrections`, `costs`(주문 비용 구성요소별, 음수), `financing`(대차 비용·리베이트·현금 이자 — 대차 비용은 v3.1의 `costs`에서 옮김: 주문이 없는 계좌 사건이라 실행 비용 대조와 섞지 않음), `external_flows`(장부 입출금, 백테스트는 0) [V31-19], `fx`(환전·환율 효과, 기준 통화 집계에서만), `rounding`(최소 단위 반올림 잔여) — 합 = `nav_economic_t − nav_economic_{t−1}`, 차이 0(최소 단위). `daily.parquet`에 칼럼으로, P-BRIDGE가 확인. 시험 G-48(거래 없는 평가 이익: `price_pnl`만 있고 다리가 닫힘), G-49(수수료 때문에 산 수량이 바뀜).
 
 #### 5.6.10 분할·역분할·주식배당 [11.4.3 (3)]
-효력 세션 시작에(조건 공개가 늦은 수량 사건은 5.3.3a(6)), 비율 ρ = 해석기의 수량 계수 `q_e` = 정확 비율 `ratio_num/ratio_den`(TDS v1.4 필수; 없으면 `decimal_ratio`가 정하고(5.6.1), 사용자가 고른 `decimal_ratio = "literal"`이면 `share_factor`(없으면 분할류에 한해 `ratio_new_per_old` 규칙 — `stock_dividend`·`bonus_issue`는 `1 + ratio_new_per_old`)의 십진 표기를 쓴다; `ratio_num/ratio_den`이 0·음수·한쪽만이면 열 때 E13(4.4-4)이고, 양수이고 둘 다 있지만 f64 칼럼과 어긋나는 비율은 없는 것으로 다룬다(5.6.1, #188); 종류 대응은 4.6 표; 유상 감자의 현금은 미수금으로 따로):
+효력 세션 시작에(조건 공개가 늦은 수량 사건은 5.3.3a(6)), 비율 ρ = 해석기의 수량 계수 `q_e` = 정확 비율 `ratio_num/ratio_den`(TDS v1.4 필수; 없으면 `decimal_ratio`가 정하고(5.6.1), 사용자가 고른 `decimal_ratio = "literal"`이면 `share_factor`(없으면 분할류에 한해 `ratio_new_per_old` 규칙 — `stock_dividend`·`bonus_issue`는 `1 + ratio_new_per_old`)의 십진 표기를 쓴다; 잘못된 비율이나 f64 칼럼과 어긋나는 비율은 5.6.1(#188); 종류 대응은 4.6 표; 유상 감자의 현금은 미수금으로 따로):
 - 보유 `q' = sign(q)·((|q|·num) div den)`, 단주 `frac = ((|q|·num) mod den)/den`(5.6.1 정수 산술)는 현금 `sign(q)·frac·prev_close_raw/ρ`(최소 단위 반올림)로 받는다(`cash_in_lieu`; 숏이면 내는 돈). 예: 16주 1:8 → 2주·단주 0, 7주 1:3 → 2주 + ⅓주 현금, −7주 1:3 → −2주 − ⅓주 현금(G-53, G-69).
 - `avg_cost' = avg_cost/ρ`, `high_water' = high_water/ρ`.
 - 남은 주문: `remaining' = floor_lot(remaining·ρ)`(정수 산술), `limit/stop' = price/ρ`를 격자에 다시 맞춤(5.6.4a). 수량 회계는 사건 `order_rebased(ρ)`로 남기고 `requested`·`filled`·`cancelled`도 같은 ρ로 바꾼 값을 함께 기록한다(단주 반올림 차이는 `cancelled_qty`로; INV-18 유지). 탈출 주문은 5.6.2a(3)으로 재조정.
