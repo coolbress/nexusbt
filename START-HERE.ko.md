@@ -13,7 +13,7 @@
 | 엔진 명세 v3.4 | [docs/spec/engine-spec-v3.4.md](docs/spec/engine-spec-v3.4.md)(영어 정본) · 한국어 번역 [engine-spec-v3.4.ko.md](docs/spec/engine-spec-v3.4.ko.md) | **유일한 기준.** 공개판. 다른 문서와 다르면 명세가 이긴다 |
 | 명세 검사기 | `tools/spec_lint.py`(아직 저장소에 없음: 인계 묶음에 들어 있지 않았다) | `python3 tools/spec_lint.py`(표준 라이브러리만): § 참조, 티켓 그래프, 번호. 명세를 고칠 때마다 돌린다 |
 | 계획 | [docs/plan/plan.ko.md](docs/plan/plan.ko.md) | 마일스톤 표(10.0)와 명세 절·시험·막는 티켓을 적은 티켓 글(10.1) |
-| 자료 표준 TDS v1.4 | [docs/tds/tds-v1.4.md](docs/tds/tds-v1.4.md) (+ [한국어](docs/tds/tds-v1.4.ko.md)), [예시](docs/tds/tds-examples.md) | 명세 2.3과 T0.1은 `tds/spec/tds-v1.md` 자리를 쓴다. T0.1에서 옮기고 링크를 고친다 |
+| 자료 표준 TDS v1.4 | [docs/tds/tds-v1.4.md](docs/tds/tds-v1.4.md) (+ [한국어](docs/tds/tds-v1.4.ko.md)), [예시](docs/tds/tds-examples.md) | 명세 2.3이 이 자리를 쓴다(`tds/` 패키지 옆) |
 | 용어집 | [GLOSSARY.md](GLOSSARY.md) (+ [한국어](GLOSSARY.ko.md)) | 이 프로젝트의 낱말. 명세가 쓰는 이름 `CONTEXT.md`·`CONTEXT.ko.md`는 이 둘을 가리키는 심볼릭 링크 |
 | 결정 기록 | [docs/adr/](docs/adr/) | 기록마다 Status 줄이 그 결정이 서 있는지, 무엇이 대신했는지를 말한다 |
 | 구조 | [ARCHITECTURE.md](ARCHITECTURE.md) (+ [한국어](ARCHITECTURE.ko.md)) | 한눈에 보기, 층, 코드 지도(예정), 불변식, 명세에서 찾을 곳 |

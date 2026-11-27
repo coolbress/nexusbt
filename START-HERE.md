@@ -13,7 +13,7 @@ This repository builds **NexusBT**, an open-source (Apache-2.0) backtesting and 
 | Engine spec v3.4 | [docs/spec/engine-spec-v3.4.md](docs/spec/engine-spec-v3.4.md) (Korean translation: [engine-spec-v3.4.ko.md](docs/spec/engine-spec-v3.4.ko.md)) | **The single source of truth.** Public edition. If anything disagrees with it, the spec wins |
 | Spec checker | `tools/spec_lint.py` (not in the repository yet: it was not in the pack) | `python3 tools/spec_lint.py` (stdlib only): § refs, ticket graph, ids. Run it after any spec edit |
 | Plan | [docs/plan/plan.md](docs/plan/plan.md) | milestone table (10.0) and ticket text with spec sections, tests and blockers (10.1) |
-| Data standard TDS v1.4 | [docs/tds/tds-v1.4.md](docs/tds/tds-v1.4.md) (+ [.ko](docs/tds/tds-v1.4.ko.md)), [examples](docs/tds/tds-examples.md) | Spec 2.3 and T0.1 place it at `tds/spec/tds-v1.md`; move it there in T0.1 and fix the links |
+| Data standard TDS v1.4 | [docs/tds/tds-v1.4.md](docs/tds/tds-v1.4.md) (+ [.ko](docs/tds/tds-v1.4.ko.md)), [examples](docs/tds/tds-examples.md) | Spec 2.3 places it here, beside the `tds/` package |
 | Glossary | [GLOSSARY.md](GLOSSARY.md) (+ [.ko](GLOSSARY.ko.md)) | The words of this project. `CONTEXT.md` and `CONTEXT.ko.md`, the spec's names, are symbolic links to these |
 | Decision records | [docs/adr/](docs/adr/) | Each record's Status line says whether it stands or what superseded it |
 | Architecture | [ARCHITECTURE.md](ARCHITECTURE.md) (+ [.ko](ARCHITECTURE.ko.md)) | Bird's-eye view, layers, code map (planned), invariants, where to look in the spec |

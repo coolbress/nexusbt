@@ -278,18 +278,18 @@ Policy: every dependency is pinned exactly by `uv.lock`. A version published les
 
 ### 2.3 Package layout
 
-The split follows the deep-module principle (a small interface, much implementation). Each package exports only the "public interface" below from its `__init__.py`; the rest are internal modules with a `_` prefix [Codex 11.6, codebase-design]. The repository is a uv workspace with two distributions: the engine `nexusbt` (import `nexusbt`) and the data-standard checker `nexusbt-tds` (import `nexusbt_tds`, CLI `tds`). TDS is a **public document and package versioned separately** from the engine (the `tds/` folder, version = `tds_version` `1.0`, package version the matching `1.0.x`, release status draft → RC → 1.0) [A-98].
+The split follows the deep-module principle (a small interface, much implementation). Each package exports only the "public interface" below from its `__init__.py`; the rest are internal modules with a `_` prefix [Codex 11.6, codebase-design]. The repository is a uv workspace with two distributions: the engine `nexusbt` (import `nexusbt`) and the data-standard checker `nexusbt-tds` (import `nexusbt_tds`, CLI `tds`). TDS is a **public document and package versioned separately** from the engine (the document in `docs/tds/`, the package in the `tds/` folder, version = `tds_version` `1.0`, package version the matching `1.0.x`, release status draft → RC → 1.0) [A-98].
 
 ```
 nexusbt/                                     (public repository, Apache-2.0)
 ├── LICENSE  NOTICE  pyproject.toml(workspace)  uv.lock  .python-version
 ├── AGENTS.md  CONTEXT.md  README.md(English)  CONTRIBUTING.md  SECURITY.md  CODE_OF_CONDUCT.md  CHANGELOG.md
 ├── docs/spec/engine-spec-v3.4.md             (this document; the public edition without private comments, personal information or hosts)
+├── docs/tds/tds-v1.4.md                      (the TDS document body, with tds-v1.4.ko.md and tds-examples.md beside it; the public edition of engine-data-standard-v1.4.md without chapter 11 (producer mapping) or personal information)
 ├── docs/quickstart.md                        (English quick start, tested by 8.5)
 ├── docs/adr/0001-… .md                       (9.3)
 ├── tds/                                      ★ data standard (versioned separately)
 │   ├── README.md  CHANGELOG.md
-│   ├── spec/tds-v1.md                         (the TDS document body; the public edition of engine-data-standard-v1.4.md without chapter 11 (producer mapping) or personal information)
 │   ├── schemas/<kind>/<MAJOR.MINOR>.json      (machine-readable dataset schema sources, TDS 10.3; `status: stable|experimental`)
 │   ├── conformance/<code>/{pass,fail}/        (small passing and failing packages for each code, TDS 8.5)
 │   ├── conformance/hash-vectors.json          (language-independent test vectors for the value and semantic hashes, TDS 4.5)
@@ -381,7 +381,7 @@ contracts ← artifacts ← api
 - `::test_no_data_files` — fails if it finds `*.parquet`, `*.duckdb` or `*.csv` in the repository (except small hand-written files under `src/nexusbt/resources/**` and `tds/conformance/**`). The data of `tds/conformance/` and `tests/` is made by generation scripts and its hashes must match the generation scripts.
 - `::test_fixtures_are_synthetic` — every place in `tests/**` that opens a snapshot (`DataConfig(path=…)`, `nx.open(…)`, a `snapshot=` argument, `tds check` given a path) uses only a path made by `nx.testing.synth.make_snapshot`, or by `nexusbt_tds.import_csv` from a mapping file in the test's temporary folder, a copy or edit of such a package, a folder such a package was written into (a data root) or a path inside it, a package under `tds/conformance/` reached from the repository root, which `tds/tests/test_cli.py::test_committed_packages_match_the_generator` shows to be `tds/conformance/build.py`'s output, or a copy of it, or the package 8.1's parity runner writes with the generator's command (`python -m nexusbt.testing.synth --out`) and names in its manifest; a path that starts from a string literal never passes. It is a static check: it reads how each test's code builds the path, not what any file holds, so it catches a path written by mistake, not code written to get around it; it does not read what a mapping file names or what a test copies into a data root.
 - `::test_license_headers` — `LICENSE` is Apache-2.0, and ported files have a source header.
-- `::test_tds_public_has_no_producer_names` — `tds/spec/tds-v1.md` has no particular producer's name or tickets (TDS chapter 11 is left out of the public edition).
+- `::test_tds_public_has_no_producer_names` — `docs/tds/tds-v1.4.md` has no particular producer's name or tickets (TDS chapter 11 is left out of the public edition).
 
 ---
 
@@ -1099,7 +1099,7 @@ Validation: an unknown key → `ConfigError` (suggesting similar keys). A key wh
 
 ### 4.1 The canonical source and the scope of this chapter [SC-24, R-66]
 
-- **The canonical source of the input format is TDS v1.4** (`engine-data-standard-v1.4.md`; changes from v1.1 are in TDS chapter 16 [V31], from v1.2 in chapter 17 [R3], from v1.3 in chapter 18 [R4F]; in the repository `tds/spec/tds-v1.md`, 9.1). Column names, types, nulls, keys, sort order, partitions, availability rules, hashes and check codes are set by TDS, and this spec does not write them again. When this spec and TDS describe the input format differently, TDS is right (the differences from chapter 4 of the v1 spec, TDS-D1~D24, are already reflected throughout this v2; the mapping is appendix B.3).
+- **The canonical source of the input format is TDS v1.4** (`engine-data-standard-v1.4.md`; changes from v1.1 are in TDS chapter 16 [V31], from v1.2 in chapter 17 [R3], from v1.3 in chapter 18 [R4F]; in the repository `docs/tds/tds-v1.4.md`, 9.1). Column names, types, nulls, keys, sort order, partitions, availability rules, hashes and check codes are set by TDS, and this spec does not write them again. When this spec and TDS describe the input format differently, TDS is right (the differences from chapter 4 of the v1 spec, TDS-D1~D24, are already reflected throughout this v2; the mapping is appendix B.3).
 - This chapter sets only the **engine side**: the capabilities the engine requires (4.3), the checks at open (4.4), the fallbacks when columns are missing (4.5), the reading rules per dataset (4.6), the engine resource files and market rules packs (4.7), and the synthetic generator (4.8).
 - Version rules: the engine opens only packages with `tds_version` MAJOR = 1 (otherwise E14 + `TDS-M002`). A higher MINOR of the same MAJOR is opened, but split by **whether it uses features the engine does not know** [TDS 10.3]: unknown columns and **optional** datasets are ignored with a `TDS-M011` warning; unknown values of **descriptive** open enums (`category`, `delist_type`, `reason` and the like) are read as `other`, `asset_class` aside (4.6); unknown values of **closed enums that affect the run** (`kind`, `obs_status`, `exit_value_status`, `status`) and unknown **required resolution rules** (a new `availability` rule name and the like) are `TDS-M014` → E14 ("this engine does not support …"). It does not promise to accept every future 1.x package unconditionally.
 - TDS holds no schema for ticks, quotes, futures, options or crypto, nor for the other kinds its drafts once named: such kinds may be added later, equities first (chapter 11) [#725 Decisions 252, 253].
@@ -2841,7 +2841,7 @@ The engine is built with the user's plinth loop (`plinth/2.7.1/docs/how-to/run-a
 |---|---|---|---|
 | 1 Start | `/plinth:new-project <owner>/<name> --archetype=library` (**public repository**) → merge the first PR → token, account and the four manual steps → check `LICENSE` (Apache-2.0) and `NOTICE` | user | 9.1 |
 | 2 Gather the thinking | `CONTEXT.md` (terms) and the first ADRs in one PR | agent writes, user merges | 9.2, 9.3 |
-| 3 Plan the big work | put this spec into the repository as `docs/spec/engine-spec-v3.4.md` and TDS as `tds/spec/tds-v1.md` (both public editions without private comments, personal information and paths, 2.7), one plan issue with `/to-spec`, the chapter 10 tickets as issues with `/to-tickets` | user runs the commands | 9.4, chapter 10 |
+| 3 Plan the big work | put this spec into the repository as `docs/spec/engine-spec-v3.4.md` and TDS as `docs/tds/tds-v1.4.md` (both public editions without private comments, personal information and paths, 2.7), one plan issue with `/to-spec`, the chapter 10 tickets as issues with `/to-tickets` | user runs the commands | 9.4, chapter 10 |
 | 4 Build one ticket | `/clear` → `/implement #N` (tdd + code-review), one ticket per session | user runs the commands, agent implements | 9.5 |
 | 5 Confirm what the checks cannot see | required checks green + the ticket's "Done means" seen with one's own eyes through `/run` | user | 9.6, chapter 10 "commands to show" per milestone |
 | 6 Merge | the user says "merge" | user | |
@@ -2907,7 +2907,7 @@ The decision records are the files of [`docs/adr/`](../adr/), one per decision, 
 
 ### 9.4 Step 3: the plan issue and the tickets
 
-1. The first M0 ticket (T0.1) puts this spec in as `docs/spec/engine-spec-v3.4.md` and TDS v1.4 as `tds/spec/tds-v1.md` (the content as it is; only the name strings adjusted to the repository name; public editions without private comments, TDS chapter 11, the user's personal information, hosts and data paths, 2.7).
+1. The first M0 ticket (T0.1) puts this spec in as `docs/spec/engine-spec-v3.4.md` and TDS v1.4 as `docs/tds/tds-v1.4.md` (the content as it is; only the name strings adjusted to the repository name; public editions without private comments, TDS chapter 11, the user's personal information, hosts and data paths, 2.7).
 2. User: `claude plugin install mattpocock-skills-extra@plinth` (once) → new session → `/to-spec docs/spec/engine-spec-v3.4.md`. One plan issue ("spec: NexusBT v1 (spec v3.4)") is created. Body = the scope of chapter 1, the milestone table of chapter 10, the open items of chapter 12, and a link to the spec file.
 3. `/to-tickets` on that plan issue. The tickets of chapter 10 are already cut, so they become issues as they are: title = ticket title, body = Context / Done means / Acceptance tests / Spec section, labels = `task` and the triage label (no milestone or module labels: the milestone tag under the body's `## Parent`, such as `M1`, names the milestone, which a ticket id's prefix does not always match), "Blocked by #N" = the issue number of the dependency ticket. If a ticket has to be split again, keep the same form (the 400-line rule). Before making the issues, run `tests/repo/test_ticket_graph.py` once (it reads the chapter 10 table of this spec and checks that the dependency graph is acyclic and that each ticket's "Blocked by" is in the same or an earlier milestone) (made by T0.12).
 4. No GitHub milestones are created. The milestone tracking issue is the plan issue itself: its `## Milestone status` table says, for each milestone, which tickets and pull requests are done and when its "end conditions" (chapter 10) and "commands to show" were met. Wherever this spec sends figures or a checklist "into the milestone tracking issue", they go into that table's row for the milestone.

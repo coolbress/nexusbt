@@ -49,7 +49,7 @@ The repository is a uv workspace with two distributions: the engine `nexusbt` (`
 
 | Path | What lives there |
 |---|---|
-| `tds/` | The TDS standard, versioned separately: `spec/tds-v1.md`, `schemas/`, `conformance/`, and `src/nexusbt_tds/` (check, hash, manifest, describe, import_csv). Depends on pyarrow only; never imports `nexusbt`. |
+| `tds/` | The TDS standard, versioned separately: `schemas/`, `conformance/`, and `src/nexusbt_tds/` (check, hash, manifest, describe, import_csv); its document is `docs/tds/tds-v1.4.md`. Depends on pyarrow only; never imports `nexusbt`. |
 | `src/nexusbt/contracts/` | Id constants, engine column sets, units, policies, the error hierarchy (§6.6). No dependencies. |
 | `src/nexusbt/config/` | Reads and validates `nexusbt.toml` (§3.11); refuses secret keys. |
 | `src/nexusbt/data/` | Snapshot open (calls the checker), capabilities and fallbacks, market blocks, L0 cache, interval lookup, calendars, FX, corporate-action resolver. |
