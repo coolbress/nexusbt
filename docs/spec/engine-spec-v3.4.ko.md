@@ -6,7 +6,7 @@
 
 > **이름 (이 줄 한 곳에서만 정의).** 엔진 이름 = **NexusBT**("nexus" = 자료, 백테스트·스크린·라이브, 그리고 다른 엔진들의 장점이 만나는 한 점). 이름 결정 2026-10-28: Aion → NexusBT (PyPI `aion` 등록 거부, `import aion`을 쓰는 활성 패키지 두 개와 충돌; PyPI `nexusbt`는 사용자가 0.0.1 자리표시로 등록). 저장소 = `<owner>/nexusbt`, 배포 이름 = `nexusbt`, import = `import nexusbt as nx`(이 문서의 `nx.`는 이 줄임), 설정 파일 = `nexusbt.toml`, CLI = `nexusbt`, 환경 변수 = `NEXUSBT_*`, 오류 기본 클래스 = `NexusBTError`, 선택 의존 = `nexusbt[pandas]` 등. 자료 표준 TDS의 이름(`tds.json`, 배포 이름 `nexusbt-tds`, **import 이름 `nexusbt_tds`**, CLI `tds`)은 표준 쪽 이름이라 엔진 이름과 따로 바꿀 수 있다(TDS 13장 Q6). 이 문서에서 `tds.check(...)`, `tds.value_hash(...)`처럼 쓴 `tds`는 `import nexusbt_tds as tds`의 줄임이다.
 >
-> **식별자 이름 (이 줄 한 곳에서만 정의).** 종목 열쇠의 이름 = **`instrument_id`** (자료·내부·출력 표·공개 API·문서 모두, 별칭 없음). v2의 `security_id` 별칭은 3자 검토 합의로 뺐다: 외부 자료의 다른 칼럼 이름은 `nx.dataset.from_parquet(..., rename={...})`와 `tds import csv`의 `mapping.yaml`에서만 바꾼다. 코드에서는 `nx.contracts.ID_COLUMN = "instrument_id"` 상수 하나만 이 이름을 정의한다.
+> **식별자 이름 (이 줄 한 곳에서만 정의).** 저장하는 종목 열쇠의 이름 = **`instrument_id`** (꾸러미의 자료·내부·지금의 출력 표와 공개 API, 별칭 없음). 사용자가 만나는 이름, 종목의 `symbol`(그 행 날짜에 쓰던 코드, 5.3.6), `session_date`의 `date`, 데이터셋 종류 `bars`의 `prices`는 2단계에서 오고, 그 첫 조각이 만든다(#725 결정 248; #752, 2026-11-27). 저장하는 이름은 그대로다. v2의 `security_id` 별칭은 3자 검토 합의로 뺐다: 외부 자료의 다른 칼럼 이름은 `tds import csv`의 `mapping.yaml`에서만 바꾼다(`nx.dataset.from_parquet`는 2026-11-24에 뺐다, #752). 코드에서는 `nx.contracts.ID_COLUMN = "instrument_id"` 상수 하나만 이 이름을 정의한다.
 >
 > **상태.** 규범 명세 **v3.4**. **구현의 유일한 기준은 이 문서**다. 엔진이 읽는 입력 형식은 **TDS v1.4**(`engine-data-standard-v1.4.md`; 이 문서 안의 "TDS v1.1 x.y"·"TDS v1.2 x.y" 절 번호는 v1.4에서도 같다)가 정하고 이 문서 4장은 엔진 쪽 읽기 규칙만 둔다. 공개 범위: 엔진·이 명세·TDS는 공개(Apache-2.0) 전제로 쓴다. 이 파일은 저장소 공개판이다: 비공개 생산자에 관한 비공개 주석 줄, 10.2절 본문, TDS 11장을 뺐고 생산자 이름은 "참조 생산자(the reference producer)"로 바꿨다(T0.1의 `grep` 수용 시험). 구현하는 에이전트는 이 문서와 TDS에 없는 규칙을 지어내지 않는다. 답이 안 나오면 12장의 추천 기본값을 쓰고, 없으면 멈추고 묻는다.
 >
@@ -414,7 +414,7 @@ from nexusbt.factors import (Returns, DailyReturns, SimpleMovingAverage, SMA,
 
 2026-11-24에 뺐고(#752) 이제 공개 이름이 아닌 것: 데이터의 `Fund`, `Panel`, `Label`, `Macro`, `MacroTerm`, `Events`, `dataset.from_parquet`, `dataset.from_frame`, `universe.index_members`; 전략의 `on_event`.
 
-**식별자** [머리말 "식별자 이름"]: 공개 함수·출력 표·문서는 `instrument_id` 하나만 쓴다(별칭 없음). 외부 자료의 다른 이름은 자료가 꾸러미에 들어가기 전에 사용자가 바꾼다.
+**식별자** [머리말 "식별자 이름"]: 저장하는 열쇠는 `instrument_id`이고(별칭 없음), 지금의 공개 함수와 출력 표가 그것을 쓴다. 사용자가 만나는 이름 `symbol`, `date`, `prices`는 2단계에서 온다 [#725 결정 248; #752, 2026-11-27]. 외부 자료의 다른 이름은 자료가 꾸러미에 들어가기 전에 사용자가 바꾼다.
 
 ### 3.2 데이터셋과 칼럼
 
@@ -1480,7 +1480,7 @@ class DecisionContext:
 **정체와 기호** (도구의 일; 사용자는 기호를 준다):
 - **열쇠**: 저장 열쇠는 `instrument_id` 그대로다(4.6). 도구는 그것을 `<MIC>:<ticker>_<YYYYMMDD>`로 쓴다: 가장 이른 기호와 그 `list_date`로, 없으면 그 종목의 첫 봉 날짜로. 두 종목을 합치지 않는 기호 변경은 열쇠를 바꾸지 않는다. 합병은 먼저 상장한 종목의 열쇠를 남긴다. 같은 입력은 같은 열쇠를 낸다. `list_date` 없이 이력을 앞으로 늘리면 열쇠가 바뀔 수 있고, 빌드 보고가 그것을 이름 댄다. 패키지를 넘나드는 열쇠 장부는 없다 [#725 결정 206, 207].
 - **기호 기간**은 `instrument_symbols`에만 있고, 도구는 모든 종목에 기간을 적어도 하나 쓴다. 기호가 한 번도 바뀌지 않은 종목도 그렇다. `symbol_changes.csv`와 `securities.csv`는 도구의 입력이고 데이터셋 종류가 아니다. 옛 기호로 주어지고 변경 전 날짜가 붙은 줄은 그 종목으로 옮긴다. `corporate_actions`에는 `symbol_change`가 없다(4.6) [#725 결정 208, 209].
-- **어느 기호인가**: 결과 표의 `symbol`은 그 행의 날짜에 쓰이던 기호이고 `instrument_symbols`에서 읽는다. 날짜 없는 기호(`symbol_values`의 줄, 코드나 설정에 쓴 기호)는 그 마지막 주인을 뜻한다. 결과는 선택 칼럼 `latest_symbol`을 더할 수 있다 [#725 결정 209; #752].
+- **어느 기호인가**(2단계의 첫 조각이 만든다. 지금의 결과 표는 `instrument_id`를 담는다, 머리말 "식별자 이름"): 결과 표의 `symbol`은 그 행의 날짜에 쓰이던 기호이고 `instrument_symbols`에서 읽는다. 날짜 없는 기호(`symbol_values`의 줄, 코드나 설정에 쓴 기호)는 그 마지막 주인을 뜻한다. 결과는 선택 칼럼 `latest_symbol`을 더할 수 있다 [#725 결정 209; #752].
 - **재사용**: 상장 기간(`symbol, list_date, delist_date`, 기간끼리 겹치지 않음)이 있는 종목 목록은 한 기호를 두 종목으로 나눈다. 기간은 주인만 정한다: 상장폐지는 `delistings`에 그대로 있고, 기간과 상장폐지가 어긋나면 도구가 멈춘다. 상장 기간이 없으면 도구는 긴 가격 공백에서만 묻는다. 사용자가 선언하지 않은 기호 변경은 묻지 않는다 [#725 결정 210, 211].
 
 **두 시간축 표** `instrument_symbols`는 **직사각형 조회**를 쓴다. 판별 열쇠 `K` = `(instrument_id, symbol_type)`마다, 질의 `(cutoff c, 날짜 q)`에서 답 = `ts_known_from <= c < ts_known_to` **그리고** `effective_from <= q < effective_to`인 행. 정확히 하나여야 하고(둘 이상이면 TDS-T012, 열 때 `full`에서 E14; `manifest` 단계로 열었는데 실행 중 만나면 E14), 없으면 결측. `ts_known_from` 최대 행 하나를 고른 뒤 효력을 확인하는 v2 방식은 **쓰지 않는다**(미리 발표된 미래 효력 행이 현재 효력 행을 가린다).
