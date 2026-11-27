@@ -840,7 +840,7 @@ v3는 3자 검토 합의대로 **M0을 계약만으로 줄이고**, 검사기 fu
 - Done means: G-36 통과; `runs/<id>/attribution.parquet`의 현지+환율+교차 = 기준 통화 슬리브 수익(날짜별); `exposures.parquet`에 통화·업종(슬리브별)·크기·상위 10·현금 비중.
 - Acceptance: `tests/golden/test_sleeves.py::test_G36`, `tests/unit/artifacts/test_attribution.py::test_fx_attribution_sums`, `::test_annual_linking_exact`, `::test_annual_fx_components_sum_G36`(교차 = `R − L − F`), `::test_exposures_columns`, `::test_sector_exposure_per_sleeve_only`.
 - Notes:
-  - owner decides at the cut (the owner, 2026-11-27, #752; #725 Decisions 250): `exposures.parquet`(5.9.1)의 `sector` 칼럼이 무엇으로 묶는지. 그것이 읽던 분류 체계는 `classifications`와 함께 빠졌고, 칼럼은 남는다.
+  - owner decides at the cut (#752 Decisions, 2026-11-27; #725 Decisions 250): `exposures.parquet`(5.9.1)의 `sector` 칼럼이 무엇으로 묶는지. 그것이 읽던 분류 체계는 `classifications`와 함께 빠졌고, 칼럼은 새 규칙이나 설정 이름 없이 남는다.
 
 **T4.11 `test(markets): market names from data with a synthetic third market ZZ`** · `M4` `markets` · S · Blocked by: T4.7, T0.5b · §4.7, §4.8, §3.11
 - Context: 합성 `markets=("KR","ZZ")` 스냅숏(달력 `XZZZ`, 통화 `XTS`), 시험용 `tests/fixtures/ZZ.toml` 규칙 팩.
@@ -1162,7 +1162,7 @@ v3는 3자 검토 합의대로 **M0을 계약만으로 줄이고**, 검사기 fu
 - Done means: `--method cpcv`가 경로 5개 Sharpe 분포와 최악 MDD를 선형 `reference` 줄 위의 `primary` 줄에(3.9, #216), 그리고 PBO(분자/분모)를 출력.
 - Acceptance: `tests/golden/test_validation.py::test_G91`, `tests/unit/research/test_cpcv.py::test_path_count_and_fresh_capital`, `::test_nothing_to_select_E40_one_path`, `::test_path_interpretation_line`, `tests/unit/api/test_sweep.py::test_sweep_equals_cscv_method`, `tests/docs/test_tool_cards.py::test_card[cpcv]`(D19, #219), `tests/unit/research/test_cpcv.py::test_best_path_never_representative`(6.3a, #216), `::test_is_scores_slice_without_learned_node`, `::test_strict_block_replay_equals_fresh_linear_run`(블록 시작마다 빈 장부와 K, 진입 비용은 IS 수익에, 블록 끝에는 아무것도 물리지 않음), `::test_is_scores_without_grid_E16`, `::test_E40_names_is_scores_mode_and_planned_passes`(6.3a, #215).
 - Notes:
-  - owner decides at the cut (#314 Decision, 2026-11-10): PBO 옆에 어떤 PBO 경고 줄을 낼지. 만드는 쪽의 추천(#314 Findings)은 경고로만 두 줄이다: OOS 손실 확률(IS 최고 후보의 OOS Sharpe가 0 아래인 조합의 몫), 그리고 "N < 10 candidates: PBO is coarse". 후보가 적으면 로짓 분포가 퇴화하기 때문이다.
+  - owner decides at the cut (#314 Decision, 2026-11-10): PBO 옆에 어떤 PBO 경고 줄을 낼지(T6.8도). 만드는 쪽의 추천(#314 Findings)은 경고로만 두 줄, 곧 OOS 손실 확률(IS 최고 후보의 OOS Sharpe가 0 아래인 조합의 몫)과 "N < 10 candidates: PBO is coarse"이며, 후보가 적으면 로짓 분포가 퇴화하기 때문이다.
   - owner decides at the cut (#43 Decisions, 2026-11-04, #202): CPCV 경로의 DSR이 코호트의 선형 관측에서 V[SR]를 가져올 수 있는지, 그리고 6.3a가 그렇다고 말할지(T6.8도).
   - owner decides at the cut (#43 Decisions, 2026-11-04, #205): `docs/design/statistics-verification-plan.md`의 B 단계를 8.3의 성질 행(같은 DGP를 합성 패키지로 만들어 `evaluate`와 `backtest(method=…)`로 돌림)으로 둘지, 어느 티켓이 시험할지(T6.8, T6.24도).
 
@@ -1171,7 +1171,8 @@ v3는 3자 검토 합의대로 **M0을 계약만으로 줄이고**, 검사기 fu
 - Done means: report.html 첫 화면에 일곱 줄이 있고 배지가 없다(구조 시험).
 - Acceptance: `tests/unit/artifacts/test_report.py::test_hygiene_panel_lines`, `::test_ratios_have_counts`, `::test_no_pass_badges`, `tests/docs/test_tool_cards.py::test_report_explanations_match_cards`(D19, #219), `tests/unit/artifacts/test_report.py::test_primary_and_reference_lines`, `::test_failure_markers_not_nan`, `::test_csv_rows_carry_role`(6.3a, #216), `::test_is_scores_line`(`IS scores` 줄의 네 꼴, strict가 아니면 가정 문장과 함께, `cscv`이거나 `grid`가 없으면 줄 없음; 3.9, #215).
 - Notes:
-  - owner decides at the cut (#314 Decision, 2026-11-10; #43 Decisions): 평가한 팩터로 만든 합성 신호가 시도로 어떻게 세어지는지. 이미 정한 것: `N + m`은 보정된 독립 시행 수가 아니며 DSR에 몰래 넣지 않는다(6.2). 만드는 쪽의 추천(#314 Findings)은 위생 줄이 "candidates N = n; factors this graph reads that were evaluated in this family: k of m"을 내고 DSR을 N과 N + m에서 더 큰 감가를 먼저 보이되 새 N 규칙은 두지 않는 것이다. 선택 사건이 이미 그것을 기록하기 때문이다. 가족 밖에서 평가한 팩터는 6.2가 이미 붙이는 표시로 읽힌다(T6.8도).
+  - decided (#314 Decision, 2026-11-10): `N + m`은 보정된 독립 시행 수가 아니며 DSR에 몰래 넣지 않는다(6.2).
+  - owner decides at the cut (#314 Decision, 2026-11-10): 평가한 팩터로 만든 합성 신호가 시도로 어떻게 세어지는지(T6.8도). 만드는 쪽의 추천(#314 Findings)은 위생 줄이 "candidates N = n; factors this graph reads that were evaluated in this family: k of m"을 내고 DSR을 N과 N + m에서 더 큰 감가를 먼저 보이되 새 N 규칙은 두지 않는 것, 그리고 가족 밖에서 평가한 팩터는 6.2가 이미 붙이는 표시로 읽히는 것이며, 선택 사건이 이미 그것을 기록하기 때문이다.
 
 **T6.23 `feat(ml): ml.factor node with engine-enforced training window and fit/predict records`** · `M6` `ml` · M · Blocked by: T6.19, T2.10a, T1.12 · §5.3.11, §6.5 검사 8
 - Context: `MLFactor` 노드, 표본 구성, `train=rolling|expanding`, `refit` 일정, 학습 창 규칙(공개 시각 + embargo ≤ τ), E2 포트, 새 객체 학습(2026-11-04, #195: 팩토리·`__sklearn_clone__`·`clone`, 아니면 E16), `classes_`로 맞춘 클래스 확률과 세 클래스의 필수 `score=`, 한 클래스뿐인 훈련 창은 학습하지 않음(`ml_single_class`), seed·스레드 고정, `fit_id` 재사용, `predictions.parquet`·`fits.parquet`·매니페스트 `ml`, sklearn 선택 의존(엔진 import 없음).
