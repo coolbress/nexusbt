@@ -963,7 +963,7 @@ write: orders.to_csv("orders/{date}.csv")   apply to paper book: nx.fill(book, o
 | `nexusbt book flow BOOK AMOUNT --ccy C --sleeve M [--session D]` | 입금·출금 [V31-19] |
 | `nexusbt book acknowledge BOOK DIVERGENCE_ID --note T [--by NAME]` | `reconciled: NO`의 차이를 확인 기록; 그 뒤 `live`가 다시 주문표를 냄(5.9.6 규칙 3) |
 | `nexusbt runs [--study S] [--html] [--prune] [--prune-detail]` | `--prune`은 실행 폴더만 지우고 색인 기록과 시도 수는 남김 [R-34]; `--prune-detail`은 실행마다 3단계 `detail/` 폴더만 지우고 지웠다고 기록(5.9.5, #206) |
-| `nexusbt rerun RUN_ID [--new-snapshot] [--trust] [--save-detail]` | 다른 기계에서 만든 실행 폴더는 `--trust` 없이 거절(E31); `--save-detail`은 3단계 산출물도 다시 만들어 대조(5.9.4, #206); 비교 줄이 `outputs differ`로 시작하면 종료 코드 4, `outputs identical`로 시작하면 0; `--new-snapshot`은 새 실행이므로(3.8) 비교 결과와 상관없이 0 (#655) |
+| `nexusbt rerun RUN_ID [--new-snapshot] [--trust] [--save-detail]` | 다른 기계에서 만든 실행 폴더는 `--trust` 없이 거절(E31); `--save-detail`은 3단계 산출물도 다시 만들어 대조(5.9.4, #206); 비교 줄이 `outputs differ`로 시작하거나, 환경이 다를 때 출력이 허용 오차 밖으로 다르다고 하면 종료 코드 4(#637), `outputs identical`로 시작하거나, 환경이 다를 때 허용 오차 안이라고 하면 0; `--new-snapshot`은 새 실행이므로(3.8) 비교 결과와 상관없이 0 (#655) |
 | `nexusbt stubs` | `.pyi` 다시 생성 |
 | `nexusbt check FILE[:VAR] [--probes K] [--start-probe]` | |
 
@@ -1171,7 +1171,7 @@ write: orders.to_csv("orders/{date}.csv")   apply to paper book: nx.fill(book, o
 | F-14 | 바뀔 수 있는 종목 속성(`category`, `venue_mic`)의 시점 표가 없음 | `Meta.category`·`Meta.venue_mic`이 `instruments`의 현재 값을 쓰고, 판단 입력에 닿으면 E30 "current value used for history"(건수) | `tests/unit/pipeline/test_meta.py::test_hindsight_attribute_warned` |
 | F-15 | 한 시장의 어느 종목에도 4.3 격자 사슬의 쓸 만한 출처가 없음(5.6.4a): `instruments.tick_size`가 없고, `market_rules` `tick_band` 규칙 집합인 `instruments.tick_rule_id`가 없고, 그 시장의 `tick_band` 행이 없고, 팩에 `tick_table`·`base_unit`이 없음(2026-11-22, #705; #448, #453) | 격자 = 그 통화 최소 단위(`minor_unit`; KRW 1원, USD 0.01). E30 "price grid = currency minor unit for {market}" + 매니페스트 기록 | `degrade=["no_tick_info"]` |
 | F-16 | 거래량 단위 의심(엔진이 읽는 일봉, 4.3의 데이터셋 고르기의 TDS-V011 경고: 거래대금 / (거래량 × 대표가)의 종목·연도 중앙값이 [0.5, 2] 밖; 2026-11-22, #705; #547, #584) | 고치지 않는다. 경고를 E30으로 올리고(종목·연도 건수), 그 종목·연도의 ADV 상한·충격 비용·용량 줄에 "volume unit unverified" 표시. bars에 `value_traded`의 값이 하나도 없으면 doctor가 "volume unit unverified" 한 줄 [2026-11-23, #705] | `degrade=["volume_in_lots"]` |
-| F-13 | 상장폐지 사건 행이 없는데 종목이 퇴출됨 | `instruments.delisted_on`(또는 워터마크 전 `last_session`)이 있고 `delistings` 행이 없으면 메모리에서 `exit_value_status = unobserved`, `ret_observed = ret_policy = null`, `ret_lo`·`ret_hi`·`policy_id` null, `ref_price` = 마지막 유효 원 종가, `exit_date` = `delisted_on`(없으면 `last_session` 다음 세션)인 사건을 만든다: TDS 5.13이 받은 값을 모르는 퇴장에 대해 말하는 줄이고, 꾸러미의 그런 줄과 똑같이 읽으며, 그 범위는 엔진의 가정이다(5.6.13). 정책 `observed_then_policy`에서 보유 중이면 `ret_policy` null → E13(5.6.13; fix: `delisting="lo"|"hi"|"observed_only"`) | `degrade=["no_delistings"]` |
+| F-13 | 상장폐지 사건 행이 없는데 종목이 퇴출됨 | `instruments.delisted_on`(또는 워터마크 전 `last_session`)이 있고 `delistings` 행이 없으면 메모리에서 `exit_value_status = unobserved`, `ret_observed = ret_policy = null`, `ret_lo`·`ret_hi`·`policy_id` null, `ref_price` = 마지막 유효 원 종가, `ref_date` = 그 봉의 날짜, `exit_date` = `delisted_on`(없으면 `last_session` 다음 세션, 달력에 뒤의 세션이 없으면 `last_session` 그 자체; TDS 5.13, #747)인 사건을 만든다: TDS 5.13이 받은 값을 모르는 퇴장에 대해 말하는 줄이고, 꾸러미의 그런 줄과 똑같이 읽으며, 그 범위는 엔진의 가정이다(5.6.13). 정책 `observed_then_policy`에서 보유 중이면 `ret_policy` null → E13(5.6.13; fix: `delisting="lo"|"hi"|"observed_only"`) | `degrade=["no_delistings"]` |
 | F-17 | 전략이 읽는 데이터셋 가운데 세션마다 행이 있지 않은 것(사건·구간 데이터셋, `instruments` 등)에 `coverage.by_market.<m>.processed_through_session`(TDS 4.3)이 없음(TDS v1.4의 2026-11-12 추가 이전에 쓴 패키지) | `live`의 최신 자료 점검(5.9.6 규칙 4)은 시장의 `complete_through_session`을 그 데이터셋의 처리 완료 세션으로 본다. 이 필드 이전의 규칙 4와 같다(세션별 데이터셋은 그 `last`를 쓴다. TDS 4.3의 정의이며 경고 없음). `live` 실행마다 E30 한 줄로 그런 데이터셋을 시장과 함께 이름 댄다: "no processed_through_session for {dataset} in {market}, …; the market watermark stands for them", + 매니페스트 기록 [결정 2026-11-04(값)와 2026-11-12(이 줄), #192] | T5.12 `test_newest_data_without_processed_through_E30` |
 
 ### 4.6 데이터셋별 엔진 읽기 규칙
@@ -1915,7 +1915,7 @@ v1은 이 절의 정의를 규범으로 고정하고(INV-08 문구, `DecisionCon
 - 지원 안 하는 사건(`exchange_offer`, `other`, 정보가 빠진 spinoff 등)이 **보유 종목**에 생기면 `unsupported = "fail"`(기본)이면 오류 E12로 멈춘다(종목을 몰래 지우거나 가짜로 남기지 않음). `"cash_at_adjustment"`면 `q·prev_close·(1 − price_factor)` 현금(`price_factor`가 null이면 이 정책도 쓸 수 없어 E12)을 그 세션에 넣고 사건 `approximated`로 표시한다 [11.4.1, 11.4.3].
 
 #### 5.6.13 상장폐지 [Q18, 11.4.3 (7)(8)]
-- 입력은 TDS `delistings`(사건 행이 없으면 4.5 F-13). 종료 세션 x = 그 종목 달력에서 `exit_date` 이상인 첫 세션. `last_trading_date` 뒤부터 x 전까지 보유는 거래 불가·마지막 유효 종가 평가(`stale`).
+- 입력은 TDS `delistings`(사건 행이 없으면 4.5 F-13). 종료 세션 x = 그 종목 달력에서 `exit_date` 이상인 첫 세션. `last_trading_date` 뒤부터 x 전까지 보유는 거래 불가·마지막 유효 종가 평가(`stale`). `exit_date = last_trading_date`이면(TDS 5.13은 그 종목 달력에 마지막 거래일 뒤의 세션이 없을 때만 이렇게 준다) x는 그날이다: 보유는 그날 장 시작 때 없어지므로 그 종목은 그날 거래할 수 없고, 종료값은 `ref_price`로 매긴다(주인, 2026-11-27, #747).
 - x 시작에: 그 종목 주문 `CANCELLED(delisted)`, 보유 제거, **종료 권리** 생성(숏이면 q < 0이라 **종료 의무** — 종료가치가 낮을수록 숏의 이익). 금액은 r(아래 표)이 무엇이냐에 따라 **세 기준** 중 하나다. 기준가 둘: `ref_units` = `ref_price` × Π(`ref_date` 뒤부터 x 전까지 효력이 생긴 **주식 수 단위 사건**(분할·역분할·주식배당·무상·병합)의 가격 계수 — 수량 단위만 맞춤), `ref*` = `ref_units` × Π(같은 구간 **현금 분배**의 가격 계수; 5.6.3 묵은 평가가와 같은 규칙). q는 그 단위의 보유(분할은 5.6.10이 이미 반영).
   - (a) **관측·포함**(r = `ret_observed`, `ret_observed_includes_distributions = true`): 종료 = `q·ref_units·(1 + r)` − (`last_trading_date` 뒤 그 종목에 이미 기입한 그 현금 분배 합, 같은 부호 규칙). 관측 수익률은 `ref_price` 대비이므로(TDS 5.13) 분배 계수를 곱하지 않고, 분배를 이미 기입했으면 그만큼 뺀다. 결과가 음수여도 자르지 않는다(포함 총액과 맞추는 데 필요).
   - (b) **관측·제외**(r = `ret_observed`, 플래그 false): 분배는 5.6.11대로 따로 기입하고 종료 = `q·ref_units·(1 + r)`(관측 금액은 분배를 뺀 값이므로 분배 계수를 **곱하지 않는다** — 곱하면 분배만큼 두 번 줄어듦).
@@ -2134,7 +2134,7 @@ runs/<run_id>/
 
 #### 5.9.4 해시와 결정성 [R-31, INV-09]
 - 물리 해시 = 파일 sha256. 값 해시 = TDS 4.5의 정규 값 직렬화(같은 함수 `tds.value_hash`를 쓴다; Arrow 판·쓰기 도구와 무관). 실행 산출물의 "논리 비교"는 값 해시다.
-- 같은 고정 환경(같은 `uv.lock`, 같은 기계 종류)에서 `rerun`은 출력 물리 해시까지 같아야 한다. 환경이 다르면 논리 비교를 허용 오차(8.1 표의 L2 기준)로 한다.
+- 같은 고정 환경(같은 `uv.lock`, 같은 기계 종류)에서 `rerun`은 출력 물리 해시까지 같아야 한다. 환경이 다르면 논리 비교를 허용 오차(8.1 표의 L2 기준)로 한다. NAV가 없는 실행(파이프라인·스크린)은 L2 행이 없으므로, 그 표를 같은 키의 칸마다 L1-a의 `|a−b| ≤ 1e-9 + 1e-9·|b|`로 비교하고 NaN은 NaN과 같다고 본다. 잡은 엔진 또는 프로젝트 `uv.lock`의 sha256이 지금 것과 다르거나 프로젝트 잠금이 한쪽에만 있으면 환경이 다르다(결정 2026-11-20, #637).
 - 3단계 산출물(5.9.1, #206)은 있는 파일이 아니라 매니페스트가 적은 값 해시로 대조한다: 쓰지 않았거나 지운 `detail/` 파일은 `rerun --save-detail`이 다시 만들어 그 해시와 대조하고, `--save-detail` 없는 `rerun`은 1·2단계만 대조하고 3단계는 대조하지 않았다고 말한다.
 - Parquet 쓰기: pyarrow, zstd 3, row group 131,072행, 통계 켬, 문자열 dictionary, 메타데이터에 시각 없음.
 
