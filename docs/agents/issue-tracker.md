@@ -134,19 +134,19 @@ written somewhere else is a record the next session cannot find.
 | Why this way, what was verified | the pull request description, which becomes the squash commit body |
 | How a ticket ended, what was not verified | that issue's `## Outcome` |
 | What was decided in a ticket | that issue's `## Decisions` |
-| How a question was researched and decided | a record issue, one question each, ending in `## Decision` |
+| How a question was researched and decided | a record issue, one question each, ending in `## Decision`; the research material behind it is kept outside this repository, and a decision's reasons are in `docs/adr/` |
 | A design decision to keep | an ADR, when [domain.md](domain.md)'s three conditions hold |
 | The rule itself | the spec or the standard the project keeps |
-| What is still to do, and a rule across tickets | the open issue a closed ticket's `## Outcome` links, or a map note for a ticket not cut yet; a rule across tickets in the map |
+| What is still to do, and a rule across tickets | the open issue a closed ticket's `## Outcome` links, or a note under the ticket in `docs/plan/plan.md` for a ticket not cut yet; a rule across tickets in the plan's "Ticket rules" |
 
 A document states the rule; whether it is done is the issue's to say.
 
 A merge is not noted anywhere else: the pull request, the issue's `## Outcome` and
 `git log` record it.
 
-The map holds only what is still in force: a rule that holds across tickets, a
-note for a ticket not cut yet, or a change to the map or to a milestone's
-status. A note leaves the map when its ticket is cut.
+The map holds only the ticket map and the milestones' status. A note for a ticket
+not cut yet, and a rule that holds across tickets, are in `docs/plan/plan.md`, in
+the form its `README.md` gives; a note leaves the plan when its ticket is cut.
 
 Point at another record by its issue and section or rule name, never at a dated
 line of the map: the map's lines move or leave.

@@ -761,7 +761,7 @@ v3는 3자 검토 합의대로 **M0을 계약만으로 줄이고**, 검사기 fu
 - Done means: G-57 (a)~(h) 사례 표가 그대로 나오고 `degrade=["no_tick_info"]`에서 E30 "price grid = currency minor unit".
 - Acceptance: `tests/golden/test_execution.py::test_G57_price_grid`, `tests/unit/execution/test_grid.py::test_source_order`, `::test_conservative_direction_table`, `::test_ulp_noise_compares_equal`, `::test_price_order_preserved_across_tick_bands`, `::test_snap_crosses_band_to_valid_price`, `::test_gtc_regridded_at_rule_date_boundary`, `::test_off_grid_bar_kept_and_counted`, `tests/property/test_execution_invariants.py::test_P_GRID`.
 - Notes:
-  - carried (#43 v1.x follow-ups, 2026-11-01, #31; #752 Decisions, 2026-11-26): 미국의 종목별 호가 단위 배정은 2027-11-01부터 적용되고 그 전에 `main`에 있어야 한다. 엔진이 그것을 어디서 읽는지는 #802에서 정한다.
+  - decided (#844 Decisions, 2026-11-27; #802): 거래소가 종목마다 배정하는 등급에 따르는 미국 호가 단위는, 2027-11-01부터의 종목별 단위를 포함해 시뮬레이션하지 않는다. 모든 종목은 그 시장의 일반 규칙을 따르고, 스펙과 규칙 팩이 그것을 문서로 적은 가정으로 말한다.
   - carried (#43 Decisions, 2026-11-20, #660): `_no_grid`는 시장에 어떤 종류의 규칙이 어느 날짜에든 있는지를 읽으므로, 뒤의 행이 앞선 결정의 격자 출처를 바꿀 수 있다. 이 티켓이 #660의 규칙(행은 `valid_from`부터 `valid_to`까지 적용, 앞질러 읽지 않음)으로 있음 검사를 정하고, 그러면 P-FUT이 `market_rules`를 `valid_from`으로 자른다.
   - carried (#43 Decisions, 2026-11-05, #287 and #303): 5.6.4a의 "`U` and `D` … are snapped to the grid too"는 조건 없이 읽히는데 5.6.5는 시장에 호가표가 없으면 반올림하지 않는다. 이 티켓이 5.6.4a가 호가표 없는 경우를 말하게 하되, 스펙 변경으로 주인에게 묻는다.
   - carried (#43 Decisions, 2026-11-16, #453): 격자 출처가 있는 시장에서 격자 출처가 없는 종목은 F-15가 아니라 결정 때 최소 단위로 떨어진다. 이 티켓은 가정 문장에 그 출처를 대고 그런 종목의 수를 준다.

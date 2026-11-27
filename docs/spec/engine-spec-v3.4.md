@@ -93,7 +93,7 @@ In the end, today one picks one of **fast factor research** (vectorbt, Qlib), **
 - validation inside the engine that measures overfitting over many paths, not one backtest
 - today's screen and live operation from the same file as the backtest
 
-NexusBT brings these five into one engine. The strengths taken from each engine and the weaknesses fixed are in `teardown/MATRIX.md`.
+NexusBT brings these five into one engine. The strengths taken from each engine and the weaknesses fixed are in `teardown/MATRIX.md`, a design record kept outside this repository (the header's note on such names).
 
 **What it aims for.**
 - **The trading environment closest to reality**: trading with event-driven accuracy (fills at the next open after the decision, the adverse side when the order inside a daily bar is unknown, volume caps, upper and lower price limits, halts, tick sizes, costs and taxes, corporate actions, delistings, short borrow costs, exchange rates, reconciliation with a real ledger) — the account moves in event order every trading day.
@@ -3085,7 +3085,7 @@ This combines O1~O11 of the v1 spec, blueprint OQ-1~OQ-15 and TDS Q1~Q16 into on
 
 **Target column**: `v1.x` = small releases after the v1 release, `E4`/`E5` = the intraday and derivatives stages (chapter 11), `next TDS MINOR` = the standard side, `dropped` = not reopened, `solved in v1` = after the deferral a v1 ticket already took it on (⚑ = a row whose deferral reason contradicted that v1 ticket; the reason column of this table is kept as a record).
 
-These are what the teardown of existing engines (`teardown/MATRIX.md` chapter 2) decided not to put into v3.1. They are not open questions but **settled deferrals** (0 open / 0 ● in the table above stand; OI-54, opened 2026-11-04, is the one open item since). When one is reopened, a ticket is made under its number and the semantic contract and fixed cases are written first (the 10.1 "Later" rule).
+These are what the teardown of existing engines (`teardown/MATRIX.md` chapter 2, a design record kept outside this repository) decided not to put into v3.1. They are not open questions but **settled deferrals** (0 open / 0 ● in the table above stand; OI-54, opened 2026-11-04, is the one open item since). When one is reopened, a ticket is made under its number and the semantic contract and fixed cases are written first (the 10.1 "Later" rule).
 
 | V31 | What | Source | Priority | Reason for deferral / when | Target |
 |---|---|---|---|---|---|
@@ -3515,7 +3515,7 @@ Engine invariant check: of the 24 differences, none breaks INV-01 (the one rule 
 
 ---
 
-### B.5 Teardown of engines on the market V31 → where this spec reflects it [`teardown/MATRIX.md`]
+### B.5 Teardown of engines on the market V31 → where this spec reflects it [`teardown/MATRIX.md`, kept outside this repository]
 
 | V31 | Priority | Where reflected | Ticket |
 |---|---|---|---|
