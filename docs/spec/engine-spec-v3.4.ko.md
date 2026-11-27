@@ -963,7 +963,7 @@ write: orders.to_csv("orders/{date}.csv")   apply to paper book: nx.fill(book, o
 | `nexusbt book flow BOOK AMOUNT --ccy C --sleeve M [--session D]` | 입금·출금 [V31-19] |
 | `nexusbt book acknowledge BOOK DIVERGENCE_ID --note T [--by NAME]` | `reconciled: NO`의 차이를 확인 기록; 그 뒤 `live`가 다시 주문표를 냄(5.9.6 규칙 3) |
 | `nexusbt runs [--study S] [--html] [--prune] [--prune-detail]` | `--prune`은 실행 폴더만 지우고 색인 기록과 시도 수는 남김 [R-34]; `--prune-detail`은 실행마다 3단계 `detail/` 폴더만 지우고 지웠다고 기록(5.9.5, #206) |
-| `nexusbt rerun RUN_ID [--new-snapshot] [--trust] [--save-detail]` | 다른 기계에서 만든 실행 폴더는 `--trust` 없이 거절(E31); `--save-detail`은 3단계 산출물도 다시 만들어 대조(5.9.4, #206); 비교 줄이 `outputs differ`로 시작하면 종료 코드 4, `outputs identical`로 시작하면 0; `--new-snapshot`은 새 실행이므로(3.8) 비교 결과와 상관없이 0 (#655) |
+| `nexusbt rerun RUN_ID [--new-snapshot] [--trust] [--save-detail]` | 다른 기계에서 만든 실행 폴더는 `--trust` 없이 거절(E31); `--save-detail`은 3단계 산출물도 다시 만들어 대조(5.9.4, #206); 비교 줄이 `outputs differ`로 시작하거나, 환경이 다를 때 출력이 허용 오차 밖으로 다르다고 하면 종료 코드 4(#637), `outputs identical`로 시작하거나, 환경이 다를 때 허용 오차 안이라고 하면 0; `--new-snapshot`은 새 실행이므로(3.8) 비교 결과와 상관없이 0 (#655) |
 | `nexusbt stubs` | `.pyi` 다시 생성 |
 | `nexusbt check FILE[:VAR] [--probes K] [--start-probe]` | |
 
@@ -2134,7 +2134,7 @@ runs/<run_id>/
 
 #### 5.9.4 해시와 결정성 [R-31, INV-09]
 - 물리 해시 = 파일 sha256. 값 해시 = TDS 4.5의 정규 값 직렬화(같은 함수 `tds.value_hash`를 쓴다; Arrow 판·쓰기 도구와 무관). 실행 산출물의 "논리 비교"는 값 해시다.
-- 같은 고정 환경(같은 `uv.lock`, 같은 기계 종류)에서 `rerun`은 출력 물리 해시까지 같아야 한다. 환경이 다르면 논리 비교를 허용 오차(8.1 표의 L2 기준)로 한다.
+- 같은 고정 환경(같은 `uv.lock`, 같은 기계 종류)에서 `rerun`은 출력 물리 해시까지 같아야 한다. 환경이 다르면 논리 비교를 허용 오차(8.1 표의 L2 기준)로 한다. NAV가 없는 실행(파이프라인·스크린)은 L2 행이 없으므로, 그 표를 같은 키의 칸마다 L1-a의 `|a−b| ≤ 1e-9 + 1e-9·|b|`로 비교하고 NaN은 NaN과 같다고 본다. 잡은 엔진 또는 프로젝트 `uv.lock`의 sha256이 지금 것과 다르거나 프로젝트 잠금이 한쪽에만 있으면 환경이 다르다(결정 2026-11-20, #637).
 - 3단계 산출물(5.9.1, #206)은 있는 파일이 아니라 매니페스트가 적은 값 해시로 대조한다: 쓰지 않았거나 지운 `detail/` 파일은 `rerun --save-detail`이 다시 만들어 그 해시와 대조하고, `--save-detail` 없는 `rerun`은 1·2단계만 대조하고 3단계는 대조하지 않았다고 말한다.
 - Parquet 쓰기: pyarrow, zstd 3, row group 131,072행, 통계 켬, 문자열 dictionary, 메타데이터에 시각 없음.
 
