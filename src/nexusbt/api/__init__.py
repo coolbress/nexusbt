@@ -269,18 +269,20 @@ def _save_pipeline(
     named = {"columns": columns, "screen": pipe.screen and pipeline.graph_hash(pipe.screen)}
     tables = {"pipeline": (result.table, _pipeline.KEYS),
               "term_diagnostics": (result.term_diagnostics, _pipeline.COUNT_KEYS)}  # fmt: skip
-    return _seal("pipeline", named, tables, opened, cfg, params)
+    return _seal("pipeline", named, tables, opened, cfg, params, dropped=result._dropped)
 
 
 def _seal(
     kind: str, named: dict[str, Any], tables: Mapping[str, tuple[pa.Table, Sequence[str]]],
     opened: Snapshot, cfg: Config, params: dict[str, Any],
+    dropped: Sequence[Mapping[str, Any]] = (),
 ) -> str:  # fmt: skip
     """A run of `kind` (3.8) with `tables` (5.9.1), each with the key its value hash orders rows
     by (5.9.2 `outputs`, TDS 4.5), and `source/` with the entry file,
     `__main__`'s file or none in an interactive session, and the project's modules imported so
     far (5.9.3; #283, #304). The run's name is the entry file's stem. The root pin goes beside
-    the package the snapshot was opened from (4.2)."""
+    the package the snapshot was opened from (4.2). `dropped`, the bars the read left out by
+    dataset and cause, is the manifest's `data.dropped`, written only when not empty (#866)."""
     from nexusbt.artifacts import RunStore  # only a saved run opens the store
     from nexusbt.artifacts._runstore import run_h6
 
@@ -307,11 +309,14 @@ def _seal(
         markets = {m: {"calendar_id": i.calendar_id, "currency": i.currency,
                        "rules_pack": i.rules or "untested"}
                    for m, i in opened.markets.items() if m in used}  # fmt: skip
+        recorded = opened._recorded()
+        if dropped:
+            recorded["data"]["dropped"] = [dict(r) for r in dropped]
         txn.set_manifest({"kind": kind, "snapshot_id": opened.id, "markets": markets,
                           "snapshot_semantic_hash": opened.semantic_hash,
                           "snapshot_value_hash": opened.value_hash,
                           "snapshot_physical_hash": opened.physical_hash,
-                          **opened._recorded()})  # fmt: skip
+                          **recorded})  # fmt: skip
     except BaseException:
         txn.abort()
         raise
