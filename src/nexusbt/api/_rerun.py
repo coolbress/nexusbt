@@ -303,13 +303,15 @@ def within(old: Path, new: Path) -> str:
     was, now = read(old)["outputs"], read(new)["outputs"]
     beyond = []
     for name in sorted(k for k in was if not k.startswith("source/")):
-        keys = _KEYS.get(name)
-        if name not in now:
+        keys, hashes = _KEYS.get(name), was[name]
+        kept = old / name  # the reproduced run's file, as it was sealed (5.9.2 `outputs`)
+        if name not in now or not kept.is_file() or _sha256(kept) != hashes.get("physical_sha256"):
             beyond.append(name)
-        elif keys is None:  # a table of no known key: its value hash, exactly
-            if was[name].get("value_sha256") != now[name].get("value_sha256"):
+        elif keys is None:  # a table of no known key: its value hash, else its bytes, exactly
+            kind = "value_sha256" if "value_sha256" in hashes else "physical_sha256"
+            if hashes.get(kind) != now[name].get(kind):
                 beyond.append(name)
-        elif _beyond(pq.read_table(old / name), pq.read_table(new / name), keys):
+        elif _beyond(pq.read_table(kept), pq.read_table(new / name), keys):
             beyond.append(name)
     if beyond:
         return "environment differs; outputs differ beyond tolerance: " + "; ".join(beyond)

@@ -587,13 +587,17 @@ _BEYOND = "environment differs; outputs differ beyond tolerance: pipeline.parque
 
 
 def _nudge(folder: Path, times: float) -> None:
-    """Move the run's first `close` by `times` L1-a's tolerance for it, rewriting the file
-    only (its bytes then differ, its recorded hashes not)."""
+    """Move the run's first `close` by `times` L1-a's tolerance for it, as a run sealed in
+    another environment would hold it: the file and its recorded physical hash."""
     table = pq.read_table(folder / "pipeline.parquet")
     close = table["close"].to_pylist()
     close[0] += times * (L1_A_ABS + L1_A_REL * abs(close[0]))
     table = table.set_column(table.schema.get_field_index("close"), "close", pa.array(close))
     pq.write_table(table, _edit(folder / "pipeline.parquet"))
+    found = _manifest(folder)
+    digest = hashlib.sha256((folder / "pipeline.parquet").read_bytes()).hexdigest()
+    found["outputs"]["pipeline.parquet"]["physical_sha256"] = digest
+    _edit(folder / "manifest.json", json.dumps(found, sort_keys=True, indent=2) + "\n")
 
 
 def _another_lock(folder: Path) -> None:
@@ -647,6 +651,7 @@ def _table(values: list[Any], kind: pa.DataType | None = _F64) -> pa.Table:
     (_table([1.0]), _table([1], None), True),  # float64 against int64, though the same value
     (_table([1], None), _table([2], None), True),  # not a float: exactly, no tolerance
     (_table([1.0]), pa.table({"k": [1], "v": [1.0]}), True),  # another key
+    (_table([1.0]), _table([1.0, 1.0]), True),  # another number of rows
 ])  # fmt: skip
 def test_cells_within_l1_a(old: pa.Table, new: pa.Table, beyond: bool) -> None:
     """#637 Decisions 2: cell by cell on the same keys, NaN agreeing with NaN; a null only
@@ -657,14 +662,30 @@ def test_cells_within_l1_a(old: pa.Table, new: pa.Table, beyond: bool) -> None:
     assert _rerun._beyond(old, new, ["k"]) is beyond
 
 
-def _outputs(folder: Path, tables: dict[str, pa.Table], value: str = "v1") -> Path:
-    """A run folder holding `tables` and a manifest naming each, with value hash `value`."""
+def _outputs(folder: Path, tables: dict[str, pa.Table], value: str | None = "v1") -> Path:
+    """A run folder holding `tables` and a manifest naming each with its file's sha256 and
+    the value hash `value` (none recorded when `None`)."""
     folder.mkdir()
+    outputs: dict[str, dict[str, str]] = {}
     for name, table in tables.items():
         pq.write_table(table, folder / name)
-    outputs = {name: {"value_sha256": value} for name in tables}
+        digest = hashlib.sha256((folder / name).read_bytes()).hexdigest()
+        outputs[name] = {"physical_sha256": digest}
+        if value is not None:
+            outputs[name]["value_sha256"] = value
     (folder / "manifest.json").write_text(json.dumps({"outputs": outputs}), encoding="utf-8")
     return folder
+
+
+def test_a_reproduced_table_that_no_longer_matches_its_record_is_beyond(tmp_path: Path) -> None:
+    """#637: the reproduced run's file, rewritten after it was sealed, is not compared as if
+    it were the run's: its sha256 is not the recorded one, so it is not within."""
+    from nexusbt.api import _rerun
+
+    old = _outputs(tmp_path / "old", {"pipeline.parquet": _table([1.0])})
+    new = _outputs(tmp_path / "new", {"pipeline.parquet": _table([2.0])})
+    pq.write_table(_table([2.0]), old / "pipeline.parquet")  # the same values as the new run
+    assert _rerun.within(old, new) == _BEYOND
 
 
 def test_a_table_the_new_run_lacks_is_beyond_tolerance(tmp_path: Path) -> None:
@@ -676,19 +697,25 @@ def test_a_table_the_new_run_lacks_is_beyond_tolerance(tmp_path: Path) -> None:
     assert _rerun.within(old, new) == _BEYOND
 
 
-@pytest.mark.parametrize(("value", "line"), [
-    ("v1", _WITHIN),
-    ("v2", "environment differs; outputs differ beyond tolerance: extra.parquet"),
+_EXTRA = "environment differs; outputs differ beyond tolerance: extra.parquet"
+
+
+@pytest.mark.parametrize(("value", "cells", "line"), [
+    ("v1", [1.0], _WITHIN),
+    ("v2", [1.0], _EXTRA),  # the cells are the same; only the recorded value hash moves
+    (None, [1.0], _WITHIN),  # no value hash recorded: its bytes, which are the same
+    (None, [1.0 + 1e-12], _EXTRA),  # within L1-a, but bytes are compared exactly
 ])  # fmt: skip
-def test_a_table_of_no_known_key_is_compared_by_its_value_hash(
-    tmp_path: Path, value: str, line: str
+def test_a_table_of_no_known_key_is_compared_by_its_hash(
+    tmp_path: Path, value: str | None, cells: list[float], line: str
 ) -> None:
-    """#637: a table whose key the comparison does not know is compared by its value hash,
-    exactly, not within the tolerance; here its cells are the same and only the hash moves."""
+    """#637: a table whose key the comparison does not know is compared exactly, by its value
+    hash, or by its bytes when no value hash is recorded; never within the tolerance."""
     from nexusbt.api import _rerun
 
-    old = _outputs(tmp_path / "old", {"extra.parquet": _table([1.0])})
-    new = _outputs(tmp_path / "new", {"extra.parquet": _table([1.0])}, value)
+    recorded = None if value is None else "v1"
+    old = _outputs(tmp_path / "old", {"extra.parquet": _table([1.0])}, recorded)
+    new = _outputs(tmp_path / "new", {"extra.parquet": _table(cells)}, value)
     assert _rerun.within(old, new) == line
 
 
