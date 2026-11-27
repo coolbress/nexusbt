@@ -629,25 +629,67 @@ def test_another_engine_lock_compares_within_l1_a(
 
 
 _NAN, _INF = float("nan"), float("inf")
+_F64 = pa.float64()
+
+
+def _table(values: list[Any], kind: pa.DataType | None = _F64) -> pa.Table:
+    """Keys 0, 1, … and one column `v` of `values`, as `kind` (inferred when `None`)."""
+    return pa.table({"k": list(range(len(values))), "v": pa.array(values, type=kind)})
 
 
 @pytest.mark.parametrize(("old", "new", "beyond"), [
-    ([1.0, _NAN, None, _INF], [1.0, _NAN, None, _INF], False),  # NaN, null, the same infinity
-    ([1.0], [1.0 + 0.5 * (L1_A_ABS + L1_A_REL)], False),
-    ([_NAN], [None], True),  # a null is not a NaN
-    ([_INF], [-_INF], True),
-    ([1.0], [_INF], True),  # the tolerance of an infinite `b` is no tolerance
-    ([1.0], [1], True),  # float64 against int64: another type, though the same value
+    (_table([1.0, _NAN, None, _INF]), _table([1.0, _NAN, None, _INF]), False),  # each its own
+    (_table([1.0]), _table([1.0 + 0.5 * (L1_A_ABS + L1_A_REL)]), False),
+    (_table([_NAN]), _table([None]), True),  # a null is not a NaN, in a float64 column
+    (_table([1.0, None]), _table([None, 1.0]), True),  # the nulls in other cells
+    (_table([_INF]), _table([-_INF]), True),
+    (_table([1.0]), _table([_INF]), True),  # the tolerance of an infinite `b` is no tolerance
+    (_table([1.0]), _table([1], None), True),  # float64 against int64, though the same value
+    (_table([1], None), _table([2], None), True),  # not a float: exactly, no tolerance
+    (_table([1.0]), pa.table({"k": [1], "v": [1.0]}), True),  # another key
 ])  # fmt: skip
-def test_cells_within_l1_a(old: list[Any], new: list[Any], beyond: bool) -> None:
+def test_cells_within_l1_a(old: pa.Table, new: pa.Table, beyond: bool) -> None:
     """#637 Decisions 2: cell by cell on the same keys, NaN agreeing with NaN; a null only
-    with a null, an infinity only with itself, and a column only with one of its own type."""
+    with a null in the same cell, an infinity only with itself, a column only with one of its
+    own type, a key or a cell that is not a float only with an equal one."""
     from nexusbt.api import _rerun
 
-    def table(values: list[Any]) -> pa.Table:
-        return pa.table({"k": list(range(len(values))), "v": values})
+    assert _rerun._beyond(old, new, ["k"]) is beyond
 
-    assert _rerun._beyond(table(old), table(new), ["k"]) is beyond
+
+def _outputs(folder: Path, tables: dict[str, pa.Table], value: str = "v1") -> Path:
+    """A run folder holding `tables` and a manifest naming each, with value hash `value`."""
+    folder.mkdir()
+    for name, table in tables.items():
+        pq.write_table(table, folder / name)
+    outputs = {name: {"value_sha256": value} for name in tables}
+    (folder / "manifest.json").write_text(json.dumps({"outputs": outputs}), encoding="utf-8")
+    return folder
+
+
+def test_a_table_the_new_run_lacks_is_beyond_tolerance(tmp_path: Path) -> None:
+    """#637: a table of the reproduced run that the new run did not write is not within."""
+    from nexusbt.api import _rerun
+
+    old = _outputs(tmp_path / "old", {"pipeline.parquet": _table([1.0])})
+    new = _outputs(tmp_path / "new", {})
+    assert _rerun.within(old, new) == _BEYOND
+
+
+@pytest.mark.parametrize(("value", "line"), [
+    ("v1", _WITHIN),
+    ("v2", "environment differs; outputs differ beyond tolerance: extra.parquet"),
+])  # fmt: skip
+def test_a_table_of_no_known_key_is_compared_by_its_value_hash(
+    tmp_path: Path, value: str, line: str
+) -> None:
+    """#637: a table whose key the comparison does not know is compared by its value hash,
+    exactly, not within the tolerance; here its cells are the same and only the hash moves."""
+    from nexusbt.api import _rerun
+
+    old = _outputs(tmp_path / "old", {"extra.parquet": _table([1.0])})
+    new = _outputs(tmp_path / "new", {"extra.parquet": _table([1.0])}, value)
+    assert _rerun.within(old, new) == line
 
 
 def test_a_project_lock_on_one_side_only_is_another_environment(
