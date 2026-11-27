@@ -21,7 +21,7 @@ from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import CodeType, FunctionType, MappingProxyType, ModuleType
-from typing import Any, Literal, TypeGuard
+from typing import Any, Literal, Self, TypeGuard
 
 from nexusbt.contracts import (
     CapabilityError,
@@ -117,7 +117,36 @@ def _operand(value: object) -> Factor:
     raise TypeError(f"a Factor operand is a Factor or a number, not {type(value).__name__}")
 
 
-class Factor(Term):
+class _Bound(Term):
+    """A term a user function can make (3.3): a Factor, a Filter; calling one binds keywords."""
+
+    __slots__ = ()
+
+    def __call__(self, *arrays: Any, **values: Any) -> Self:
+        """3.3: a user function with keyword parameters bound, `f(n=63)`, a new term of its kind;
+        the values are in its graph hash and are passed to the function when it runs. A call
+        with an array is E16 naming `.function`, the plain function, unbound (#582)."""
+        fn, kind = self.function, type(self).__name__
+        if self.op != "user" or fn is None:
+            raise TypeError(f"only a user function's {kind} takes keyword values, not {self.op}")
+        named = (inspect.Parameter.KEYWORD_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+        windows = len(self.inputs)  # the first parameters are the inputs' windows
+        if arrays:  # the keywords of this call too, as binding them would keep them
+            bound = {**dict(dict(self.params).get("bound", ())), **values}
+            raise _called_with_arrays(fn, windows, tuple(sorted(bound.items())), kind)
+        listed = list(inspect.signature(fn).parameters.values())[windows:]
+        taken = {p.name for p in listed if p.kind in named}
+        for name, value in values.items():
+            if name not in taken:
+                raise TypeError(f"{fn.__name__} takes no keyword {name!r}")
+            if not _constant(value):
+                raise TypeError(f"{name}={value!r}: a bound value is constant-like (6.5 (6))")
+        params = dict(self.params)
+        params["bound"] = tuple(sorted({**dict(params.get("bound", ())), **values}.items()))
+        return type(self)(self.op, self.inputs, tuple(params.items()), function=fn)
+
+
+class Factor(_Bound):
     """`==` builds a Filter (3.3), so `in` and `.index` on Factors do not compare them: code that
     finds shared nodes compares `graph_hash`."""
 
@@ -195,29 +224,6 @@ class Factor(Term):
     def to(self, ccy: str) -> Factor: return _node(Factor, "to", self, ccy=ccy)
     # fmt: on
 
-    def __call__(self, *arrays: Any, **values: Any) -> Factor:
-        """3.3: a user function with keyword parameters bound, `f(n=63)`, a new Factor; the
-        values are in its graph hash and are passed to the function when it runs. A call with
-        an array is E16 naming `.function`, the plain function, unbound (#582)."""
-        fn = self.function
-        if self.op != "user" or fn is None:
-            raise TypeError(f"only a user function's Factor takes keyword values, not {self.op}")
-        named = (inspect.Parameter.KEYWORD_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
-        windows = len(self.inputs)  # the first parameters are the inputs' windows
-        if arrays:  # the keywords of this call too, as binding them would keep them
-            bound = {**dict(dict(self.params).get("bound", ())), **values}
-            raise _called_with_arrays(fn, windows, tuple(sorted(bound.items())))
-        listed = list(inspect.signature(fn).parameters.values())[windows:]
-        taken = {p.name for p in listed if p.kind in named}
-        for name, value in values.items():
-            if name not in taken:
-                raise TypeError(f"{fn.__name__} takes no keyword {name!r}")
-            if not _constant(value):
-                raise TypeError(f"{name}={value!r}: a bound value is constant-like (6.5 (6))")
-        params = dict(self.params)
-        params["bound"] = tuple(sorted({**dict(params.get("bound", ())), **values}.items()))
-        return Factor(self.op, self.inputs, tuple(params.items()), function=fn)
-
     def downsample(self, freq: str) -> Factor:
         raise CapabilityError(
             what=f"downsample({freq!r}) is not in v1",
@@ -237,7 +243,7 @@ class Factor(Term):
         return self if k == 0 else _node(Factor, "shift", self, k=k)
 
 
-class Filter(Term):
+class Filter(_Bound):
     """Three-valued (3.3): true, false and unknown."""
 
     __slots__ = ()
@@ -259,16 +265,17 @@ class Filter(Term):
 
 
 def _called_with_arrays(
-    fn: Callable[..., Any], windows: int, bound: tuple[tuple[str, Any], ...]
+    fn: Callable[..., Any], windows: int, bound: tuple[tuple[str, Any], ...], kind: str = "Factor"
 ) -> ConfigError:
-    """3.3 (#582): E16 for `f(prices)`, its fix the `.function` call with the bound values."""
+    """3.3 (#582): E16 for `f(prices)`, its fix the `.function` call with the bound values;
+    `kind` is the term's, a Factor or a Filter (#620)."""
     name = fn.__name__
     shown = (f"{k}={_pasteable(v)}" for k, v in bound)  # pasteable, NaN too (#624)
     args = [*list(inspect.signature(fn).parameters)[:windows], *shown]
     return ConfigError(
-        what=f"{name} was called with an array; a call binds keyword values and makes a Factor",
+        what=f"{name} was called with an array; a call binds keyword values and makes a {kind}",
         where=f"{name}(...)",
-        why="the decorated name is a Factor: f(n=63) binds n, and the engine runs the function",
+        why=f"the decorated name is a {kind}: f(n=63) binds n, and the engine runs the function",
         fix=f"{name}.function({', '.join(args)}) on the arrays, one for each input",
         more="spec 3.3 (user window functions)",
         layer=f"config — a positional argument to {name}",
@@ -341,6 +348,7 @@ def _impure(
     decorator: str = "",
     under: Sequence[tuple[str, str, str]] = (),
     lost: Sequence[tuple[str, str, str]] = (),
+    made_by: str = "factor",
 ) -> ImpureFunctionWarning:
     """E24 for the globals `name` reads, for the library decorator it is under whose wrapper
     holds what the hash cannot read (#645), for each helper read under one (#676), and for each
@@ -357,7 +365,7 @@ def _impure(
     if decorator:
         what.append(f"{name} is under {decorator}, whose wrapper holds what the engine cannot"
                     " check")  # fmt: skip
-        fix.append(f"apply @nx.factor to a function that is not under @{decorator}; the engine"
+        fix.append(f"apply @nx.{made_by} to a function that is not under @{decorator}; the engine"
                    f" hashes {name}'s own code and the helpers it calls, not what the decorator's"
                    " wrapper holds")  # fmt: skip
     for reader, helper, held in under:

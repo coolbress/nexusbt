@@ -32,12 +32,17 @@ def call_user(
     (5.3.7), its result as float64 `(n,)`. A row before the window is `WindowError` (E8)
     suggesting the window it needs, as is a result of another shape or of a non-numeric dtype;
     any other exception is the user's, as raised, through frames hidden from its traceback
-    (`__tracebackhide__`, R-42), as the executor's on the way here are."""
+    (`__tracebackhide__`, R-42), as the executor's on the way here are. A Filter's function
+    returns bool, held here as 1.0 and 0.0 (3.3, #620)."""
     __tracebackhide__ = True
+    from ._terms import Filter  # here: `_terms` imports this module
+
     params, fn = dict(term.params), fn or term.function
     if fn is None:
         raise ValueError(f"no function given for the user term {params['function']}")
     name, window = params["function"], params["window"]
+    decorator, kind, one = ("filter", "bool", "bool") if isinstance(term, Filter) else (
+        "factor", "float64", "float64 number")  # fmt: skip
     try:
         got = np.asarray(fn(*windows, **dict(params.get("bound", ()))))
     except IndexError as error:
@@ -51,12 +56,14 @@ def call_user(
         names = list(inspect.signature(fn).parameters)
         column = names[0] if len(term.inputs) == 1 and names else "an input"
         raise _window_error(name, at, f"reads {column}[{k}] but window={window}",
-                            f"@nx.factor(window={needed}, ...)") from error  # fmt: skip
-    if got.shape != (n,) or got.dtype != np.float64:
+                            f"@nx.{decorator}(window={needed}, ...)",
+                            decorator) from error  # fmt: skip
+    if got.shape != (n,) or got.dtype != np.dtype(kind):
         at = _user_line().split(" in ")[0]
-        raise _window_error(name, at, f"returned {got.dtype} {got.shape}, not float64 ({n},)",
-                            "return one float64 number for each column of the window")  # fmt: skip
-    return got
+        raise _window_error(name, at, f"returned {got.dtype} {got.shape}, not {kind} ({n},)",
+                            f"return one {one} for each column of the window",
+                            decorator)  # fmt: skip
+    return got.astype(np.float64) if kind == "bool" else got
 
 
 #: 3.3 `adjustment`: one instrument's input windows are multiplied by this fixed constant.
@@ -134,10 +141,10 @@ def unchecked(name: str, declared: str, at: str, scalable: bool) -> SkippedWorkN
     )
 
 
-def _window_error(name: str, at: str, what: str, fix: str) -> WindowError:
+def _window_error(name: str, at: str, what: str, fix: str, made_by: str = "factor") -> WindowError:
     return WindowError(
         what=f"{name} {what}",
-        where=f"factor {name}",
+        where=f"{made_by} {name}",
         why="the function's window is the rows and shape the engine loads for it",
         fix=fix,
         more="spec 3.3 and 5.3.7 (windows)",
