@@ -1142,21 +1142,22 @@ v3는 3자 검토 합의대로 **M0을 계약만으로 줄이고**, 검사기 fu
 - decided (#705 Decisions picture 2, 2026-11-21; #725 Decisions 205): 사용자는 시장을 한 번 적고(달력, 통화, 시간대가 따라온다), 가진 종류마다 그 파일을 아무 순서로 적는다.
 - decided (#705 Decisions 9, 2026-11-21; #752 Decisions, 2026-11-26): 사용자는 자기만 아는 사실만 적는다. 도구가 주어진 종류에서 프로필을 고르고 종류마다 관례(주식 일봉의 `bar_time = session`, `ts_end` 규칙)를 적으며, 각각을 도구가 정한 것 목록에 올리고, 사용자가 적은 것이 이긴다.
 - owner decides at the cut (#705 Decisions 14 and 17(9), 2026-11-21; #725 Decisions 94, 2026-11-23; #752 Decisions, 2026-11-26): 어떤 종류든 하나씩, 아무 순서로 더할 수 있도록 도구가 패키지의 선언 프로필(TDS 4.2, 7)을 어떻게 정하는지, #720이 어떻게 맞물리는지. 사용자는 프로필을 고르지 않는다.
-- decided (#725 Decisions 95, 2026-11-23): 프로필의 답이 무엇이든 도구는 빈 틀을 만든다. 만드는 쪽의 선택(추천: 읽을 수 있을 만큼 적은 질문): 수상한 자료를 몇 퍼센트나 몇 배부터 묻는지, 사용자가 "확인함"을 어떻게 적는지.
+- decided (#725 Decisions 95, 2026-11-23): 프로필의 답이 무엇이든 도구는 빈 틀을 만든다.
+- builder's choice (#725 Decisions 95, 2026-11-23; 추천: 드물게 묻기, 너무 자주 물으면 읽지 않기 때문): 수상한 자료를 몇 퍼센트나 몇 배부터 묻는지, 사용자가 "확인함"을 어떻게 적는지.
 - decided (#705 Decisions picture 3, 2026-11-21): 사용자만 아는 사실(가격이면 가격 기준)이 없으면 도구는 멈춘다. 흔한 값을 말할 수는 있으나 적용하지 않는다.
 - decided (#705 Decisions picture 4, 2026-11-21): 도구는 스스로 알 수 없는 것(어느 칼럼이 무엇인지, 두 가지로 읽히는 날짜 꼴, 단위와 배율)만 묻고 멈추며, 오류가 무엇을 적을지 말한다.
-- decided (#705 Decisions 16 and 16a, 2026-11-21): 도구가 알 수 없는 것은 물어서 없으면 멈추거나, 모름으로 적고 조심스러운 쪽으로 읽어 표시하거나, 칼럼 이름으로 받는다. 가격 기준과 종류, 배당 금액이 그날의 주식 수 기준인지 뒤의 분할로 조정된 것인지, 환율의 하루 중 시각을 묻는다.
+- decided (#705 Decisions 16, 2026-11-21): 도구가 알 수 없는 것은 물어서 없으면 멈추거나, 모름으로 적고 조심스러운 쪽으로 읽어 표시하거나, 칼럼 이름으로 받는다. 가격 기준과 종류, 배당 금액이 그날의 주식 수 기준인지 뒤의 분할로 조정된 것인지, 환율의 하루 중 시각을 묻는다.
 - decided (#705 Decisions picture 5, 2026-11-21): 가격 파일만 있으면 도구는 `listed_on` = 첫 봉, `listed_on_censored = true`로 `instruments`를 만들고, 정체성을 "티커에서, 이름 바뀜과 재사용은 풀지 않음"으로 표시하며, `last_session`이나 상장폐지를 쓰지 않는다. 주어진 종목 목록이 이긴다.
 - decided (#705 Decisions picture 6, 2026-11-21): 파일을 받지 못한 종류는 결과의 표시에 나와, 결과가 할 수 있는 것과 없는 것, 까닭, 더할 것을 말한다.
 - owner decides at the cut (#705 Decisions picture, 2026-11-21): 도구의 설정 키, 명령 인자, 함수 이름.
 - decided (#705 Decisions 13, 2026-11-21; #725 Decisions 216): 도구는 가격 파일마다 `asset_class`(주식이나 ETF, 또는 지수 값)를 묻고 짐작하지 않는다. 섞인 파일은 종목 목록이 있어야 하고, 그 목록의 종류가 한 번 선언한 기본값을 이긴다.
 - decided (#705 Decisions 15, 2026-11-21): 한 뜻으로 읽히는 칼럼이 둘이면 도구는 멈춘다.
-- decided (#705 Decisions 16c, 2026-11-21): 배당의 날짜는 `ex_date`나 `record_date`에, 상장폐지의 날짜는 `last_trading_date`나 `exit_date`에 대응시켜 선언한다. 대응이 없으면 도구는 멈춘다.
+- decided (#705 Decisions 16, 2026-11-21): 배당의 날짜는 `ex_date`나 `record_date`에, 상장폐지의 날짜는 `last_trading_date`나 `exit_date`에 대응시켜 선언한다. 대응이 없으면 도구는 멈춘다.
 - owner decides at the cut (#752 Decisions and its user-file table, 2026-11-24): `corporate_actions`와 `delistings`의 사용자 파일 칼럼 이름. 표의 제안: `ex_date`; `split_to` → `ratio_num`, `split_from` → `ratio_den`, `ratio_new_per_old`는 도구가 씀; `kind`는 행이 온 파일과 비율의 방향에서; `amount` → `cash_per_share`, `currency`와 선언한 `gross_or_net`과 함께; `last_trading_date`; `reason` → `delist_type`; 선택인 `final_price`는 `ref_price`에 대한 수익률로 바꿈; `event_id`, `ts_effective`, `affects`, `factor_method`, `status`는 도구가 씀.
 - decided (#705 Decisions 17(7), 2026-11-21; #725 Decisions 206, 249): K1의 꼴을 벗어난 id를 만들 심볼은 도구를 멈추고 오류에 고칠 길을 적는다. 도구는 심볼에 자기 접두어나 접미어를 붙이지 않는다.
 - decided (#705 Decisions 17(8), 2026-11-21): 가격 파일 하나는 시장 하나다. 시장이 섞인 파일은 시장 칼럼이 있어야 하고, 없으면 도구는 멈춘다.
 - decided (#705 Decisions 17, 2026-11-21; #725 Decisions 171, 2026-11-23): 도구는 언제나 빽빽한 일봉을 쓰고 `density`를 받으면 멈춘다. 도구가 생기기 전까지 `tds import csv`는 `density: dense`를 계속 받는다.
-- decided (#705 Decisions 21d, 2026-11-22): 사용자가 `index_kind`가 비어 있는 지수를 고르면 결과가 그렇다고 말한다.
+- decided (#705 Decisions 21, 2026-11-22): 사용자가 `index_kind`가 비어 있는 지수를 고르면 결과가 그렇다고 말한다.
 - decided (#705 Decisions E, G2, 2026-11-21): 거래소 달력이 없는 시장에는 도구가 24시간 달력(`session_kind = continuous_24h`)을 주고, `calendar_id`를 비우지 않는다.
 - decided (#725 Decisions 61, 2026-11-23): 시장 선언이 거래소 달력을 가져오면, 선언한 시간으로 봉 날짜에서 짐작한 달력은 거래소 달력을 쓸 수 없는 곳에서만 쓴다.
 - owner decides at the cut (#705 Decisions, 2026-11-21; #725 Decisions 86): 도구의 거래소 달력 라이브러리를 `nexusbt-tds`의 선택 추가로 둘지. 도구는 pyarrow 말고 필수 의존성을 더하지 않는다(#508).
@@ -1178,10 +1179,11 @@ v3는 3자 검토 합의대로 **M0을 계약만으로 줄이고**, 검사기 fu
 - decided (#725 Decisions 117, 2026-11-23): 패키지는 해시 전체로 가른다. 화면에 보이는 짧은 앞부분은 유일함을 약속하지 않고, 한 곳에서 두 앞부분이 겹치면 더 보인다(#733).
 - decided (#725 Decisions 125, 2026-11-23): 사용자가 준 퇴출의 마지막 거래일이 그 종목의 `last_session`이고, 도구의 채우기는 거기서 멈춘다.
 - decided (#764 Decisions, 2026-11-25): 도구는 만드는 동안 진행을 보인다.
-- decided (#764 Decisions, 2026-11-25): 낡은 패키지는 기본으로 켜진 채 자동으로 지우되 네 가지를 지킨다: 저장된 실행이나 장부가 이름을 댄 패키지는 지우지 않음; 가장 새 몇 개(그 수는 설정)는 지우지 않음; 한 갱신에서 지울 수 있다고 알리고 다음 갱신에서 지움; 지울 때마다 실제로 비운 공간을 알리고, 미리 해 보기와 끄는 설정이 있음. 만드는 쪽의 선택: 엔진 기록이 이름을 댄 것을 도구가 어떻게 아는지, 기본 수, 파일을 나눠 쓰는 파일 시스템에서의 공간 셈.
-- decided (#725 Decisions 106 and 107, 2026-11-23): 같은 자료를 파일 하나, 파일 여럿, 메모리의 표로 주어도 같은 값 해시와 같은 발견이 나온다는 시험을 둔다. #621의 회귀 사례는 "늦게 정정된 배당이 지난 결정일의 수익률을 바꾸지 않는다"이다.
+- decided (#764 Decisions, 2026-11-25): 낡은 패키지는 기본으로 켜진 채 자동으로 지우되 네 가지를 지킨다: 저장된 실행이나 장부가 이름을 댄 패키지는 지우지 않음; 가장 새 몇 개(그 수는 설정)는 지우지 않음; 한 갱신에서 지울 수 있다고 알리고 다음 갱신에서 지움; 지울 때마다 실제로 비운 공간을 알리고, 미리 해 보기와 끄는 설정이 있음.
+- carried (#764 Decisions, 2026-11-25): 엔진 기록이 이름을 댄 것을 도구가 어떻게 아는지, 남겨 둘 패키지의 기본 수, 파일을 나눠 쓰는 파일 시스템에서의 공간 셈은 티켓을 자를 때 만드는 쪽이 정한다.
+- decided (#725 Decisions 106 and 107, 2026-11-23): 3단계는 같은 자료를 파일 하나, 파일 여럿, 메모리의 표로 주어도 같은 값 해시와 같은 발견이 나온다는 시험을 더한다. #621의 회귀 사례는 "늦게 정정된 배당이 지난 결정일의 수익률을 바꾸지 않는다"이다.
 - decided (#725 Decisions 116, 2026-11-23): 도구의 done-means는 날짜가 여러 번 되돌아가는 종목 순서의 큰 CSV(다시 정렬하지 않음, 멀리 떨어진 조각에 두 번 적힌 열쇠를 두 곳과 함께 잡음, 날짜 순서 파일과 같은 값 해시)와 설정만 바꾼 갱신을 담는다.
-- decided (#725 Decisions 133, 2026-11-23): `tds import csv`나 도구가 쓰는 것을 바꾸는 PR은 결과를 엔진으로 열어 값을 읽는 시험을 함께 낸다.
+- decided (#725 Decisions 133, 2026-11-23): `tds import csv`가 쓰는 것을 바꾸는 PR은 결과를 엔진으로 열어 값을 읽는 시험을 함께 낸다.
 - decided (#725 Decisions 97, 2026-11-23): 결과의 표시는 달력의 출처를 댄다: `inferred_from_bar_dates`면 가격이 준 날짜 수, 거래소 달력과 비교하지 않았다는 것, 모든 종목에 없는 날은 알 수 없다는 것; 거래소의 것이면 기간의 세션 수와 봉이 하나도 없는 세션.
 - decided (#705 Decisions 57, 2026-11-23): `close`만 가진 패키지, 어떤 파일이 한 칼럼을 모든 행에서 비워 둔 시장, 봉 날짜에서 짐작한 달력에서 나온 결과는 표시로 그렇다고 말한다.
 - decided (#752 Decisions, 2026-11-26): 스냅숏의 칼럼이 바뀌었다는 `nexusbt doctor`의 알림(스펙 3.2)은 `nx.Item`을 만드는 단계와 함께 돌아온다.
@@ -1189,18 +1191,18 @@ v3는 3자 검토 합의대로 **M0을 계약만으로 줄이고**, 검사기 fu
 - decided (#752 Decisions, 2026-11-27): `nx.Item`을 읽는 쪽을 만들 때, P-FUT의 앞선 스냅숏(`tests/property/_future.py`의 `cut_after`)은 값 표를 시장마다의 워터마크에 대어 `date`로 자른다. 값 표는 공개 시각을 적지 않기 때문이다.
 - carried (#43 Decisions, 2026-11-18; #752 Decisions, 2026-11-26): T-24의 `nx.Item.sector.eq(1)` 행은 `nx.Item`을 읽는 쪽이 생기면 실행기로 돌린다. 지금 `test_T24_filter_unknown`은 그 행을 커널로만 돌린다.
 - decided (#725 Decisions 226, 2026-11-24): 값 표의 사용자 문서는 공급자가 이미 고쳐 낸 값에는 종류 선언이 필요 없음을 예와 함께 보인다(스펙 5.3.5).
-- carried (#725 Decisions 105, 2026-11-23): 가격 기준의 사용자 쪽 이름은 TDS 5.5의 셋(`raw`, `split_adjusted`, `total_adjusted`)이다.
+- decided (#725 Decisions 105, 2026-11-23): 가격 기준의 사용자 쪽 이름은 TDS 5.5의 셋(`raw`, `split_adjusted`, `total_adjusted`)이다.
 
 #### The next TDS revision
 
 - decided (#705 Decisions E, K, 2026-11-21): 시장은 상장폐지 자료가 언제부터 빠짐없는지 선언한다(없으면 모름). 경고는 "끝까지 모두 살아 있는" 패키지를 이름 대고, 검사는 "몇 해 동안 퇴출이 없다가 생김"을 이름 댄다. 종목이 적으면 어느 쪽도 판정하지 않고, 짐작한 시작 해는 추정으로 보이되 선언으로 쓰지 않는다. 새 manifest 칸은 `tds_draft`를 옮긴다.
 - owner decides at the cut (#752 Decisions, 2026-11-27): 종목이 `market=` 파티션과 다른 시장에 속한 값 표 행을 검사기가 판정하는지. 그러려면 `full` 단계의 새 R 코드가 필요하고, 스펙 5.3.5의 다섯 멈춤에 들지 않는다.
 - owner decides at the cut (#725 Decisions 177, 2026-11-23): 봉의 `params.ready_delay`가 없을 때 0으로 읽는 것이 표준의 기본값인지. TDS 5.5는 그 키를 선택으로 두고 엔진은 0으로 읽는다(스펙 5.1.2).
-- owner decides at the cut (#43 Decisions, moved by #705 on 2026-11-21): 미국 일 거래량이 통합인지 주 거래소인지를 기본값 없는 `bars`의 선택 선언으로 둘지.
-- builder's choice (#43 Decisions, moved by #705 on 2026-11-21; 추천: 패키지에 하나, 엔진이 이미 모두 읽으므로): 패키지가 `dictionary/columns` 데이터셋을 하나 가질지 여럿 가질 수 있을지 TDS 4.4가 말한다.
-- builder's choice (#43 Decisions, moved by #705 on 2026-11-21; 추천: 저장된 칼럼마다 그 칼럼 묶음의 규칙과 비교): 한 데이터셋이 `params.availability_by_column`에 규칙 여럿을 선언할 때 무엇을 비교하는지 TDS-T002의 행이 말한다.
-- carried (#43 Decisions, moved by #705 on 2026-11-21): #528의 빈틈에는 티켓이 없다: 통과로 보고되는 프로필 없음(#720), `full` 단계 시간의 내역 없음, 스냅숏 사이 비교 없음, 라이선스나 출처 칸 없음. 1장의 `[unverified]` 칸은 #528의 출처와 맞대어 볼 수 있다.
-- carried (#43 Decisions, moved by #705 on 2026-11-21): 값 해시를 다음에 바꾸기 전에 #57의 Outcome 3~5번(#116, #120, #123; #609는 주봉의 열쇠)을 읽는다.
+- owner decides at the cut (#705 Moved from #43, 2026-11-21): 미국 일 거래량이 통합인지 주 거래소인지를 기본값 없는 `bars`의 선택 선언으로 둘지.
+- owner decides at the cut (#705 Moved from #43, 2026-11-21): 패키지가 `dictionary/columns` 데이터셋을 하나 가질지 여럿 가질 수 있을지 TDS 4.4가 정할지. 지금 검사기는 어느 쪽도 거절하지 않고, 엔진은 그 종류의 모든 데이터셋에서 표시를 읽는다.
+- builder's choice (#705 Moved from #43, 2026-11-21; 추천: 저장된 칼럼마다 그 칼럼 묶음의 규칙과 비교, 칼럼마다 자기 규칙으로 공개되기 때문): 한 데이터셋이 `params.availability_by_column`에 규칙 여럿을 선언할 때 무엇을 비교하는지 TDS-T002의 행이 말한다.
+- carried (#705 Moved from #43, 2026-11-21): #528의 빈틈에는 티켓이 없다: 통과로 보고되는 프로필 없음(#720), `full` 단계 시간의 내역 없음, 스냅숏 사이 비교 없음, 라이선스나 출처 칸 없음. 1장의 `[unverified]` 칸은 #528의 출처와 맞대어 볼 수 있다.
+- carried (#705 Moved from #43, 2026-11-21): 값 해시를 다음에 바꾸기 전에 #57의 Outcome 3~5번(#116, #120, #123; #609는 주봉의 열쇠)을 읽는다.
 
 #### v1.x
 
@@ -1217,19 +1219,19 @@ v3는 3자 검토 합의대로 **M0을 계약만으로 줄이고**, 검사기 fu
 - owner decides at the cut (#752 Decisions, 2026-11-25): `test(golden):` PR이 T-07과 T-15의 골든 입력에서 `cum_factor_split`을 뺄지. T-15의 입력은 패키지의 낡은 칼럼이 결과를 바꾸지 않음을 보인다.
 - decided (#705 Decisions 33, 2026-11-22): 생성기의 봉을 기록의 누적 곱으로 나누면 사건 전의 경로와 1e-12 안에서 같음을 US와 ZZ에서 지키는 시험을 둔다. KR은 가격 제한과 거래 정지가 봉을 스스로 움직이므로 아니다.
 - carried (#705 Decisions 51, 2026-11-22; #725 Decisions 182): 엔진의 `Price`는 `equity` 행만 읽는데 TDS는 `etf` 행의 OHLCV도 요구한다. #745가 B3의 엔진 쪽과 함께 만든다.
-- builder's choice (#705 Not sure yet, 2026-11-22; 추천: 필요할 때만 다시 봄): 생성기가 종목의 마지막 봉 뒤 날짜의 사건을 고치게 되면 `_recut`이 해석기가 적용하지 않는 단계를 적는다. 그 전에는 일어날 수 없다.
+- builder's choice (#705 Not sure yet, 2026-11-22; 추천: 생성기가 그런 사건을 고치게 될 때만 다시 봄, 그 전에는 일어날 수 없기 때문): 생성기가 종목의 마지막 봉 뒤 날짜의 사건을 고치면 `_recut`이 해석기가 적용하지 않는 단계를 적는다.
 - carried (#43 Decisions, 2026-11-05, #300): 생성기는 `tradability_daily`를 쓰지 않는 `tiny`에 넣은 거래 정지를 거절한다(4.8 (5)). 정지가 필요한 시험은 `small`을 쓴다.
-- carried (#43 Decisions, #300 and #302): 생성기는 하루 전체의 한국 거래 정지만 넣고, 가격 제한 마감이나 `admin_status` 행은 `NotImplementedError`로 거절한다. 4.8은 `tradability_daily`를 `EventSpec` 데이터셋에 넣고 있으므로, 그것이 필요한 시험은 그것을 만드는 티켓을 기다린다.
+- carried (#43 Decisions, 2026-11-19, #300 and #302): 4.8이 `tradability_daily`를 `EventSpec` 데이터셋에 넣고 있는데도, 생성기는 하루 전체의 한국 거래 정지만 넣고 가격 제한 마감이나 `admin_status` 행은 `NotImplementedError`로 거절한다. 그것이 필요한 시험은 그것을 만드는 티켓을 기다린다.
 - owner decides at the cut (#43 Decisions, 2026-11-19, #299): 넣은 현금 배당에 대한 4.8의 생성기 값(`record_date`, `pay_date`, `resolution_body`)을 주인의 것으로 둘지. #299의 물음에는 기록된 답이 없다.
-- builder's choice (#43 Decisions, 2026-11-20, #625; 추천: `tds/tests`를 `ci / test`에 두고 9.1의 행을 고침): 9.1의 행은 `tds`가 따로 있는 일 `tds / conformance`라 하는데, `testpaths`가 `tds/tests`를 `ci / test`에서도 돌린다.
-- owner decides at the cut (#43 Decisions, #513): `shift`나 창을 거쳐 읽은 가격 수준의 순위, `demean`, `winsorize`를 거절할지. 지금 #499의 검사는 "알 수 없음"을 준다(스펙 5.3.3).
+- owner decides at the cut (#43 Decisions, 2026-11-20, #625): 9.1의 행을 고칠지 `testpaths`를 고칠지. 그 행은 `tds`가 따로 있는 일 `tds / conformance`라 하는데, `testpaths`가 `tds/tests`를 `ci / test`에서도 돌린다.
+- owner decides at the cut (#43 Decisions, 2026-11-18, #513): `shift`나 창을 거쳐 읽은 가격 수준의 순위, `demean`, `winsorize`를 거절할지. 지금 #499의 검사는 "알 수 없음"을 준다(스펙 5.3.3).
 - owner decides at the cut (#43 Decisions, outside review of 2026-11-03): 결과가 일봉 경로 가정에 얼마나 기대는지 더 보이는 표시(E11의 확장, 5.6.4의 "x/n fills judged on daily bars" 옆), 그리고 0장의 경쟁 엔진 표를 vectorbt, Qlib, LEAN에 맞춰 고칠지.
 - carried (#43 Decisions, 2026-11-02, #94): `[data] root`에 대한 E14가 두 경우에 출처를 잘못 댄다.
-- owner decides at the cut (#43 Decisions, #247 and #281): 실행 id의 정규 JSON이 코드가 쓰는 `json.dumps(sort_keys=True, separators=(",", ":"))`인지 TDS 4.5의 RFC 8785 꼴인지, 다음에 실행 id를 건드리는 티켓이 말한다(스펙 5.9).
-- builder's choice (#43 Decisions, #101; 추천: 공개 입구에 감싸개 하나): 엔진 코드의 뜻밖의 예외를 어디서 E46 `EngineBugError`로 바꾸는지. 지금 `src/`에는 그렇게 바꾸는 곳이 없고, `bugreport`의 저장된 실행 쪽 절반은 #607이다.
-- carried (#43 Decisions, #101): 스펙 6.6의 버그 묶음은 재현 명령과 manifest를 이름 댄다. 묶음의 셋째 파일 `versions.json`은 6.6을 다음에 고칠 때 이름 댄다.
-- carried (#43 Decisions, #248, from #306's review): 설치된 배포판에 `Name`이 없으면 `seal()`이 정렬하는 패키지 표에서 `TypeError`가 난다(재현하지 않음).
-- carried (#43 Decisions, #252 and #595): M1 끝에 패리티 증거 파일 `tests/parity/evidence/<date>-<sha>-all-small.json`을 `main`에서 돈 `engine / parity`로 커밋한다. PR의 실행은 그것을 올리지 않는다.
+- owner decides at the cut (#43 Decisions, 2026-11-04, #247 and #281): 실행 id의 정규 JSON이 코드가 쓰는 `json.dumps(sort_keys=True, separators=(",", ":"))`인지 TDS 4.5의 RFC 8785 꼴인지, 다음에 실행 id를 건드리는 티켓이 말한다(스펙 5.9).
+- builder's choice (#43 Decisions, 2026-11-19, #101; 추천: 공개 입구에 감싸개 하나, 사용자의 모든 호출이 그 가운데 하나를 지나기 때문): 엔진 코드의 뜻밖의 예외를 어디서 E46 `EngineBugError`로 바꾸는지. 지금 `src/`에는 그렇게 바꾸는 곳이 없고, `bugreport`의 저장된 실행 쪽 절반은 #607이다.
+- carried (#43 Decisions, 2026-11-02, #101 and #52): 스펙 6.6의 버그 묶음은 재현 명령과 manifest를 이름 댄다. 묶음의 셋째 파일 `versions.json`은 6.6을 다음에 고칠 때 이름 댄다.
+- carried (#43 Decisions, 2026-11-19, #248 and #306): 설치된 배포판에 `Name`이 없으면 `seal()`이 정렬하는 패키지 표에서 `TypeError`가 난다(재현하지 않음).
+- carried (#43 Decisions, 2026-11-19, #252 and #595): M1 끝에 패리티 증거 파일 `tests/parity/evidence/<date>-<sha>-all-small.json`을 `main`에서 돈 `engine / parity`로 커밋한다. PR의 실행은 그것을 올리지 않는다.
 - carried (#43 Decisions, 2026-11-20, #253): `percentile_between`과 `zscore`는 zipline과 다르고(ADR 0046) 골든 손계산이 없으며, 손으로 낸 숫자의 단위 시험만 있다.
 - carried (#725 Decisions 150 and 151, 2026-11-23): 3단계의 후보는 값 해시의 정규 바이트를 위한 칼럼이나 묶음 단위 인코더이며, `hash_spec`과 값은 그대로 둔다. #732의 첫 `full` 검사가 빨라진다는 말은 재기 전에 하지 않는다.
 
