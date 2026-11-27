@@ -155,7 +155,7 @@ NexusBT는 이 다섯을 한 엔진에 모은다. 각 엔진에서 가져온 장
 | 대체 동작 (fallback) | 프로필이나 칼럼이 모자랄 때 엔진이 하는 정해진 동작. 항상 경고 `DataProfileWarning`(E30)과 매니페스트 `assumptions`에 남는다(4.5) |
 | 판 (edition) | 2026-11-27에 뺐다(#752): 엔진은 판을 읽지 않고(틱 단계 뒤로 엔진이 읽는 종류에 판이 없다) `[data] edition`도 빠졌다. TDS의 `editions` 칸은 #752의 12e에서 빠졌다(TDS 4.2) |
 | 시장 (market) | TDS `markets`의 키(예 `KR`, `US`). 시장마다 달력·통화·시간대가 하나. 엔진 코드에 시장 이름을 박지 않는다 |
-| 시장 규칙 팩 (market rules pack) | `resources/markets/<MARKET>.toml`: 그 시장의 가격제한·시가 허용 여유·임시 bp·½스프레드 하한·배당 지급 대체 간격·거래 가능 규칙 판. v1 팩 = KR, US. 팩이 있는 시장만 "지원 시장" |
+| 시장 규칙 팩 (market rules pack) | `resources/markets/<MARKET>.toml`: 그 시장의 가격제한·시가 허용 여유·임시 bp·½스프레드 하한·거래 가능 규칙 판. v1 팩 = KR, US. 팩이 있는 시장만 "지원 시장" |
 | 세션 (session) | 시장 달력의 거래일 하나. `(calendar_id, session_date)`와 `ts_open`, `ts_close` |
 | 시장 축 (market axis) | 한 시장의 세션 열. 시장 항은 이 축 위에서 계산된다 |
 | 세션 마감 시각 (session cutoff) | 시장 축 행 s의 항 값이 기준으로 삼는 시각 = `ready_m(s) = ts_close(s) + Δ_m`(5.1.2) |
@@ -919,7 +919,7 @@ rank  instrument_id   name            mkt  score   {signal terms…}  target_w  
 universe {n} KR / {n} US · selected {a}/{n_KR} KR, {b}/{n_US} US · run {run_id}
 ```
 
-`flags`: `vendor`(공급사 입력), `fund {d}d old`, `halted`, `limit-up`, `panel {d}d old`, `admin`(관리·주의), `short-ban`(공매도 금지 기간의 숏 목표).
+`flags`: `vendor`(공급사 입력), `halted`, `limit-up`, `admin`(관리·주의), `short-ban`(공매도 금지 기간의 숏 목표).
 
 `show = "held+near"|"all"`이면 칸 `status`(`held`/`buy`/`hold_band`/`sell(reason)`/`near_miss`/`excluded(reason)`)가 더해지고, `Screen.xray()`는 잎 Filter·신호 노드 칸까지 편 Arrow 표다.
 
@@ -1260,7 +1260,7 @@ day_count = 365              # 대차·리베이트·현금 이자 발생식의 
 - `shorting/kr_short_bans_v1.csv`(`valid_from, valid_to, scope, except_universe_ids, source, verified`): 구간은 **반열림** `[valid_from, valid_to)`(끝 날짜 = 다시 허용되는 첫날). `scope` 문법 = `all` / `index:<id>[,<id>…]`(그 날짜에 하나라도 편입이면 해당) / `classification:<scheme>=<code>`. `except_universe_ids`(목록)는 그 날짜에 하나라도 편입인 종목(합집합)을 금지에서 뺀다. `classifications`와 지수 편입 정보가 표준에서 빠졌으므로(#752), `index:`, `classification:`, `except_universe_ids`의 이름은 사용자의 값 표 항목(5.3.5)으로 읽는다. 이름을 항목에 어떻게 맞대는지는 금지를 적용하는 T4.Gt(아직 적용하지 않음)에서 주인에게 묻는다 [#752, 2026-11-26]. KR 씨앗 — 금융위원회 보도자료 원문으로 모두 확인, `verified = true` (2026-10-29): [2008-10-01, 2009-06-01) `all`(source: [FSC 2008-09-30](https://www.fsc.go.kr/no010101/68952) 첨부 — 유가 10.1·코스닥 10.2부터, 그래서 KOSDAQ 2008-10-01 하루는 씨앗이 더 보수적; [FSC 2009-05-20](https://www.fsc.go.kr/no010101/69237) 비금융주 6.1 해지); [2009-06-01, 2013-11-14) `classification:is_financial=true`(금융주 = 유가·코스닥 금융업종, 은행·증권·보험 포함; source: [FSC 2013-11-13](https://www.fsc.go.kr/no010101/70903) '13.11.14일부터 해제'); [2011-08-10, 2011-11-10) `all`(source: [FSC 2011-08-09](https://www.fsc.go.kr/no010101/70024) 8.10~11.9, [FSC 2011-11-08](https://www.fsc.go.kr/no010101/70123) 11.10 비금융주 해제·금융주 유지); [2020-03-16, 2021-05-03) `all`; [2021-05-03, 2023-11-06) `all`이되 `except_universe_ids = [index:KOSPI200, index:KOSDAQ150]`(부분 재개; source: [FSC 2021-02-03](https://www.fsc.go.kr/no010101/75290), [FSC 2021-04-29](https://www.fsc.go.kr/no010101/75830)); [2023-11-06, 2025-03-31) `all`(코스피·코스닥·코넥스; source: [FSC 2023-11-05](https://www.fsc.go.kr/no010101/81013), [FSC 2024-06-13](https://www.fsc.go.kr/no010101/82454) '25.3.30까지 연장, [FSC 2025-03-21](https://www.fsc.go.kr/no010101/84216) 3.31 전면 재개). 금지 기간에도 시장조성자·유동성공급자의 차입공매도는 허용(2020·2023 원문)이나 엔진 대상이 아니다. 꾸러미에 그 항목이 없으면 전 종목 금지로 보고(예외 없음) E30.
 - **규칙 검증 관문**: 출시 증거(T6.15, R-70)는 실행에 적용된 규칙 행마다(호가 표·상하한·금지·끝수·`day_count`) 출처·효력 경계·`verified`를 나열하고 `verified = false` 행 수를 분자/분모로, 격자 밖 봉 `off_grid_bar`를 시장·연도별로 보인다. "KR/US 검증" 주장은 실제 적용된 행이 모두 `verified = true`일 때만 한다.
 - 팩이 정하는 것만 시장별로 다르고, 상태 기계·체결 규칙(5.6)은 모든 시장에 같다. 가격제한 규칙(5.6.5)은 팩에 `price_limits`가 있을 때만 켠다(v2의 `market == KR` 조건 대신).
-- 팩이 없는 시장은 E18(4.4). `[markets] allow_untested = true`면 `_generic.toml`(가격제한 없음, ½스프레드 하한 5 bp, 지급 대체 간격 30일, `provisional_bps` 없음 → `[costs.provisional_bps] <MARKET>` 필수)을 쓰고 보고서 머리·매니페스트 `assumptions`에 "untested market rules: {market}".
+- 팩이 없는 시장은 E18(4.4). `[markets] allow_untested = true`면 `_generic.toml`(가격제한 없음, ½스프레드 하한 5 bp, `provisional_bps` 없음 → `[costs.provisional_bps] <MARKET>` 필수)을 쓰고 보고서 머리·매니페스트 `assumptions`에 "untested market rules: {market}".
 - 새 시장 팩은 공개 출처(거래소 규정)와 그 시장의 손계산 사례 하나 이상을 갖춘 PR로만 더한다(10장 v1.x "시장 규칙 팩 추가").
 
 `src/nexusbt/resources/costs/default_v1.csv`:
@@ -2059,7 +2059,7 @@ runs/<run_id>/
                            P-SHORT-OFF 기준선이 뒤 티켓의 스키마 변경과 부딪히지 않게)
   scenarios/{gross,cost2x,delist_lo,delist_hi,ca_exit_lo,capacity_x10,capacity_x100}.parquet   같은 칼럼의 daily 계열(켠 것만; cost0x = gross 파일 하나; ca_exit_hi = 기본 실행의 `daily.parquet`, 파일 없음)
   attribution.parquet      scope(ALL/<MARKET>…), period(date 또는 연도), component(local/fx/cross/commission/tax/spread/impact/other/provisional/path/linking_residual), value_base, value_local  [SC-07]
-  exposures.parquet        valuation_date, scope, sleeve_weight, ccy_weight(json: 통화→비중), sector(scheme@level별, 슬리브 안), size_quintile, top10_weight, n_holdings, cash_weight  [SC-07]
+  exposures.parquet        valuation_date, scope, sleeve_weight, ccy_weight(json: 통화→비중), sector(슬리브 안; 무엇으로 묶을지는 여기서 정하지 않는다, T4.10이 고른다: 읽던 분류 체계는 `classifications`와 함께 빠졌다 [#725 결정 250]), size_quintile, top10_weight, n_holdings, cash_weight  [SC-07]
   coverage.parquet         decision_id, year, market, term, n_present, n_universe, n_excluded_by_reason(json), n_microcap_excluded, n_signal_nan, n_target_not_held, n_na_filled, n_tied_at_cutoff, target_gap, gap_by_cause(json), rounding_gap, n_zero_lot_targets, n_suppressed_small, n_suppressed_band, n_band_entry_skipped, n_held_missing_score, n_unknown_by_leaf(json)  [SC-23]
   survivorship.parquet     year, market, n_universe, n_excluded_by_reason(json), n_microcap_excluded, n_delisted, n_delisted_held, n_observed, n_policy, n_unobserved, terminal_value_base, terminal_value_long_base, terminal_value_short_base, terminal_value_lo_base, terminal_value_hi_base, nav_share, nav_share_lo, nav_share_hi  (열은 아래) [#160, #394]
   coverage_fields.parquet  year, market, dataset, field, freq, required_by_universe, n_universe_rows, n_value, n_stale, n_not_yet_published, n_missing, share_value  (열은 아래) [#160]
@@ -2452,7 +2452,7 @@ primary, reference, diagnostics의 모든 값은 평가 기간과 `n_valid`/`n_t
 | E10 | `SegmentNotice` | 알림 | 연구 가족에서 기본 구간이 아닌 구간을 처음 계산(6.1) | "this run computes performance on segment '{s}' ({start} → {end}); exposures in family: {n}" / "nx.preregister(...) before looking, if you want a recorded criterion" |
 | E11 | `FillWarning` | 경고 | 지정가·손절을 일봉으로 판정 | "daily-bar fills for limit/stop orders are approximations" / "see [execution] fill_model note; use at='open' market orders to avoid" |
 | E12 | `UnsupportedCorporateActionError` | 실패 | 보유 종목에 지원 안 하는 사건(정책 fail), 수량 효과를 정할 수 없는 사건(5.3.3a) | "{instrument_id} has a {kind} on {date} while held ({q} shares)" / "[corporate_actions] unsupported = 'cash_at_adjustment' (recorded), or exclude the security from the universe before {date}" |
-| E13 | `AccountingDataError` | 실패 | 필요한 회계 자료 없음(정책값 null, 합병 대상 없음, 지급일 fail), 정확 비율 없음·f64 칼럼과 어긋남(#188)·잘못됨(4.4-4; fix "ask the producer for ratio_num/ratio_den, or use the default [corporate_actions] decimal_ratio = 'exclude_instrument' (5.6.1 "정확 비율이 없는 사건"), or 'literal' (recorded)"; E13 for the missing and disagreeing causes only when decimal_ratio = 'require_exact', or under 'literal' for an event with no f64 value to read (5.6.1) [#446]), 폐지 분배 포함 여부 모름 + `[delisting] unknown_inclusion = "error"`(5.6.13), 세전 금액을 정할 수 없는 숏 net 배당(5.6.11) | 표·열쇠·칼럼 / "the snapshot lacks {column} for {key}; choose a policy ({fix}) or use a snapshot that provides it" (+ `producer.hints`가 있으면 그 문장) |
+| E13 | `AccountingDataError` | 실패 | 필요한 회계 자료 없음(정책값 null, 합병 대상 없음), 정확 비율 없음·f64 칼럼과 어긋남(#188)·잘못됨(4.4-4; fix "ask the producer for ratio_num/ratio_den, or use the default [corporate_actions] decimal_ratio = 'exclude_instrument' (5.6.1 "정확 비율이 없는 사건"), or 'literal' (recorded)"; E13 for the missing and disagreeing causes only when decimal_ratio = 'require_exact', or under 'literal' for an event with no f64 value to read (5.6.1) [#446]), 폐지 분배 포함 여부 모름 + `[delisting] unknown_inclusion = "error"`(5.6.13), 세전 금액을 정할 수 없는 숏 net 배당(5.6.11) | 표·열쇠·칼럼 / "the snapshot lacks {column} for {key}; choose a policy ({fix}) or use a snapshot that provides it" (+ `producer.hints`가 있으면 그 문장) |
 | E14 | `SnapshotError` | 실패 | 4.4 검사 실패(TDS 오류 코드), 경로 안전 위반, 지원 안 하는 필수 해석 규칙·닫힌 열거값(M014), 스냅숏 없음, 요구 프로필 모자람 + `fallbacks = "fail"` | 첫 TDS 코드·데이터셋·파일·열쇠·힌트, 코드별 건수, `producer.hints`의 그 코드 문장(있으면) / "tds check PATH --level full; nexusbt doctor --full" |
 | E15 | `ReplayError` | 실패 | rerun 의존(스냅숏·소스·잠금) 없음 | "snapshot {id} is not available" / "nx.rerun(id, new_snapshot=True) creates a new run" |
 | E16 | `ConfigError` | 실패 | toml·인자 검증 실패; 공매도가 꺼져 있을 때 `decide` 블록의 숏 의도나 음수 비중(3.7) [#725 결정 239] | 키·값·허용 값 / 비슷한 키 |
@@ -3055,7 +3055,7 @@ v1 명세의 O1~O11, 청사진 OQ-1~OQ-15, TDS Q1~Q16을 하나로 모았고, v3
 | OI-26 (OQ-15) | `Illiquidity`·`Beta`·상관·회귀 내장 팩터 | v1 뒤, 단면 회귀 커널과 함께; 2026-11-24에 좁힘(#725 결정 246): 시장 계열에 대한 이동 베타·상관·회귀는 v1(3.4) | 적용 | | 명세 결정 |
 | OI-27 (TDS-Q1) | 공개 API에서도 `security_id` → `instrument_id`? | **별칭 삭제**(3자 검토 만장일치; 사용자 결정이 아니라 TDS 추천값이었음). `instrument_id` 하나, 외부 이름은 `rename=`·`mapping.yaml` | 닫힘 | (알림) | 사용자가 다르게 원하면 머리말 한 줄 |
 | OI-28 (TDS-Q2) | 틱 ns 시각과 DuckDB(us) | 틱 자료는 참조 생산자가 아닌 별도 수집 경로에서 pyarrow로. v1 무관 | 적용 | | E4 |
-| OI-29 (TDS-Q3) | 재무 공개 시각: SEC 접수 순간 vs `known_on` 다음 개장 | v1은 보수적 규칙. 접수 순간은 생산자 확장 칼럼으로 함께 내고 정책 판을 올릴 때 바꿈(Sol: 권위 있는 접수 시각이 있으면 그것, 날짜뿐이면 다음 개장) | 적용 | | 생산자 |
+| OI-29 (TDS-Q3) | 재무 공개 시각: SEC 접수 순간 vs `known_on` 다음 개장 | v1은 보수적 규칙. 접수 순간은 생산자 확장 칼럼으로 함께 내고 정책 판을 올릴 때 바꿈(Sol: 권위 있는 접수 시각이 있으면 그것, 날짜뿐이면 다음 개장) | 적용; 2026-11-24 대체(#752): 날짜만 있는 값은 그 시장의 다음 세션이 열리기 전에 알려진다(5.1.4) [#725 결정 230] | | 생산자 |
 | OI-30 (TDS-Q4) | `shares_out`을 봉에서 빼기 | 뺐다(5.3.5a). 엔진은 `share_counts` 시점 조회. 패널 `me`와 대조 시험(실제 자료, 요약) | 적용; 2026-11-24 대체(#752): 주식 수는 사용자 항목(5.3.5a) | | T2.15 |
 | OI-31 (TDS-Q5) | 표준·엔진 공개와 "개인 연구용만" 규칙 | **결정됨(사용자 2026-10-27)**: 엔진·명세·TDS·검사기는 공개 배포 전제, 실제 자료만 비공개. 저장소 공개, Apache-2.0(2.1), 위생 시험(2.7) | 결정됨 2026-10-27 | | – |
 | OI-32 (TDS-Q7) | 논리 해시가 Arrow 판에 따라 달라질 가능성 | **1.0 전에 풀었다**(3자 검토 만장일치): 언어 무관 정규 값 직렬화 = 값 해시, 값 해시 + 해석 메타 = 의미 해시, 시험 벡터 공개(TDS v1.1 4.5, ADR-0028) | 닫힘 | | T0.14c |
@@ -3065,7 +3065,7 @@ v1 명세의 O1~O11, 청사진 OQ-1~OQ-15, TDS Q1~Q16을 하나로 모았고, v3
 | OI-36 (TDS-Q11) | `eligibility_daily` 공개 시각 | 만든 쪽이 규칙 선언, 엔진은 그대로(5.1.5) | 적용; 2026-11-24 대체(#752) | | 참조 생산자 |
 | OI-37 (TDS-Q12) | 한국 배당락일 유도 규칙(결제 주기 변천) | 엔진은 고치지 않고 의심 건수 경고(F-05). 규칙은 **생산자 로드맵으로 옮김**. KR 실제 자료 검증의 전제 | 옮김 2026-10-28 |  | 생산자 |
 | OI-38 (TDS-Q13) | 누적 계수를 봉 칼럼 vs 별도 데이터셋 | 둘 다 아님, 2026-11-22부터(#705): 칼럼은 TDS에서 빠지고(TDS 5.5) 엔진이 해석기로 사건에서 계수를 계산한다(5.3.3). 그 전에는 봉의 선택 칼럼이었고, 별도 데이터셋은 다시 쓰기 비용을 잰 뒤였다 | 결정 2026-11-22 |  |  |
-| OI-39 (TDS-Q14) | TDS 핵심 재무 항목 정의 문장 | v1.1은 `std_item`을 "잠정 매핑, 상호운용 보장 없음"으로 표시. 정의 부록(연결/별도·기간·통화·축척·부호)은 **TDS 1.2에서** 생산자의 표준 칼럼 목록(std-columns-v1)을 씨앗으로 쓴다. 1.0 직전 TDS 단독 3자 검토에서 함께 본다 | 결정됨 2026-10-28 |  | TDS 1.2 |
+| OI-39 (TDS-Q14) | TDS 핵심 재무 항목 정의 문장 | v1.1은 `std_item`을 "잠정 매핑, 상호운용 보장 없음"으로 표시. 정의 부록(연결/별도·기간·통화·축척·부호)은 **TDS 1.2에서** 생산자의 표준 칼럼 목록(std-columns-v1)을 씨앗으로 쓴다. 1.0 직전 TDS 단독 3자 검토에서 함께 본다 | 결정됨 2026-10-28; 2026-11-24 대체(#752): 재무 종류는 TDS에서 빠졌고, 재무 값은 사용자의 값 표 항목이다(5.3.5) [#725 결정 250] |  | TDS 1.2 |
 | OI-40 (TDS-Q16) | TDS 초안에 3자 토의(Opus 5.5 + Fable 5.1 + GPT-6.1 Sol xhigh) 검토를 돌릴까 | **명세 v2와 함께 TDS v1도 3자 검토를 거쳤다**(2026-10-28, `review/`). 결과는 TDS v1.1. TDS만 따로 한 번 더 할지는 1.0 졸업 전 선택(Opus 제안) | 적용 | (선택) | 사용자 |
 | OI-41 (새) | 라이선스 | Apache-2.0 (2.1의 이유). 바꾸려면 T0.1 전 | 결정됨 2026-10-28 (추천 기본값 확정) | | 사용자 |
 | OI-42 (새) | 시가 없는 시장에서 기본 집행 `at="open"` | 몰래 종가로 바꾸지 않고 E18 + `at="close"` 안내(A-102). 생산자가 시가를 채우면 사라짐 | 적용 | | 참조 생산자 |
