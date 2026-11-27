@@ -33,6 +33,12 @@ versions follow [Semantic Versioning](https://semver.org/).
   to #820.
 
 ### Changed
+- A package's semantic hash no longer covers `editions` or `roll_rules` (TDS 4.5, #752's 12e),
+  so the same package has another semantic hash than before. Opened with `verify = "full"`, a
+  package whose hashes an earlier checker wrote is E14 (TDS-H003) until `tds hash --write`
+  writes them again; `nx.rerun` of a run sealed before this change refuses the unchanged
+  package as another snapshot (E15): pass `new_snapshot=True`. A package naming
+  `tds_draft = 2026-11-19` opens with the warning TDS-M017.
 - `@nx.factor(dtype=...)` takes `"float64"` only, the dtype a Factor's values are in; any
   other value (`"float32"`, `"int64"`, a misspelling) is now refused when the term is built
   (`ConfigError`, E16), where before it was taken, ignored, and gave the term a graph hash of

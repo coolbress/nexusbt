@@ -66,6 +66,22 @@ def test_M_codes(code: str, tmp_path: Path) -> None:
     assert pairs(package / "fail", "schema") == stated(code, "schema")  # the CLI's default level
 
 
+@pytest.mark.parametrize("editions", [None, {"default": "strict", "values": {"strict": "x"}}])
+def test_an_edition_path_and_the_editions_field_are_not_judged(
+    editions: Any, tmp_path: Path
+) -> None:
+    """#752's 12e (TDS 4.2, 8.3): `editions` left, so an `edition=` path is no M010 whether
+    `tds.json` still declares one or not, and the field itself gets no finding."""
+    path = build.BARS.replace("market=US/", "market=US/edition=strict/")
+
+    def change(m: dict[str, Any], f: Any) -> None:
+        build._move_bars(path)(m, f)
+        if editions is not None:
+            m["editions"] = editions
+
+    assert codes(write(tmp_path, change)) == []
+
+
 def test_M010_an_instrument_of_an_undeclared_market_at_schema(tmp_path: Path) -> None:
     """TDS 3.8, 8.2 (#567): the `schema` level reads `instruments.market`; `manifest`, no rows."""
     package = write(tmp_path, build._instruments(market=pa.array(["ZZ"])))
@@ -241,7 +257,8 @@ def test_M015_warns_of_an_experimental_dataset_and_otherwise_passes(
 @pytest.mark.parametrize(
     ("draft", "found"),
     [
-        ("2026-11-19", []),  # the text this checker implements
+        ("2026-11-27", []),  # the text this checker implements (#752 12e)
+        ("2026-11-19", ["TDS-M017"]),  # stage (1)'s text before 12e: a package built then
         ("2026-11-18", ["TDS-M017"]),  # the text before markets entries had required fields
         ("2026-11-13", ["TDS-M017"]),  # an older text
         ("2027-01-05", ["TDS-M017"]),  # a newer text than the checker knows

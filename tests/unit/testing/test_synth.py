@@ -196,7 +196,7 @@ def test_command_prints_counts_and_hashes_then_checks(
     ]  # fmt: skip
     written = json.loads((out / "tds.json").read_text(encoding="utf-8"))
     hashes = written["hashes"]
-    assert written["tds_draft"] == "2026-11-19"  # the TDS text it follows (4.2, #529)
+    assert written["tds_draft"] == "2026-11-27"  # the TDS text it follows (4.2, #529; #752 12e)
     assert lines[7:9] == [
         f"value_sha256 {hashes['value_sha256']}",
         f"semantic_sha256 {hashes['semantic_sha256']}",
@@ -393,7 +393,9 @@ def test_small_hashes_match_on_macos_and_linux(tmp_path: Path) -> None:
         # #752 V2b: the three value tables joined; the other eight datasets' value hashes and
         # file bytes are unchanged (R3a's pair was ca09c127…, a09fe87b…)
         "b3b1047b48655dc91651cf9c7f80d3d72a53815b2e2f407f6ca0f099f71121b1",
-        "36e224fa523cd1842a46802bd9da3739bbc3270e567d64cf8d5c7931459d448b",
+        # #752 12e: `editions` and `roll_rules` left the semantic hash (V2b's was 36e224fa…);
+        # every dataset's value hash and file bytes are unchanged
+        "cb2fa7d4fc5c8bc2ea6de79952f179abaeee4d5e634654a61660cc3609b8ae20",
     )
 
 
