@@ -391,8 +391,13 @@ class _Chunk:
         ids = np.asarray(self.block.instrument_ids, dtype=object)[inside]
         scales = self.pending[key][1] if key in self.pending else None
         pristine = None if scales is None else [w.copy() for w in windows]  # 3.3: copies
+        # 3.3 (#620): a user Filter's cell is unknown where any cell of its input windows is NaN;
+        # found before the call, which may write in them
+        nan = [np.isnan(w).any(axis=0) for w in windows] if isinstance(term, Filter) else None
+        known = None if nan is None else ~np.any(nan, axis=0)
         try:
-            out[inside] = got = call_user(term, windows, int(inside.sum()), fn)
+            got = call_user(term, windows, int(inside.sum()), fn)
+            out[inside] = got if known is None else np.where(known, got, np.nan)
             if pristine and check_adjustment(term, pristine, got, ids.tolist(), scales or [], fn):
                 del self.pending[key]  # once for each user term in a run
         except Exception as error:  # 6.6: the user's exception, noted and re-raised as it is

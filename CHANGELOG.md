@@ -13,6 +13,11 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ### Added
 - Initial skeleton
+- `@nx.filter(window=..., inputs=..., mask=None)` makes a Filter from a window function that
+  returns bool `(n_alive,)` (#620). A cell is unknown where any cell of the instrument's input
+  windows is NaN; a result of another dtype or shape is E8. It is called, hashed and checked
+  as an `@nx.factor` is: `.function`, the E16 for a call with an array, E8 before the window,
+  E24 for a global array, helpers and bound values in the graph hash.
 
 ### Changed
 - `@nx.factor(dtype=...)` takes `"float64"` only, the dtype a Factor's values are in; any
