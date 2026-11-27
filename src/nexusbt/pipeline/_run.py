@@ -33,16 +33,19 @@ def call_user(
     suggesting the window it needs, as is a result of another shape or of a non-numeric dtype;
     any other exception is the user's, as raised, through frames hidden from its traceback
     (`__tracebackhide__`, R-42), as the executor's on the way here are. A Filter's function
-    returns bool, held here as 1.0 and 0.0 (3.3, #620)."""
+    returns bool, held here as 1.0 and 0.0; a Classifier's an integer type, its codes, -1 the
+    missing group and no other negative, as int32 holds them (3.3, #620)."""
     __tracebackhide__ = True
-    from ._terms import Filter  # here: `_terms` imports this module
+    from ._terms import Classifier, Filter  # here: `_terms` imports this module
 
     params, fn = dict(term.params), fn or term.function
     if fn is None:
         raise ValueError(f"no function given for the user term {params['function']}")
     name, window = params["function"], params["window"]
-    decorator, kind, one = ("filter", "bool", "bool") if isinstance(term, Filter) else (
-        "factor", "float64", "float64 number")  # fmt: skip
+    decorator, kind, one = (
+        ("filter", "bool", "bool") if isinstance(term, Filter)
+        else ("classifier", "an integer", "integer code") if isinstance(term, Classifier)
+        else ("factor", "float64", "float64 number"))  # fmt: skip
     try:
         got = np.asarray(fn(*windows, **dict(params.get("bound", ()))))
     except IndexError as error:
@@ -58,12 +61,20 @@ def call_user(
         raise _window_error(name, at, f"reads {column}[{k}] but window={window}",
                             f"@nx.{decorator}(window={needed}, ...)",
                             decorator) from error  # fmt: skip
-    if got.shape != (n,) or got.dtype != np.dtype(kind):
+    codes = kind == "an integer"
+    fits = np.issubdtype(got.dtype, np.integer) if codes else got.dtype == np.dtype(kind)
+    if got.shape != (n,) or not fits:
         at = _user_line().split(" in ")[0]
         raise _window_error(name, at, f"returned {got.dtype} {got.shape}, not {kind} ({n},)",
                             f"return one {one} for each column of the window",
                             decorator)  # fmt: skip
-    return got.astype(np.float64) if kind == "bool" else got
+    if codes and (bad := got[(got < -1) | (got > np.iinfo(np.int32).max)]).size:
+        at = _user_line().split(" in ")[0]
+        raise _window_error(name, at, f"returned the code {bad[0]}, which no code table has",
+                            "return a code of 0 or more for each column, -1 for a missing group",
+                            decorator,
+                            "a Classifier is int32 codes, -1 the missing group (3.3)")  # fmt: skip
+    return got if kind == "float64" else got.astype(np.float64)
 
 
 #: 3.3 `adjustment`: one instrument's input windows are multiplied by this fixed constant.
@@ -141,11 +152,14 @@ def unchecked(name: str, declared: str, at: str, scalable: bool) -> SkippedWorkN
     )
 
 
-def _window_error(name: str, at: str, what: str, fix: str, made_by: str = "factor") -> WindowError:
+def _window_error(
+    name: str, at: str, what: str, fix: str, made_by: str = "factor",
+    why: str = "the function's window is the rows and shape the engine loads for it",
+) -> WindowError:  # fmt: skip
     return WindowError(
         what=f"{name} {what}",
         where=f"{made_by} {name}",
-        why="the function's window is the rows and shape the engine loads for it",
+        why=why,
         fix=fix,
         more="spec 3.3 and 5.3.7 (windows)",
         layer=f"your code — {at} in {name}",

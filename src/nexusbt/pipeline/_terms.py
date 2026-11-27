@@ -118,7 +118,8 @@ def _operand(value: object) -> Factor:
 
 
 class _Bound(Term):
-    """A term a user function can make (3.3): a Factor, a Filter; calling one binds keywords."""
+    """A term a user function can make (3.3): a Factor, a Filter, a Classifier; calling one
+    binds keywords."""
 
     __slots__ = ()
 
@@ -290,7 +291,7 @@ def _filter(value: object) -> Filter:
     raise TypeError(f"`&` and `|` combine Filters, not {type(value).__name__}")
 
 
-class Classifier(Term):
+class Classifier(_Bound):
     """int32 codes and a code table (3.3)."""
 
     __slots__ = ()
@@ -426,13 +427,13 @@ def same_function(a: Callable[..., Any] | None, b: Callable[..., Any] | None) ->
     return all(x is y or (_constant(x) and x == y) for x, y in pairs)
 
 
-def _readable(fn: FunctionType) -> str:
+def _readable(fn: FunctionType, made_by: str = "factor") -> str:
     """`fn`'s canonical source; a function a library decorator made is read as the project
-    function it keeps (#596), as a helper is."""
+    function it keeps (#596), as a helper is. `made_by`: the decorator the message names."""
     try:
         return _source(_helper(fn) or fn)
     except (OSError, SyntaxError) as error:
-        what = f"@nx.factor cannot read the source of {fn.__name__}; its source goes into the"
+        what = f"@nx.{made_by} cannot read the source of {fn.__name__}; its source goes into the"
         raise TypeError(f"{what} term's hash, so define it with `def` in a file") from error
 
 

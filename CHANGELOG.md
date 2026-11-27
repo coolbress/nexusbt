@@ -18,6 +18,12 @@ versions follow [Semantic Versioning](https://semver.org/).
   windows is NaN; a result of another dtype or shape is E8. It is called, hashed and checked
   as an `@nx.factor` is: `.function`, the E16 for a call with an array, E8 before the window,
   E24 for a global array, helpers and bound values in the graph hash.
+- `@nx.classifier(window=..., inputs=..., mask=None)` makes a Classifier from a window function
+  that returns integer codes `(n_alive,)` (#620): -1 is the missing group, left out by
+  `groupby` and counted `UnknownGroup`, as is a cell outside `mask` or before the window; any
+  other negative code, a code int32 cannot hold, or a result of another dtype (a float, a bool)
+  or shape is E8. It is called, hashed and checked as `@nx.filter` is. A classifier that
+  returns strings is E8 until its code table comes (#818).
 
 ### Changed
 - `@nx.factor(dtype=...)` takes `"float64"` only, the dtype a Factor's values are in; any
