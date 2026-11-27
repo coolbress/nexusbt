@@ -106,3 +106,8 @@ versions follow [Semantic Versioning](https://semver.org/).
   could find again by its name, so every rerun of such a run was refused (E15). This
   happened on Linux, where a library imports it, since `source.outside` came in (#250). The
   name is no longer recorded, and a run that recorded it is read without it.
+- `nx.rerun(id, new_snapshot=True)` of a run saved before `source.outside` no longer adds
+  "this run's outside helpers were not recorded" when its outputs differ (#815). That run
+  is a new run, whose difference is expected, and the note pointed at the wrong cause. An
+  exact rerun in another environment whose outputs differ beyond the tolerance now gets
+  the note too, as on the exact path.
