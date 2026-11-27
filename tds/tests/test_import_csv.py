@@ -211,7 +211,7 @@ def test_package_defaults_and_layout(tmp_path: Path) -> None:
     out = import_csv(mapping, tmp_path / "pkg")
     assert rows(out, "instruments")[0]["is_synthetic"] is False
     manifest = json.loads((out / "tds.json").read_text(encoding="utf-8"))
-    assert manifest["tds_draft"] == "2026-11-19"  # TDS 4.2 (#529)
+    assert manifest["tds_draft"] == "2026-11-27"  # TDS 4.2 (#529; #752 12e)
     bars = next(d for d in manifest["datasets"] if d["kind"] == "bars")
     assert (bars["pit_quality"], bars["availability"]) == ("backfilled", {"rule": "ts_end"})
     assert bars["files"][0]["path"] == "bars/freq=1d/market=US/year=2024/part-00000.parquet"

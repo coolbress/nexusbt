@@ -14,6 +14,14 @@ package version follows the `tds_version` it checks (`1.0.x`), tagged
   fail). A package without value tables checks as before
 
 ### Changed
+- `tds_draft` moves to 2026-11-27, the end of the stage-(1) revision (#752's 12e, TDS 10.5): the
+  checker, `tds import csv`, `tds draft` and the conformance packages write it; a package naming
+  2026-11-19 gets TDS-M017 (W)
+- `editions` and `roll_rules` leave the semantic hash and `tds.json`'s fields (TDS 4.2, 4.5): a
+  package that still writes either gets no finding; every package's `semantic_sha256` moves (a
+  package whose hashes an earlier checker wrote gets TDS-H003 at `full`; `tds hash --write`
+  writes them again); value hashes, files and `hash-vectors.json` do not move. TDS-M010 no longer
+  judges an `edition=` path
 - TDS-V004 also finds a `no_trade` bar with an `open`, `high` or `low` (TDS 5.5, #752): a package
   holding one passed and now fails at `full`; its `close` (the reference price) stays allowed
 - `tds import csv` no longer fills `instruments.lot_size` with 1 (TDS 5.1, #705 Decisions 12):

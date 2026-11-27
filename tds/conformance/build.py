@@ -101,7 +101,7 @@ def base() -> Package:
     ]
     manifest = {
         "tds_version": "1.0",
-        "tds_draft": "2026-11-19",  # TDS 4.2: the text these packages follow (#529)
+        "tds_draft": "2026-11-27",  # TDS 4.2: the text these packages follow (#529)
         "name": "conformance",
         "created": "2026-11-02T00:00:00Z",
         "snapshot_id": "20261102-000000",

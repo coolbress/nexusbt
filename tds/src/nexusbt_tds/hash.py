@@ -466,7 +466,9 @@ def spilled_note(spilled: list[Path], what: str = "value hash") -> str:
 
 HASH_SPEC = "tds-hash-2"  # 4.5; -1 hashed a partitioned dataset as one stream (#705 B4)
 #: The package-level keys of the semantic hash (TDS 4.5), each `null` when tds.json has none.
-_PACKAGE_KEYS = ("markets", "id_namespaces", "editions", "policies", "currencies", "roll_rules")
+#: `editions` and `roll_rules` left with 12e (#752): a package that still writes one is not
+#: judged for it, and the hash does not read it.
+_PACKAGE_KEYS = ("markets", "id_namespaces", "policies", "currencies")
 _DATASET_KEYS = ("kind", "schema_version", "params", "availability", "pit_quality", "key")
 #: The stable fields of a `markets` entry, the only ones the semantic hash takes (TDS 4.5): the
 #: watermark fields of 4.2 change on every publish (spec 5.3.9 keys its L0 cache on these three).

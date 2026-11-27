@@ -149,11 +149,11 @@ NexusBT는 이 다섯을 한 엔진에 모은다. 각 엔진에서 가져온 장
 |---|---|
 | TDS | NexusBT 데이터 표준 v1(문서 판 v1.4, `tds_version = "1.0"`, 상태 = 초안 → RC → 1.0). 엔진이 읽는 유일한 입력 형식(폴더 + `tds.json` + Parquet). `engine-data-standard-v1.4.md` |
 | 패키지·스냅숏 (package, snapshot) | TDS를 지키는 바뀌지 않는 폴더 하나. `snapshot_id`와 해시 셋(물리·값·의미)을 가진다. 생산자가 게시한 내보내기는 스냅숏이다 |
-| 해시 셋 (physical / value / semantic) | 물리 = 파일 바이트 sha256. 값 = 언어 무관 정규 형별 직렬화의 sha256(TDS 4.5). 의미 = 값 해시 + 정규화한 해석 메타(공개 규칙·매개변수·시장·판·정책·프로필 판). 스냅숏의 정체는 세 해시(물리·값·의미; TDS 4.5)다: 실행 매니페스트·`DecisionContext`·장부·`rerun`은 스냅숏을 **의미 해시**로 가리킨다. **캐시 열쇠**(L0, L1; 5.3.9)는 의미 해시를 담지 않는다: 노드가 읽는 파티션마다의 **파일 sha256**, 데이터셋별 해석 메타 해시, 기업행동 사슬 해시, 각 블록이 기대는 축 행의 해시를 담으므로, 두 스냅숏 사이에 바뀌지 않은 파티션은 그대로 적중한다; 외부 데이터셋은 그 **`value_sha256`**(표에 TDS 4.5의 값 해시 규칙을 적용한 것)으로 들어가고, 그 파일 sha256은 물리 도장일 뿐이다 |
+| 해시 셋 (physical / value / semantic) | 물리 = 파일 바이트 sha256. 값 = 언어 무관 정규 형별 직렬화의 sha256(TDS 4.5). 의미 = 값 해시 + 정규화한 해석 메타(공개 규칙·매개변수·시장·정책·프로필 판). 스냅숏의 정체는 세 해시(물리·값·의미; TDS 4.5)다: 실행 매니페스트·`DecisionContext`·장부·`rerun`은 스냅숏을 **의미 해시**로 가리킨다. **캐시 열쇠**(L0, L1; 5.3.9)는 의미 해시를 담지 않는다: 노드가 읽는 파티션마다의 **파일 sha256**, 데이터셋별 해석 메타 해시, 기업행동 사슬 해시, 각 블록이 기대는 축 행의 해시를 담으므로, 두 스냅숏 사이에 바뀌지 않은 파티션은 그대로 적중한다; 외부 데이터셋은 그 **`value_sha256`**(표에 TDS 4.5의 값 해시 규칙을 적용한 것)으로 들어가고, 그 파일 sha256은 물리 도장일 뿐이다 |
 | 프로필 (profile) | 패키지가 지킨다고 선언한 TDS 묶음, 판을 붙여 씀(`tds:equity-daily-core@1.0`). 적합성 주장일 뿐이고, 엔진이 무엇을 할 수 있는지는 **능력(capability)**이 정한다(4.3) |
 | 능력 결과 셋 | 선언됨(declared) / 어느 단계까지 검사됨(verified@manifest·schema·full) / 이 엔진이 지원함(supported). 검사하지 않은 것을 통과라 하지 않는다 |
 | 대체 동작 (fallback) | 프로필이나 칼럼이 모자랄 때 엔진이 하는 정해진 동작. 항상 경고 `DataProfileWarning`(E30)과 매니페스트 `assumptions`에 남는다(4.5) |
-| 판 (edition) | 2026-11-27에 뺐다(#752): 엔진은 판을 읽지 않고(틱 단계 뒤로 엔진이 읽는 종류에 판이 없다) `[data] edition`도 빠졌다. TDS의 `editions` 칸은 #752의 12e에서 정한다 |
+| 판 (edition) | 2026-11-27에 뺐다(#752): 엔진은 판을 읽지 않고(틱 단계 뒤로 엔진이 읽는 종류에 판이 없다) `[data] edition`도 빠졌다. TDS의 `editions` 칸은 #752의 12e에서 빠졌다(TDS 4.2) |
 | 시장 (market) | TDS `markets`의 키(예 `KR`, `US`). 시장마다 달력·통화·시간대가 하나. 엔진 코드에 시장 이름을 박지 않는다 |
 | 시장 규칙 팩 (market rules pack) | `resources/markets/<MARKET>.toml`: 그 시장의 가격제한·시가 허용 여유·임시 bp·½스프레드 하한·배당 지급 대체 간격·거래 가능 규칙 판. v1 팩 = KR, US. 팩이 있는 시장만 "지원 시장" |
 | 세션 (session) | 시장 달력의 거래일 하나. `(calendar_id, session_date)`와 `ts_open`, `ts_close` |
@@ -1180,7 +1180,7 @@ write: orders.to_csv("orders/{date}.csv")   apply to paper book: nx.fill(book, o
 - **파티션**: 파티션 칼럼(`market=`, `year=`, `freq=`, `item=`, `name=`)은 경로에서 읽는다(파일 안에 없음) [TDS-D5, TDS-D20]. 읽을 파일은 매니페스트의 `files[].stats`(주요 칼럼 최소·최대)와 경로 값만으로 고르고 Parquet 바닥글을 열지 않는다(P1). `date` 칼럼의 통계는 날짜로 읽는다(결정 2026-11-16, #480: TDS 4.2는 `stats`의 형식을 정하지 않는다): `YYYY-MM-DD`와 ISO 8601 날짜시각 텍스트는 그 날짜가 되고(UTC 오프셋이 붙은 날짜시각은 시장의 날짜가 다음 날이나 전날일 수 있으므로 그 쪽으로 하루 넓힌다), 날짜가 아닌 값은 그 파일을 읽게 둔다; 통계는 파일을 읽지 않고 넘기는 데에만 쓰이므로, 어떤 형식의 통계도 블록의 행을 가진 파일을 건너뛰게 하지 않는다.
 - **공개 시각**: 데이터셋의 `availability`가 `{"column": "ts_available"}`이면 칼럼을, 규칙(TDS 6.2: `ts_end`, `session_open`, `session_close`, `next_session_open(<col>)`, `ts_end+<기간>`)이면 엔진이 같은 규칙으로 칼럼을 만들어 쓴다. 그 뒤 모든 조회는 5.1.2의 하나의 규칙(`ts_available <= decision_ts`, 시장 축 행은 `ready_m(s) = ts_close(s) + Δ_m` 기준)을 쓴다 [INV-01].
 - **열거**: 서술용 열린 열거의 모르는 값은 `other`(엔진은 `delist_type`·`reason`을 일반 경로로 처리). 실행에 영향이 있는 닫힌 열거(`kind`, `obs_status`, `exit_value_status`, `status`)의 모르는 값은 E14(4.1). `asset_class`는 열려 있다(TDS 5.1, #705 B3): 엔진이 규칙을 갖지 않은 종류(TDS가 이름 들지 않은 종류 포함)의 종목은 어느 주식 유니버스에도 들지 않고 시장 블록으로 읽히지 않는다; 그런 종목을 뺀 실행은 종류와 수를 말한다(그 보고는 #745에서 만든다). 도구는 사용자가 패키지의 종목들에 한 번 선언한 종류로 `asset_class`를 쓴다. 주식에 ETF나 지수를 섞으면 종목 목록(`symbol, asset_class`)이 필요하고, 그 목록의 종류가 선언한 종류보다 앞서며, 선언한 종류는 목록에 없는 종목의 기본값으로 남는다 [#725 결정 216].
-- **판(edition)**: 엔진은 판을 읽지 않는다. 판을 가졌던 종류(`fundamentals_state`, `feature_panels`, `classifications`)는 2026-11-24에 뺐고(#752), 실행 설정 `[data] edition`도 2026-11-27에 함께 뺐다(#752). TDS의 `editions` 칸, `edition=` 파티션, 의미 해시에서 그것들의 자리는 #752의 12e에서 정한다.
+- **판(edition)**: 엔진은 판을 읽지 않는다. 판을 가졌던 종류(`fundamentals_state`, `feature_panels`, `classifications`)는 2026-11-24에 뺐고(#752), 실행 설정 `[data] edition`도 2026-11-27에 함께 뺐다(#752). TDS의 `editions` 칸과 의미 해시에서 그 자리는 #752의 12e에서 빠졌고(2026-11-27, TDS 4.2, 4.5), M010은 더 이상 `edition=` 경로를 판정하지 않는다.
 - **시장 워터마크**: `markets.<m>.complete_through_session`·`complete_through` 뒤의 세션은 `live`·`fill`의 체결에 쓰지 않는다(5.9.6).
 
 데이터셋별(엔진이 읽는 칼럼만; 칼럼 정의는 TDS 5장):

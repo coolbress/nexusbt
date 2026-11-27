@@ -429,9 +429,9 @@ def test_semantic_json_holds_every_listed_key(tmp_path: Path) -> None:
         '{"currencies":null,"datasets":[{"availability":{"rule":"ts_end"},'
         '"key":["instrument_id","session_date"],"kind":"bars","name":"bars_1d",'
         '"params":{"freq":"1d"},"pit_quality":null,"price_exponent":-9,"schema_version":null,'
-        f'"size_exponent":0,"units":{{}},"value_sha256":"{PUBLISHED}"}}],"editions":null,'
+        f'"size_exponent":0,"units":{{}},"value_sha256":"{PUBLISHED}"}}],'
         '"hash_spec":"tds-hash-2","id_namespaces":null,"markets":null,"policies":null,'
-        '"profiles":null,"roll_rules":null,"tds_version":"1.0"}'
+        '"profiles":null,"tds_version":"1.0"}'  # no editions or roll_rules since 12e (#752)
     )
 
 

@@ -406,16 +406,14 @@ def _check_manifest(m: Manifest, only: Sequence[str] | None) -> Iterable[Finding
     if dated and draft != TDS_DRAFT:  # a missing one is M003's (#705 C5)
         msg = f"tds_draft {draft}; this checker implements {TDS_DRAFT}"
         yield Finding("TDS-M017", "warning", msg)
-    markets, editions = data.get("markets"), data.get("editions")
+    markets = data.get("markets")
     for code, entry in sorted(markets.items()) if isinstance(markets, dict) else []:
         for key in MARKET_REQUIRED if isinstance(entry, dict) else ():  # else M001's
             if key not in entry:
                 yield Finding("TDS-M003", "error", f"markets.{code}: field {key!r} is missing")
-    values = editions.get("values") if isinstance(editions, dict) else None
-    declared: dict[str, set[str]] = {
-        "market": set(markets) if isinstance(markets, dict) else set(),
-        "edition": set(values) if isinstance(values, dict) else set(),
-    }
+    # TDS 3.8, 8.3: a `market=` path value not declared is M010; `editions` left with 12e
+    # (#752), so an `edition=` path is an ordinary partition, not judged against tds.json
+    declared: dict[str, set[str]] = {"market": set(markets) if isinstance(markets, dict) else set()}
 
     from .schemas.verify import load_schemas
 

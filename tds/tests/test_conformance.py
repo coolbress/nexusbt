@@ -241,7 +241,8 @@ def test_M015_warns_of_an_experimental_dataset_and_otherwise_passes(
 @pytest.mark.parametrize(
     ("draft", "found"),
     [
-        ("2026-11-19", []),  # the text this checker implements
+        ("2026-11-27", []),  # the text this checker implements (#752 12e)
+        ("2026-11-19", ["TDS-M017"]),  # stage (1)'s text before 12e: a package built then
         ("2026-11-18", ["TDS-M017"]),  # the text before markets entries had required fields
         ("2026-11-13", ["TDS-M017"]),  # an older text
         ("2027-01-05", ["TDS-M017"]),  # a newer text than the checker knows

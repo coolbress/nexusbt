@@ -258,7 +258,7 @@
 ### 3.5 열쇠, 정렬, 유일성
 
 - 데이터셋마다 `key`(유일해야 하는 칼럼 묶음)와 `sort`(파일 안 행 순서)가 정해져 있다(5장). 매니페스트에도 적는다.
-- 파티션 칼럼은 열쇠의 일부일 수 있다: K001은 행의 열쇠를 시간 범위인 `year=`·`date=`를 뺀 파티션 값과 함께 비교한다(`edition=strict` 아래 행과 `edition=compare` 아래 행은 열쇠가 다르다. 두 `year=` 폴더에 든 같은 행은 여전히 중복이고, 범위를 벗어난 쪽은 K003도 잡는다) [v1.4, 2026-11-05]. 정렬은 파티션 안에서만 요구한다. 파일이 여러 개인 파티션은 파일 이름 순서로 이어 붙인 결과가 정렬되어 있어야 한다(K002).
+- 파티션 칼럼은 열쇠의 일부일 수 있다: K001은 행의 열쇠를 시간 범위인 `year=`·`date=`를 뺀 파티션 값과 함께 비교한다(값 표의 `item=per` 아래 행과 `item=pbr` 아래 행은 열쇠가 다르다, 5.28. 두 `year=` 폴더에 든 같은 행은 여전히 중복이고, 범위를 벗어난 쪽은 K003도 잡는다) [v1.4, 2026-11-05]. 정렬은 파티션 안에서만 요구한다. 파일이 여러 개인 파티션은 파일 이름 순서로 이어 붙인 결과가 정렬되어 있어야 한다(K002).
 - 열쇠 유일 검사는 데이터셋 전체에서 한다(K001).
 
 ### 3.6 파티션과 파일
@@ -337,7 +337,7 @@
 {
   "$schema": "tds/schemas/manifest/1.0.json",
   "tds_version": "1.0",
-  "tds_draft": "2026-11-19",
+  "tds_draft": "2026-11-27",
   "name": "example-kr-us-equity",
   "id": "urn:uuid:6f1c…",
   "version": "20261027-143144",
@@ -363,13 +363,9 @@
     "US": {"calendar_id": "XNYS", "currency": "USD", "timezone": "America/New_York",
            "complete_through_session": "2026-10-26", "complete_through": "2026-10-26T20:00:00Z"}
   },
-  "editions": {"default": "strict",
-               "values": {"strict": "filing-sourced lineage only (strict-by-column-v1)",
-                          "compare": "vendor values allowed (comparison)"}},
   "policies": {"fundamentals_resolution": "fund-resolution-v1", "delisting": "exit-value-v1",
                "adjustment": "adj-forward-cum-v1", "eligibility": "investable-v1",
                "availability_default": "next_session_open"},
-  "roll_rules": {},
   "datasets": [
     {"name": "bars_1d", "kind": "bars", "schema_version": "1.0", "path": "bars/freq=1d",
      "partitioning": [{"name": "freq", "type": "code"}, {"name": "market", "type": "code"}, {"name": "year", "type": "i16"}],
@@ -406,9 +402,9 @@
 | `id_namespaces` | ○ | 쓰인 id 이름공간과 설명 |
 | `currencies` | 선택 | ISO 4217 밖 통화 선언 |
 | `markets` | ○ | 3.8. 시장마다: `calendar_id`(필수), `currency`(필수), `timezone`(필수), 셋 다 빈 글자가 아닌 문자열이고 없으면 TDS-M003 [2026-11-19, #567]; 워터마크 필드 `complete_through_session`·`complete_through`는 선택. 워터마크 필드는 매 게시마다 바뀌므로 소비자의 파티션 캐시 열쇠에는 안정 필드(`calendar_id`·`currency`·`timezone`)만 쓰기를 권한다 [v1.3, R3-04] |
-| `editions` | 판을 쓰는 표가 있으면 ○ | 판 이름과 뜻, 기본 판 |
+| `editions` | 2026-11-27에 뺐다(#752의 12e): 판을 가진 종류가 없다 | 아직 적은 패키지는 판정을 받지 않는다. 그 필드는 읽지 않고 의미 해시에도 넣지 않는다(4.5) |
 | `policies` | 선택 | 만든 쪽 규칙 이름과 판(엔진 실행 기록에 그대로 남음) |
-| `roll_rules` | ○; 그 모양은 2026-11-25에 선물과 함께 빠졌고, 필드는 의미 해시에 남는다(4.5) | 5.6 |
+| `roll_rules` | 2026-11-27에 뺐다(#752의 12e): 그 모양은 2026-11-25에 선물과 함께 빠졌다(5.6) | `editions`와 같다: 읽지 않고 의미 해시에 넣지 않는다. 선물이 돌아오면 그 절과 함께 필드도 돌아올 수 있다 |
 | `datasets[]` | ○ | 데이터셋마다: `name`(필수), `kind`(필수), `schema_version`(필수), `path`(필수), `partitioning`, `key`, `sort`, `params`(종류별 매개변수), `availability`(6.2 규칙, 또는 가용 시각을 담은 칼럼을 지목하는 6.2 형식: `{"column": "<이름>"}`, `corporate_actions`의 `{"effect": …, "terms": …}`, `delistings`의 `{"exit": …, "value": …}`. 그 밖의 것은 TDS-M014), `pit_quality`(`native` / `backfilled` / `mixed`), `rows`, `value_sha256`, `partitions`(`partitioning`이 선언되면 필수, M003: 파티션마다 `partitioning` 순서의 `values`(정수는 수로, 그 밖의 값은 3.6 텍스트로)와 그 `value_sha256`, 4.5 6단계; manifest 수준이 줄을 읽지 않고 그것들을 이어 `value_sha256`과 견준다, H005 [2026-11-24, #705 B4]), `coverage`, `columns`(이름·형·null·단위·설명), `files[]`(필수)(`path`(필수)·행·`bytes`(필수)·sha256·주요 칼럼 최소/최대·**선택 `value_sha256`** — 그 파일 행만으로 4.5 정규 값 직렬화를 한 값 해시, 파티션 칼럼 포함; 소비자 쪽 조언용 — 이 값은 H004 경고 수준이라 틀려도 패키지가 막히지 않으므로 소비자는 검증하지 않은 `value_sha256`을 캐시 신원으로 쓰지 않는다; 파티션 단위 캐시 신원은 파일 `sha256`이 정한다 [v1.2, V31-12; v1.3, R3-04]). **필수 필드**: (필수) 표시가 있는 필드가 없으면 TDS-M003이고, 나머지 데이터셋·파일 필드는 매니페스트 수준에서 선택이며 스키마·전체 수준이 읽는 것을 검사한다(`columns`는 스키마와 대조, `rows`·`coverage`는 D004, `sha256`은 H001) [사용자 결정 2026-11-02]. **경로 안전**: 모든 `path`는 패키지 폴더 기준 상대 경로이고 `..`·절대 경로·밖으로 나가는 심볼릭 링크 금지(M012), 같은 파일 경로가 두 번 나오면 안 됨(M013) [v1.1] |
 | `hashes` | ○ | 4.5(`physical_sha256`, `value_sha256`, `semantic_sha256`, `hash_spec`) |
 | `writer` | ○ | 쓰기 도구, row group 행 수 |
@@ -450,7 +446,7 @@
   5. 머리 + 모든 행 바이트를 이어 sha256(스트리밍).
   6. **파티션이 있는 데이터셋** [2026-11-24, #705 B4; #725 결정 146, 157~161, 198]: `partitioning`이 선언되면 2~5단계를 파티션마다 그 줄에만 적용해 그 파티션의 value hash를 얻는다. 머리는 3단계의 데이터셋 머리(한 파일의 것이 아니라 데이터셋의 칼럼)이고, 파티션 칼럼은 여전히 각 줄의 바이트에 든다. 파티션은 적어도 한 줄이 가진 파티션 값의 묶음이다; 줄이 없는 파일은 파티션을 더하지 않는다. 데이터셋의 value hash는 `b"TDSP1\n"`, u32 LE의 `partitioning` 칼럼 수, `partitioning` 순서대로 각 칼럼의 이름(u32 LE 길이와 UTF-8 바이트), u32 LE의 파티션 수, 그리고 이름의 바이트 오름차순으로 파티션마다 그 이름과 value hash의 32바이트를 이은 것의 sha256이다. 파티션의 이름은 `partitioning`의 칼럼 순서대로 각 값의 3.6 정규 표기 텍스트를 u32 LE 길이와 UTF-8 바이트로 적은 것이다; 파티션 값은 null이 아니다(빈 값은 S008이고, 파일 안의 파티션 칼럼도 S008이다). `partitioning`이 없는 데이터셋은 1~5단계만으로 해시한다. 같은 `partitioning` 아래에서 같은 값은 파일을 어떻게 나누든, 그 안의 순서가 어떻든 같은 해시이고, 줄이 있는 데이터셋에서는 `partitioning`이 다르면 해시가 다르다(줄이 없으면 이은 바이트에 칼럼의 이름만 있고 형은 없다). 나열된 파일이 없는 데이터셋은 value hash가 없다.
 - **패키지 값 해시** `value_sha256` = sha256(데이터셋 이름 오름차순 `"{name}\t{value_sha256}\n"`). 4.4의 `dictionary/` 데이터셋도 다른 데이터셋처럼 이 해시와 의미 해시에 들어가며, 4.4가 정한 타입을 쓴다[2026-11-04].
-- **패키지 의미 해시** `semantic_sha256` = sha256(정규 JSON{`tds_version`, `hash_spec`, 데이터셋마다 {`name`, `kind`, `schema_version`, `value_sha256`, `params`, `availability`, `pit_quality`, `key`, 칼럼의 단위·`price_exponent`·`size_exponent`}, `markets`(항목마다 `calendar_id`·`currency`·`timezone`만; 4.2의 워터마크 필드는 넣지 않는다) [2026-11-03], `id_namespaces`, `editions`, `policies`, `currencies`, `roll_rules`, `profiles`}). 정규 JSON = RFC 8785(JSON Canonicalization Scheme), UTF-8: 키는 UTF-16 코드 단위 순으로 정렬하고, 문자열 이스케이프와 수 표기도 그 규칙을 따른다(`1.0` → `1`, `1e16` → `10000000000000000`, `1e21` → `1e+21`, `1e-7` → `1e-7`) [2026-11-02; 이전 "키 오름차순, 공백 없음, UTF-8, 수는 최단 왕복 표기"는 `1.0`과 `1`의 해시가 달랐다]. 같은 Parquet라도 공개 규칙·지수·정책·시장·판·프로필 선언이 바뀌면 의미 해시가 바뀐다. `producer`·`created`·`writer`·`coverage`·`files`·`title`·`tds_draft`(4.2)는 넣지 않는다. 나열된 키는 항상 들어가고 매니페스트에 없으면 `null`이다. 다만 `price_exponent`·`size_exponent`는 K7의 기본값(−9, 0)을 채우므로, 생략한 것과 −9(또는 −9.0)를 적은 것은 같은 해시다. 데이터셋은 `name` 오름차순 목록 `"datasets"`로 넣는다(매니페스트에서 순서만 바꾸면 해시가 같다). 칼럼 단위는 매니페스트 `columns[]` 중 `unit`을 적은 칼럼만 담은 `"units": {칼럼: 단위}`이다(없으면 `{}`) [2026-11-02].
+- **패키지 의미 해시** `semantic_sha256` = sha256(정규 JSON{`tds_version`, `hash_spec`, 데이터셋마다 {`name`, `kind`, `schema_version`, `value_sha256`, `params`, `availability`, `pit_quality`, `key`, 칼럼의 단위·`price_exponent`·`size_exponent`}, `markets`(항목마다 `calendar_id`·`currency`·`timezone`만; 4.2의 워터마크 필드는 넣지 않는다) [2026-11-03], `id_namespaces`, `policies`, `currencies`, `profiles`}; `editions`와 `roll_rules`는 2026-11-27에 빠졌다, #752의 12e). 정규 JSON = RFC 8785(JSON Canonicalization Scheme), UTF-8: 키는 UTF-16 코드 단위 순으로 정렬하고, 문자열 이스케이프와 수 표기도 그 규칙을 따른다(`1.0` → `1`, `1e16` → `10000000000000000`, `1e21` → `1e+21`, `1e-7` → `1e-7`) [2026-11-02; 이전 "키 오름차순, 공백 없음, UTF-8, 수는 최단 왕복 표기"는 `1.0`과 `1`의 해시가 달랐다]. 같은 Parquet라도 공개 규칙·지수·정책·시장·프로필 선언이 바뀌면 의미 해시가 바뀐다. `producer`·`created`·`writer`·`coverage`·`files`·`title`·`tds_draft`(4.2)는 넣지 않는다. 나열된 키는 항상 들어가고 매니페스트에 없으면 `null`이다. 다만 `price_exponent`·`size_exponent`는 K7의 기본값(−9, 0)을 채우므로, 생략한 것과 −9(또는 −9.0)를 적은 것은 같은 해시다. 데이터셋은 `name` 오름차순 목록 `"datasets"`로 넣는다(매니페스트에서 순서만 바꾸면 해시가 같다). 칼럼 단위는 매니페스트 `columns[]` 중 `unit`을 적은 칼럼만 담은 `"units": {칼럼: 단위}`이다(없으면 `{}`) [2026-11-02].
 - **소비자 쓰임**: 엔진의 캐시·판단 기록·재실행은 **의미 해시**를 "같은 자료"의 정의로 쓴다. 물리 해시는 파일이 바뀌지 않았음을 확인하는 데만.
 - **시험 벡터**: 표준과 함께 `conformance/hash-vectors.json`(작은 표 11개: 모든 형, null, −0.0, 빈 문자열, 비ASCII, 파티션 칼럼, 정렬 동률, 스키마 파일 밖 선언 칼럼; 기대 바이트 열의 hex와 sha256; 파티션이 있는 것은 파티션마다의 바이트 열과 6단계의 이은 바이트 [2026-11-24]; 그리고 파일로 된 데이터셋 하나, 그 파티션 표의 값을 파일로 다르게 나눈 것과 그 표의 sha256)을 배포한다. 독립 구현은 이 벡터와 일치해야 한다(10.5 졸업 조건).
 
@@ -993,7 +989,7 @@ tds export {zipline-bundle|nautilus-catalog|wide-parquet} ... # 9.8
 | TDS-M007 | E | 모르는 프로필 |
 | TDS-M008 | E | 프로필 필수 데이터셋이 없거나, 있어도 그중 `params`가 프로필 조건을 충족하는 것이 하나도 없음(7장, 5.5), 또는 프로필의 데이터셋에 프로필이 요구하는 칼럼이 없음(7장; `schema` 수준에서 보임): 그 칼럼이 데이터셋의 어느 파일에도 없거나, 행이 있는 데이터셋의 모든 행에서 null. 7장이 `equity`·`etf` 행에만 요구하는 칼럼은 `instrument_id`가 `instruments`의 그런 종목을 가리키는 데이터셋에 요구하고, 검사기는 그 데이터셋의 그 칼럼 하나만 읽는다 [2026-11-22, #705] |
 | TDS-M009 | E | 데이터셋 `schema_version` MAJOR를 지원하지 않음 |
-| TDS-M010 | E | `markets`·`id_namespaces`·`editions` 선언과 자료가 다름(선언 안 된 시장·이름공간·판 사용) |
+| TDS-M010 | E | `markets`·`id_namespaces` 선언과 자료가 다름(선언 안 된 시장·이름공간 사용). `editions` 선언은 2026-11-27에 빠졌으므로(#752의 12e) `edition=` 경로는 판정하지 않는다 |
 | TDS-M011 | W | 데이터셋 `schema_version` MINOR가 검사기보다 새로움(모르는 칼럼은 무시하고 진행) |
 | TDS-M012 | E | 경로가 패키지 폴더 밖을 가리킴(`..`, 절대 경로, 밖으로 나가는 심볼릭 링크) [v1.1] |
 | TDS-M013 | E | 같은 파일 경로가 두 번 나옴 [v1.1] |
@@ -1513,3 +1509,4 @@ datasets:
 - 2026-11-26: **v1.4** 안에서. 5.1, 5.4, 5.5, 5.11, 8.3, 9.5 (#752의 V1b): `lot_size`는 모르면 null이고 쓰는 쪽은 1을 채우지 않는다(#705 결정 12). `listed_on_censored`는 상장이 더 이를 수 있다는 뜻이다(17(1)). `etf`와 `fund`의 `multiplier`, `is_synthetic`을 적는다(17(4)). 만든 쪽은 마지막 막대 뒤의 예정된 세션을 실어도 된다(#461). bars에 선택 칼럼 `open_auction_volume`(#725 결정 242)과 거래 상태 선언 `params.obs_status_from`이 생긴다. `pay_date_status`에 `declared`가 더해지고 현금 날짜 선언 `params.pay_date_when_missing`이 생긴다(#725 결정 212~215). `resolution_date`와 `resolution_body`는 더 이상 소비자가 빠진 `pay_date`를 추정한다고 하지 않는다. TDS-V004는 이제 `open`·`high`·`low` 중 하나가 있는 `no_trade` 행도 판정하므로, 그런 행이 있어 통과하던 패키지는 `full`에서 실패한다. 움직인 것: 적합성 사례 TDS-S003의 fail 패키지는 null `lot_size`가 허용되므로 이제 `multiplier`를 비운다. 해시는 움직이지 않는다. `tds_version` `"1.0"` 그대로, `tds_draft`는 2026-11-19 그대로(12e까지, 10.5).
 - 2026-11-27: **v1.4** 안에서. 5.28, 8.3 (#752의 V2a, 2026-11-27 주인의 결정): `manifest` 수준의 새 오류 검사 둘, TDS-M018(5.28의 규칙 밖의 값 표 항목 이름)과 TDS-M019(값 표 두 곳에 든 한 항목). TDS-M014는 값 표의 5.28 표 밖의 `params.items` 낱말이나 모양과 값 표에 적힌 `availability`도 다룬다. 처음부터 E다: 표준은 초안이고(7) 5.28 전에는 값 표를 가진 패키지가 없었다. 새 적합성 사례 TDS-M018, TDS-M019(pass와 fail). 다른 패키지와 해시는 움직이지 않는다. `tds_version` `"1.0"` 그대로, `tds_draft`는 2026-11-19 그대로(12e까지, 10.5).
 - 2026-11-27: **v1.4** 안에서. 5.13 (#747의 빈틈 셋, 2026-11-27 주인의 결정; 10.5의 "When building shows a gap"): 마지막 거래일만 알고 종목 달력에 뒤의 세션이 없으면 `exit_date`는 `last_trading_date`다. bars가 원가격이 아닌 패키지에서 `ref_price`는 bars의 `price_basis`대로 저장된 종가다. `ref_date`는 `ref_price`를 가져온 봉의 날짜이고, 그 세션의 봉에 종가가 없을 때만 `last_trading_date`와 다르다. 이 값을 읽는 검사는 없고(#747), 움직이는 적합성 패키지, 생성기 행, 해시는 없다. `tds_version` `"1.0"` 그대로, `tds_draft`는 2026-11-19 그대로(12e까지, 10.5).
+- 2026-11-27: **v1.4** 안에서. 1단계 개정의 끝(#705, #752의 12e; 10.5의 "A revision in stages"). 3.5, 4.2, 4.5, 8.3: `editions`와 `roll_rules`가 `tds.json`의 필드와 의미 해시에서 빠진다. 아직 적은 패키지는 판정을 받지 않고, 그 필드는 읽지도 해시에 넣지도 않는다. M010은 더 이상 `edition=` 경로를 판정하지 않는다. 움직인 것: 모든 패키지의 의미 해시(앞선 검사기가 해시를 쓴 패키지는 `tds hash --write`로 다시 쓰기 전까지 `full`에서 TDS-H003을 받는다), 적합성 사례 TDS-H003의 pass 패키지. 값 해시, 파일, 해시 벡터는 움직이지 않는다. 2026-11-19 이후 이 단계의 수정(#752의 빼기, 5.28의 값 표, 5.1, 5.4, 5.5, 5.11, 5.13, 그것들이 가져온 8.3의 검사)이 여기서 끝나므로, 이 줄이 `tds_draft`를 2026-11-27로 옮긴다. 2026-11-19를 적은 패키지는 TDS-M017(W)을 받는다. `tds_version` `"1.0"` 그대로.
