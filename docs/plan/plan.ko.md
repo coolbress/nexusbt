@@ -32,6 +32,11 @@ v3는 3자 검토 합의대로 **M0을 계약만으로 줄이고**, 검사기 fu
 
 **티켓 규칙**: 한 세션은 한 티켓만 다루고, 한 티켓은 PR 하나 또는 여럿으로 들어간다(결정 2026-11-10, #356, "한 티켓 = 한 세션 = 한 PR"을 대신한다. 실제 진행과 저장소의 나누기 규칙이 그 문장과 어긋났다): PR마다 바뀐 줄 ≤ 400(문서·잠금 제외; plinth `ci / diff-size`)이고, 앞 PR이 병합된 뒤의 `main`에서 가지를 내며(병합 안 된 PR 위에 쌓지 않는다), 어느 수용 기준을 채우고 어느 것을 뒤 PR에 남기는지 적는다. 마지막 PR이 모든 기준을 그것을 채운 PR과 함께 적고 이슈를 닫는다. 크기 S ≤ 150줄, M ≤ 400줄. 제목은 PR 제목으로도 쓰는 Conventional Commits. "Context"는 할 일, "Done means"는 사람이 보고 확인할 것, "Acceptance"는 만들 시험 이름(tdd로 먼저 실패시킴), "Blocked by"는 티켓 번호(이슈로 만들면 이슈 번호로 바꿈). **golden 티켓**(`T<m>.G…`)은 손으로 쓴 세션별 산수(8.2)이고 그것을 쓰는 구현 티켓보다 먼저, 다른 세션에서 병합한다. **엔진 티켓 수(지금 기준 = v3.4 최종 + R5 + R7, `tools/spec_lint.py`로 셈): M0 16, M1 41(M1 벤치용 T0.8d 추가), M2 31(축소 P11 (a)용 T2.24 추가), M3a 37, M3b 12(T3.35가 상태 기록을 갖도록 T5.16에서 T5.16a를 나눔, #152), M4 28, M5 24, M6 31(T7.G·T7.1·T7.V 포함), v1.x 2(T7.2·T7.5) = 222.** 2026-11-24부터(#752) T0.8a, T2.2, T2.13, T2.Ge, T2.23(M2)과 T3.35(M3b)는 빠졌고 그 번호는 다시 쓰지 않는다: M2 26, M3b 11, 모두 216. 같은 셈의 시험·결정 id: 손계산 정답 G-01~G-107(107개), 성질 시험 36개(8.3 표), 오류 E1~E49(49개, 6.6), ADR 0001~0041(41개, 9.3). 이 문단과 아래의 다른 숫자는 그 판 때 기록이다. **엔진 티켓 수: M0 16, M1 40, M2 28, M3a 36, M3b 10, M4 26, M5 22, M6 27, v1.x 절 5(T7.G·T7.1은 M6 끝, T7.V는 T7.1 뒤 확인 단계, T7.2·T7.5는 v1.x) = 210**(v3.2의 188에서 새 24, v1.x에서 v1로 옮긴 T7.3·T7.4는 새 티켓 T3.29·T3.33에 흡수). 아래 v3.2 문장의 숫자는 v3.2 때 기록이다. 엔진 티켓 수: M0 15, M1 40, M2 28, M3a 28, M3b 9, M4 26, M5 18, M6 17, v1.x 절 7(T7.G·T7.1은 M6 끝, T7.V는 T7.1 뒤 확인 단계, T7.2~T7.5는 v1.x) = 188(v3.1의 176에서 나눔 8·새 4, 아래 대응 표). 아래 v3.1 문장의 숫자는 v3.1 때 기록이다. 엔진 티켓 수: M0 13, M1 39, M2 27, M3a 28, M3b 9, M4 21, M5 16, M6 17, v1.x 절 6(T7.G·T7.1은 M6 끝에 들어가고 T7.2~T7.5는 v1.x) = **176**(v3의 142 = 141 + 세금 T4.5b에서 새 34) [V31, V31-LS]. 아래 v3 문장의 숫자는 v3 때 기록이다: M0 13, M1 34, M2 23, M3a 22, M3b 7, M4 12, M5 9, M6 16, v1.x 5 = **141**(v2의 112에서 나눔·새 티켓·golden 티켓으로 늘고, v2의 T0.11·T0.17은 golden 티켓으로 흩어져 없어지고 T6.1은 T1.24로 옮김). 의존 그래프는 비순환이고 모든 "Blocked by"가 같거나 앞 마일스톤에 있다(v3 작성 때 스크립트로 확인; 저장소에서는 T0.12의 `test_ticket_graph`).
 
+티켓 전체에 걸친 규칙, 한 줄씩(이 폴더의 `README.md`가 정한 꼴):
+
+- decided (#43 Decisions, 2026-11-04): M1을 자른 때부터, M1 티켓이 구현하는 절(4장, 5.1~5.3, 5.9.5, 7장의 M1 행, 10.1의 T0·T1 항목)은 결함(모순, 적힌 대로 구현할 수 없는 규칙, 반례)일 때만, 그것을 찾은 티켓이 스펙 PR로 내어 바꾼다. 그 절에 닿는 새 기능, 안내 문구, 시나리오는 M1 끝까지 기다린다. 규칙을 고칠 때는 #764 조각 6의 길로 한다: 주인에게 묻고, 따로 PR로.
+- decided (#43 Decisions, 2026-11-18): 스펙은 규칙을 자기 말로 적고, plinth의 명령이나 파일을 뜻할 때만 plinth를 이름 댄다. 지난 기록은 고쳐 쓰지 않는다.
+
 **v2 → v3 티켓 대응** (이슈를 만들 때 이 표로 확인):
 
 | v2 | v3 | 이유 |
@@ -1116,6 +1121,119 @@ v3는 3자 검토 합의대로 **M0을 계약만으로 줄이고**, 검사기 fu
 - Acceptance: `tests/unit/artifacts/test_brinson.py::test_effects_sum_to_active_return`, `tests/unit/api/test_compare.py::test_first_divergence_cause`.
 
 **나중(P3, 티켓은 의미 계약·고정 사례를 갖춘 뒤 만든다)** [RV 2.4]: 현금 이자의 `rates` 금리 자료 연결(고정 연율 `[account] cash_rate_bps`는 v3.2에서 v1에 넣음), T+n 결제 모형, 벤치마크 회귀 지표(α·β; 추적오차·IR은 v3.1 T4.12, 왕복 거래 표는 v3.1 T5.14), v3.1에서 미룬 것 12.1 전부, MDA 특징 중요도·묶음 MDA·표본 고유도 가중·Hansen SPA·메타 정답(v1.x), 상관 충격·VaR 덮개, `stop_limit_fill = close_confirmed` 선택 모형, 현금 보유(재투자 없음) 경제 정답 변형, 빠른 근사 모드(`fidelity="vector"`), Sharpe 부트스트랩 구간, 내장 팩터 넓히기(`Beta`·`Correlation`·`BollingerBands`), 별도 `adjustment_factors` 데이터셋(측정 뒤), 시장 규칙 팩 추가 시장, zipline·LEAN·Nautilus·DBN 가져오기(TDS 9장), 장부 정의 옮기기(`nexusbt book migrate`).
+
+### 아직 티켓이 없는 일
+
+아래 줄은 10.1에 아직 티켓이 없는 일을 묶는다. 각 줄은 이 폴더의 `README.md`가 정한 꼴로 쓴다. 그 가운데 하나의 티켓을 자르면, 그 줄들은 같은 PR에서 그 티켓 항목 밑이나 그 이슈로 옮기고 이 절에서 뺀다.
+
+#### Stage (2)
+
+쓰기 도구, 값 표를 읽는 쪽(`nx.Item`), 결과의 표시, 사용자가 만나는 이름.
+
+- decided (#752 Decisions, 2026-11-27): N, 곧 사용자가 만나는 이름 `symbol`, `date`, `prices`와, 결과 표의 `symbol`을 그 행 날짜의 `instrument_symbols`에서 읽는 일이 2단계의 첫 조각이다. 저장 이름은 그대로 둔다(스펙 머리 "Identifier name", 3.1; #725 Decisions 248).
+- owner decides at the cut (#752 Decisions, 2026-11-27): 그날 `instrument_symbols` 행이 없는 종목의 `symbol`; `latest_symbol`을 처음부터 두는지; `Market.series`, `explain`, `override`의 `instrument_id` 인자의 이름과 뜻; `Run.to_pyfolio()`의 `symbol`이 저장 열쇠인지 체결일에 쓰던 심볼인지.
+- owner decides at the cut (#725 Decisions 96, 2026-11-23): 2단계의 첫 조각이 끝에서 끝까지 한 길도 담는지: 종가 표 하나로 첫 결과, 달력의 출처 표시, 두 번 적힌 열쇠를 파일과 줄로 보이기, 고친 뒤 같은 명령의 성공.
+- decided (#705 Decisions A, 2026-11-21): 맞음, 쉬움, 가벼움이 부딪치면 맞음이 먼저, 다음이 쉬움, 다음이 가벼움이다. 쉬움은 도구가 일을 해서 오고, 도구는 사용자가 주지 않은 사실을 지어내지 않는다.
+- decided (#705 Decisions E, 2026-11-21): 결과의 표시마다 그 사실을 도구가 확인했는지 생산자가 증언했는지 말하고, 기본은 "증언"이다.
+- decided (#705 Decisions E, L1 and H, 2026-11-21): TDS는 논리 표를 먼저, 디스크 배치를 그다음에 적는다. 쓰기 부분 하나가 메모리의 표를 패키지로 바꾸며, 다른 생산자가 그대로 쓰도록 `nexusbt-tds`에 들어간다.
+- decided (#705 Decisions E, I, 2026-11-21): 결과는 E30과 manifest의 `assumptions`, `fallbacks` 위에 세운 표시 한 벌을 가진다.
+- decided (#705 Decisions 10, 2026-11-21): 표시 블록의 첫 줄들(가격, 달력, 행, 정체성, 유니버스, 대체 동작)은 쓰기 부분과 함께 만든다.
+- decided (#705 Decisions picture 1, 2026-11-21): 들어오는 길 셋이 같은 검사를 하는 쓰기 부분 하나를 부른다: 가격 파일을 위한 한 줄 명령(파일, 시장, 가격 기준), 설정 파일, 표를 받는 Python 호출 하나.
+- decided (#705 Decisions picture 2, 2026-11-21; #725 Decisions 205): 사용자는 시장을 한 번 적고(달력, 통화, 시간대가 따라온다), 가진 종류마다 그 파일을 아무 순서로 적는다.
+- decided (#705 Decisions 9, 2026-11-21; #752 Decisions, 2026-11-26): 사용자는 자기만 아는 사실만 적는다. 도구가 주어진 종류에서 프로필을 고르고 종류마다 관례(주식 일봉의 `bar_time = session`, `ts_end` 규칙)를 적으며, 각각을 도구가 정한 것 목록에 올리고, 사용자가 적은 것이 이긴다.
+- owner decides at the cut (#705 Decisions 14 and 17(9), 2026-11-21; #725 Decisions 94, 2026-11-23; #752 Decisions, 2026-11-26): 어떤 종류든 하나씩, 아무 순서로 더할 수 있도록 도구가 패키지의 선언 프로필(TDS 4.2, 7)을 어떻게 정하는지, #720이 어떻게 맞물리는지. 사용자는 프로필을 고르지 않는다.
+- decided (#725 Decisions 95, 2026-11-23): 프로필의 답이 무엇이든 도구는 빈 틀을 만든다.
+- builder's choice (#725 Decisions 95, 2026-11-23; 추천: 드물게 묻기, 너무 자주 물으면 읽지 않기 때문): 수상한 자료를 몇 퍼센트나 몇 배부터 묻는지, 사용자가 "확인함"을 어떻게 적는지.
+- decided (#705 Decisions picture 3, 2026-11-21): 사용자만 아는 사실(가격이면 가격 기준)이 없으면 도구는 멈춘다. 흔한 값을 말할 수는 있으나 적용하지 않는다.
+- decided (#705 Decisions picture 4, 2026-11-21): 도구는 스스로 알 수 없는 것(어느 칼럼이 무엇인지, 두 가지로 읽히는 날짜 꼴, 단위와 배율)만 묻고 멈추며, 오류가 무엇을 적을지 말한다.
+- decided (#705 Decisions 16, 2026-11-21): 도구가 알 수 없는 것은 물어서 없으면 멈추거나, 모름으로 적고 조심스러운 쪽으로 읽어 표시하거나, 칼럼 이름으로 받는다. 가격 기준과 종류, 배당 금액이 그날의 주식 수 기준인지 뒤의 분할로 조정된 것인지, 환율의 하루 중 시각을 묻는다.
+- decided (#705 Decisions picture 5, 2026-11-21): 가격 파일만 있으면 도구는 `listed_on` = 첫 봉, `listed_on_censored = true`로 `instruments`를 만들고, 정체성을 "티커에서, 이름 바뀜과 재사용은 풀지 않음"으로 표시하며, `last_session`이나 상장폐지를 쓰지 않는다. 주어진 종목 목록이 이긴다.
+- decided (#705 Decisions picture 6, 2026-11-21): 파일을 받지 못한 종류는 결과의 표시에 나와, 결과가 할 수 있는 것과 없는 것, 까닭, 더할 것을 말한다.
+- owner decides at the cut (#705 Decisions picture, 2026-11-21): 도구의 설정 키, 명령 인자, 함수 이름.
+- decided (#705 Decisions 13, 2026-11-21; #725 Decisions 216): 도구는 가격 파일마다 `asset_class`(주식이나 ETF, 또는 지수 값)를 묻고 짐작하지 않는다. 섞인 파일은 종목 목록이 있어야 하고, 그 목록의 종류가 한 번 선언한 기본값을 이긴다.
+- decided (#705 Decisions 15, 2026-11-21): 한 뜻으로 읽히는 칼럼이 둘이면 도구는 멈춘다.
+- decided (#705 Decisions 16, 2026-11-21): 배당의 날짜는 `ex_date`나 `record_date`에, 상장폐지의 날짜는 `last_trading_date`나 `exit_date`에 대응시켜 선언한다. 대응이 없으면 도구는 멈춘다.
+- owner decides at the cut (#752 Decisions and its user-file table, 2026-11-24): `corporate_actions`와 `delistings`의 사용자 파일 칼럼 이름. 표의 제안: `ex_date`; `split_to` → `ratio_num`, `split_from` → `ratio_den`, `ratio_new_per_old`는 도구가 씀; `kind`는 행이 온 파일과 비율의 방향에서; `amount` → `cash_per_share`, `currency`와 선언한 `gross_or_net`과 함께; `last_trading_date`; `reason` → `delist_type`; 선택인 `final_price`는 `ref_price`에 대한 수익률로 바꿈; `event_id`, `ts_effective`, `affects`, `factor_method`, `status`는 도구가 씀.
+- decided (#705 Decisions 17(7), 2026-11-21; #725 Decisions 206, 249): K1의 꼴을 벗어난 id를 만들 심볼은 도구를 멈추고 오류에 고칠 길을 적는다. 도구는 심볼에 자기 접두어나 접미어를 붙이지 않는다.
+- decided (#705 Decisions 17(8), 2026-11-21): 가격 파일 하나는 시장 하나다. 시장이 섞인 파일은 시장 칼럼이 있어야 하고, 없으면 도구는 멈춘다.
+- decided (#705 Decisions 17, 2026-11-21; #725 Decisions 171, 2026-11-23): 도구는 언제나 빽빽한 일봉을 쓰고 `density`를 받으면 멈춘다. 도구가 생기기 전까지 `tds import csv`는 `density: dense`를 계속 받는다.
+- decided (#705 Decisions 21, 2026-11-22): 사용자가 `index_kind`가 비어 있는 지수를 고르면 결과가 그렇다고 말한다.
+- decided (#705 Decisions E, G2, 2026-11-21): 거래소 달력이 없는 시장에는 도구가 24시간 달력(`session_kind = continuous_24h`)을 주고, `calendar_id`를 비우지 않는다.
+- decided (#725 Decisions 61, 2026-11-23): 시장 선언이 거래소 달력을 가져오면, 선언한 시간으로 봉 날짜에서 짐작한 달력은 거래소 달력을 쓸 수 없는 곳에서만 쓴다.
+- owner decides at the cut (#705 Decisions, 2026-11-21; #725 Decisions 86): 도구의 거래소 달력 라이브러리를 `nexusbt-tds`의 선택 추가로 둘지. 도구는 pyarrow 말고 필수 의존성을 더하지 않는다(#508).
+- decided (#725 Decisions 74 and 75, 2026-11-23): 도구는 종류마다 한 모양, 곧 모든 종목을 담고 행마다 `symbol`이 있는 긴 표를 CSV, Parquet, 메모리의 표에서 읽는다. 긴 표가 아니면 멈추고, 빠진 `symbol` 칼럼과 모양 바꾸는 법을 말한다.
+- decided (#725 Decisions 76, 2026-11-23): 도구는 종목을 `symbol` 하나로 부르고 `ticker` 칼럼은 별칭으로도 받지 않는다. 분할과 배당은 사용자 파일 둘로 와서 `corporate_actions` 하나에 들어간다.
+- decided (#725 Decisions 77, 2026-11-23): 문서에 적힌 이름의 칼럼은 대소문자와 앞뒤 공백만 무시하고 대응 없이 읽고, 그 밖의 칼럼은 사용자가 그 칼럼만 대응시킨다. 도구는 무엇을 무엇으로 읽었고 무엇을 쓰지 않았는지 알리고, 빠진 필수 칼럼의 이름을 대며 멈춘다.
+- decided (#725 Decisions 78 and 120, 2026-11-23): 시장마다 다른 것(가격 기준, 거래량 단위, 배당 세금, 단위)은 칼럼이 아니라 시장에 한 번 선언한다. 보고는 대응 미리보기가 있는 곳에, 원본 값 하나가 몇 주로 저장되었는지 보인다.
+- decided (#725 Decisions 81, 2026-11-23): 도구는 짐작한 이름으로 칼럼을 읽지 않고, 가격 기준을 정하지 않고, 수상한 값을 고치지 않고, 자료에서 시장을 짐작하지 않는다.
+- decided (#725 Decisions 84, 2026-11-23): 한 종류가 같은 칼럼의 긴 파일 여럿으로 올 수 있고, 행의 날짜로 나뉘며, 파일 이름에서 사실을 읽지 않는다. 한 열쇠가 두 파일에 있으면 도구는 어느 것도 고르지 않고 멈춘다.
+- decided (#725 Decisions 85 and 86, 2026-11-23): 도구는 8 GB 기계 한 대에서 수천 종목, 수십 년의 일봉을 받고, 조각으로 읽어 파티션(한 해)을 많아야 하나만 들며, 칼럼 형은 표준의 스키마에서 오고 열쇠와 순서는 파티션마다 검사한다. 문서는 작은 자료의 길로 메모리의 표를 곧바로 넘기는 것을 적는다.
+- decided (#725 Decisions 87, 88 and 114, 2026-11-23): 갱신은 `parent_snapshot_id`를 가진 새 패키지로, sha256이 같은 파티션 파일을 함께 쓰고, 같은 입력과 설정으로 처음부터 만든 것과 값이 같다. 값이 바뀐 부모 행은 알리며(열쇠, 전, 후), 조정 가격만 있는 경우 도구는 갱신마다 과거가 바뀐다고 말한다.
+- decided (#725 Decisions 114 and 115, 2026-11-23): 입력 파일은 그것과 설정(시장 선언, 가격 기준, 거래량 단위, 칼럼 대응, 달력)이 그대로일 때만 읽지 않고 건너뛴다. 가격 파일은 그대로인데 거래량 단위를 고치면 모든 파티션을 다시 쓰고, 시험이 그것을 지킨다.
+- decided (#725 Decisions 92, 2026-11-23): 도구는 설정 없이 폴더의 정해진 파일 이름을 읽고, 작은 자료는 `run_pipeline`에 준 표를 곧바로 받으며(안에서 같은 패키지를 만들고 결과가 그렇다고 말함), 초안 대응은 사람이 확인한 줄에만 쓴다.
+- decided (#725 Decisions 93 and 260, 2026-11-23): 도구는 수상한 가격 자료(분할 없는 급락, 단위가 바뀐 듯한 거래량, 마지막 날 전에 끝나는 종목이 하나도 없음)를 묻고 값을 고치지 않는다. 같은 열쇠의 행은 묻지 않고 멈춘다.
+- decided (#725 Decisions 99, 2026-11-23; #705 Decisions 44 and 46, 2026-11-22): 도구는 쓰기와 검사를 한 번에 하고, 첫 줄은 "N block saving, N to look at"이며, 막는 것이 남아 있는 동안 패키지를 쓰지 않는다. 두 번 적힌 열쇠는 두 행의 파일, 줄, 값을 보인다. #715(종가만 있는 파일이 들어간 뒤 종목도 고칠 길도 말하지 않는 M008 줄들; H 코드에서만 까닭을 적는 건너뛴 검사)는 도구를 자를 때 읽는다.
+- decided (#725 Decisions 100, 2026-11-23; #705 Decisions E, H3, 2026-11-21): 도구는 할 수 있는 것을 세 부분으로 말한다: 읽은 자료(행, 종류별 기간), 사건이 빠짐없는지 알 수 없다는 것, 이 엔진 판이 주는 계산. `nexusbt doctor`도 그 티켓을 자를 때 같은 식으로 넓힌다.
+- decided (#725 Decisions 101, 2026-11-23; #764 Decisions, 2026-11-25): 대응 미리보기는 이름 옆에 원본 값 두세 개와 각각을 어떻게 읽었는지(형, 단위)를 보인다. 확인한 대응은 저장하고 새 칼럼이나 바뀐 칼럼만 다시 묻는다. 입력의 첫 행 미리보기는 따로 만들지 않는다.
+- decided (#725 Decisions 104, 2026-11-23): 갱신을 만들기 전에 도구의 보고(읽은 것, 쓰지 않은 것, 기본값으로 채운 것)를 패키지마다 남기고, 마지막 세션이 같은 두 정정은 `snapshot_id`로도 가른다.
+- decided (#725 Decisions 117, 2026-11-23): 패키지는 해시 전체로 가른다. 화면에 보이는 짧은 앞부분은 유일함을 약속하지 않고, 한 곳에서 두 앞부분이 겹치면 더 보인다(#733).
+- decided (#725 Decisions 125, 2026-11-23): 사용자가 준 퇴출의 마지막 거래일이 그 종목의 `last_session`이고, 도구의 채우기는 거기서 멈춘다.
+- decided (#764 Decisions, 2026-11-25): 도구는 만드는 동안 진행을 보인다.
+- decided (#764 Decisions, 2026-11-25): 낡은 패키지는 기본으로 켜진 채 자동으로 지우되 네 가지를 지킨다: 저장된 실행이나 장부가 이름을 댄 패키지는 지우지 않음; 가장 새 몇 개(그 수는 설정)는 지우지 않음; 한 갱신에서 지울 수 있다고 알리고 다음 갱신에서 지움; 지울 때마다 실제로 비운 공간을 알리고, 미리 해 보기와 끄는 설정이 있음.
+- carried (#764 Decisions, 2026-11-25): 엔진 기록이 이름을 댄 것을 도구가 어떻게 아는지, 남겨 둘 패키지의 기본 수, 파일을 나눠 쓰는 파일 시스템에서의 공간 셈은 티켓을 자를 때 만드는 쪽이 정한다.
+- decided (#725 Decisions 106 and 107, 2026-11-23): 3단계는 같은 자료를 파일 하나, 파일 여럿, 메모리의 표로 주어도 같은 값 해시와 같은 발견이 나온다는 시험을 더한다. #621의 회귀 사례는 "늦게 정정된 배당이 지난 결정일의 수익률을 바꾸지 않는다"이다.
+- decided (#725 Decisions 116, 2026-11-23): 도구의 done-means는 날짜가 여러 번 되돌아가는 종목 순서의 큰 CSV(다시 정렬하지 않음, 멀리 떨어진 조각에 두 번 적힌 열쇠를 두 곳과 함께 잡음, 날짜 순서 파일과 같은 값 해시)와 설정만 바꾼 갱신을 담는다.
+- decided (#725 Decisions 133, 2026-11-23): `tds import csv`가 쓰는 것을 바꾸는 PR은 결과를 엔진으로 열어 값을 읽는 시험을 함께 낸다.
+- decided (#725 Decisions 97, 2026-11-23): 결과의 표시는 달력의 출처를 댄다: `inferred_from_bar_dates`면 가격이 준 날짜 수, 거래소 달력과 비교하지 않았다는 것, 모든 종목에 없는 날은 알 수 없다는 것; 거래소의 것이면 기간의 세션 수와 봉이 하나도 없는 세션.
+- decided (#705 Decisions 57, 2026-11-23): `close`만 가진 패키지, 어떤 파일이 한 칼럼을 모든 행에서 비워 둔 시장, 봉 날짜에서 짐작한 달력에서 나온 결과는 표시로 그렇다고 말한다.
+- decided (#752 Decisions, 2026-11-26): 스냅숏의 칼럼이 바뀌었다는 `nexusbt doctor`의 알림(스펙 3.2)은 `nx.Item`을 만드는 단계와 함께 돌아온다.
+- decided (#752 Decisions, 2026-11-26): 스냅숏 자기 칼럼의 틀린 이름에 대한 E7과 그 "Did you mean"(스펙 3.2, 6.6), 그리고 `test_schema_registry_injected_at_binding`이 지키던 검사는 `nx.Item`을 만들 때 돌아온다.
+- decided (#752 Decisions, 2026-11-27): `nx.Item`을 읽는 쪽을 만들 때, P-FUT의 앞선 스냅숏(`tests/property/_future.py`의 `cut_after`)은 값 표를 시장마다의 워터마크에 대어 `date`로 자른다. 값 표는 공개 시각을 적지 않기 때문이다.
+- carried (#43 Decisions, 2026-11-18; #752 Decisions, 2026-11-26): T-24의 `nx.Item.sector.eq(1)` 행은 `nx.Item`을 읽는 쪽이 생기면 실행기로 돌린다. 지금 `test_T24_filter_unknown`은 그 행을 커널로만 돌린다.
+- decided (#725 Decisions 226, 2026-11-24): 값 표의 사용자 문서는 공급자가 이미 고쳐 낸 값에는 종류 선언이 필요 없음을 예와 함께 보인다(스펙 5.3.5).
+- decided (#725 Decisions 105, 2026-11-23): 가격 기준의 사용자 쪽 이름은 TDS 5.5의 셋(`raw`, `split_adjusted`, `total_adjusted`)이다.
+
+#### The next TDS revision
+
+- decided (#705 Decisions E, K, 2026-11-21): 시장은 상장폐지 자료가 언제부터 빠짐없는지 선언한다(없으면 모름). 경고는 "끝까지 모두 살아 있는" 패키지를 이름 대고, 검사는 "몇 해 동안 퇴출이 없다가 생김"을 이름 댄다. 종목이 적으면 어느 쪽도 판정하지 않고, 짐작한 시작 해는 추정으로 보이되 선언으로 쓰지 않는다. 새 manifest 칸은 `tds_draft`를 옮긴다.
+- owner decides at the cut (#752 Decisions, 2026-11-27): 종목이 `market=` 파티션과 다른 시장에 속한 값 표 행을 검사기가 판정하는지. 그러려면 `full` 단계의 새 R 코드가 필요하고, 스펙 5.3.5의 다섯 멈춤에 들지 않는다.
+- owner decides at the cut (#725 Decisions 177, 2026-11-23): 봉의 `params.ready_delay`가 없을 때 0으로 읽는 것이 표준의 기본값인지. TDS 5.5는 그 키를 선택으로 두고 엔진은 0으로 읽는다(스펙 5.1.2).
+- owner decides at the cut (#705 Moved from #43, 2026-11-21): 미국 일 거래량이 통합인지 주 거래소인지를 기본값 없는 `bars`의 선택 선언으로 둘지.
+- owner decides at the cut (#705 Moved from #43, 2026-11-21): 패키지가 `dictionary/columns` 데이터셋을 하나 가질지 여럿 가질 수 있을지 TDS 4.4가 정할지. 지금 검사기는 어느 쪽도 거절하지 않고, 엔진은 그 종류의 모든 데이터셋에서 표시를 읽는다.
+- builder's choice (#705 Moved from #43, 2026-11-21; 추천: 저장된 칼럼마다 그 칼럼 묶음의 규칙과 비교, 칼럼마다 자기 규칙으로 공개되기 때문): 한 데이터셋이 `params.availability_by_column`에 규칙 여럿을 선언할 때 무엇을 비교하는지 TDS-T002의 행이 말한다.
+- carried (#705 Moved from #43, 2026-11-21): #528의 빈틈에는 티켓이 없다: 통과로 보고되는 프로필 없음(#720), `full` 단계 시간의 내역 없음, 스냅숏 사이 비교 없음, 라이선스나 출처 칸 없음. 1장의 `[unverified]` 칸은 #528의 출처와 맞대어 볼 수 있다.
+- carried (#705 Moved from #43, 2026-11-21): 값 해시를 다음에 바꾸기 전에 #57의 Outcome 3~5번(#116, #120, #123; #609는 주봉의 열쇠)을 읽는다.
+
+#### v1.x
+
+- decided (#43 v1.x follow-ups, 2026-11-01, from #30): 한국 신용 이자는 윤년에 366일 분모를 기간별로 쓴다.
+- decided (#43 v1.x follow-ups, 2026-11-01, from #30): 미국 대주 수수료는 담보의 102%를 달러 단위로 올려 360일 해로 매긴다. 시장 전체의 1차 출처는 아직 찾아야 한다.
+- decided (#43 v1.x follow-ups, 2026-11-01, from #32): 한국 팩은 세금마다 10원 아래를 버리고(`[rounding] tax`, `unit = 10`), 그 행은 주인이 주는 실제 증권사 체결 확인서로만 `verified = true`가 된다.
+- carried (#43 v1.x follow-ups, 2026-11-01, from #30): 한국 `day_count = 365`는 주인이 쓰는 증권사의 약관을 주인이 줄 때 그것과 맞대어 본다.
+- decided (#43 Decisions, 2026-11-19, #587): V31-42는 자를 때 칼럼 사이의 짝별 이동 상관, 공분산, 베타를 먼저, 다음에 시계열 순위, `argmax`/`argmin`, 선형 감쇠 평균으로 온다. `nx.ops.rolling`에는 이미 평균, 합, 표준편차, 최소, 최대, 중앙값이 있다(스펙 3.3).
+- owner decides at the cut (#43 Decisions, outside review of 2026-11-03): 자료 지연 시나리오, 12.1 V31-65 `info_lag1`(메모의 이름: `exec_lag1`). 두 이름이 같은 시나리오인지는 그 티켓을 자를 때 확인한다.
+- carried (#43 Decisions, 2026-11-20, #253): 분위수 손계산은 V31-58의 것이고, T7.V 전에 하기를 추천한다.
+
+#### Other
+
+- owner decides at the cut (#752 Decisions, 2026-11-25): `test(golden):` PR이 T-07과 T-15의 골든 입력에서 `cum_factor_split`을 뺄지. T-15의 입력은 패키지의 낡은 칼럼이 결과를 바꾸지 않음을 보인다.
+- decided (#705 Decisions 33, 2026-11-22): 생성기의 봉을 기록의 누적 곱으로 나누면 사건 전의 경로와 1e-12 안에서 같음을 US와 ZZ에서 지키는 시험을 둔다. KR은 가격 제한과 거래 정지가 봉을 스스로 움직이므로 아니다.
+- carried (#705 Decisions 51, 2026-11-22; #725 Decisions 182): 엔진의 `Price`는 `equity` 행만 읽는데 TDS는 `etf` 행의 OHLCV도 요구한다. #745가 B3의 엔진 쪽과 함께 만든다.
+- builder's choice (#705 Not sure yet, 2026-11-22; 추천: 생성기가 그런 사건을 고치게 될 때만 다시 봄, 그 전에는 일어날 수 없기 때문): 생성기가 종목의 마지막 봉 뒤 날짜의 사건을 고치면 `_recut`이 해석기가 적용하지 않는 단계를 적는다.
+- carried (#43 Decisions, 2026-11-05, #300): 생성기는 `tradability_daily`를 쓰지 않는 `tiny`에 넣은 거래 정지를 거절한다(4.8 (5)). 정지가 필요한 시험은 `small`을 쓴다.
+- carried (#43 Decisions, 2026-11-19, #300 and #302): 4.8이 `tradability_daily`를 `EventSpec` 데이터셋에 넣고 있는데도, 생성기는 하루 전체의 한국 거래 정지만 넣고 가격 제한 마감이나 `admin_status` 행은 `NotImplementedError`로 거절한다. 그것이 필요한 시험은 그것을 만드는 티켓을 기다린다.
+- owner decides at the cut (#43 Decisions, 2026-11-19, #299): 넣은 현금 배당에 대한 4.8의 생성기 값(`record_date`, `pay_date`, `resolution_body`)을 주인의 것으로 둘지. #299의 물음에는 기록된 답이 없다.
+- owner decides at the cut (#43 Decisions, 2026-11-20, #625): 9.1의 행을 고칠지 `testpaths`를 고칠지. 그 행은 `tds`가 따로 있는 일 `tds / conformance`라 하는데, `testpaths`가 `tds/tests`를 `ci / test`에서도 돌린다.
+- owner decides at the cut (#43 Decisions, 2026-11-18, #513): `shift`나 창을 거쳐 읽은 가격 수준의 순위, `demean`, `winsorize`를 거절할지. 지금 #499의 검사는 "알 수 없음"을 준다(스펙 5.3.3).
+- owner decides at the cut (#43 Decisions, outside review of 2026-11-03): 결과가 일봉 경로 가정에 얼마나 기대는지 더 보이는 표시(E11의 확장, 5.6.4의 "x/n fills judged on daily bars" 옆), 그리고 0장의 경쟁 엔진 표를 vectorbt, Qlib, LEAN에 맞춰 고칠지.
+- carried (#43 Decisions, 2026-11-02, #94): `[data] root`에 대한 E14가 두 경우에 출처를 잘못 댄다.
+- owner decides at the cut (#43 Decisions, 2026-11-04, #247 and #281): 실행 id의 정규 JSON이 코드가 쓰는 `json.dumps(sort_keys=True, separators=(",", ":"))`인지 TDS 4.5의 RFC 8785 꼴인지, 다음에 실행 id를 건드리는 티켓이 말한다(스펙 5.9).
+- builder's choice (#43 Decisions, 2026-11-19, #101; 추천: 공개 입구에 감싸개 하나, 사용자의 모든 호출이 그 가운데 하나를 지나기 때문): 엔진 코드의 뜻밖의 예외를 어디서 E46 `EngineBugError`로 바꾸는지. 지금 `src/`에는 그렇게 바꾸는 곳이 없고, `bugreport`의 저장된 실행 쪽 절반은 #607이다.
+- carried (#43 Decisions, 2026-11-02, #101 and #52): 스펙 6.6의 버그 묶음은 재현 명령과 manifest를 이름 댄다. 묶음의 셋째 파일 `versions.json`은 6.6을 다음에 고칠 때 이름 댄다.
+- carried (#43 Decisions, 2026-11-19, #248 and #306): 설치된 배포판에 `Name`이 없으면 `seal()`이 정렬하는 패키지 표에서 `TypeError`가 난다(재현하지 않음).
+- carried (#43 Decisions, 2026-11-19, #252 and #595): M1 끝에 패리티 증거 파일 `tests/parity/evidence/<date>-<sha>-all-small.json`을 `main`에서 돈 `engine / parity`로 커밋한다. PR의 실행은 그것을 올리지 않는다.
+- carried (#43 Decisions, 2026-11-20, #253): `percentile_between`과 `zscore`는 zipline과 다르고(ADR 0046) 골든 손계산이 없으며, 손으로 낸 숫자의 단위 시험만 있다.
+- carried (#725 Decisions 150 and 151, 2026-11-23): 3단계의 후보는 값 해시의 정규 바이트를 위한 칼럼이나 묶음 단위 인코더이며, `hash_spec`과 값은 그대로 둔다. #732의 첫 `full` 검사가 빨라진다는 말은 재기 전에 하지 않는다.
 
 ### 10.2 생산자 쪽 티켓 (공개판에서 뺌)
 
