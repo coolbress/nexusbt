@@ -278,7 +278,7 @@ Policy: every dependency is pinned exactly by `uv.lock`. A version published les
 
 ### 2.3 Package layout
 
-The split follows the deep-module principle (a small interface, much implementation). Each package exports only the "public interface" below from its `__init__.py`; the rest are internal modules with a `_` prefix [Codex 11.6, codebase-design]. The repository is a uv workspace with two distributions: the engine `nexusbt` (import `nexusbt`) and the data-standard checker `nexusbt-tds` (import `nexusbt_tds`, CLI `tds`). TDS is a **public document and package versioned separately** from the engine (the `tds/` folder, version = `tds_version` `1.0`, package version the matching `1.0.x`, release status draft → RC → 1.0) [A-98].
+The split follows the deep-module principle (a small interface, much implementation). Each package exports only the "public interface" below from its `__init__.py`; the rest are internal modules with a `_` prefix [Codex 11.6, codebase-design]. The repository is a uv workspace with two distributions: the engine `nexusbt` (import `nexusbt`) and the data-standard checker `nexusbt-tds` (import `nexusbt_tds`, CLI `tds`). TDS is a **public document and package versioned separately** from the engine (the document in `docs/tds/`, the package in the `tds/` folder, version = `tds_version` `1.0`, package version the matching `1.0.x`, release status draft → RC → 1.0) [A-98].
 
 ```
 nexusbt/                                     (public repository, Apache-2.0)

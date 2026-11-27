@@ -278,7 +278,7 @@ NexusBT는 이 다섯을 한 엔진에 모은다. 각 엔진에서 가져온 장
 
 ### 2.3 패키지 구조
 
-깊은 모듈(작은 인터페이스, 많은 구현) 원칙으로 나눈다. 각 패키지는 `__init__.py`에 아래 "공개 인터페이스"만 내보내고, 나머지는 `_` 접두어 내부 모듈이다 [Codex 11.6, codebase-design]. 저장소는 uv workspace이고 배포물이 둘이다: 엔진 `nexusbt`(import `nexusbt`)과 자료 표준 검사기 `nexusbt-tds`(import `nexusbt_tds`, CLI `tds`). TDS는 엔진과 **따로 판을 매기는 공개 문서·패키지**다(`tds/` 폴더, 판 = `tds_version` `1.0`, 패키지 판은 그와 맞춘 `1.0.x`, 배포 상태 초안 → RC → 1.0) [A-98].
+깊은 모듈(작은 인터페이스, 많은 구현) 원칙으로 나눈다. 각 패키지는 `__init__.py`에 아래 "공개 인터페이스"만 내보내고, 나머지는 `_` 접두어 내부 모듈이다 [Codex 11.6, codebase-design]. 저장소는 uv workspace이고 배포물이 둘이다: 엔진 `nexusbt`(import `nexusbt`)과 자료 표준 검사기 `nexusbt-tds`(import `nexusbt_tds`, CLI `tds`). TDS는 엔진과 **따로 판을 매기는 공개 문서·패키지**다(문서는 `docs/tds/`, 패키지는 `tds/` 폴더, 판 = `tds_version` `1.0`, 패키지 판은 그와 맞춘 `1.0.x`, 배포 상태 초안 → RC → 1.0) [A-98].
 
 ```
 nexusbt/                                     (공개 저장소, Apache-2.0)
