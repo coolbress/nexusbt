@@ -673,7 +673,8 @@ def _outputs(folder: Path, tables: dict[str, pa.Table], value: str | None = "v1"
         outputs[name] = {"physical_sha256": digest}
         if value is not None:
             outputs[name]["value_sha256"] = value
-    (folder / "manifest.json").write_text(json.dumps({"outputs": outputs}), encoding="utf-8")
+    found = {"outputs": outputs, "source": {"outside": {}}}  # today's manifest: helpers recorded
+    (folder / "manifest.json").write_text(json.dumps(found), encoding="utf-8")
     return folder
 
 
@@ -685,7 +686,7 @@ def test_a_reproduced_table_that_no_longer_matches_its_record_is_beyond(tmp_path
     old = _outputs(tmp_path / "old", {"pipeline.parquet": _table([1.0])})
     new = _outputs(tmp_path / "new", {"pipeline.parquet": _table([2.0])})
     pq.write_table(_table([2.0]), old / "pipeline.parquet")  # the same values as the new run
-    assert _rerun.within(old, new) == _BEYOND
+    assert _rerun.within(old, new, new_snapshot=False) == _BEYOND
 
 
 def test_a_table_the_new_run_lacks_is_beyond_tolerance(tmp_path: Path) -> None:
@@ -694,7 +695,7 @@ def test_a_table_the_new_run_lacks_is_beyond_tolerance(tmp_path: Path) -> None:
 
     old = _outputs(tmp_path / "old", {"pipeline.parquet": _table([1.0])})
     new = _outputs(tmp_path / "new", {})
-    assert _rerun.within(old, new) == _BEYOND
+    assert _rerun.within(old, new, new_snapshot=False) == _BEYOND
 
 
 _EXTRA = "environment differs; outputs differ beyond tolerance: extra.parquet"
@@ -716,7 +717,38 @@ def test_a_table_of_no_known_key_is_compared_by_its_hash(
     recorded = None if value is None else "v1"
     old = _outputs(tmp_path / "old", {"extra.parquet": _table([1.0])}, recorded)
     new = _outputs(tmp_path / "new", {"extra.parquet": _table(cells)}, value)
-    assert _rerun.within(old, new) == line
+    assert _rerun.within(old, new, new_snapshot=False) == line
+
+
+_NOTE = "; this run's outside helpers were not recorded"
+
+
+def test_a_new_snapshot_s_difference_takes_no_unrecorded_note(copied: tuple[Path, str]) -> None:
+    """#815 Decisions 1: a run saved before `source.outside` whose outputs differ, rerun with
+    `new_snapshot=True`: a new run (3.8), whose difference is expected, so no note."""
+    project, run_id = copied
+    _another_table(project / "runs" / run_id, changed=True, drop="outside")
+    line = nx.rerun(run_id, new_snapshot=True).comparison
+    assert line == "outputs differ: pipeline.parquet (value, physical)"
+
+
+@pytest.mark.parametrize(("new_snapshot", "line"), [
+    (False, _BEYOND + _NOTE),  # an exact rerun: the helpers were not checked
+    (True, _BEYOND),  # a new run: no note
+])  # fmt: skip
+def test_another_environment_beyond_tolerance_takes_the_unrecorded_note(
+    copied: tuple[Path, str], new_snapshot: bool, line: str
+) -> None:
+    """#815 Decisions 2: in another environment, beyond the tolerance, a run saved before
+    `source.outside` gets the same note as on the exact path, unless it is a new run."""
+    project, run_id = copied
+    folder = project / "runs" / run_id
+    _another_lock(folder)
+    _nudge(folder, 2.0)
+    found = _manifest(folder)
+    found["source"].pop("outside")
+    _edit(folder / "manifest.json", json.dumps(found, sort_keys=True, indent=2) + "\n")
+    assert nx.rerun(run_id, new_snapshot=new_snapshot).comparison == line
 
 
 def test_a_project_lock_on_one_side_only_is_another_environment(
