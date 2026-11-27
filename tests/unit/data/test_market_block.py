@@ -397,9 +397,9 @@ def test_ts_end_rule_without_the_column(tiny: Path, tmp_path: Path) -> None:
 # L0 keys (5.3.9): which of the 2018 and 2019 keys a change of the package moves.
 
 
-def keys(root: Path, column: str = "close", edition: str = "strict") -> dict[int, str]:
+def keys(root: Path, column: str = "close") -> dict[int, str]:
     manifest = read_manifest(root)
-    return {y: l0_key(manifest, "KR", column, y, edition) for y in (2018, 2019)}
+    return {y: l0_key(manifest, "KR", column, y) for y in (2018, 2019)}
 
 
 def moved(base: Path, at: Path, **changes: Callable[[Rows], Rows]) -> set[int]:
@@ -439,7 +439,6 @@ def test_l0_key_partition_scoped(years: Path, tmp_path: Path) -> None:
     and the stable `markets` fields are in the key; another partition's are not (R3-04)."""
     assert len(set(keys(years).values())) == 2
     assert keys(years, "open") != keys(years)
-    assert keys(years, edition="compare") != keys(years)
     bump = first_of(2019, lambda r: r.update(close=r["close"] + 1))
     assert moved(years, tmp_path / "file", bars_1d=bump) == {2019}
 

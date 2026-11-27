@@ -258,7 +258,6 @@ class Snapshot:
         fields: Sequence[str],
         market: str,
         cutoffs: object,
-        edition: str,
         history_mode: str = "economic",
     ) -> PITBlock:
         raise NotImplementedError

@@ -65,6 +65,12 @@ versions follow [Semantic Versioning](https://semver.org/).
   US per-instrument tick assignment from 2027-11-01 has no source until #802 decides one; an
   instrument without one keeps the pack's US 0.01.
 
+- The edition (#752): the config key `[data] edition` (one still written is E16: remove it),
+  `EditionPolicy`, the `edition=` arguments of `nx.run_pipeline` and `nx.explain` (passing one
+  is Python's `TypeError`), `nexusbt doctor`'s `edition` line and the run index's `runs.edition`
+  column. No kind the engine reads has an edition since the tick step. An index an earlier
+  engine wrote with `runs.edition` still opens.
+
 ### Fixed
 - The `.function(...)` call E16 shows for a user Factor called with an array writes a bound
   NaN or infinity as `float("nan")`, `float("inf")` or `float("-inf")`, also inside a bound

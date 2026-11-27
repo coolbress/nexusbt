@@ -10,7 +10,7 @@
 - **항** (Term: `Factor`, `Filter`, `Classifier`): 칼럼에서 만들고 서로 조합하는 계산 그래프 노드. zipline Pipeline과 같은 이름·뜻.
 - **전략** (`Strategy`): 열 칸(일정·유니버스·신호·구성·자금 관리·위험 관리·결정 블록·집행·탈출·비용)을 가진 값 객체.
 - **실행** (Run): `evaluate`·`backtest`·`screen`·`sweep`·`live` 한 번. `runs/<run_id>/`에 봉인된다.
-- **설정** (`nexusbt.toml`): 두 부분으로 된 프로젝트 기본값. 1부는 결과를 가장 크게 바꾸는 값(데이터 경로, 판, 자본, 기준 통화, 슬리브, 계좌 종류, 공매도, 비용, 세금, 구간), 2부는 고급. `nexusbt config check`·`nexusbt config show`가 풀어 보여 준다.
+- **설정** (`nexusbt.toml`): 두 부분으로 된 프로젝트 기본값. 1부는 결과를 가장 크게 바꾸는 값(데이터 경로, 자본, 기준 통화, 슬리브, 계좌 종류, 공매도, 비용, 세금, 구간), 2부는 고급. `nexusbt config check`·`nexusbt config show`가 풀어 보여 준다.
 
 ## 자료와 시간
 
@@ -23,7 +23,7 @@
 - **능력** (capability): 그래프가 쓰는 자료가 스냅숏에 있나. 없으면 `CapabilityError`(E18) 또는 정해진 대체 동작.
 - **능력 결과 셋**: 선언됨(declared) / 어느 단계까지 검사됨(verified@manifest·schema·full) / 이 엔진이 지원함(supported). 검사하지 않은 것을 통과라 하지 않는다.
 - **대체 동작** (fallback): 프로필·칼럼이 모자랄 때의 정해진 엔진 동작. 항상 경고(E30)와 매니페스트 기록. 숨기지 않는다.
-- **판** (edition): `strict`(엄격판, 기본; 공급사 입력·사후 공개가 계보에 없는 값만) / `compare`(공급사 값 포함, 비교용).
+- **판** (edition): 2026-11-27에 뺐다(#752). `strict`(엄격판, 기본; 공급사 입력·사후 공개가 계보에 없는 값만) / `compare`(공급사 값 포함, 비교용)였다. 엔진은 판을 읽지 않고, TDS의 `editions` 칸은 #752의 12e에서 정한다.
 - **시장** (market): TDS `markets`의 키(예 `KR` = XKRX·KRW, `US` = XNYS·USD). 코드에 박지 않는다. **지원 시장** = 시장 규칙 팩(`resources/markets/<M>.toml`)이 있는 시장.
 - **시장 규칙 팩**: 시장별 규칙 — 가격제한, 호가 격자, 끝수, 임시 비용, 결제, 공매도 금지 기간, 증거금 씨앗. 미검증 씨앗은 미검증이라고 보고한다.
 - **세션** (session): 시장 달력의 거래일 하나. `ts_open`·`ts_close`가 진짜 시각이고 날짜는 이름표.

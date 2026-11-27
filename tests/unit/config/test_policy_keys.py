@@ -43,8 +43,8 @@ def load(tmp_path: Path, text: str, markets: list[str]) -> Any:
     return load_config(path, markets=markets).values
 
 
-def test_2_4_pairs_25_enums_with_keys() -> None:
-    assert len(NAMED) == 25
+def test_2_4_pairs_24_enums_with_keys() -> None:
+    assert len(NAMED) == 24  # 25 until #752 removed `EditionPolicy` with `[data] edition`
 
 
 @pytest.mark.parametrize(("name", "key"), sorted(NAMED.items()))

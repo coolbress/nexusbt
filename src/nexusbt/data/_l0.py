@@ -43,12 +43,12 @@ _MARKET_KEYS = ("calendar_id", "currency", "timezone")
 _AXIS = (ID, "listed_on", "delisted_on", "asset_class", "is_synthetic")
 
 
-def l0_key(manifest: Manifest, market: str, column: str, year: int, edition: str) -> str:
+def l0_key(manifest: Manifest, market: str, column: str, year: int) -> str:
     """sha256 of the canonical JSON of what the block of `column` in (`market`, `year`) depends
     on and nothing else (INV-05): the bars' resolution metadata with the package `policies`
     and the market's stable fields, the sha256 of the partition's files, the market's
     corporate-action chain digest to the year's end, the hash of the axis rows, and the
-    market, column, year, edition, block version and engine version."""
+    market, column, year, block version and engine version (no edition since #752)."""
     kinds = {k: d for k in ("corporate_actions", "calendar_sessions")
              if (d := dataset(manifest.data, k)) is not None}  # fmt: skip
     bars, entry = needed(manifest.data, "bars"), manifest.data["markets"][market]
@@ -67,7 +67,7 @@ def l0_key(manifest: Manifest, market: str, column: str, year: int, edition: str
         "files": [list(f) for f in files],
         "chains": _chains(manifest, kinds.get("corporate_actions"), instruments, year),
         "axis": _axis(manifest, kinds, instruments, market, str(entry["calendar_id"]), year),
-        "market": market, "column": column, "year": year, "edition": edition,
+        "market": market, "column": column, "year": year,
         "block": BLOCK_VERSION, "engine": metadata.version("nexusbt"),  # = nexusbt.__version__
     }  # fmt: skip
     return hashlib.sha256(canonical_json(doc).encode("utf-8")).hexdigest()

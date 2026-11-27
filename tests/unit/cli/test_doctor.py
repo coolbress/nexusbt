@@ -64,7 +64,7 @@ def test_doctor_lists_markets_packs_and_counts(
     out = doctor(snap, capsys)
     assert re.search(r"^snapshot +s1$", out, re.M)
     assert re.search(rf"^semantic +{nx.open(snap).semantic_hash}$", out, re.M)
-    assert re.search(r"^edition +strict$", out, re.M)  # the 3.11 default
+    assert not re.search(r"^edition ", out, re.M)  # the edition left with #752 (3.10)
     for m in ("KR", "US"):  # the tiny preset: 6 instruments, 341 daily rows per market
         line = rf"^market {m} +rules {m}@1 +2020-01-02\.\.2020-03-31 +instruments 6 +rows 341$"
         assert re.search(line, out, re.M), out

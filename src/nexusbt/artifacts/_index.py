@@ -17,7 +17,7 @@ _TABLES: dict[str, tuple[str, ...]] = {
                 "ts_created TEXT NOT NULL", "hypothesis TEXT"),
     "runs": ("run_id TEXT PRIMARY KEY", "kind TEXT NOT NULL", "run_kind TEXT", "family_id TEXT",
              "study_id TEXT", "name TEXT NOT NULL", "ts_created TEXT NOT NULL", "created_by TEXT",
-             "snapshot_id TEXT", "snapshot_semantic_hash TEXT", "edition TEXT", "segment TEXT",
+             "snapshot_id TEXT", "snapshot_semantic_hash TEXT", "segment TEXT",
              "graph_hash TEXT", "params_json TEXT", "settings_hash TEXT", "candidate_key TEXT",
              "conditions_hash TEXT", "preregistration_id TEXT", "look_number INTEGER",
              f"status TEXT NOT NULL {_STATUS}",
@@ -57,6 +57,15 @@ _TABLES: dict[str, tuple[str, ...]] = {
 
 def _names(table: str) -> list[str]:
     return [c.split()[0].strip('"') for c in _TABLES[table]]
+
+
+#: Columns an earlier engine's index holds and this one no longer writes: an index file with
+#: one still opens, its cells read as stored and never written (`runs.edition`, #752).
+_FORMER = {"runs": ("edition",)}
+
+
+def _current(table: str, found: list[str]) -> list[str]:
+    return [c for c in found if c not in _FORMER.get(table, ())]
 
 
 def _unchanged(table: str, *changing: str) -> str:
@@ -118,7 +127,7 @@ def _migrate(db: sqlite3.Connection, family_id: str) -> None:
     append-only triggers are created after it, in the same transaction, so they see no update.
     """
     for table in _tables(db) & set(_TABLES):
-        old = [r[1] for r in db.execute(f"PRAGMA table_info({table})")]
+        old = _current(table, [r[1] for r in db.execute(f"PRAGMA table_info({table})")])
         if unknown := sorted(set(old) - set(_names(table))):
             raise RuntimeError(f"index table {table!r} has columns {unknown} that 5.9.5 has not")
         kept = ", ".join(f'"{c}"' for c in old if c != "family_id")
@@ -141,7 +150,7 @@ def _migrate(db: sqlite3.Connection, family_id: str) -> None:
 def _ensure(db: sqlite3.Connection) -> None:
     for table, columns in _TABLES.items():
         db.execute(f"CREATE TABLE IF NOT EXISTS {table} ({', '.join(columns)})")
-        found = [r[1] for r in db.execute(f"PRAGMA table_info({table})")]
+        found = _current(table, [r[1] for r in db.execute(f"PRAGMA table_info({table})")])
         if found != _names(table):
             raise RuntimeError(f"index table {table!r} has columns {found}, not those of 5.9.5")
         db.execute(

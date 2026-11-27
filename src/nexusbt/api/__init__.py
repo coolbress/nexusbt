@@ -237,15 +237,12 @@ def run_pipeline(
     end: _Day,
     freq: Literal["daily", "weekly", "monthly"] = "daily",
     markets: Sequence[str] | None = None,
-    edition: str | None = None,
     snapshot: str | Snapshot | None = None,
     save: bool = False,
 ) -> PipelineResult:
     """3.5: the pipeline's columns at each market's decisions from `start` to `end`, the rows
     its screen keeps; `markets` are keys of the snapshot's markets, all of them by default.
     `save=True` seals a run of `kind="pipeline"` (3.8) and gives its id as `run_id`."""
-    if edition is not None:  # a PIT dataset's edition: `Snapshot.intervals` (M2)
-        raise NotImplementedError("edition= comes with the point-in-time datasets (M2)")
     cfg = config()
     if isinstance(snapshot, _Snapshot) and _rerun.ACTIVE is None:
         opened = snapshot
@@ -372,7 +369,6 @@ def explain(
     date: _Day,
     *,
     snapshot: str | Snapshot | None = None,
-    edition: Literal["strict", "compare"] | None = None,
     params: Mapping[str, Any] | None = None,
 ) -> Explanation | DecisionExplanation:
     raise NotImplementedError
