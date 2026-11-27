@@ -90,6 +90,7 @@ from nexusbt.pipeline import Filter as Filter
 from nexusbt.pipeline import Pipeline as Pipeline
 from nexusbt.pipeline import Term as Term
 from nexusbt.pipeline import factor as factor
+from nexusbt.pipeline import filter as filter  # noqa: A004 - the 3.1 name `nx.filter`
 
 # `ops` of the Terms row (3.1), T1.10 (#243): `nx.ops.rolling`, `where`, `coalesce`.
 from nexusbt import ops as ops  # isort: skip

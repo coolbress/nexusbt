@@ -53,3 +53,26 @@ def factor(
         return Factor("user", tuple(inputs), tuple(params.items()), function=fn)
 
     return wrap
+
+
+def user_filter(
+    window: int, inputs: Sequence[BoundColumn | Factor], *, mask: Filter | None = None
+) -> Callable[[Callable[..., Any]], Filter]:
+    """3.3 `@nx.filter`: a Filter from a window function returning bool `(n_alive,)`; its node,
+    hash and checks are `@nx.factor`'s, less `dtype` and `adjustment` (#620)."""
+
+    def wrap(fn: Callable[..., Any]) -> Filter:
+        if not isinstance(fn, FunctionType):
+            raise TypeError(f"@nx.filter decorates a function, not {type(fn).__name__}")
+        reads = _reads(fn)
+        source = "".join(f"\n{h.__qualname__}\n{_readable(h)}" for h in reads.helpers)
+        digest = hashlib.sha256((_readable(fn) + source).encode()).hexdigest()
+        params = {"window": window, "mask": mask, "function": fn.__name__, "source": digest,
+                  "captured": reads.captured}  # fmt: skip
+        if reads.e24:
+            warning = _impure(fn.__name__, reads.impure, reads.decorator, reads.under, reads.lost,
+                              "filter")  # fmt: skip
+            warnings.warn(str(warning), stacklevel=2)
+        return Filter("user", tuple(inputs), tuple(params.items()), function=fn)
+
+    return wrap
