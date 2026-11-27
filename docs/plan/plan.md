@@ -418,7 +418,7 @@ The thin backtest (#858, the owner, 2026-11-28): one market in a run (KR or US),
 **T3.11a `feat(accounting): delisting with an observed terminal value`** · `M1b` `accounting` · S · Blocked by: T3.10a, T2.7a, T3.Gg · §5.6.13
 - Context: a held instrument's delisting whose row has `ret_observed`: its orders cancelled at the terminal session, the holding removed, the amount from T2.7a's `terminal_value`, booked when it is known. Policy values, mergers, rights and unsupported actions stay in T3.11.
 - Done means: the observed rows of G-22 pass.
-- Acceptance: `test_accounting.py::test_G22_observed`, `tests/golden/test_accounting.py::test_G121_removal_and_payment` (G-121 (a)(b)), `tests/unit/accounting/test_delisting_thin.py::test_unobserved_delisting_held_E18`, `::test_cash_merger_held_E18` (the M1b E18 of a kind T3.11 builds, 5.6.12, 5.6.13; #875).
+- Acceptance: `test_accounting.py::test_G22_observed`, `tests/golden/test_accounting.py::test_G121a_removal_at_the_terminal_session`, `tests/unit/accounting/test_delisting_thin.py::test_unobserved_delisting_held_E18`, `::test_cash_merger_held_E18` (the M1b E18 of a kind T3.11 builds, 5.6.12, 5.6.13; #875).
 
 **T3.22a `feat(accounting): stale marks of a held name with no bar, and a distribution before delisting counted once`** · `M1b` `accounting` · M · Blocked by: T3.11a, T2.7a, T3.Gg · §5.6.3(6), §5.6.9, §5.6.13
 - Context: stale mark = last valid close × Π price factors (`stale_adjusted`), the same value used by `decision_value`, `P_i` and `ref*`; the distribution just before delisting booked once, with `ret_observed_includes_distributions` true or false. A null flag, `unknown_inclusion` and the label check stay in T3.22.
@@ -427,7 +427,7 @@ The thin backtest (#858, the owner, 2026-11-28): one market in a run (KR or US),
 
 **T3.12 `feat(execution): single-sleeve simulation loop and session step`** · `M1b` `execution` · M · Blocked by: T3.5d, T3.11a, T3.22a · §5.6.3, §5.6.14
 - Done means: G-30 passes, `simulate` and repeated `step_session` give the same result, and cutting a checkpoint at any phase boundary and resuming gives the same.
-- Acceptance: `test_execution.py::test_G30`, `tests/unit/execution/test_loop.py::test_simulate_equals_stepwise`, `::test_resume_at_phase_boundary`, `tests/golden/test_accounting.py::test_G121c_missing_bars_then_delisting`, `tests/unit/execution/test_loop.py::test_held_name_turning_nan_is_sold` (5.5.3 `on_missing = "drop"`; #875).
+- Acceptance: `test_execution.py::test_G30`, `tests/unit/execution/test_loop.py::test_simulate_equals_stepwise`, `::test_resume_at_phase_boundary`, `tests/golden/test_accounting.py::test_G121b_terminal_cash_funds_the_next_open`, `::test_G121c_missing_bars_then_delisting`, `tests/unit/execution/test_loop.py::test_held_name_turning_nan_is_sold` (3.7: only finite scores are selected; 5.6.7: `T_i = 0` sells the holding; #875).
 
 **T3.13c `feat(api): single-market backtest with the first screen and six metrics`** · `M1b` `api` · M · Blocked by: T3.12, T3.2a, T3.Gg · §5.7, §3.8, §3.9 Run
 - Context: `nx.backtest` and `nexusbt backtest` for M1b's thin backtest; the first screen of 3.9 with return, CAGR, volatility, Sharpe, maximum drawdown and turnover, the line that says costs are not included, the simulated-result line (#764, decision 2026-11-25), and each line whose source is not built printed as 3.9 says, naming the ticket it waits for. PSR, DSR, MinTRL, the delisting scenarios and the cost lines stay in T3.13a.

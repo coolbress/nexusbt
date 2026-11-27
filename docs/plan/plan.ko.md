@@ -418,7 +418,7 @@ v3는 3자 검토 합의대로 **M0을 계약만으로 줄이고**, 검사기 fu
 **T3.11a `feat(accounting): delisting with an observed terminal value`** · `M1b` `accounting` · S · Blocked by: T3.10a, T2.7a, T3.Gg · §5.6.13
 - Context: 행에 `ret_observed`가 있는 보유 종목의 폐지: 종료 세션에 주문 취소, 보유 제거, 금액은 T2.7a의 `terminal_value`에서, 알려진 때 기록. 정책 값, 합병, 권리, 지원 안 하는 행위는 T3.11에 남는다.
 - Done means: G-22의 관측 행이 통과.
-- Acceptance: `test_accounting.py::test_G22_observed`, `tests/golden/test_accounting.py::test_G121_removal_and_payment`(G-121 (a)(b)), `tests/unit/accounting/test_delisting_thin.py::test_unobserved_delisting_held_E18`, `::test_cash_merger_held_E18`(T3.11이 만드는 종류의 M1b E18, 5.6.12, 5.6.13; #875).
+- Acceptance: `test_accounting.py::test_G22_observed`, `tests/golden/test_accounting.py::test_G121a_removal_at_the_terminal_session`, `tests/unit/accounting/test_delisting_thin.py::test_unobserved_delisting_held_E18`, `::test_cash_merger_held_E18`(T3.11이 만드는 종류의 M1b E18, 5.6.12, 5.6.13; #875).
 
 **T3.22a `feat(accounting): stale marks of a held name with no bar, and a distribution before delisting counted once`** · `M1b` `accounting` · M · Blocked by: T3.11a, T2.7a, T3.Gg · §5.6.3(6), §5.6.9, §5.6.13
 - Context: 묵은 평가가 = 마지막 유효 종가 × Π 가격 계수(`stale_adjusted`), 같은 값을 `decision_value`·`P_i`·`ref*`가 씀; 폐지 직전 분배는 `ret_observed_includes_distributions`가 참이든 거짓이든 한 번만 기록. null 표시, `unknown_inclusion`, 정답 확인은 T3.22에 남는다.
@@ -427,7 +427,7 @@ v3는 3자 검토 합의대로 **M0을 계약만으로 줄이고**, 검사기 fu
 
 **T3.12 `feat(execution): single-sleeve simulation loop and session step`** · `M1b` `execution` · M · Blocked by: T3.5d, T3.11a, T3.22a · §5.6.3, §5.6.14
 - Done means: G-30 통과, `simulate`와 `step_session` 반복 결과 동일, 체크포인트를 아무 단계 경계에서 끊고 이어도 같음.
-- Acceptance: `test_execution.py::test_G30`, `tests/unit/execution/test_loop.py::test_simulate_equals_stepwise`, `::test_resume_at_phase_boundary`, `tests/golden/test_accounting.py::test_G121c_missing_bars_then_delisting`, `tests/unit/execution/test_loop.py::test_held_name_turning_nan_is_sold`(5.5.3 `on_missing = "drop"`; #875).
+- Acceptance: `test_execution.py::test_G30`, `tests/unit/execution/test_loop.py::test_simulate_equals_stepwise`, `::test_resume_at_phase_boundary`, `tests/golden/test_accounting.py::test_G121b_terminal_cash_funds_the_next_open`, `::test_G121c_missing_bars_then_delisting`, `tests/unit/execution/test_loop.py::test_held_name_turning_nan_is_sold`(3.7: 유한한 점수만 선택됨; 5.6.7: `T_i = 0`이 보유를 판다; #875).
 
 **T3.13c `feat(api): single-market backtest with the first screen and six metrics`** · `M1b` `api` · M · Blocked by: T3.12, T3.2a, T3.Gg · §5.7, §3.8, §3.9 Run
 - Context: M1b의 얇은 백테스트를 위한 `nx.backtest`와 `nexusbt backtest`; 수익률, CAGR, 변동성, Sharpe, 최대 낙폭, 회전율을 담은 3.9의 첫 화면, 비용이 포함되지 않았다고 말하는 줄, 시뮬레이션 결과 줄(#764, 결정 2026-11-25), 원천이 아직 만들어지지 않은 줄마다 3.9가 말하는 대로 기다리는 티켓을 이름 붙여 출력. PSR, DSR, MinTRL, 폐지 시나리오, 비용 줄은 T3.13a에 남는다.
