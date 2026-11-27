@@ -275,7 +275,7 @@ def environment_differs(folder: Path, project: Path) -> bool:
 def _beyond(old: pa.Table, new: pa.Table, keys: Sequence[str]) -> bool:
     """Whether `new` differs from `old` beyond the tolerance: the same columns and keys, each
     float cell within it (NaN agreeing with NaN, null with null), every other cell equal."""
-    if old.schema.names != new.schema.names or old.num_rows != new.num_rows:
+    if not old.schema.equals(new.schema) or old.num_rows != new.num_rows:  # names and types
         return True
     order = [(k, "ascending") for k in keys]
     old, new = old.sort_by(order), new.sort_by(order)
@@ -291,8 +291,9 @@ def _beyond(old: pa.Table, new: pa.Table, keys: Sequence[str]) -> bool:
         y = b.to_numpy(zero_copy_only=False).astype(np.float64)
         both_nan = np.isnan(x) & np.isnan(y)
         with np.errstate(invalid="ignore"):
-            near = np.abs(x - y) <= ABS_TOL + REL_TOL * np.abs(y)
-        if not (near | both_nan).all():
+            finite = np.isfinite(x) & np.isfinite(y)  # an infinite `b` widens it to anything
+            near = finite & (np.abs(x - y) <= ABS_TOL + REL_TOL * np.abs(y))
+        if not (near | both_nan | (x == y)).all():  # `x == y`: the same infinity
             return True
     return False
 

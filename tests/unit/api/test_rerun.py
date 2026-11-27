@@ -628,6 +628,28 @@ def test_another_engine_lock_compares_within_l1_a(
     assert capsys.readouterr().out.splitlines()[1] == line
 
 
+_NAN, _INF = float("nan"), float("inf")
+
+
+@pytest.mark.parametrize(("old", "new", "beyond"), [
+    ([1.0, _NAN, None, _INF], [1.0, _NAN, None, _INF], False),  # NaN, null, the same infinity
+    ([1.0], [1.0 + 0.5 * (L1_A_ABS + L1_A_REL)], False),
+    ([_NAN], [None], True),  # a null is not a NaN
+    ([_INF], [-_INF], True),
+    ([1.0], [_INF], True),  # the tolerance of an infinite `b` is no tolerance
+    ([1.0], [1], True),  # float64 against int64: another type, though the same value
+])  # fmt: skip
+def test_cells_within_l1_a(old: list[Any], new: list[Any], beyond: bool) -> None:
+    """#637 Decisions 2: cell by cell on the same keys, NaN agreeing with NaN; a null only
+    with a null, an infinity only with itself, and a column only with one of its own type."""
+    from nexusbt.api import _rerun
+
+    def table(values: list[Any]) -> pa.Table:
+        return pa.table({"k": list(range(len(values))), "v": values})
+
+    assert _rerun._beyond(table(old), table(new), ["k"]) is beyond
+
+
 def test_a_project_lock_on_one_side_only_is_another_environment(
     copied: tuple[Path, str],
 ) -> None:
