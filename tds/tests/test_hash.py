@@ -422,6 +422,16 @@ def test_canonical_json_is_rfc_8785() -> None:
     )
 
 
+def test_editions_and_roll_rules_are_not_hashed(tmp_path: Path) -> None:
+    """#752's 12e (TDS 4.2, 4.5): a package that still writes `editions` or `roll_rules` hashes
+    as one without them."""
+    plain = package(tmp_path / "a", BARS_TWO, PARTS)
+    old = edited(plain, tmp_path / "b", lambda m: m.update(
+        editions={"default": "strict", "values": {"strict": "x"}}, roll_rules={}))  # fmt: skip
+    assert semantic_json(old) == semantic_json(plain)
+    assert "editions" not in semantic_json(old)
+
+
 def test_semantic_json_holds_every_listed_key(tmp_path: Path) -> None:
     exponent = edited(package(tmp_path / "a", BARS_TWO, PARTS), tmp_path / "b",
                       lambda m: m["datasets"][0].update(price_exponent=-9.0))  # fmt: skip

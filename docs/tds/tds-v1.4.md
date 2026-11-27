@@ -1203,7 +1203,7 @@ datasets:
 | Standard | `tds_version` = `MAJOR.MINOR` | `1.0` |
 | Dataset schema | per dataset kind `schema_version` = `MAJOR.MINOR` | `bars 1.0`, `instruments 1.1` |
 | Package (data) | `version` / `snapshot_id` (producer's choice; a sortable string recommended) | `20261027-143144` |
-| Draft text (while a draft, 10.5) | `tds_draft` = `YYYY-MM-DD` | `2026-11-19` |
+| Draft text (while a draft, 10.5) | `tds_draft` = `YYYY-MM-DD` | `2026-11-27` |
 
 Standard `1.x` bundles all dataset schemas `1.x`. If a dataset schema MAJOR rises, the standard MAJOR rises too.
 

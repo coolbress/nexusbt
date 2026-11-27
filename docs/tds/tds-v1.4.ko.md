@@ -1203,7 +1203,7 @@ datasets:
 | 표준 | `tds_version` = `MAJOR.MINOR` | `1.0` |
 | 데이터셋 스키마 | 데이터셋 종류마다 `schema_version` = `MAJOR.MINOR` | `bars 1.0`, `instruments 1.1` |
 | 패키지(자료) | `version` / `snapshot_id` (만든 쪽 마음, 정렬 가능한 문자열 권장) | `20261027-143144` |
-| 초안 본문(초안인 동안, 10.5) | `tds_draft` = `YYYY-MM-DD` | `2026-11-19` |
+| 초안 본문(초안인 동안, 10.5) | `tds_draft` = `YYYY-MM-DD` | `2026-11-27` |
 
 표준 `1.x`는 모든 데이터셋 스키마 `1.x`를 묶는다. 데이터셋 스키마 MAJOR가 오르면 표준 MAJOR도 오른다.
 

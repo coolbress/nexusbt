@@ -66,6 +66,22 @@ def test_M_codes(code: str, tmp_path: Path) -> None:
     assert pairs(package / "fail", "schema") == stated(code, "schema")  # the CLI's default level
 
 
+@pytest.mark.parametrize("editions", [None, {"default": "strict", "values": {"strict": "x"}}])
+def test_an_edition_path_and_the_editions_field_are_not_judged(
+    editions: Any, tmp_path: Path
+) -> None:
+    """#752's 12e (TDS 4.2, 8.3): `editions` left, so an `edition=` path is no M010 whether
+    `tds.json` still declares one or not, and the field itself gets no finding."""
+    path = build.BARS.replace("market=US/", "market=US/edition=strict/")
+
+    def change(m: dict[str, Any], f: Any) -> None:
+        build._move_bars(path)(m, f)
+        if editions is not None:
+            m["editions"] = editions
+
+    assert codes(write(tmp_path, change)) == []
+
+
 def test_M010_an_instrument_of_an_undeclared_market_at_schema(tmp_path: Path) -> None:
     """TDS 3.8, 8.2 (#567): the `schema` level reads `instruments.market`; `manifest`, no rows."""
     package = write(tmp_path, build._instruments(market=pa.array(["ZZ"])))
