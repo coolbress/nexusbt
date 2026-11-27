@@ -1056,7 +1056,7 @@ write: orders.to_csv("orders/{date}.csv")   apply to paper book: nx.fill(book, o
 | `[corporate_actions] rights` | str | `"lapse"` | lapse / fail | A-15 |
 | `[corporate_actions] unsupported` | str | `"fail"` | fail / cash_at_adjustment | 11.4.3 |
 | `[corporate_actions] bonus_shares_tradable` | str | `"at_pay_date"` | at_ex / at_pay_date | 11.4.3 |
-| `[corporate_actions] decimal_ratio` | str | `"exclude_instrument"` | exclude_instrument / require_exact / literal: 각각이 하는 일은 5.6.1이 정한다(기본 `exclude_instrument`, 사용자 결정 2026-10-29); require_exact = 그런 사건이 하나라도 실행 범위에 있으면 E13; literal은 매니페스트 `policies.corporate_actions`에 남는다 | |
+| `[corporate_actions] decimal_ratio` | str | `"exclude_instrument"` | exclude_instrument / require_exact / literal. 각각이 하는 일은 5.6.1이 정한다(기본 `exclude_instrument`, 사용자 결정 2026-10-29); require_exact = 그런 사건이 하나라도 실행 범위에 있으면 E13; literal은 매니페스트 `policies.corporate_actions`에 남는다 | |
 | `[delisting] unknown_inclusion` | str | `"conservative"` | conservative / error. 폐지 분배 포함 여부 모름(5.6.13): conservative = 슬리브 가치를 덜 만드는 해석 + E30, error = E13 | |
 | `[delisting] policy` | str | `"observed_then_policy"` | observed_then_policy / observed_only / lo / hi | Q18 |
 | `[delisting] scenarios` | bool | true | | |

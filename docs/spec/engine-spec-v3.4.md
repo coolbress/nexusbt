@@ -1055,7 +1055,7 @@ Validation: an unknown key → `ConfigError` (suggesting similar keys). A key wh
 | `[corporate_actions] rights` | str | `"lapse"` | lapse / fail | A-15 |
 | `[corporate_actions] unsupported` | str | `"fail"` | fail / cash_at_adjustment | 11.4.3 |
 | `[corporate_actions] bonus_shares_tradable` | str | `"at_pay_date"` | at_ex / at_pay_date | 11.4.3 |
-| `[corporate_actions] decimal_ratio` | str | `"exclude_instrument"` | exclude_instrument / require_exact / literal: what each does is 5.6.1's (default `exclude_instrument`, user decision 2026-10-29); require_exact = E13 when even one such event is in the run's scope; literal is recorded in the manifest `policies.corporate_actions` | |
+| `[corporate_actions] decimal_ratio` | str | `"exclude_instrument"` | exclude_instrument / require_exact / literal. What each does is 5.6.1's (default `exclude_instrument`, user decision 2026-10-29); require_exact = E13 when even one such event is in the run's scope; literal is recorded in the manifest `policies.corporate_actions` | |
 | `[delisting] unknown_inclusion` | str | `"conservative"` | conservative / error. When it is unknown whether delisting distributions are included (5.6.13): conservative = the reading that makes the sleeve value smaller + E30, error = E13 | |
 | `[delisting] policy` | str | `"observed_then_policy"` | observed_then_policy / observed_only / lo / hi | Q18 |
 | `[delisting] scenarios` | bool | true | | |
