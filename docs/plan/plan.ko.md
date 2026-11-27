@@ -371,7 +371,8 @@ v3는 3자 검토 합의대로 **M0을 계약만으로 줄이고**, 검사기 fu
 - Context: 늦은 배당 `close_tr`, 정답 시각, 직사각형 조회 예시 1~3, 경제 정답 10%, 늦은 회수 정화. 소비 티켓(T2.1~T2.7) 전에 병합.
 - Done means: `uv run python tests/golden/check/T-21.py`가 경제 정답 10%와 조정가 비율 11.1%를 나란히 출력하고, 8.2의 T-21 사례 (a)~(f)를 1주 회계 값과 함께 출력(2026-11-04).
 - Acceptance: `test_handcalc_self.py::test_time_cases_M2_expected_present`.
-
+- Notes:
+  - carried (#43 Decisions, 2026-11-19, #583): 이 티켓이 T-08을 쓸 때 그 사례로 #583의 동작도 확인한다: 공개 `nx.run_pipeline`으로 읽은 `Price.close_tr`, 손으로 확인한 값, 5.3.4의 늦은 금액.
 **T2.1 `feat(data): rectangle two-time-axis lookup of symbol periods`** · `M2` `data` · M · Blocked by: T1.4, T0.14b, T2.G · §5.3.6, §5.1.5 *(직사각형 조회(`nexusbt_tds.pit.rect_lookup`), strict 행 단위 backfilled 제외; 뺀 종류의 구간 조회는 2026-11-24에 빠졌다, #752)*
 - Done means: 예제가 한 종목의 `instrument_symbols` 행들과 세션별 조회 결과를 나란히 출력; 미리 발표된 미래 효력 행은 현재 행을 가리지 않는다.
 - Acceptance: `tests/unit/data/test_intervals.py::test_half_open_lookup`, `::test_two_axis_known_after_effective`, `::test_T18_future_effective_does_not_hide_current`, `::test_strict_skips_backfilled_rows`, `::test_no_daily_expansion_memory`, `::test_history_mode_system_E18`.
@@ -381,6 +382,8 @@ v3는 3자 검토 합의대로 **M0을 계약만으로 줄이고**, 검사기 fu
 **T2.3 `feat(pipeline): Meta attributes and the hindsight warning`** · `M2` `pipeline` · S · Blocked by: T0.8b · §3.2, §4.5 F-14 *(F-14; `Panel`, `classifications`의 `Meta` 분류기, `index_members`는 2026-11-24에 뺐다, #752)*
 - Done means: 종목마다 `Meta.market`, `Meta.currency`, `Meta.category`를 보이는 예제; `instruments`의 현재 `category`를 쓰면 E30(F-14).
 - Acceptance: `tests/unit/pipeline/test_meta.py::test_hindsight_attribute_warned`.
+- Notes:
+  - carried (#43 Decisions, 2026-11-18, #245 and #542): 참조 실행기는 Classifier를 정수 코드로만 가진다. 이름이나 bool로 하는 `eq`, `element_of`는 `NotImplementedError`("Classifier names come with its code table")로 거절하고 `startswith`는 계산하지 않는다. `Meta.category`의 코드표를 읽는 이 티켓이 둘 다 계산하고 두 거절을 없앤다.
 
 **T2.15 `feat(data): share-count items and market capitalisation`** · `M2` `data` · S · Blocked by: T2.1, T0.15a · §5.3.5a [TDS-D9, TDS-Q4] *(수량 계수 `Q`; `share_counts`, `shares_out`, `market_cap`은 2026-11-24에 뺐다, #752)*
 - Done means: 주식 수 항목(5.3.5)을 분할 앞뒤로 분할 비율로 맞춰 출력하고 그것이 주는 시가총액을 보이는 예제; 그런 항목이 없으면 `weight="value"`가 E18.
@@ -389,10 +392,15 @@ v3는 3자 검토 합의대로 **M0을 계약만으로 줄이고**, 검사기 fu
 **T2.4 `feat(pipeline): universes with microcap switch and exclusion reasons`** · `M2` `pipeline` · M · Blocked by: T2.15, T0.16b · §3.6 [SC-23] *(시장 이름은 스냅숏에서; 자격과 그 대체 동작은 2026-11-24에 뺐다, #752)*
 - Done means: `nx.universe("KR", exclude_microcap=True)`의 세션별 종목 수가 같은 세션 `nx.universe("KR")` 종목 수의 약 80%임을 출력; `coverage` 표에 이유별 제외 수; 고정 목록 → E4.
 - Acceptance: `tests/unit/pipeline/test_universe.py::test_microcap_bottom_20pct`, `::test_survivorship_warning`, `::test_exclusion_reason_counts`, `::test_unknown_market_E16`.
+- Notes:
+  - carried (#43 Decisions, 2026-11-19, #249; #752 Decisions, 2026-11-26): `nx.screen(factor, top=n)`은 3.3 기본 영역의 상장된 칸에서 고르고 `universe: listed (the default universe comes with T2.4)`라고 말하며, 시험 하나가 그 줄을 지킨다. 이 티켓이 3.6의 기본 유니버스 안에서 고르게 하고 그 줄과 시험을 바꾼다.
 
 **T2.5 `feat(pipeline): units, currency conversion and cross-market terms`** · `M2` `pipeline` · M · Blocked by: T2.1, T1.11, T0.8b · §3.3, §5.3.2 (6), §5.1.5 fx, §3.11 `[fx] series`
 - Done means: `Price.value_traded.latest.rank(across_markets=True)` → E5; `.to("USD")` 뒤에는 동작하고 환율 공개 지연이 반영된 값 출력; 계열이 둘이면 `[fx] series = "auto"`가 E16으로 목록을 보임.
 - Acceptance: `tests/unit/pipeline/test_units.py::test_E5_cross_market_currency`, `::test_to_uses_available_fx`, `::test_E17_cross_market_into_window`, `::test_fx_series_auto_selection`.
+- Notes:
+  - carried (#43 Decisions, 2026-11-16, #482 and #486): 이 티켓과 T2.19가 둘 다 5.3.2 (6)을 들고, #482의 계획기는 시장 축 하나만 계획한다. 시장을 넘는 항에서 할 일은 #486의 Findings에 있다.
+  - carried (#43 Decisions, 2026-11-20, #250): `nx.rerun`의 새 프로세스는 6.6 오류를 `kind` 없이 돌려보내므로, 저장된 실행이 `.to`로 통화를 바꾸게 되면 경고 종류의 E20 `FxStaleError`가 실패로 돌아온다. 다른 칸과 함께 `kind`를 쓰는 것이 고침이다(T3.13a도).
 
 **T2.6 `feat(pipeline): label taint`** · `M2` `pipeline` · S · Blocked by: T1.6 · §6.5 *(외부 데이터셋, `from_parquet`, 사용자 정답 경로는 2026-11-24에 뺐다, #752)*
 - Done means: 정답 노드(5.3.11)를 신호로 쓰면 E2.
@@ -401,6 +409,10 @@ v3는 3자 검토 합의대로 **M0을 계약만으로 줄이고**, 검사기 fu
 **T2.9 `feat(research): segments, exposures and trial registry with candidates, observations and cohorts`** · `M2` `research` · M · Blocked by: T1.14b · §6.1, §6.2, §6.3 예약 [SC-19, SC-21]
 - Done means: validation 구간을 처음 계산하면 E10 알림, `nx.runs(study=...)`가 노출·후보·관측 수를 보임; 같은 후보를 다른 스냅숏으로 다시 돌리면 관측이 하나 더 생기고 앞 관측은 그대로; `splits=` 값을 주면 E18.
 - Acceptance: `tests/unit/research/test_segments.py::test_no_blocking`, `::test_exposure_logged`, `::test_splits_reserved_E18`, `tests/unit/research/test_trials.py::test_candidate_key_excludes_snapshot`, `::test_rerun_adds_observation_not_overwrite`, `::test_cohort_frozen_with_digest`, `::test_study_id_stable_on_rerun`, `tests/unit/research/test_segments.py::test_look_number_counts_family_exposures`, `::test_rerun_adds_no_look`, `::test_corrected_snapshot_continues_look_count`(6.2 확인, #269).
+- Notes:
+  - carried (#43 Decisions, 2026-11-19, #249): `nx.screen`(`kind="screen"`)과 `nx.run_pipeline(save=True)`(`kind="pipeline"`)는 실행 기록을 봉하고 `exposures` 행은 쓰지 않는다. 이 티켓이 두 종류 모두에 그 행을 쓰되(3.8 "exposure record only", 6.1) 후보도 관측도 더하지 않는다.
+  - carried (#43 Decisions, 2026-11-16, #466 and #485): `nexusbt init`은 `nexusbt.toml`에 `[research] family_id`를 쓰고 실행 색인에는 행을 쓰지 않는다. 이 티켓이 첫 id의 `families` 행(5.9.5의 사유 `init`)과 `runs.family_id`를 쓰고, 색인이 모르는 id가 무슨 뜻인지 말한다.
+  - owner decides at the cut (#43 Decisions, 2026-11-11, #386 and #305): 옮긴 색인의 family와 다른 `[research] family_id`가 무슨 뜻인지(지금 다른 id로 열면 아무 말이 없다, 5.9.5), 그리고 실행의 `warnings`가 manifest의 논리 해시에 드는지(지금은 든다).
 
 **T2.7 `feat(research): economic and adjusted forward labels, three label times and purging`** · `M2` `research` · M · Blocked by: T1.13, T2.9, T0.15a, T2.G · §5.8, §5.6.13 [SC-20]
 - Done means: 한 종목·한 달의 정답 계산 내역(진입·청산 가격, 배당 재투자 계수, 수량 계수, 종료가치, 세 정답 시각)을 출력하는 예제; 합성 small에서 두 정답의 IC 차이를 한 줄로 보고.
@@ -409,6 +421,8 @@ v3는 3자 검토 합의대로 **M0을 계약만으로 줄이고**, 검사기 fu
 **T2.8 `feat(research): IC, Newey-West, quantiles, turnover and coverage`** · `M2` `research` · M · Blocked by: T2.7 · §5.8
 - Done means: 손으로 만든 IC 계열에서 NW t와 L이 시험 기대값과 같게 출력; 5.8의 순위 자기상관이 시장마다 이웃한 두 판단의 종목으로 계산됨(#764, 결정 2026-11-25).
 - Acceptance: `tests/unit/research/test_factor_stats.py::test_spearman_min_pairs`, `::test_newey_west_known_value`, `::test_quantile_ties`, `::test_turnover`, `::test_coverage_counts`, `tests/docs/test_tool_cards.py::test_card[ic-newey-west]`, `::test_every_tool_has_a_card_row`(D19, #219).
+- Notes:
+  - owner decides at the cut (#43 Decisions, outside review of 2026-11-03): M2의 평가가 실현 회전율과 그룹 중립 IC도 내는지.
 
 **T2.16 `feat(research): naive breadth, implied IR and cohort BHY-adjusted p`** · `M2` `research` · S · Blocked by: T2.8, T2.9 · §5.8 [SC-08, SC-09]
 - Done means: 손으로 만든 후보 5개(NW t 주어짐)에서 BHY 보정 p를 출력하고 기대값과 같음; horizon이 다른 후보는 같은 집단에 들지 않음; 단순 폭·기대 IR 출력.
@@ -417,15 +431,22 @@ v3는 3자 검토 합의대로 **M0을 계약만으로 줄이고**, 검사기 fu
 **T2.10a `feat(api): evaluate and FactorReport`** · `M2` `api` · M · Blocked by: T2.8, T2.9, T2.4, T2.16 · §3.8, §3.9
 - Done means: `uv run nexusbt evaluate examples/factors/momentum.py`가 3.9 모양의 FactorReport(정답 정의·naive breadth·BHY(cohort) 줄, 그리고 3.9의 시뮬레이션 결과 줄 포함, #764, 결정 2026-11-25)와 `report.html` 경로를 출력.
 - Acceptance: `tests/unit/api/test_evaluate.py::test_report_lines_match_template`, `::test_counts_next_to_rates`, `::test_saved_run_folder`, `::test_hygiene_block`, `::test_mapping_terms_are_separate_candidates`, `::test_minimal_daily_adj_label_only`.
+- Notes:
+  - decided (#314 Decision, 2026-11-10; #43 Decisions): 이 티켓을 자르기 전에, 평가한 팩터를 가져오는 전략에 따라붙는 팩터 선택 이력을 기록된 노드 해시와 `exposures`, `selection_events` 표에서 되찾을 수 있는지 보인다. 되찾을 수 없으면 이 티켓이 그 연결을 더한다. 빠진 선택 이력은 나중에 다시 만들 수 없기 때문이다.
 
 **T2.10b `feat(artifacts): report.html template with structural test`** · `M2` `artifacts` · S · Blocked by: T2.10a · §3.9
 - Context: FactorReport와 Run이 같이 쓰는 jinja2 한 장 템플릿(외부 파일 없음, 3.9 페이지 틀), 3.9 FactorReport 칸과 그 순서, 빠진 칸의 n/a 줄, 재어 보고 고른 뒤 ADR에 적는 그리는 수단(3.9 시각 규칙).
 - Done means: 생성된 FactorReport HTML에 3.9 FactorReport 칸이 3.9 순서로 있고, 시험이 확인할 수 있는 3.9 시각 규칙을 지킨다(외부 자원 없음, 모든 축에 단위, 부호나 무늬가 붙은 손실, 크기 예산 안). 사람이 보는 일은 10.0의 M2 행이며, 목록 없는 눈 확인이 아니라 3.9 목록에 대어 본다.
 - Acceptance: `tests/unit/artifacts/test_report_html.py::test_required_sections_present`, `::test_sections_in_3_9_order`, `::test_no_external_resources`, `::test_axes_have_units`, `::test_losses_not_by_colour_alone`, `::test_size_budget`.
+- Notes:
+  - decided (#43 Decisions, 2026-11-19, #249): 보고서의 질문 7은 항마다의 합계가 계산된 칸의 것이라고 말한다. 같은 항 위의 더 긴 창은 앞의 행과 그 개수를 더하기 때문이다(T3.14도).
 
 **T2.11 `feat(api): explain values of price and item terms`** · `M2` `api` · S · Blocked by: none · §3.9 Explanation *(2026-11-24에 좁힘, #752: `fundamentals_events` 계보와 F-11은 뺐다 [#725 결정 251])*
 - Done means: `nx.explain(Price.close.latest, "KR:T00003", "2020-02-28")`가 그 값이 나온 봉을 출력하고, `nx.Item` 항의 `nx.explain`은 그 항이 읽은 값 표 줄(날짜와 값)과 그 나이를 출력(5.3.5).
 - Acceptance: `tests/unit/api/test_explain.py::test_not_usable_yet_message`.
+- Notes:
+  - builder's choice (#43 Decisions, 2026-11-19, #249; 추천: 저장된 파일은 기록된 꼴로 읽기, 이미 쓴 파일은 옛 `term`을 지니기 때문): 이 티켓이 `explain`이 노드를 쓰는 꼴을 정하면 `term_diagnostics.parquet`의 `term` 칼럼이 그 꼴로 바뀐다.
+  - decided (#43 Decisions, 2026-11-19, #587): `explain`은 칸이 왜 비었는지 말한다.
 
 **T2.12 `feat(api): static checks before heavy compute`** · `M2` `api` · M · Blocked by: T2.6, T2.5 · §6.5 정적 검사, P8
 - Done means: `nx.check(strategy)`가 검사 10개 결과 표를 1초 안에 출력(시간 표시); mask 없는 `zscore` 위에 좁은 유니버스면 E34.
@@ -434,6 +455,8 @@ v3는 3자 검토 합의대로 **M0을 계약만으로 줄이고**, 검사기 fu
 **T2.18 `feat(api): preregister`** · `M2` `api` · M · Blocked by: T2.9 · §6.4, §6.2 *(#269: 주장 항목, 조건 해시, 확인 표시)*
 - Done means: `nx.preregister(f, metric="ic_mean", threshold=0.02, segment="validation")` 뒤 그 구간 평가 보고서에 "preregistered ic_mean ≥ 0.02: pass/fail · registered before first validation exposure: yes/no"; `preregistrations`에 6.4의 주장 항목이 있고, 색인 행으로 계산한 표시(그것을 찍는 `backtest` 보고서는 T3.13a의 것)가 맞는 확인 하나에 "independent final test (look 1)", 종료일을 늘린 다음 확인에 "repeated look on preregistered data (look 2)", `rerun` 뒤에도 그대로, 비용 설정을 바꾸면 결코 "independent final test"가 아님.
 - Acceptance: `tests/unit/research/test_preregister.py::test_record_and_report_line`, `::test_registered_after_exposure_flagged`, `::test_claim_fields_and_defaults_recorded`, `::test_conditions_hash_covers_claim_parameters`, `::test_snapshot_not_in_conditions_hash`, `::test_look_one_independent_final_test`, `::test_later_look_repeated_with_fixed_sample_line`, `::test_changed_conditions_not_independent`, `tests/property/test_research_record.py::test_P_LOOK`(8.3), `tests/docs/test_tool_cards.py::test_card[holdout]`(D19, #219).
+- Notes:
+  - owner decides at the cut (#43 Decisions, 2026-11-19, #274 and #269): 이 티켓이 만들기 전에 세 가지의 뜻: 어떤 규칙도 주장을 판정하는 데 쓰지 않는 `judge_at`; `nx.backtest`에 실행 쪽 짝이 없는 `nx.preregister`의 `benchmark=`(3.8); 6.4의 조건 해시 인자에 들지 않는 `select=`.
 
 **T2.13 `superseded`** · `M2` · Blocked by: none · `Fund`, L1-c와 함께 2026-11-24에 뺐다(#752).
 
@@ -441,10 +464,19 @@ v3는 3자 검토 합의대로 **M0을 계약만으로 줄이고**, 검사기 fu
 - Context: `docs/quickstart.md`(영어): 손으로 쓴 CSV 두 개 → `tds import csv` → `tds check` → `nx.evaluate(Returns(252).shift(21), target="fwd_return_adj")` → 저장된 실행 → `nexusbt rerun`; minimal 패키지에서 `backtest`를 부르면 나오는 E18 문장과 고치는 법(원가격 + 사건).
 - Done means: 깨끗한 폴더에서 문서 명령을 그대로 붙여 넣으면 끝까지 돈다.
 - Acceptance: `tests/docs/test_examples.py::test_quickstart_csv_to_rerun_en`.
+- Notes:
+  - decided (#705 Decisions 23, 2026-11-22): 빠른 시작은 엔진이 다른 엔진의 장점을 가져오고 약점을 푼다는 것이 돌려서 보여지기 전까지는, 많아야 그렇게 설계되었다고만 말한다("아직 티켓이 없는 일", Stage (2)).
+  - decided (#43 Decisions, 2026-11-19, #587): 빠른 시작은 빈 칸 하나와 그 까닭을 보인다.
+  - decided (#725 Decisions 118, 2026-11-23): 사용자 문서는 `Returns(W)`가 종가 W개, 걸음 W−1개에 걸친다는 것을 숫자로 말한다. 그래서 "20세션 수익률"은 `Returns(21)`이다.
+  - owner decides at the cut (#725 Decisions 118, 2026-11-23): `Returns`의 이름이나 기본값을 바꿀지.
+  - carried (#43 Decisions, 2026-11-20, #250): 실행 폴더를 설명하는 안내는 `manifest.json`의 `source.outside`와 `source/`가 사람의 모듈 이름과 파일 이름을 적힌 그대로 담는다고 말한다. `manifest.json`은 사람이 남에게 건넬 수 있는 파일이기 때문이다(5.9.3).
 
 **T2.14 `docs(examples): m2 factor research walkthrough and stage measurement`** · `M2` `docs` · S · Blocked by: T2.10a, T2.11, T2.12, T1.24 · §7, §8.5
 - Done means: README "팩터 하나 평가" 절 명령이 그대로 돌고, 사람이 계산 기계에서 돌린 `bench/run.py --stages m2 --snapshot synth-full-m1-0001`가 P3, P8을 cold와 warm으로 출력(수치는 마일스톤 추적 이슈에).
 - Acceptance: `tests/docs/test_examples.py::test_readme_m2`, `tests/docs/test_scenarios.py::test_scenario[2]`(8.5 사용 시나리오, D19, #219).
+- Notes:
+  - decided (#43 Decisions, 2026-11-19, #587): 길잡이는 `@nx.factor(..., adjustment="degree 0")`로 쓴 52주 고가 비율을 `Returns`로 쓴 같은 모멘텀 옆에 두고, 창 함수 안에서 종목을 가로질러 순위를 매기지 말라고 경고한다.
+  - carried (#43 Decisions, 2026-11-20, #675): `@nx.factor`의 사용자 문서는 같은 값의 0의 부호를 읽는 사용자 함수가 x86에서 다른 값을 줄 수 있다고 경고한다.
 
 **T2.Gb `test(golden): v3.1 ranking and market-series cases (T-26, T-28)`** · `M2` `golden` · S · Blocked by: T0.9 · §5.4.2, §3.2 [V31-13]
 - Context: T-26 백분위 합성, T-28 시장 수준 계열의 행 선택. 소비 티켓 T2.19·T2.20 전에 병합.
@@ -456,6 +488,8 @@ v3는 3자 검토 합의대로 **M0을 계약만으로 줄이고**, 검사기 fu
 - Context: `Market.series(id, column)` 시장 수준 항(그 종목 시장 축, `ready` 그대로), 종목 항과 섞을 때 열 방향 방송, 다른 시장 계열은 판단에서 모으고 창 입력이면 E17, 내장 팩터·사용자 함수 `inputs=`, 없는 id E18, `explain` 표시.
 - Done means: 예제 `examples/dev/regime_filter.py`가 "KOSPI TR이 200일선 위" Filter의 판단별 참/거짓과, 거짓인 판단에서 슬리브가 현금임을 출력.
 - Acceptance: `tests/golden/test_time.py::test_T28_market_series_rows`, `tests/unit/pipeline/test_market_series.py::test_broadcast_to_instruments`, `::test_not_in_cross_section_denominator`, `::test_cross_market_series_window_E17`, `::test_missing_instrument_E18`.
+- Notes:
+  - carried (#43 Decisions, 2026-11-16, #482 and #486): 이 티켓과 T2.5가 둘 다 5.3.2 (6)을 든다. #482의 계획기는 시장 축 하나만 계획하고, 시장을 넘는 항에서 할 일은 #486의 Findings에 있다.
 
 **T2.20 `feat(pipeline): percentile rank with explicit missing policy and weighted composites`** · `M2` `pipeline` · M · Blocked by: T1.11, T2.Gb · §3.3, §5.4.2
 - Context: `pct_rank(higher_is_better, na=drop|bottom|middle)`, `nx.ops.composite`(중첩), 매니페스트 `na` 정책 기록, `coverage.n_na_filled`, `explain` 노드별 백분위·대체 여부.
@@ -466,6 +500,8 @@ v3는 3자 검토 합의대로 **M0을 계약만으로 줄이고**, 검사기 fu
 - Context: `Trad.admin_status/halted/limit_up_close/limit_down_close/price_limit_ratio`(칼럼 묶음별 공개 시각), `universe(exclude=[…])`와 `[universe] exclude`, 허용 이름 검증(E16), `coverage.n_excluded_by_reason`, `explain` 잎.
 - Done means: `nx.universe("KR", exclude=["administrative", "spac"])`의 판단별 제외 수가 이유별로 출력되고, `exclude=["foo"]`는 허용 이름 목록과 E16.
 - Acceptance: `tests/unit/pipeline/test_trad.py::test_column_availability_by_group`, `::test_missing_dataset_E18`, `tests/unit/pipeline/test_universe.py::test_exclude_admin_and_category`, `::test_exclude_unknown_name_E16`, `::test_default_excludes_nothing`.
+- Notes:
+  - carried (#43 Decisions, 2026-11-18, #245): `test_T24_filter_unknown`은 T-24의 `Trad.halted` 행을 커널로만 돌린다. 실행기가 거래 상태를 읽게 하는 이 티켓이 그 행을 실행기로 돌린다.
 
 **T2.22 `feat(pipeline): explicit Filter.fillna, unknown counts per leaf and the unknown-universe notice (E39)`** · `M2` `pipeline` · S · Blocked by: T2.4, T1.25 · §3.3, §5.4.1, §6.6 E39, §5.9.1
 - Context: `Filter.fillna(bool)`(명시적 대체, 매니페스트·`explain`에 기록), 실행 중 유니버스 모름 비율 > 50% → E39(판단 수·잎 이름·입력 칼럼), `coverage.n_unknown_by_leaf`(json).
@@ -513,6 +549,8 @@ v3는 3자 검토 합의대로 **M0을 계약만으로 줄이고**, 검사기 fu
 - Context: 주문 표(5.6.1), 생애 상태·발동 상태·네 수량(INV-18), 수량 사건, `SimConfig`, 판단 시점 수량 고정, `step_session` 뼈대(단계 순서 7개, 시장가만, 비용 0) — 여러 세션 사례(G-10·G-14)를 다음 티켓들이 바로 쓸 수 있게.
 - Done means: 상태 전이 표와 `SimConfig` 손잡이 표(부록 C와 같은 순서)를 출력하는 `nx.describe(nx.execution)`; G-15 통과; 무작위 수량 사건 뒤에도 수량 보존; 세션 시작 현금 발생이 5.6.3 (0)의 규칙으로 `[account] cash_rate` 시계열을 읽고, 없으면 `cash_rate_bps`(#313, 결정 2026-11-10).
 - Acceptance: `tests/unit/execution/test_orders.py::test_allowed_transitions_only`, `::test_quantity_conservation`, `::test_partial_cancel_is_qty_event_not_status`, `::test_frozen_shares_from_decision_value`, `::test_decision_price_recorded`, `tests/unit/execution/test_simconfig.py::test_knobs_match_appendix_C`, `tests/unit/execution/test_loop.py::test_phase_order_skeleton`, `tests/golden/test_execution.py::test_G15`, `tests/unit/test_import_rules.py::test_step_seam_signatures_arrow_only`(`nx.execution._step` 이음새), `tests/golden/test_time.py::test_G_TIME_LATE_order_intents`(G-TIME-LATE: 8.4 표의 주문 의도, 그 목표에서, 각 행이 전제하는 보유는 계좌 상태에 넣어서; 결정 2026-11-10, #356).
+- Notes:
+  - owner decides at the cut (#705 Decisions 12, 2026-11-21; #752 Decisions, 2026-11-26): 비어 있는 `lot_size`(TDS 5.1: 모르면 비움)에 엔진이 무엇을 하는지. #705는 표시가 붙는 이름 있는 정책과, 규칙 팩이 아는 시장에서는 팩의 값을 제안했다(T3.5b도).
 
 **T3.8 `feat(execution): cost models, general impact form and cost table coverage`** · `M3a` `execution` · M · Blocked by: T3.4 · §5.6.8, §4.7 [SC-11]
 - Done means: `nx.costs.realistic()`를 미검증 표로 고르면 E23이 빈 (시장, 기간, 구성요소)를 나열; provisional은 E22; a2=0.5·a3=1에서 제곱근 식과 같은 값; 충격은 세션 누적 수량에 대해 매겨 여러 체결로 나뉜 주문이 주문 하나와 최소 단위 반올림 전에 같은 충격을 냄(5.6.8; #311, 결정 2026-11-10); 비용 구성요소가 최소 단위 정수로 기입; 기본 프로필은 시장별 고정 bp인 `provisional`로 남고, ½스프레드와 충격은 `realistic`에만 있으며 반 호가 단위 하한은 없음(5.6.8; #764, 결정 2026-11-25).
@@ -525,6 +563,8 @@ v3는 3자 검토 합의대로 **M0을 계약만으로 줄이고**, 검사기 fu
 **T3.5b `feat(execution): volume cap and affordable cash allocation with the actual cost function`** · `M3a` `execution` · M · Blocked by: T3.5a, T3.8, T3.Gd · §5.6.6, §5.6.7
 - Done means: G-10, G-12, G-41, G-113(#310) 사례와 같은 표; 현금이 음수가 되는 경우가 없음; 배분은 충격을 그 세션의 `Q_before`로 계산(5.6.7, 5.6.8; #311, 결정 2026-11-10); orders 줄에 `insufficient_cash` 건수·금액.
 - Acceptance: `test_execution.py::test_G10`, `::test_G12`, `tests/unit/execution/test_costs.py::test_G41_affordable_lots_never_negative_cash`, `::test_trim_order_highest_fill_ratio_first`, `::test_cost_reserve_default_zero_recorded`, `test_execution.py::test_G56_bar_volume_cap`, `tests/unit/execution/test_capacity.py::test_bar_volume_bound_counted`(ψ 묶음 비율), `tests/unit/execution/test_sizing.py::test_floor_shares_no_lost_share`(G-53 (d)).
+- Notes:
+  - builder's choice (#43 Decisions, 2026-11-13, #436; 추천: 누적, "주문을 나눠도 합계가 줄지 않는다"를 지키기 때문): 한 배분 걸음에 같은 종목, 같은 방향의 후보가 둘일 때 `Q_before`를 걸음의 시작에서 잡는지 누적으로 잡는지. 슬리브는 종목마다 목표 하나를 가지므로 생기지 않을 수도 있다.
 
 **T3.9 `feat(accounting): splits, reverse splits, stock dividends, bonus issues and capital reductions via the resolver`** · `M3a` `accounting` · M · Blocked by: T3.4, T0.15a, T3.Gc, T3.Gd · §5.6.10, §5.3.3a, §4.6 종류 표
 - Done means: G-16~G-18, G-34, G-45, G-46 통과.
@@ -534,6 +574,8 @@ v3는 3자 검토 합의대로 **M0을 계약만으로 줄이고**, 검사기 fu
 - Context: 기본 `decimal_ratio = "exclude_instrument"` — 보이는 때 v(e)부터 유니버스에서 빼기(그 전에는 안 뺌), 보유분 목표 0, `ts_effective` 전 미체결이면 직전 유효 종가로 닫기(`ca_unverified_exit`), 사건을 가로지르는 창 NaN, 다시 들어오지 않음, 머리 줄·E30·skips·매니페스트; `require_exact`는 E13, `literal` 유지. 5.6.1 (8)의 보고 [#150]: `exit_reason = ca_unverified_exit`, `ca_exclusions.parquet`(들고 있지 않던 종목도 한 행), `hypothetical exits` 줄, 7절 연도별 표, `ca_exit_lo`/`ca_exit_hi` 쌍(`ca_exit_lo`는 n > 0일 때만 재생, `ca_exit_hi`는 기본 실행의 값; 아니면 줄 `ca sensitivity: n/a (0 hypothetical exits)`; 숏 보유분은 `bound open`으로 셈).
 - Done means: 두 경우 모두 G-107의 숫자와 그 `ca_exclusions.parquet` 행, 첫 화면 `hypothetical exits` 줄을 출력하는 예제, 같은 스냅숏으로 스크린과 백테스트의 유니버스가 같음.
 - Acceptance: `tests/golden/test_ca.py::test_G107`, `tests/unit/accounting/test_ca_exclude.py::test_not_before_visible`, `::test_exit_before_effective`, `::test_unverified_exit_close`, `::test_window_nan_across_event`, `::test_require_exact_E13`, `::test_exclusion_row_for_name_not_held`, `::test_hypothetical_exit_pnl_line`, `::test_ca_exit_lo_hi_bracket_long`, `::test_ca_exit_short_bound_open`, `::test_no_ca_exit_replay_without_exit`, `tests/property/test_screen_backtest.py::test_same_universe_with_exclusions`.
+- Notes:
+  - carried (#43 Decisions, 2026-11-19, #445, #450 and #451): 실행에서 `Snapshot.ca_exclusions`를 적용하는 일은 이 티켓의 것이다.
 
 **T3.10 `feat(accounting): cash dividends with entitlements, late amounts, corrections, pay-date declaration and data warnings`** · `M3a` `accounting` · M · Blocked by: T3.9 · §5.6.11, §5.3.3a(4)(7)(10), §4.5 F-05·F-09 *(지급일 추정은 2026-11-24에 사용자의 선언으로 바뀜, #752)*
 - Done means: G-19~G-21, G-35, G-43, G-44, G-111(#310) 통과, 실행 경고에 E28 건수; `degrade=["kr_ex_is_record"]`에서 E30 건수, `degrade=["us_div_split_adjusted_no_dates"]`에서 "amounts unverified" 가정 줄.
@@ -542,6 +584,9 @@ v3는 3자 검토 합의대로 **M0을 계약만으로 줄이고**, 검사기 fu
 **T3.11 `feat(accounting): delisting with knowledge-time proceeds, mergers, rights and unsupported actions`** · `M3a` `accounting` · M · Blocked by: T3.10 · §5.6.12, §5.6.13, §4.5 F-13
 - Done means: G-22~G-26, G-42, G-47, G-115(#310) 통과(G-25는 E12 메시지); `degrade=["no_delistings"]`에서 보유 중 퇴출이 E13(fix 문장, 생산자 이름 없음).
 - Acceptance: `test_accounting.py::test_G22` … `::test_G26`, `::test_G42_recovery_known_later`, `::test_G47_rights_lapse_quantity_unchanged`, `tests/unit/accounting/test_delisting_fallback.py::test_F13_unobserved_synthesized`, `::test_mixed_merger_cash_and_shares`, `::test_merger_exact_ratio`.
+- Notes:
+  - owner decides at the cut (#43 Decisions, outside review of 2026-11-03): Shumway 상장폐지 수익률 정책을 더할지(5.6.13).
+  - carried (#752 Decisions, 2026-11-27): #747이 대가를 모르는 퇴출의 엔진 쪽 빈틈 둘을 갖고 있고(5.6.13), 이 티켓을 만들 때 답한다.
 
 **T3.12 `feat(execution): single-sleeve simulation loop and session step`** · `M3a` `execution` · M · Blocked by: T3.5b, T3.11, T3.22 · §5.6.3, §5.6.14
 - Done means: G-30 통과, `simulate`와 `step_session` 반복 결과 동일, 체크포인트를 아무 단계 경계에서 끊고 이어도 같음.
@@ -550,15 +595,26 @@ v3는 3자 검토 합의대로 **M0을 계약만으로 줄이고**, 검사기 fu
 **T3.13a `feat(api): single-market backtest and metrics`** · `M3a` `api` · M · Blocked by: T3.12, T3.2, T2.9, T2.18, T3.Ge · §5.7, §3.8, §3.9 Run
 - Done means: `uv run nexusbt backtest examples/strategies/mom_kr.py`가 3.9 Run 모양(net/gross, 가정 줄, 비용 직접/경로, 폐지 lo/hi, PSR)을 출력; 5.7의 Calmar 행이 G-110(#310)과 맞는다; Sharpe·PSR·DSR·MinTRL이 5.7의 초과 수익 `r_t − rf_t`로 계산되고 `assumptions` 줄이 3.9의 시계열 꼴이나 상수 꼴을 보인다(#313, 결정 2026-11-10); 첫 화면이 3.9의 시뮬레이션 결과 줄을 싣는다(#764, 결정 2026-11-25).
 - Acceptance: `tests/unit/api/test_backtest.py::test_run_summary_template`, `::test_assumption_lines_present`, `::test_observation_recorded`, `::test_evaluation_label_and_fixed_sample_line`(3.9 `evaluation` 줄과 확인 2에서 PSR·DSR 줄의 "fixed-sample statistic; n looks", #269), `tests/unit/research/test_metrics.py::test_cagr_sharpe_mdd_turnover_known_values`, `::test_cost_drag_direct_vs_path`, `tests/golden/test_metrics.py::test_G60_metrics_and_month_compounding`, `::test_mdd_includes_inception_nav`(G-61 (a)), `tests/unit/api/test_backtest.py::test_assumption_ex_post_volume_cap`, `tests/unit/research/test_metrics.py::test_cagr_from_twr_index_equals_nav_ratio_without_flows`, `::test_turnover_long_only_unchanged`, `tests/docs/test_tool_cards.py::test_card[linear]`, `tests/unit/report/test_next_line.py::test_entries_from_run_facts_not_values`(D19, #218, #219).
+- Notes:
+  - owner decides at the cut (#314 Findings, 2026-11-06; #314 Decision, 2026-11-10): 기준지수의 α와 β를 5.7의 "Relative to benchmark" 행에 두 줄로 둘지. 만드는 쪽의 추천은 더하는 것이고, 새 입력이 필요 없기 때문이다. 지금 계획 문서의 v1.x 밑 "Later (P3)" 문단은 α와 β를 뒤로 미룬 기준지수 회귀 지표에 넣고 있다.
+  - owner decides at the cut (#43 Decisions, 2026-11-19, #437): #437의 Outcome이 열어 둔 네 가지(A1, A4~A6): 여러 통화 실행에서 `rf_t`의 `day_count`와 `date_t`, 두 시장이 한 통화를 나눌 때의 대체, `assumptions` 한 줄에 여러 통화, G-77 (b)의 시험 이름(T3.4, T3.Ge도).
+  - carried (#43 Decisions, 2026-11-19, #445, #450 and #451): `rerun`, `reconcile`, `live`, `fill`이 필요로 하는 검증 표식과 함께 여는 `open_snapshot(cfg, sha256=True)`(4.4 1단계)를 부르는 곳이 없다. 백테스트의 입구는 아직 `NotImplementedError`를 내고, 이 티켓이 그 실행을 `api._begin_run`으로 시작한다.
+  - carried (#725 Decisions 169, 2026-11-23): `backtest`에서 `minimal-daily` 패키지에 4.3의 E18을 주는 코드가 아직 없다.
 
 **T3.13b `feat(api): named scenarios with a single zero-cost replay`** · `M3a` `api` · S · Blocked by: T3.13a · §3.8, §5.7 [SC-06 인자 모양]
 - Done means: `--scenarios gross,cost0x,cost2x`가 재생 두 번(gross, cost2x)만 하고 결과 표에 cost0x가 gross와 같은 계열로 나옴; `capacity`는 T6.14 전 E18.
 - Acceptance: `tests/unit/api/test_backtest.py::test_gross_replayed_once`, `::test_cost_sensitivity_rows`, `::test_scenarios_named_list`, `::test_capacity_not_yet_E18`, `tests/docs/test_tool_cards.py::test_card[scenarios]`(D19, #219).
+- Notes:
+  - decided (#725 Decisions 165, 2026-11-23; #725 Decisions 245): 백테스트는 끝을 모르는 보유 종목마다 마지막 유효 종가와 `ref*`를 찾아, 5.6.13대로 `delist_lo`와 `delist_hi` 범위에 넣고, 골든 사례 하나를 더한다.
 
 **T3.14 `feat(artifacts): backtest outputs, event schemas, derived tables, NAV bridge and cost attribution`** · `M3a` `artifacts` · M · Blocked by: T3.13a · §5.9.1, INV-06, INV-16 [SC-07 비용, SC-23]
 - Done means: `runs/<id>/orders.parquet`·`account_events.parquet`를 polars로 열면 5.9.1 정규 칼럼; `daily.parquet`의 다리 행 합 = NAV 변화; `attribution.parquet`의 비용 행 합 = 주문 비용 칼럼 합(gross − net은 \"직접 + 경로\"로 표시); `report.html`에 비용 분해·시나리오·주문 상태 표, 그리고 3.9의 Run 칸이 3.9 순서로(나중 티켓이 표를 더하는 칸은 n/a 줄을 보임) 3.9 크기 예산 안에서.
 - Acceptance: `tests/unit/artifacts/test_report_html.py::test_run_sections_in_3_9_order`, `::test_run_size_budget`, `tests/unit/artifacts/test_backtest_outputs.py::test_orders_schema`, `::test_account_events_schema_v1`, `::test_pnl_bridge_closes`, `::test_costs_equal_order_costs`, `::test_G49_fee_reduces_quantity`, `::test_coverage_columns`, `::test_daily_has_financing_and_flow_bridge_columns`, `tests/property/test_execution_invariants.py::test_P_DERIVED`, `tests/repo/test_shareable_outputs.py::test_shareable_files_hold_no_local_values`.
 - 공유 가능 산출물(5.9.3, #163): `test_shareable_files_hold_no_local_values`는 F-05가 나도록 `degrade=["kr_ex_is_record"]`로 만든 합성 `small` 스냅숏(4.8)으로 백테스트를 돌리며 다음 값을 심는다: `HOME`을 이름에 `nxplant-home`이 든 임시 폴더로; 프로젝트와 그 `runs/`, 이를 담은 임시 git 저장소를 `<HOME>/nxplant-project`에; `[data] root` = `<HOME>/nxplant-data-root`; git 사용자 이름 `nxplant-git-user`; `nexusbt.toml`의 주석과, 같은 `runs/` 아래 `manual:nxplant` 장부에 기록한 체결 행의 `note`에 계좌 번호 `NXPLANT-ACCT-90417`(지금 백테스트는 장부를 읽지 않으므로 이 부분은 나중 변경을 막는 장치); 그리고 생성기가 쓰는 `producer` 블록(4.8) 대신 이름 `nxplant-producer`, 버전 `nxplant-build`, `nxplant-hint`가 든 `fallback:F-05` hint 문장을 가진 블록. 먼저 실행 경고에 `fallback:F-05`가 있는지 본다. 그다음 5.9.3의 공유 가능 파일 전부를 텍스트로 읽어 — JSON과 HTML은 쓰인 그대로, Parquet은 페이지가 압축돼 있으므로 풀어서(모든 문자열 값과 키-값 메타데이터) — 다음이 하나도 없음을 본다: 쓰인 형태와 풀어 쓴 형태의 `HOME` 경로, `nxplant-project`, `nxplant-data-root`, `nxplant-git-user`, `NXPLANT-ACCT-90417`, `nxplant-producer`, `nxplant-build`, `nxplant-hint`, 그리고 호스트 이름(`socket.gethostname()`)과 로그인(`getpass.getuser()`)은 4글자 이상일 때(더 짧으면 확인 안 됨으로 보고). 또 `source/nexusbt.toml`에서 `nxplant-data-root`를 찾아, 심은 값이 실행에 닿았음을 보인다.
+- Notes:
+  - carried (#43 Decisions, 2026-11-19, #249): 4.6의 `AdjustmentUnavailable` 수, 곧 (종목, 사건) 짝마다 하나를 종목과 해별로 coverage 표에 두고 사건 id는 보고서에 두는 일은 이 티켓의 것이다. `execute()`는 `adjusted_window`가 돌려준 짝을 버리므로, 이 티켓은 실행기가 그것을 부른 쪽에 넘기게도 한다.
+  - owner decides at the cut (#43 Decisions, 2026-11-19, #401 and #420): 8.2가 "the M3 golden ticket that precedes T3.14"에 주었으나 T3.Ga, T3.Gc, T3.Gd, T3.Ge, T3.Gr 어느 것도 들지 않는 G-117과 G-118을 어느 골든 티켓이 쓰는지, 그리고 `survivorship.parquet`과 `coverage_fields.parquet`의 시험.
+  - owner decides at the cut (#43 Decisions, 2026-11-20, #250): 키의 뜻을 바꾸는 첫 변경 전에 실행 manifest의 `schema_version`을 올리는 규칙(#250은 선택 칸 `source{entry, outside}`를 더하면서 `"nexusbt-run/2"`를 그대로 두었다).
 
 **T3.15a `feat(execution): zipline parity preset (market orders, costs, sizing)`** · `M3a` `execution` · S · Blocked by: T3.12 · §5.6.15 [SC-12]
 - Done means: `preset="zipline"` 실행 보고서 머리에 "parity preset (not a realistic model)".
@@ -567,6 +623,10 @@ v3는 3자 검토 합의대로 **M0을 계약만으로 줄이고**, 검사기 fu
 **T3.16 `test(property): accounting and state-machine invariants`** · `M3a` `property` · M · Blocked by: T3.13a · §8.3
 - Done means: `uv run pytest -m property -k "NAV or BRIDGE or QTY or RESUME or STATE or PARITY13"` 통과.
 - Acceptance: `tests/property/test_execution_invariants.py::test_P_NAV`, `::test_P_BRIDGE`, `::test_P_QTY`, `::test_P_RESUME`, `::test_P_STATE`, `::test_P_PARITY13_single_market`, `tests/property/test_fillcausal.py::test_P_FILLCAUSAL_open_independent_of_later_hlc`, `::test_bar_volume_cap_monotone_for_isolated_order`(두 성질), `tests/property/test_execution_invariants.py::test_P_QTY_integer_ratios`.
+- Notes:
+  - carried (#43 Decisions, 2026-11-20, #254): M1의 P-FUT은 `decision_ts ≤ τ`인 행에서 `run_pipeline`의 표와 `term_diagnostics`를 비교한다. 목표와 주문을 만드는 티켓이 8.3의 행대로 P-FUT을 넓혀 그것들도 비교한다(T3.13a도).
+  - carried (#43 Decisions, 2026-11-21, #255): M1의 P-START와 M-SCALE은 `run_pipeline`의 표와 `term_diagnostics`를 비교한다. 목표를 만드는 티켓이 둘을 8.3이 이름 댄 정규 목표와 목표 비중으로 넓힌다(T3.13a도).
+  - carried (#43 Decisions, 2026-11-04, #207): 5.7은 계좌 층이 시나리오 안에서 다시 돈다고 하지만(예: `cost2x`에서만 걸리는 브레이크), 8.3에는 그것을 확인하는 성질 행이 없다. 자를 때 그 행을 더하고 그것을 시험하는 티켓을 이름 댄다(T3.13b도).
 
 **T3.17a `test(parity): L2-a, L2-b, L2-c backtests against the zipline preset`** · `M3a` `parity` · M · Blocked by: T3.15a, T1.17 · §8.1 [SC-12]
 - Done means: L2-a·b·c 증거 JSON이 커밋된다.
@@ -599,6 +659,9 @@ v3는 3자 검토 합의대로 **M0을 계약만으로 줄이고**, 검사기 fu
 - Context: 팩 `[rounding]`(구성요소별 mode·단위), 사용자 `[rounding.<MARKET>]` 덮어쓰기, 기본 KR 수수료·세금·원천징수 `down`·나머지 half_up, US half_up, `settings_hash`에 팩 판.
 - Done means: G-58이 기본 KR 팩 23원·시험 팩(half_up) 24원을 출력하고 다리 `rounding` 행이 닫힌다.
 - Acceptance: `tests/golden/test_execution.py::test_G58_component_rounding`, `tests/unit/accounting/test_rounding.py::test_kr_default_down_us_half_up`, `::test_user_override_recorded_in_settings_hash`.
+- Notes:
+  - carried (#43 Decisions, 2026-11-02, #95): 규칙 팩은 반올림 `mode`를 `RoundingModePolicy`의 값과 맞대어 본 그냥 문자열로 가진다. 팩의 `[rounding]`과 사용자의 `[rounding.<MARKET>]`을 합치는 이 티켓이 그것을 멤버로 바꾼다.
+  - carried (#43 Decisions, 2026-11-02, #94): `load_config`는 규칙 팩의 기본값을 비교하지 않는다.
 
 **T3.25 `feat(execution): minimum trade threshold and rebalance band at the order-intent stage`** · `M3a` `execution` · S · Blocked by: T3.5b, T3.Gd · §3.7, §5.6.7, §3.11
 - Context: `min_trade_value`·`min_trade_weight`·`rebalance_band`·`band_mode`(인자와 toml), 새 진입·완전 청산·부호 바뀜 제외, `order_suppressed(small|band)`, 보고 줄, 프리셋 끔.
@@ -644,6 +707,8 @@ v3는 3자 검토 합의대로 **M0을 계약만으로 줄이고**, 검사기 fu
 - Context: `skips.parquet`, 이유 코드 목록 `skips.toml`(이유마다 E 코드), E45, 보고서·CLI 첫 화면 "skipped:" 줄(0이면 none).
 - Done means: 결측이 많은 합성 전략의 backtest 첫 화면에 "skipped: n rows in k reasons (top: …)"가 보인다.
 - Acceptance: `tests/property/test_skips.py::test_P_SKIP`, `tests/unit/artifacts/test_skips.py::test_every_reason_has_code`, `::test_summary_line_always_present`.
+- Notes:
+  - carried (#43 Decisions, 2026-11-19, #246 and #570): `declaration_unchecked`(E45)는 6.6의 사유 목록에 있고 엔진은 실행 끝에 그것을 경고하지만, `skips.parquet`에는 행이 가지 않고 `skips.toml`은 없다. 이 티켓이 그 행을 쓴다.
 
 **T3.34 `feat(api): strategy.replace and backtest preview`** · `M3a` `api` · S · Blocked by: T3.13a, T3.27 · §3.7, §3.8 preview, §3.10
 - Context: `Strategy.replace(**slots)`(이름 표시 `~slot`), `backtest(preview=True)`·CLI `--preview`(선택 구간 안 마지막 1년·거래대금 상위 200·시나리오 끔·`kind="preview"`, 새 전략이면 후보 +1·관측 `fidelity="preview"`, hygiene `preview runs` 줄), `[preview]` 키.
@@ -669,6 +734,8 @@ v3는 3자 검토 합의대로 **M0을 계약만으로 줄이고**, 검사기 fu
 **T3.7 `feat(execution): exit order lifecycle, resizing and OCO`** · `M3b` `execution` · M · Blocked by: T3.6 · §3.7 탈출, §5.6.2a, §5.6.4
 - Done means: G-07~G-09, G-38, G-39 통과; 트레일링 손절가가 날마다 오르는 표 출력.
 - Acceptance: `test_execution.py::test_G07`, `::test_G08`, `::test_G09`, `::test_G38_partial_oco_keeps_protection`, `::test_G39_exit_never_expires`, `tests/unit/execution/test_exits.py::test_created_after_entry_fill`, `::test_resized_on_position_change`, `::test_trailing_updates_at_close`, `::test_time_stop_reserved`, `::test_partial_adverse_oco_keeps_remaining_protection`.
+- Notes:
+  - owner decides at the cut (#43 Decisions, outside review of 2026-11-03): 경로를 정할 수 있을 때 같은 봉의 이익 실현 예외를 더할지(동작 변경, 골든 사례와 함께; 5.6.4).
 
 **T3.17b `test(parity): L2-d order types against zipline semantics`** · `M3b` `parity` · S · Blocked by: T3.15b, T3.17a · §8.1 [SC-12]
 - Done means: L2-d 증거 JSON이 커밋되고 `engine / parity`가 필수 검사로 추가됨(사용자).
@@ -681,6 +748,8 @@ v3는 3자 검토 합의대로 **M0을 계약만으로 줄이고**, 검사기 fu
 **T3.20 `feat(research): MinTRL, Lo-adjusted Sharpe, drawdown durations and signal-weight correlation`** · `M3b` `research` · M · Blocked by: T3.13a, T3.Ge · §5.7 [SC-08, SC-09]
 - Done means: 손으로 만든 수익 계열에서 MinTRL·ρ1·Lo Sharpe(lags ≤ 10)·낙폭 기간·회복 기간·최악 월이 기대값과 같게 출력; Run 첫 화면에 MinTRL·signal-weight corr 줄.
 - Acceptance: `tests/unit/research/test_risk_stats.py::test_min_trl_known_value`, `::test_lo_sharpe_only_when_rho_large`, `::test_drawdown_and_recovery_durations`, `::test_worst_month`, `tests/golden/test_metrics.py::test_G61_drawdown_edges`, `::test_worst_month_compounds`, `::test_signal_weight_corr_definition`, `::test_stat_unavailable_cases`, `tests/docs/test_tool_cards.py::test_card[min-trl]`, `::test_card[lo-sharpe]`(D19, #219).
+- Notes:
+  - carried (#43 Decisions, 2026-11-19, #439): Sharpe, PSR, DSR, MinTRL은 초과 수익 `r_t − rf_t`로 계산하는데 5.7의 `ρ1`과 6.3의 Lo Sharpe 행은 아직 "daily net returns"라 한다. 이 티켓이 자기상관이 어느 수익을 쓰는지 말하고 행들이 따른다.
 
 **T3.Gf `test(golden): price grid cases (G-57)`** · `M3b` `golden` · S · Blocked by: T0.9 · §5.6.4a, §8.2
 - Context: G-57 (a)~(h)(US 1 ULP, KR 손절 내림, 지정가 매수 내림, 상하한 계산값, 숏 환매 손절 올림; 가격대를 넘는 비교, 분수 시대·격자 밖 봉, 경계 넘는 맞춤·GTC 재맞춤). T3.24 전에 병합.
@@ -691,6 +760,14 @@ v3는 3자 검토 합의대로 **M0을 계약만으로 줄이고**, 검사기 fu
 - Context: 격자 원천 순서(종목 → `market_rules` → 팩 → 최소 단위), 주문 가격 보수적 맞춤(지정가·손절·탈출·재조정·분할 뒤; 가격대 경계를 넘는 맞춤), 규칙 날짜 GTC 재맞춤(`order_rebased(grid)`), `price_rounded` 사건·`price_unrounded`, 봉·주문 가격의 `base_unit` 정수 변환과 비교, 격자 밖 봉 `off_grid_bar`, F-15, 프리셋 끔.
 - Done means: G-57 (a)~(h) 사례 표가 그대로 나오고 `degrade=["no_tick_info"]`에서 E30 "price grid = currency minor unit".
 - Acceptance: `tests/golden/test_execution.py::test_G57_price_grid`, `tests/unit/execution/test_grid.py::test_source_order`, `::test_conservative_direction_table`, `::test_ulp_noise_compares_equal`, `::test_price_order_preserved_across_tick_bands`, `::test_snap_crosses_band_to_valid_price`, `::test_gtc_regridded_at_rule_date_boundary`, `::test_off_grid_bar_kept_and_counted`, `tests/property/test_execution_invariants.py::test_P_GRID`.
+- Notes:
+  - carried (#43 v1.x follow-ups, 2026-11-01, #31; #752 Decisions, 2026-11-26): 미국의 종목별 호가 단위 배정은 2027-11-01부터 적용되고 그 전에 `main`에 있어야 한다. 엔진이 그것을 어디서 읽는지는 #802에서 정한다.
+  - carried (#43 Decisions, 2026-11-20, #660): `_no_grid`는 시장에 어떤 종류의 규칙이 어느 날짜에든 있는지를 읽으므로, 뒤의 행이 앞선 결정의 격자 출처를 바꿀 수 있다. 이 티켓이 #660의 규칙(행은 `valid_from`부터 `valid_to`까지 적용, 앞질러 읽지 않음)으로 있음 검사를 정하고, 그러면 P-FUT이 `market_rules`를 `valid_from`으로 자른다.
+  - carried (#43 Decisions, 2026-11-05, #287 and #303): 5.6.4a의 "`U` and `D` … are snapped to the grid too"는 조건 없이 읽히는데 5.6.5는 시장에 호가표가 없으면 반올림하지 않는다. 이 티켓이 5.6.4a가 호가표 없는 경우를 말하게 하되, 스펙 변경으로 주인에게 묻는다.
+  - carried (#43 Decisions, 2026-11-16, #453): 격자 출처가 있는 시장에서 격자 출처가 없는 종목은 F-15가 아니라 결정 때 최소 단위로 떨어진다. 이 티켓은 가정 문장에 그 출처를 대고 그런 종목의 수를 준다.
+  - owner decides at the cut (#43 Decisions, 2026-11-16, #453): `base_unit`만 있는 팩의 `[grid]`를 열 때 격자로 칠지.
+  - carried (#43 Decisions, 2026-11-02, #104): `ticks/kr_tick_table_v1.csv`에서 ETF는 KOSPI, KOSDAQ, KONEX에 공통인 2023년 표(`venue_group = *`)와 `ETF` 행(모든 구간에서 5원) 둘 다에 맞는다. 이 티켓이 어느 것이 이기는지 말한다.
+  - carried (#43 Decisions, 2026-11-02, #54): 스펙 4.7은 소수점 이전 미국의 1달러 미만 호가나 2010–2023년 한국 호가표의 KONEX 행 값을 주지 않으므로, 씨앗 표는 어느 행도 갖지 않는다.
 
 **T3.33 `feat(execution): time stop exit in the OCO group and no-reentry rule`** · `M3b` `execution` · S · Blocked by: T3.7, T3.30 · §3.7 탈출, §5.5.2a
 - Context: `exits.time_stop(n)`(첫 진입 세션 = 1, 시장 달력 세션·정지일 포함 [V31-52], 종가 뒤 생성·다음 시가), 손절·이익실현과 OCO, 부호 바뀌면 새로 셈; `risk.no_reentry(sessions, after)`(탈출 사건 읽기).
@@ -1192,6 +1269,18 @@ v3는 3자 검토 합의대로 **M0을 계약만으로 줄이고**, 검사기 fu
 - carried (#43 Decisions, 2026-11-18; #752 Decisions, 2026-11-26): T-24의 `nx.Item.sector.eq(1)` 행은 `nx.Item`을 읽는 쪽이 생기면 실행기로 돌린다. 지금 `test_T24_filter_unknown`은 그 행을 커널로만 돌린다.
 - decided (#725 Decisions 226, 2026-11-24): 값 표의 사용자 문서는 공급자가 이미 고쳐 낸 값에는 종류 선언이 필요 없음을 예와 함께 보인다(스펙 5.3.5).
 - decided (#725 Decisions 105, 2026-11-23): 가격 기준의 사용자 쪽 이름은 TDS 5.5의 셋(`raw`, `split_adjusted`, `total_adjusted`)이다.
+- decided (#705 Decisions 23, 2026-11-22; #708 Question, 2026-11-21): 엔진이 다른 엔진의 장점을 가져오고 약점을 푼다는 것이 돌려서 화면으로 보여지기 전까지는, 어떤 README나 문서도 그렇다고 말하지 않고 많아야 그렇게 설계되었다고 말한다(T2.17이 빠른 시작에 같은 것을 가진다).
+- carried (#708 check table 1, 2026-11-21): 도구의 티켓들은 한 줄 명령과 Python으로 넘긴 표 두 길 모두에서 가격 파일 하나로 첫 결과까지를 세어 보인다(준비한 파일, 쓴 줄, 친 명령). 사용자는 시장, 가격 기준, 종류 세 가지를 쓴다.
+- carried (#708 check table 2, 3 and 4, 2026-11-21): 가격 기준을 쓰지 않았을 때의 멈춤 화면; 가운데 하루가 빈 파일에서 그날이 `missing`으로 남고 표시되는 것; 시장 휴일이 든 자료가 오류 없이 돌고 달력의 출처가 기록되는 것을 보인다.
+- carried (#708 check table 5 and 7, 2026-11-21): 분할이 있는 종목에서 엔진이 사건으로 계산한 값; 가격만 있는 자료와 다 갖춘 자료에서 같은 계산을 하여 표시 블록이 어떻게 다른지, 무엇을 할 수 없고 무엇을 더할지를 보인다.
+- carried (#708 check table 8, 2026-11-21; #725 Decisions 77): 두 가지로 읽히는 날짜 꼴, 빠진 필수 칼럼, 모르는 단위가 각각 무엇을 쓸지와 함께 도구를 멈추는 것을 보인다.
+- carried (#708 check table 11, 12 and 13, 2026-11-21): 같은 입력을 세 길로 넣어도 값 해시와 의미 해시가 같다는 것; 사용자가 말하지 않은 값은 모두 도구가 정한 것 목록에 있고 말한 값은 없다는 것; 가격 파일의 코드에서 만든 종목이 `listed_on` = 첫 봉, `listed_on_censored = true`를 갖고 `last_session`도 상장폐지도 없으며 `lot_size`가 비어 있다는 것(T3.4)을 보인다.
+- carried (#708 check table 15, 2026-11-22; #705 Decisions 48): 종목 코드, 날짜, `close`만 든 지어낸 파일을 이 엔진과 다른 엔진에 같은 식으로 넣고, 각각이 무엇을 받고, 거절하고, 할 수 없다고 말하는지 적는다.
+- carried (#708 To look at in step 3, 2026-11-21): 사용자의 입력에 `cum_factor_*` 같은 조정 계수 칼럼이 있으면, 도구는 그 칼럼을 쓰지 않으며 엔진이 분할과 배당 사건으로 조정을 계산한다고 말한다.
+- carried (#738 Decision, 2026-11-23): 주식 배당, 무상 증자, 감자에는 분할 파일과 배당 파일이 담지 않는 `kind`가 필요하다.
+- owner decides at the cut (#738 Findings 18, 2026-11-23): 사용자가 준 배당의 발표일이 `ts_announced`를 채우는지. 비워 두면 사건은 `ts_effective`부터 알려진다(TDS 5.11).
+- carried (#738 Decision, 2026-11-23): 봉 날짜에서 짐작한 달력은 마지막 봉에서 끝나므로, 그 뒤의 배당락일이나 퇴출에는 세션이 없다. 도구는 그렇다고 말한다.
+- carried (#738 Decision, 2026-11-23): 가격 파일만으로 `tradability_daily`에 줄 수 있는 정직한 내용은 `status_known = false`뿐이다.
 
 #### The next TDS revision
 
@@ -1234,6 +1323,11 @@ v3는 3자 검토 합의대로 **M0을 계약만으로 줄이고**, 검사기 fu
 - carried (#43 Decisions, 2026-11-19, #252 and #595): M1 끝에 패리티 증거 파일 `tests/parity/evidence/<date>-<sha>-all-small.json`을 `main`에서 돈 `engine / parity`로 커밋한다. PR의 실행은 그것을 올리지 않는다.
 - carried (#43 Decisions, 2026-11-20, #253): `percentile_between`과 `zscore`는 zipline과 다르고(ADR 0046) 골든 손계산이 없으며, 손으로 낸 숫자의 단위 시험만 있다.
 - carried (#725 Decisions 150 and 151, 2026-11-23): 3단계의 후보는 값 해시의 정규 바이트를 위한 칼럼이나 묶음 단위 인코더이며, `hash_spec`과 값은 그대로 둔다. #732의 첫 `full` 검사가 빨라진다는 말은 재기 전에 하지 않는다.
+- carried (#708 To look at in step 3, 2026-11-21): `tds check --level full`의 첫 줄은 `<profile>: declared, verified to schema, not_checked`라고 읽힌다. `full`을 물었는데 `schema`를 대고, 셋째 부분은 무엇을 확인하지 않았는지도 왜인지도 대지 않는다.
+- carried (#708 To look at in step 3, 2026-11-21): numpy의 "generic" timedelta 단위에 대한 `DeprecationWarning`이 `nx.run_pipeline` 한 번에 사용자 화면에 두 번 나왔다(그날 본 것, 다시 확인하지 않음).
+- carried (#708 To look at in step 3, 2026-11-21; #705 Decisions 28): 전체 자료를 서버에서 만드는 날 한 번, 생성기의 기록을 `full` 프리셋 전체에 걸쳐 해석기와 맞대어 돌린다(`NEXUSBT_SYNTH_FULL=<empty folder> uv run pytest tests/unit/testing/test_synth.py -k full_record`).
+- carried (#43 Decisions, 2026-11-18, #492): `shift`로 읽은 늦은 칸의 골든 사례(T-12의 주제)를 ADR 0044의 시간 계약 아래에서 사람이 손으로 확인한다. 그것을 가진 티켓은 없다.
+- carried (#43 Decisions, 2026-11-19, #277 and #323): 8.2의 T-25 줄은 3.4와 골든 팩터 파일이 `decay_rate`라 부르는 것을 `decay=`로 쓰고, T-20 줄은 사례가 `params.ready_delay = PT5M`의 칼럼 공개 규칙을 쓰는데도 "a late bar (`ts_end+PT5M`)"라 한다. 8.2를 다음에 고칠 때 값은 바꾸지 않고 둘을 사례에 맞춘다.
 
 ### 10.2 생산자 쪽 티켓 (공개판에서 뺌)
 
