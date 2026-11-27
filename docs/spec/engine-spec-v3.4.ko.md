@@ -285,11 +285,11 @@ nexusbt/                                     (공개 저장소, Apache-2.0)
 ├── LICENSE  NOTICE  pyproject.toml(workspace)  uv.lock  .python-version
 ├── AGENTS.md  CONTEXT.md  README.md(영어)  CONTRIBUTING.md  SECURITY.md  CODE_OF_CONDUCT.md  CHANGELOG.md
 ├── docs/spec/engine-spec-v3.4.md             (이 문서; 비공개 주석·개인 정보·호스트를 뺀 공개판)
+├── docs/tds/tds-v1.4.md                      (TDS 문서 본문, 옆에 tds-v1.4.ko.md와 tds-examples.md; engine-data-standard-v1.4.md에서 11장(생산자 대응)·개인 정보를 뺀 공개판)
 ├── docs/quickstart.md                        (영어 빠른 시작, 8.5 시험 대상)
 ├── docs/adr/0001-… .md                       (9.3)
 ├── tds/                                      ★ 자료 표준 (따로 판 매김)
 │   ├── README.md  CHANGELOG.md
-│   ├── spec/tds-v1.md                         (TDS 문서 본문; engine-data-standard-v1.4.md에서 11장(생산자 대응)·개인 정보를 뺀 공개판)
 │   ├── schemas/<kind>/<MAJOR.MINOR>.json      (기계가 읽는 데이터셋 스키마 원본, TDS 10.3; `status: stable|experimental`)
 │   ├── conformance/<code>/{pass,fail}/        (코드마다 통과·실패 작은 패키지, TDS 8.5)
 │   ├── conformance/hash-vectors.json          (값·의미 해시 언어 무관 시험 벡터, TDS 4.5)
@@ -381,7 +381,7 @@ contracts ← artifacts ← api
 - `::test_no_data_files` — 저장소의 `*.parquet`, `*.duckdb`, `*.csv`(단 `src/nexusbt/resources/**`와 `tds/conformance/**` 아래의 손으로 쓴 작은 파일 제외)를 찾으면 실패. `tds/conformance/`와 `tests/` 자료는 생성 스크립트로 만들고 생성 스크립트와 해시가 맞아야 한다.
 - `::test_fixtures_are_synthetic` — `tests/**`에서 스냅숏을 여는 모든 곳(`DataConfig(path=…)`, `nx.open(…)`, `snapshot=` 인자, 경로를 준 `tds check`)은 `nx.testing.synth.make_snapshot`이 만든 경로, 시험의 임시 폴더에 있는 매핑 파일로 `nexusbt_tds.import_csv`가 만든 경로, 그런 패키지의 복사본이나 고친 본, 그런 패키지를 써 넣은 폴더(데이터 루트)와 그 안의 경로, 저장소 뿌리에서 닿은 `tds/conformance/` 아래의 패키지(`tds/tests/test_cli.py::test_committed_packages_match_the_generator`가 `tds/conformance/build.py`의 출력임을 보이는 것)와 그 복사본, 또는 8.1의 패리티 실행기가 생성기 명령(`python -m nexusbt.testing.synth --out`)으로 쓰고 자기 매니페스트에 적은 패키지만 쓴다. 문자열 리터럴에서 시작하는 경로는 통과하지 않는다. 정적 검사다. 시험 코드가 경로를 어떻게 만드는지를 읽을 뿐 파일의 내용은 보지 않으므로, 실수로 적은 경로는 잡지만 검사를 피하려고 쓴 코드는 잡지 못한다. 매핑 파일이 가리키는 파일이나 시험이 데이터 루트에 복사해 넣은 것은 읽지 않는다.
 - `::test_license_headers` — `LICENSE`가 Apache-2.0, 이식 파일은 출처 머리말이 있음.
-- `::test_tds_public_has_no_producer_names` — `tds/spec/tds-v1.md`에 특정 생산자 이름·티켓이 없음(TDS 11장은 공개판에서 뺌).
+- `::test_tds_public_has_no_producer_names` — `docs/tds/tds-v1.4.md`에 특정 생산자 이름·티켓이 없음(TDS 11장은 공개판에서 뺌).
 
 
 ---
@@ -1100,7 +1100,7 @@ write: orders.to_csv("orders/{date}.csv")   apply to paper book: nx.fill(book, o
 
 ### 4.1 정본과 이 장의 범위 [SC-24, R-66]
 
-- **입력 형식의 정본은 TDS v1.4이다** (`engine-data-standard-v1.4.md`; v1.1 대비 바뀐 점은 TDS 16장 [V31], v1.2 대비는 17장 [R3], v1.3 대비는 18장 [R4F]; 저장소에서는 `tds/spec/tds-v1.md`, 9.1). 칼럼 이름·형·null·열쇠·정렬·파티션·공개 시각 규칙·해시·검사 코드는 TDS가 정하고, 이 명세는 그것을 다시 적지 않는다. 이 명세와 TDS의 입력 형식 설명이 다르면 TDS가 맞다(v1 명세 4장과의 차이 TDS-D1~D24는 이 v2 전체에 이미 반영했다; 대응은 부록 B.3).
+- **입력 형식의 정본은 TDS v1.4이다** (`engine-data-standard-v1.4.md`; v1.1 대비 바뀐 점은 TDS 16장 [V31], v1.2 대비는 17장 [R3], v1.3 대비는 18장 [R4F]; 저장소에서는 `docs/tds/tds-v1.4.md`, 9.1). 칼럼 이름·형·null·열쇠·정렬·파티션·공개 시각 규칙·해시·검사 코드는 TDS가 정하고, 이 명세는 그것을 다시 적지 않는다. 이 명세와 TDS의 입력 형식 설명이 다르면 TDS가 맞다(v1 명세 4장과의 차이 TDS-D1~D24는 이 v2 전체에 이미 반영했다; 대응은 부록 B.3).
 - 이 장이 정하는 것은 **엔진 쪽**만이다: 엔진이 요구하는 능력(4.3), 열 때 하는 검사(4.4), 칼럼이 모자랄 때의 대체 동작(4.5), 데이터셋별 읽기 규칙(4.6), 엔진 자원 파일과 시장 규칙 팩(4.7), 합성 생성기(4.8).
 - 판 규칙: 엔진은 `tds_version` MAJOR = 1인 패키지만 연다(아니면 E14 + `TDS-M002`). 같은 MAJOR의 더 높은 MINOR는 열되 **모르는 기능을 쓰는지**로 나눈다 [TDS 10.3]: 모르는 칼럼·**선택** 데이터셋은 무시하고 `TDS-M011` 경고; 모르는 **서술용** 열린 열거값(`category`, `delist_type`, `reason` 등)은 `other`로 읽음(`asset_class`는 따로, 4.6); **실행에 영향이 있는 닫힌 열거**(`kind`, `obs_status`, `exit_value_status`, `status`)의 모르는 값과 모르는 **필수 해석 규칙**(새 `availability` 규칙 이름 등)은 `TDS-M014` → E14("this engine does not support …"). 모든 미래 1.x 패키지를 무조건 받는다고 약속하지 않는다.
 - TDS에는 틱·호가·선물·옵션·코인의 스키마도, 그 초안들이 한때 이름 붙인 다른 종류의 스키마도 없다. 그런 종류는 나중에, 주식부터 더할 수 있다(11장) [#725 결정 252, 253].
@@ -2842,7 +2842,7 @@ README·`docs/`·`examples/`의 ```python 블록 중 `<!-- test -->` 표시가 �
 |---|---|---|---|
 | 1 시작 | `/plinth:new-project <owner>/<이름> --archetype=library`(**공개 저장소**) → 첫 PR 병합 → 토큰·계정·손으로 할 네 가지 → `LICENSE`(Apache-2.0)·`NOTICE` 확인 | 사용자 | 9.1 |
 | 2 생각 모으기 | `CONTEXT.md`(용어)와 첫 ADR들을 PR 하나로 | 에이전트 작성, 사용자 병합 | 9.2, 9.3 |
-| 3 큰 일 계획 | 이 명세를 저장소 `docs/spec/engine-spec-v3.4.md`로, TDS를 `tds/spec/tds-v1.md`로 넣고(둘 다 비공개 주석·개인 정보·경로를 뺀 공개판, 2.7), `/to-spec`으로 계획 이슈 하나, `/to-tickets`로 10장 티켓을 이슈로 | 사용자가 명령 | 9.4, 10장 |
+| 3 큰 일 계획 | 이 명세를 저장소 `docs/spec/engine-spec-v3.4.md`로, TDS를 `docs/tds/tds-v1.4.md`로 넣고(둘 다 비공개 주석·개인 정보·경로를 뺀 공개판, 2.7), `/to-spec`으로 계획 이슈 하나, `/to-tickets`로 10장 티켓을 이슈로 | 사용자가 명령 | 9.4, 10장 |
 | 4 티켓 하나 만들기 | `/clear` → `/implement #N` (tdd + code-review), 한 세션에 티켓 하나 | 사용자가 명령, 에이전트 구현 | 9.5 |
 | 5 검사가 못 보는 것 확인 | 필수 검사 초록 + 티켓의 "Done means"를 `/run`으로 눈으로 | 사용자 | 9.6, 10장 마일스톤별 "보여 줄 명령" |
 | 6 병합 | 사용자가 "merge" | 사용자 | |
@@ -2908,7 +2908,7 @@ pytest 표시: `unit`, `golden`, `property`, `docs`, `examples`, `parity`, `perf
 
 ### 9.4 단계 3: 계획 이슈와 티켓
 
-1. M0 첫 티켓(T0.1)이 이 명세를 `docs/spec/engine-spec-v3.4.md`로, TDS v1.4을 `tds/spec/tds-v1.md`로 넣는다(내용 그대로; 이름 문자열만 저장소 이름에 맞추고, 비공개 주석·TDS 11장·사용자 개인 정보·호스트·자료 경로를 뺀 공개판, 2.7).
+1. M0 첫 티켓(T0.1)이 이 명세를 `docs/spec/engine-spec-v3.4.md`로, TDS v1.4을 `docs/tds/tds-v1.4.md`로 넣는다(내용 그대로; 이름 문자열만 저장소 이름에 맞추고, 비공개 주석·TDS 11장·사용자 개인 정보·호스트·자료 경로를 뺀 공개판, 2.7).
 2. 사용자: `claude plugin install mattpocock-skills-extra@plinth`(한 번) → 새 세션 → `/to-spec docs/spec/engine-spec-v3.4.md`. 계획 이슈 하나("spec: NexusBT v1 (spec v3.4)")가 생긴다. 본문 = 1장 범위, 10장 마일스톤 표, 12장 열린 것, 그리고 명세 파일 링크.
 3. `/to-tickets` on 그 계획 이슈. 10장의 티켓은 이미 잘려 있으므로 그대로 이슈로 만든다: 제목 = 티켓 제목, 본문 = Context / Done means / Acceptance tests / Spec 절, 라벨 = `task`와 분류 라벨(마일스톤·모듈 라벨은 없다: 본문 `## Parent`의 마일스톤 표시(`M1` 등)가 마일스톤을 말하며, 티켓 id 앞자리와 늘 같지는 않다), "Blocked by #N" = 의존 티켓의 이슈 번호. 티켓을 다시 쪼개야 하면 같은 형식을 지킨다(400줄 규칙). 이슈로 만들기 전에 `tests/repo/test_ticket_graph.py`(이 명세 10장 표를 읽어 의존 그래프가 비순환이고 각 티켓의 "Blocked by"가 같거나 앞 마일스톤인지 확인)를 한 번 돌린다(T0.12가 만든다).
 4. GitHub milestone은 만들지 않는다. 마일스톤 추적 이슈는 계획 이슈 자체다: 그 `## Milestone status` 표가 마일스톤마다 끝난 티켓과 PR, 그리고 "끝 조건"(10장)과 "보여 줄 명령"을 언제 채웠는지 적는다. 이 명세가 수치나 체크리스트를 "마일스톤 추적 이슈에" 두라고 하는 곳은 모두 그 표의 해당 마일스톤 줄이다.
