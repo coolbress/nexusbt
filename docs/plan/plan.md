@@ -373,9 +373,6 @@ Rules across tickets, one line each (written as `README.md` in this folder says)
 - Acceptance: `test_handcalc_self.py::test_time_cases_M2_expected_present`.
 - Notes:
   - carried (#43 Decisions, 2026-11-19, #583): when this ticket writes T-08, it also checks #583's behaviour through that case: `Price.close_tr` read through the public `nx.run_pipeline`, with the hand-checked values and 5.3.4's late amount.
-  - carried (#43 Decisions, 2026-11-18, #492): a golden case with a late cell read through `shift`, hand-checked by a person under ADR 0044's time contract.
-  - carried (#43 Decisions, 2026-11-19, #277 and #323): 8.2's T-25 line writes `decay=` where 3.4 and the golden factor file name `decay_rate`, and its T-20 line says "a late bar (`ts_end+PT5M`)" where the case uses the column availability rule with `params.ready_delay = PT5M`; the next edit of 8.2 brings both in step with the cases, no value changing.
-
 **T2.1 `feat(data): rectangle two-time-axis lookup of symbol periods`** · `M2` `data` · M · Blocked by: T1.4, T0.14b, T2.G · §5.3.6, §5.1.5 *(rectangle lookup (`nexusbt_tds.pit.rect_lookup`), strict excludes backfilled rows row by row; the interval lookups of the removed kinds left 2026-11-24, #752)*
 - Done means: an example prints the `instrument_symbols` rows of one instrument and the lookup result per session side by side; a row announced in advance with a future effect does not hide the current row.
 - Acceptance: `tests/unit/data/test_intervals.py::test_half_open_lookup`, `::test_two_axis_known_after_effective`, `::test_T18_future_effective_does_not_hide_current`, `::test_strict_skips_backfilled_rows`, `::test_no_daily_expansion_memory`, `::test_history_mode_system_E18`.
@@ -470,7 +467,8 @@ Rules across tickets, one line each (written as `README.md` in this folder says)
 - Notes:
   - decided (#705 Decisions 23, 2026-11-22): the quick start says at most that the engine is designed to take other engines' strengths and solve their weaknesses, until that has been run and shown ("Work with no ticket yet", Stage (2)).
   - decided (#43 Decisions, 2026-11-19, #587): the quick start shows one cell that is absent and why.
-  - decided (#725 Decisions 118, 2026-11-23): the user docs say with numbers that `Returns(W)` spans W closes with W−1 steps, so a "20-session return" is `Returns(21)`; whether the name changes is the owner's at this cut.
+  - decided (#725 Decisions 118, 2026-11-23): the user docs say with numbers that `Returns(W)` spans W closes with W−1 steps, so a "20-session return" is `Returns(21)`.
+  - owner decides at the cut (#725 Decisions 118, 2026-11-23): whether the name or the default of `Returns` changes.
   - carried (#43 Decisions, 2026-11-20, #250): the guide on run folders says that `manifest.json`'s `source.outside` and `source/` hold the person's module and file names as written, since `manifest.json` is a file a person may hand to someone else (5.9.3).
 
 **T2.14 `docs(examples): m2 factor research walkthrough and stage measurement`** · `M2` `docs` · S · Blocked by: T2.10a, T2.11, T2.12, T1.24 · §7, §8.5
@@ -600,7 +598,7 @@ Rules across tickets, one line each (written as `README.md` in this folder says)
 - Notes:
   - owner decides at the cut (#314 Findings, 2026-11-06; #314 Decision, 2026-11-10): whether benchmark α and β come as two lines in 5.7's "Relative to benchmark" row. The builder's recommendation is to add them, because they need no new input; today the plan's "Later (P3)" paragraph under v1.x lists α and β among the benchmark regression metrics left for later.
   - owner decides at the cut (#43 Decisions, 2026-11-19, #437): four points #437's Outcome left open (A1, A4 to A6): the `day_count` and `date_t` of `rf_t` in a multi-currency run, the fallback when two markets share a currency, several currencies on one `assumptions` line, and a test name for G-77 (b) (also T3.4 and T3.Ge).
-  - carried (#43 Decisions, 2026-11-19, #445, #450 and #451): `open_snapshot(cfg, sha256=True)`, the open with the verification stamp that `rerun`, `reconcile`, `live` and `fill` need (4.4 step 1), has no caller; the backtest's entry points start their runs through `api._begin_run`.
+  - carried (#43 Decisions, 2026-11-19, #445, #450 and #451): `open_snapshot(cfg, sha256=True)`, the open with the verification stamp that `rerun`, `reconcile`, `live` and `fill` need (4.4 step 1), has no caller; the backtest's entry points still raise `NotImplementedError`, and this ticket starts their runs through `api._begin_run`.
   - carried (#725 Decisions 169, 2026-11-23): no code yet gives 4.3's E18 for a `minimal-daily` package on `backtest`.
 
 **T3.13b `feat(api): named scenarios with a single zero-cost replay`** · `M3a` `api` · S · Blocked by: T3.13a · §3.8, §5.7 [SC-06 argument shape]
@@ -1278,11 +1276,11 @@ The writing tool, the reader of value tables (`nx.Item`), the result's labels an
 - carried (#708 check table 8, 2026-11-21; #725 Decisions 77): they show that a date format that reads two ways, a missing required column and an unknown unit each stop the tool with what to write.
 - carried (#708 check table 11, 12 and 13, 2026-11-21): they show that the same input by the three ways in gives the same value and semantic hashes; that every value the user did not state is in the list of what the tool decided and nothing stated is in it; and that instruments from a price file's codes get `listed_on` = the first bar with `listed_on_censored = true`, no `last_session`, no delisting and a null `lot_size` (T3.4).
 - carried (#708 check table 15, 2026-11-22; #705 Decisions 48): a made-up file holding an instrument code, a date and `close` only is given to this engine and to other engines the same way, recording what each takes, refuses and says it cannot do.
-- decided (#708 To look at in step 3, 2026-11-21): when the user's input carries an adjustment-factor column such as `cum_factor_*`, the tool says that the column is not used and that the engine computes adjustment from the split and dividend events.
+- carried (#708 To look at in step 3, 2026-11-21): when the user's input carries an adjustment-factor column such as `cum_factor_*`, the tool says that the column is not used and that the engine computes adjustment from the split and dividend events.
 - carried (#738 Decision, 2026-11-23): a stock dividend, a bonus issue or a capital reduction needs a `kind` the split and dividend files do not carry.
 - owner decides at the cut (#738 Findings 18, 2026-11-23): whether a dividend's declaration date given by the user fills `ts_announced`; left null, the event is known from `ts_effective` (TDS 5.11).
 - carried (#738 Decision, 2026-11-23): a calendar inferred from bar dates ends on the last bar, so a later ex-date or exit has no session; the tool says so.
-- carried (#738 Decision, 2026-11-23): for `tradability_daily` the only honest content from price files is `status_known = false`, so it stays outside the easy entrance until the user gives a rule.
+- carried (#738 Decision, 2026-11-23): from price files alone the only honest `tradability_daily` content is `status_known = false`.
 
 #### The next TDS revision
 
@@ -1328,6 +1326,8 @@ The writing tool, the reader of value tables (`nx.Item`), the result's labels an
 - carried (#708 To look at in step 3, 2026-11-21): the first line of `tds check --level full` reads `<profile>: declared, verified to schema, not_checked`; asked for `full`, it names `schema`, and its third part names neither what was not checked nor why.
 - carried (#708 To look at in step 3, 2026-11-21): numpy's `DeprecationWarning` on the "generic" timedelta unit reached the user's screen twice in one `nx.run_pipeline` call (seen on that date, not rechecked).
 - carried (#708 To look at in step 3, 2026-11-21; #705 Decisions 28): once, on the day the whole data is built on a server, the generator's record is run against the resolver over the whole `full` preset (`NEXUSBT_SYNTH_FULL=<empty folder> uv run pytest tests/unit/testing/test_synth.py -k full_record`).
+- carried (#43 Decisions, 2026-11-18, #492): a golden case with a late cell read through `shift` (T-12's subject), hand-checked by a person under ADR 0044's time contract; no ticket holds it.
+- carried (#43 Decisions, 2026-11-19, #277 and #323): 8.2's T-25 line writes `decay=` where 3.4 and the golden factor file name `decay_rate`, and its T-20 line says "a late bar (`ts_end+PT5M`)" where the case uses the column availability rule with `params.ready_delay = PT5M`; the next edit of 8.2 brings both in step with the cases, no value changing.
 
 ### 10.2 Producer-side tickets (left out of the public edition)
 

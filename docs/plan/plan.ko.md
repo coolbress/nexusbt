@@ -373,9 +373,6 @@ v3는 3자 검토 합의대로 **M0을 계약만으로 줄이고**, 검사기 fu
 - Acceptance: `test_handcalc_self.py::test_time_cases_M2_expected_present`.
 - Notes:
   - carried (#43 Decisions, 2026-11-19, #583): 이 티켓이 T-08을 쓸 때 그 사례로 #583의 동작도 확인한다: 공개 `nx.run_pipeline`으로 읽은 `Price.close_tr`, 손으로 확인한 값, 5.3.4의 늦은 금액.
-  - carried (#43 Decisions, 2026-11-18, #492): `shift`로 읽은 늦은 칸의 골든 사례를 ADR 0044의 시간 계약 아래에서 사람이 손으로 확인한다.
-  - carried (#43 Decisions, 2026-11-19, #277 and #323): 8.2의 T-25 줄은 3.4와 골든 팩터 파일이 `decay_rate`라 부르는 것을 `decay=`로 쓰고, T-20 줄은 사례가 `params.ready_delay = PT5M`의 칼럼 공개 규칙을 쓰는데도 "a late bar (`ts_end+PT5M`)"라 한다. 8.2를 다음에 고칠 때 값은 바꾸지 않고 둘을 사례에 맞춘다.
-
 **T2.1 `feat(data): rectangle two-time-axis lookup of symbol periods`** · `M2` `data` · M · Blocked by: T1.4, T0.14b, T2.G · §5.3.6, §5.1.5 *(직사각형 조회(`nexusbt_tds.pit.rect_lookup`), strict 행 단위 backfilled 제외; 뺀 종류의 구간 조회는 2026-11-24에 빠졌다, #752)*
 - Done means: 예제가 한 종목의 `instrument_symbols` 행들과 세션별 조회 결과를 나란히 출력; 미리 발표된 미래 효력 행은 현재 행을 가리지 않는다.
 - Acceptance: `tests/unit/data/test_intervals.py::test_half_open_lookup`, `::test_two_axis_known_after_effective`, `::test_T18_future_effective_does_not_hide_current`, `::test_strict_skips_backfilled_rows`, `::test_no_daily_expansion_memory`, `::test_history_mode_system_E18`.
@@ -470,7 +467,8 @@ v3는 3자 검토 합의대로 **M0을 계약만으로 줄이고**, 검사기 fu
 - Notes:
   - decided (#705 Decisions 23, 2026-11-22): 빠른 시작은 엔진이 다른 엔진의 장점을 가져오고 약점을 푼다는 것이 돌려서 보여지기 전까지는, 많아야 그렇게 설계되었다고만 말한다("아직 티켓이 없는 일", Stage (2)).
   - decided (#43 Decisions, 2026-11-19, #587): 빠른 시작은 빈 칸 하나와 그 까닭을 보인다.
-  - decided (#725 Decisions 118, 2026-11-23): 사용자 문서는 `Returns(W)`가 종가 W개, 걸음 W−1개에 걸친다는 것을 숫자로 말한다. 그래서 "20세션 수익률"은 `Returns(21)`이다. 이름을 바꿀지는 이 티켓을 자를 때 주인이 정한다.
+  - decided (#725 Decisions 118, 2026-11-23): 사용자 문서는 `Returns(W)`가 종가 W개, 걸음 W−1개에 걸친다는 것을 숫자로 말한다. 그래서 "20세션 수익률"은 `Returns(21)`이다.
+  - owner decides at the cut (#725 Decisions 118, 2026-11-23): `Returns`의 이름이나 기본값을 바꿀지.
   - carried (#43 Decisions, 2026-11-20, #250): 실행 폴더를 설명하는 안내는 `manifest.json`의 `source.outside`와 `source/`가 사람의 모듈 이름과 파일 이름을 적힌 그대로 담는다고 말한다. `manifest.json`은 사람이 남에게 건넬 수 있는 파일이기 때문이다(5.9.3).
 
 **T2.14 `docs(examples): m2 factor research walkthrough and stage measurement`** · `M2` `docs` · S · Blocked by: T2.10a, T2.11, T2.12, T1.24 · §7, §8.5
@@ -600,7 +598,7 @@ v3는 3자 검토 합의대로 **M0을 계약만으로 줄이고**, 검사기 fu
 - Notes:
   - owner decides at the cut (#314 Findings, 2026-11-06; #314 Decision, 2026-11-10): 기준지수의 α와 β를 5.7의 "Relative to benchmark" 행에 두 줄로 둘지. 만드는 쪽의 추천은 더하는 것이고, 새 입력이 필요 없기 때문이다. 지금 계획 문서의 v1.x 밑 "Later (P3)" 문단은 α와 β를 뒤로 미룬 기준지수 회귀 지표에 넣고 있다.
   - owner decides at the cut (#43 Decisions, 2026-11-19, #437): #437의 Outcome이 열어 둔 네 가지(A1, A4~A6): 여러 통화 실행에서 `rf_t`의 `day_count`와 `date_t`, 두 시장이 한 통화를 나눌 때의 대체, `assumptions` 한 줄에 여러 통화, G-77 (b)의 시험 이름(T3.4, T3.Ge도).
-  - carried (#43 Decisions, 2026-11-19, #445, #450 and #451): `rerun`, `reconcile`, `live`, `fill`이 필요로 하는 검증 표식과 함께 여는 `open_snapshot(cfg, sha256=True)`(4.4 1단계)를 부르는 곳이 없다. 백테스트의 입구는 `api._begin_run`으로 실행을 시작한다.
+  - carried (#43 Decisions, 2026-11-19, #445, #450 and #451): `rerun`, `reconcile`, `live`, `fill`이 필요로 하는 검증 표식과 함께 여는 `open_snapshot(cfg, sha256=True)`(4.4 1단계)를 부르는 곳이 없다. 백테스트의 입구는 아직 `NotImplementedError`를 내고, 이 티켓이 그 실행을 `api._begin_run`으로 시작한다.
   - carried (#725 Decisions 169, 2026-11-23): `backtest`에서 `minimal-daily` 패키지에 4.3의 E18을 주는 코드가 아직 없다.
 
 **T3.13b `feat(api): named scenarios with a single zero-cost replay`** · `M3a` `api` · S · Blocked by: T3.13a · §3.8, §5.7 [SC-06 인자 모양]
@@ -1278,11 +1276,11 @@ v3는 3자 검토 합의대로 **M0을 계약만으로 줄이고**, 검사기 fu
 - carried (#708 check table 8, 2026-11-21; #725 Decisions 77): 두 가지로 읽히는 날짜 꼴, 빠진 필수 칼럼, 모르는 단위가 각각 무엇을 쓸지와 함께 도구를 멈추는 것을 보인다.
 - carried (#708 check table 11, 12 and 13, 2026-11-21): 같은 입력을 세 길로 넣어도 값 해시와 의미 해시가 같다는 것; 사용자가 말하지 않은 값은 모두 도구가 정한 것 목록에 있고 말한 값은 없다는 것; 가격 파일의 코드에서 만든 종목이 `listed_on` = 첫 봉, `listed_on_censored = true`를 갖고 `last_session`도 상장폐지도 없으며 `lot_size`가 비어 있다는 것(T3.4)을 보인다.
 - carried (#708 check table 15, 2026-11-22; #705 Decisions 48): 종목 코드, 날짜, `close`만 든 지어낸 파일을 이 엔진과 다른 엔진에 같은 식으로 넣고, 각각이 무엇을 받고, 거절하고, 할 수 없다고 말하는지 적는다.
-- decided (#708 To look at in step 3, 2026-11-21): 사용자의 입력에 `cum_factor_*` 같은 조정 계수 칼럼이 있으면, 도구는 그 칼럼을 쓰지 않으며 엔진이 분할과 배당 사건으로 조정을 계산한다고 말한다.
+- carried (#708 To look at in step 3, 2026-11-21): 사용자의 입력에 `cum_factor_*` 같은 조정 계수 칼럼이 있으면, 도구는 그 칼럼을 쓰지 않으며 엔진이 분할과 배당 사건으로 조정을 계산한다고 말한다.
 - carried (#738 Decision, 2026-11-23): 주식 배당, 무상 증자, 감자에는 분할 파일과 배당 파일이 담지 않는 `kind`가 필요하다.
 - owner decides at the cut (#738 Findings 18, 2026-11-23): 사용자가 준 배당의 발표일이 `ts_announced`를 채우는지. 비워 두면 사건은 `ts_effective`부터 알려진다(TDS 5.11).
 - carried (#738 Decision, 2026-11-23): 봉 날짜에서 짐작한 달력은 마지막 봉에서 끝나므로, 그 뒤의 배당락일이나 퇴출에는 세션이 없다. 도구는 그렇다고 말한다.
-- carried (#738 Decision, 2026-11-23): 가격 파일에서 `tradability_daily`에 줄 수 있는 정직한 내용은 `status_known = false`뿐이므로, 사용자가 규칙을 줄 때까지 쉬운 입구 밖에 둔다.
+- carried (#738 Decision, 2026-11-23): 가격 파일만으로 `tradability_daily`에 줄 수 있는 정직한 내용은 `status_known = false`뿐이다.
 
 #### The next TDS revision
 
@@ -1328,6 +1326,8 @@ v3는 3자 검토 합의대로 **M0을 계약만으로 줄이고**, 검사기 fu
 - carried (#708 To look at in step 3, 2026-11-21): `tds check --level full`의 첫 줄은 `<profile>: declared, verified to schema, not_checked`라고 읽힌다. `full`을 물었는데 `schema`를 대고, 셋째 부분은 무엇을 확인하지 않았는지도 왜인지도 대지 않는다.
 - carried (#708 To look at in step 3, 2026-11-21): numpy의 "generic" timedelta 단위에 대한 `DeprecationWarning`이 `nx.run_pipeline` 한 번에 사용자 화면에 두 번 나왔다(그날 본 것, 다시 확인하지 않음).
 - carried (#708 To look at in step 3, 2026-11-21; #705 Decisions 28): 전체 자료를 서버에서 만드는 날 한 번, 생성기의 기록을 `full` 프리셋 전체에 걸쳐 해석기와 맞대어 돌린다(`NEXUSBT_SYNTH_FULL=<empty folder> uv run pytest tests/unit/testing/test_synth.py -k full_record`).
+- carried (#43 Decisions, 2026-11-18, #492): `shift`로 읽은 늦은 칸의 골든 사례(T-12의 주제)를 ADR 0044의 시간 계약 아래에서 사람이 손으로 확인한다. 그것을 가진 티켓은 없다.
+- carried (#43 Decisions, 2026-11-19, #277 and #323): 8.2의 T-25 줄은 3.4와 골든 팩터 파일이 `decay_rate`라 부르는 것을 `decay=`로 쓰고, T-20 줄은 사례가 `params.ready_delay = PT5M`의 칼럼 공개 규칙을 쓰는데도 "a late bar (`ts_end+PT5M`)"라 한다. 8.2를 다음에 고칠 때 값은 바꾸지 않고 둘을 사례에 맞춘다.
 
 ### 10.2 생산자 쪽 티켓 (공개판에서 뺌)
 
