@@ -6,7 +6,7 @@
 
 > **이름 (이 줄 한 곳에서만 정의).** 엔진 이름 = **NexusBT**("nexus" = 자료, 백테스트·스크린·라이브, 그리고 다른 엔진들의 장점이 만나는 한 점). 이름 결정 2026-10-28: Aion → NexusBT (PyPI `aion` 등록 거부, `import aion`을 쓰는 활성 패키지 두 개와 충돌; PyPI `nexusbt`는 사용자가 0.0.1 자리표시로 등록). 저장소 = `<owner>/nexusbt`, 배포 이름 = `nexusbt`, import = `import nexusbt as nx`(이 문서의 `nx.`는 이 줄임), 설정 파일 = `nexusbt.toml`, CLI = `nexusbt`, 환경 변수 = `NEXUSBT_*`, 오류 기본 클래스 = `NexusBTError`, 선택 의존 = `nexusbt[pandas]` 등. 자료 표준 TDS의 이름(`tds.json`, 배포 이름 `nexusbt-tds`, **import 이름 `nexusbt_tds`**, CLI `tds`)은 표준 쪽 이름이라 엔진 이름과 따로 바꿀 수 있다(TDS 13장 Q6). 이 문서에서 `tds.check(...)`, `tds.value_hash(...)`처럼 쓴 `tds`는 `import nexusbt_tds as tds`의 줄임이다.
 >
-> **식별자 이름 (이 줄 한 곳에서만 정의).** 종목 열쇠의 이름 = **`instrument_id`** (자료·내부·출력 표·공개 API·문서 모두, 별칭 없음). v2의 `security_id` 별칭은 3자 검토 합의로 뺐다: 외부 자료의 다른 칼럼 이름은 `nx.dataset.from_parquet(..., rename={...})`와 `tds import csv`의 `mapping.yaml`에서만 바꾼다. 코드에서는 `nx.contracts.ID_COLUMN = "instrument_id"` 상수 하나만 이 이름을 정의한다.
+> **식별자 이름 (이 줄 한 곳에서만 정의).** 저장하는 종목 열쇠의 이름 = **`instrument_id`** (꾸러미의 자료·내부·지금의 출력 표와 공개 API, 별칭 없음). 사용자가 만나는 이름, 종목의 `symbol`(그 행 날짜에 쓰던 코드, 5.3.6), `session_date`의 `date`, 데이터셋 종류 `bars`의 `prices`는 2단계에서 오고, 그 첫 조각이 만든다(#725 결정 248; #752, 2026-11-27). 저장하는 이름은 그대로다. v2의 `security_id` 별칭은 3자 검토 합의로 뺐다: 외부 자료의 다른 칼럼 이름은 `tds import csv`의 `mapping.yaml`에서만 바꾼다(`nx.dataset.from_parquet`는 2026-11-24에 뺐다, #752). 코드에서는 `nx.contracts.ID_COLUMN = "instrument_id"` 상수 하나만 이 이름을 정의한다.
 >
 > **상태.** 규범 명세 **v3.4**. **구현의 유일한 기준은 이 문서**다. 엔진이 읽는 입력 형식은 **TDS v1.4**(`engine-data-standard-v1.4.md`; 이 문서 안의 "TDS v1.1 x.y"·"TDS v1.2 x.y" 절 번호는 v1.4에서도 같다)가 정하고 이 문서 4장은 엔진 쪽 읽기 규칙만 둔다. 공개 범위: 엔진·이 명세·TDS는 공개(Apache-2.0) 전제로 쓴다. 이 파일은 저장소 공개판이다: 비공개 생산자에 관한 비공개 주석 줄, 10.2절 본문, TDS 11장을 뺐고 생산자 이름은 "참조 생산자(the reference producer)"로 바꿨다(T0.1의 `grep` 수용 시험). 구현하는 에이전트는 이 문서와 TDS에 없는 규칙을 지어내지 않는다. 답이 안 나오면 12장의 추천 기본값을 쓰고, 없으면 멈추고 묻는다.
 >
@@ -414,7 +414,7 @@ from nexusbt.factors import (Returns, DailyReturns, SimpleMovingAverage, SMA,
 
 2026-11-24에 뺐고(#752) 이제 공개 이름이 아닌 것: 데이터의 `Fund`, `Panel`, `Label`, `Macro`, `MacroTerm`, `Events`, `dataset.from_parquet`, `dataset.from_frame`, `universe.index_members`; 전략의 `on_event`.
 
-**식별자** [머리말 "식별자 이름"]: 공개 함수·출력 표·문서는 `instrument_id` 하나만 쓴다(별칭 없음). 외부 자료의 다른 이름은 자료가 꾸러미에 들어가기 전에 사용자가 바꾼다.
+**식별자** [머리말 "식별자 이름"]: 저장하는 열쇠는 `instrument_id`이고(별칭 없음), 지금의 공개 함수와 출력 표가 그것을 쓴다. 사용자가 만나는 이름 `symbol`, `date`, `prices`는 2단계에서 온다 [#725 결정 248; #752, 2026-11-27]. 외부 자료의 다른 이름은 자료가 꾸러미에 들어가기 전에 사용자가 바꾼다.
 
 ### 3.2 데이터셋과 칼럼
 
@@ -488,7 +488,7 @@ def f(close: np.ndarray, *, n: int = 21) -> np.ndarray: ...
 - `adjustment`는 입력을 종목별로 상수배 했을 때 결과가 어떻게 되는지 밝힌다(3.4): `"degree 0"`(비율·수익률)은 그대로, `"degree 1"`(수준)은 같은 상수배가 된다. 없으면 결과는 차수가 없고, 지금처럼 E17로 거부되지 않는다. 두 값 밖의 값은 항을 만들 때 `ConfigError`(오류 E16). 엔진은 선언을 한 실행에서 사용자 항(묶은 값까지 같은 함수)마다 한 번, 어떤 종목의 결과가 유한하고 0이 아닌 첫 행에서 검사한다: 그 종목의 가격을 2배로 한 입력 창 복사본으로 함수를 한 번 더 부른다. 각 입력의 열은 가격 인자 차수 p(3.4)에 따라 `2^p`배가 된다(가격 칼럼·수준은 ×2, 수익률 같은 0차 입력은 그대로). 그 종목의 결과 b를 기대값 a(결과, `"degree 1"`이면 그 2배)와 `|a − b| ≤ 1e-12·max(1, |a|)`로 비교한다. 선언이 맞지 않으면 함수와 선언을 말하는 `TermDomainError`(오류 E17). 한 번 더 부르는 것은 값도 그래프 해시도 바꾸지 않고, 판정은 청크를 어떻게 나누든 같다. 실행이 끝날 때까지 그런 행이 없거나, 차수를 모르거나 수량 인자 차수·크기를 모르는 차수인 입력이 있으면 검사를 건너뛴 것으로 기록한다(E45, 이유 `declaration_unchecked`). 조용히 통과시키지 않는다(결정 2026-11-19, #246).
 - `dtype`은 Factor 값의 dtype인 `"float64"`만 받는다; 그 밖의 값은 항을 만들 때 `ConfigError`(오류 E16)(결정 2026-11-20, #638).
 - `col.latest`는 항이다: 행 s의 값은 행 s에서 정해진다(5.1.2). 각 칸을 t에 알려진 대로 보아야 하는 창은 `col.latest`가 아니라 칼럼 자체를 입력으로 받는다(`inputs=[col]`).
-- `@nx.filter`는 bool `(n_alive,)`를 반환한다: 그 종목의 입력 창 가운데 한 칸이라도 NaN이면 그 칸은 모름이고, 그 밖에는 함수가 낸 bool이다; 다른 dtype이나 shape의 결과(float)는 `WindowError`(오류 E8)(결정 2026-11-20, 2026-11-27, #620). `@nx.classifier`는 int 또는 str `(n_alive,)`를 반환한다.
+- `@nx.filter`는 bool `(n_alive,)`를 반환한다: 그 종목의 입력 창 가운데 한 칸이라도 NaN이면 그 칸은 모름이고, 그 밖에는 함수가 낸 bool이다. `@nx.classifier`는 정수 `(n_alive,)`, 곧 코드 자체를 반환한다: −1은 빈 묶음이고, 다른 음수는 어느 코드표에도 없으므로 `WindowError`(오류 E8)다; `mask` 밖의 칸과 창이 아직 모자란 칸은 빈 묶음이다. 다른 dtype이나 shape의 결과(둘 다 float, 분류기는 bool도)는 `WindowError`(오류 E8)(결정 2026-11-20, 2026-11-27, #620). str을 반환하는 분류기는 코드표와 함께 #818에서 오며, 그때까지 str 결과도 E8이다.
 - 함수가 `window`보다 앞 행을 인덱싱하면 numpy가 `IndexError`를 내고, 엔진은 그것을 `WindowError`(오류 E8)로 바꾸어 "`window=<필요한 값>`"을 제안한다(필요한 값 = 음수 인덱스의 절댓값). 그 밖의 사용자 예외는 원래 예외와 사용자 파일:줄을 그대로 보인다 [R-42]. 6.5 (5)의 시운전에서 난 예외도 같다: 1.0 창에서 예외를 내는 함수는 거기서 멈춘다(결정 2026-11-19, #246).
 - `nx.ops.rolling(x: Factor, window: int, min_periods: int | None = None).{mean,sum,std,min,max,median}()`: 항상 뒤만 보는 이동 연산(`std`는 ddof=1, `min_periods` 기본 = window) [설계 3.5]. `1 ≤ min_periods ≤ window`; `min_periods`는 축 위에 온전히 놓인 창의 유한한 칸을 세고, 축의 첫 행보다 앞에서 시작하는 창은 `min_periods`와 상관없이 NaN이다(INV-03, INV-14) (결정 2026-11-18, #243).
 - `nx.ops.where(cond: Filter, a, b)`, `nx.ops.coalesce(*factors)`: 명시적 대체.
@@ -1480,7 +1480,7 @@ class DecisionContext:
 **정체와 기호** (도구의 일; 사용자는 기호를 준다):
 - **열쇠**: 저장 열쇠는 `instrument_id` 그대로다(4.6). 도구는 그것을 `<MIC>:<ticker>_<YYYYMMDD>`로 쓴다: 가장 이른 기호와 그 `list_date`로, 없으면 그 종목의 첫 봉 날짜로. 두 종목을 합치지 않는 기호 변경은 열쇠를 바꾸지 않는다. 합병은 먼저 상장한 종목의 열쇠를 남긴다. 같은 입력은 같은 열쇠를 낸다. `list_date` 없이 이력을 앞으로 늘리면 열쇠가 바뀔 수 있고, 빌드 보고가 그것을 이름 댄다. 패키지를 넘나드는 열쇠 장부는 없다 [#725 결정 206, 207].
 - **기호 기간**은 `instrument_symbols`에만 있고, 도구는 모든 종목에 기간을 적어도 하나 쓴다. 기호가 한 번도 바뀌지 않은 종목도 그렇다. `symbol_changes.csv`와 `securities.csv`는 도구의 입력이고 데이터셋 종류가 아니다. 옛 기호로 주어지고 변경 전 날짜가 붙은 줄은 그 종목으로 옮긴다. `corporate_actions`에는 `symbol_change`가 없다(4.6) [#725 결정 208, 209].
-- **어느 기호인가**: 결과 표의 `symbol`은 그 행의 날짜에 쓰이던 기호이고 `instrument_symbols`에서 읽는다. 날짜 없는 기호(`symbol_values`의 줄, 코드나 설정에 쓴 기호)는 그 마지막 주인을 뜻한다. 결과는 선택 칼럼 `latest_symbol`을 더할 수 있다 [#725 결정 209; #752].
+- **어느 기호인가**(2단계의 첫 조각이 만든다. 지금의 결과 표는 `instrument_id`를 담는다, 머리말 "식별자 이름"): 결과 표의 `symbol`은 그 행의 날짜에 쓰이던 기호이고 `instrument_symbols`에서 읽는다. 날짜 없는 기호(`symbol_values`의 줄, 코드나 설정에 쓴 기호)는 그 마지막 주인을 뜻한다. 결과는 선택 칼럼 `latest_symbol`을 더할 수 있다 [#725 결정 209; #752].
 - **재사용**: 상장 기간(`symbol, list_date, delist_date`, 기간끼리 겹치지 않음)이 있는 종목 목록은 한 기호를 두 종목으로 나눈다. 기간은 주인만 정한다: 상장폐지는 `delistings`에 그대로 있고, 기간과 상장폐지가 어긋나면 도구가 멈춘다. 상장 기간이 없으면 도구는 긴 가격 공백에서만 묻는다. 사용자가 선언하지 않은 기호 변경은 묻지 않는다 [#725 결정 210, 211].
 
 **두 시간축 표** `instrument_symbols`는 **직사각형 조회**를 쓴다. 판별 열쇠 `K` = `(instrument_id, symbol_type)`마다, 질의 `(cutoff c, 날짜 q)`에서 답 = `ts_known_from <= c < ts_known_to` **그리고** `effective_from <= q < effective_to`인 행. 정확히 하나여야 하고(둘 이상이면 TDS-T012, 열 때 `full`에서 E14; `manifest` 단계로 열었는데 실행 중 만나면 E14), 없으면 결측. `ts_known_from` 최대 행 하나를 고른 뒤 효력을 확인하는 v2 방식은 **쓰지 않는다**(미리 발표된 미래 효력 행이 현재 효력 행을 가린다).
