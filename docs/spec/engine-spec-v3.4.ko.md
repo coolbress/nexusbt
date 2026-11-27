@@ -6,7 +6,7 @@
 
 > **이름 (이 줄 한 곳에서만 정의).** 엔진 이름 = **NexusBT**("nexus" = 자료, 백테스트·스크린·라이브, 그리고 다른 엔진들의 장점이 만나는 한 점). 이름 결정 2026-10-28: Aion → NexusBT (PyPI `aion` 등록 거부, `import aion`을 쓰는 활성 패키지 두 개와 충돌; PyPI `nexusbt`는 사용자가 0.0.1 자리표시로 등록). 저장소 = `<owner>/nexusbt`, 배포 이름 = `nexusbt`, import = `import nexusbt as nx`(이 문서의 `nx.`는 이 줄임), 설정 파일 = `nexusbt.toml`, CLI = `nexusbt`, 환경 변수 = `NEXUSBT_*`, 오류 기본 클래스 = `NexusBTError`, 선택 의존 = `nexusbt[pandas]` 등. 자료 표준 TDS의 이름(`tds.json`, 배포 이름 `nexusbt-tds`, **import 이름 `nexusbt_tds`**, CLI `tds`)은 표준 쪽 이름이라 엔진 이름과 따로 바꿀 수 있다(TDS 13장 Q6). 이 문서에서 `tds.check(...)`, `tds.value_hash(...)`처럼 쓴 `tds`는 `import nexusbt_tds as tds`의 줄임이다.
 >
-> **식별자 이름 (이 줄 한 곳에서만 정의).** 종목 열쇠의 이름 = **`instrument_id`** (자료·내부·출력 표·공개 API·문서 모두, 별칭 없음). v2의 `security_id` 별칭은 3자 검토 합의로 뺐다: 외부 자료의 다른 칼럼 이름은 `nx.dataset.from_parquet(..., rename={...})`와 `tds import csv`의 `mapping.yaml`에서만 바꾼다. 코드에서는 `nx.contracts.ID_COLUMN = "instrument_id"` 상수 하나만 이 이름을 정의한다.
+> **식별자 이름 (이 줄 한 곳에서만 정의).** 저장하는 종목 열쇠의 이름 = **`instrument_id`** (꾸러미의 자료·내부·지금의 출력 표와 공개 API, 별칭 없음). 사용자가 만나는 이름, 종목의 `symbol`(그 행 날짜에 쓰던 코드, 5.3.6)과 `date`, `prices`는 2단계에서 오고, 그 첫 조각이 만든다(#725 결정 248; #752, 2026-11-27). 저장하는 이름은 그대로다. v2의 `security_id` 별칭은 3자 검토 합의로 뺐다: 외부 자료의 다른 칼럼 이름은 `tds import csv`의 `mapping.yaml`에서만 바꾼다(`nx.dataset.from_parquet`는 2026-11-24에 뺐다, #752). 코드에서는 `nx.contracts.ID_COLUMN = "instrument_id"` 상수 하나만 이 이름을 정의한다.
 >
 > **상태.** 규범 명세 **v3.4**. **구현의 유일한 기준은 이 문서**다. 엔진이 읽는 입력 형식은 **TDS v1.4**(`engine-data-standard-v1.4.md`; 이 문서 안의 "TDS v1.1 x.y"·"TDS v1.2 x.y" 절 번호는 v1.4에서도 같다)가 정하고 이 문서 4장은 엔진 쪽 읽기 규칙만 둔다. 공개 범위: 엔진·이 명세·TDS는 공개(Apache-2.0) 전제로 쓴다. 이 파일은 저장소 공개판이다: 비공개 생산자에 관한 비공개 주석 줄, 10.2절 본문, TDS 11장을 뺐고 생산자 이름은 "참조 생산자(the reference producer)"로 바꿨다(T0.1의 `grep` 수용 시험). 구현하는 에이전트는 이 문서와 TDS에 없는 규칙을 지어내지 않는다. 답이 안 나오면 12장의 추천 기본값을 쓰고, 없으면 멈추고 묻는다.
 >
@@ -414,7 +414,7 @@ from nexusbt.factors import (Returns, DailyReturns, SimpleMovingAverage, SMA,
 
 2026-11-24에 뺐고(#752) 이제 공개 이름이 아닌 것: 데이터의 `Fund`, `Panel`, `Label`, `Macro`, `MacroTerm`, `Events`, `dataset.from_parquet`, `dataset.from_frame`, `universe.index_members`; 전략의 `on_event`.
 
-**식별자** [머리말 "식별자 이름"]: 공개 함수·출력 표·문서는 `instrument_id` 하나만 쓴다(별칭 없음). 외부 자료의 다른 이름은 자료가 꾸러미에 들어가기 전에 사용자가 바꾼다.
+**식별자** [머리말 "식별자 이름"]: 저장하는 열쇠는 `instrument_id`이고(별칭 없음), 지금의 공개 함수와 출력 표가 그것을 쓴다. 사용자가 만나는 이름 `symbol`, `date`, `prices`는 2단계에서 온다 [#725 결정 248; #752, 2026-11-27]. 외부 자료의 다른 이름은 자료가 꾸러미에 들어가기 전에 사용자가 바꾼다.
 
 ### 3.2 데이터셋과 칼럼
 
