@@ -1915,7 +1915,7 @@ v1은 이 절의 정의를 규범으로 고정하고(INV-08 문구, `DecisionCon
 - 지원 안 하는 사건(`exchange_offer`, `other`, 정보가 빠진 spinoff 등)이 **보유 종목**에 생기면 `unsupported = "fail"`(기본)이면 오류 E12로 멈춘다(종목을 몰래 지우거나 가짜로 남기지 않음). `"cash_at_adjustment"`면 `q·prev_close·(1 − price_factor)` 현금(`price_factor`가 null이면 이 정책도 쓸 수 없어 E12)을 그 세션에 넣고 사건 `approximated`로 표시한다 [11.4.1, 11.4.3].
 
 #### 5.6.13 상장폐지 [Q18, 11.4.3 (7)(8)]
-- 입력은 TDS `delistings`(사건 행이 없으면 4.5 F-13). 종료 세션 x = 그 종목 달력에서 `exit_date` 이상인 첫 세션. `last_trading_date` 뒤부터 x 전까지 보유는 거래 불가·마지막 유효 종가 평가(`stale`).
+- 입력은 TDS `delistings`(사건 행이 없으면 4.5 F-13). 종료 세션 x = 그 종목 달력에서 `exit_date` 이상인 첫 세션. `last_trading_date` 뒤부터 x 전까지 보유는 거래 불가·마지막 유효 종가 평가(`stale`). `exit_date = last_trading_date`이면(TDS 5.13은 그 종목 달력에 마지막 거래일 뒤의 세션이 없을 때만 이렇게 준다) x는 그날이다: 보유는 그날 장 시작 때 없어지므로 그 종목은 그날 거래할 수 없고, 종료값은 `ref_price`로 매긴다(주인, 2026-11-27, #747).
 - x 시작에: 그 종목 주문 `CANCELLED(delisted)`, 보유 제거, **종료 권리** 생성(숏이면 q < 0이라 **종료 의무** — 종료가치가 낮을수록 숏의 이익). 금액은 r(아래 표)이 무엇이냐에 따라 **세 기준** 중 하나다. 기준가 둘: `ref_units` = `ref_price` × Π(`ref_date` 뒤부터 x 전까지 효력이 생긴 **주식 수 단위 사건**(분할·역분할·주식배당·무상·병합)의 가격 계수 — 수량 단위만 맞춤), `ref*` = `ref_units` × Π(같은 구간 **현금 분배**의 가격 계수; 5.6.3 묵은 평가가와 같은 규칙). q는 그 단위의 보유(분할은 5.6.10이 이미 반영).
   - (a) **관측·포함**(r = `ret_observed`, `ret_observed_includes_distributions = true`): 종료 = `q·ref_units·(1 + r)` − (`last_trading_date` 뒤 그 종목에 이미 기입한 그 현금 분배 합, 같은 부호 규칙). 관측 수익률은 `ref_price` 대비이므로(TDS 5.13) 분배 계수를 곱하지 않고, 분배를 이미 기입했으면 그만큼 뺀다. 결과가 음수여도 자르지 않는다(포함 총액과 맞추는 데 필요).
   - (b) **관측·제외**(r = `ret_observed`, 플래그 false): 분배는 5.6.11대로 따로 기입하고 종료 = `q·ref_units·(1 + r)`(관측 금액은 분배를 뺀 값이므로 분배 계수를 **곱하지 않는다** — 곱하면 분배만큼 두 번 줄어듦).
