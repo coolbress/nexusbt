@@ -1140,7 +1140,7 @@ The thin backtest (#858, the owner, 2026-11-28): one market in a run (KR or US),
 
 **T5.20 `feat(api): compare strategy variants in one table`** · `M5` `api` · S · Blocked by: T5.5, T3.34 · §3.8 compare
 - Context: `nx.compare(Strategy…)` backtests each (reusing the Pipeline) and then gives a variant table (names of the changed slots, metrics, waterfall summary, DSR (cohort)), CLI `nexusbt compare`.
-- Done means: `nx.compare(base, base.replace(sizing=nx.size.erc()), base.replace(risk=[nx.risk.drawdown_brake()]))` prints a three-line table and three candidates are recorded.
+- Done means: `nx.compare(base, base.replace(sizing=nx.size.erc()), base.replace(risk=[nx.risk.drawdown_brake(off=0.20, on=0.10)]))` prints a three-line table and three candidates are recorded.
 - Acceptance: `tests/unit/api/test_compare.py::test_variant_table_columns`, `::test_variants_counted_as_candidates`, `::test_pipeline_values_reused`.
 
 **T5.21 `feat(cli): commented two-tier nexusbt.toml template, config check and config show`** · `M5` `cli` · S · Blocked by: T1.2, T0.4b, T0.5a · §3.10, §3.11 [user request 2026-10-28]
