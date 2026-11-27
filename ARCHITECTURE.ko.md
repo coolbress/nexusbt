@@ -50,7 +50,7 @@ NexusBT는 일봉 주식 팩터 연구를 위한 백테스트·스크리닝 엔�
 
 | 경로 | 들어 있는 것 |
 |---|---|
-| `tds/` | 따로 판을 매기는 TDS 표준: `spec/tds-v1.md`, `schemas/`, `conformance/`, `src/nexusbt_tds/`(check, hash, manifest, describe, import_csv). pyarrow만 의존, `nexusbt`를 import하지 않음. |
+| `tds/` | 따로 판을 매기는 TDS 표준: `schemas/`, `conformance/`, `src/nexusbt_tds/`(check, hash, manifest, describe, import_csv); 문서는 `docs/tds/tds-v1.4.md`. pyarrow만 의존, `nexusbt`를 import하지 않음. |
 | `src/nexusbt/contracts/` | ID 상수, 엔진 칼럼 집합, 단위, 정책, 오류 계층(§6.6). 의존 없음. |
 | `src/nexusbt/config/` | `nexusbt.toml` 읽기·검증(§3.11), 비밀 키 거절. |
 | `src/nexusbt/data/` | 스냅숏 열기(검사기 호출), 능력·대체 동작, 시장 블록, L0 캐시, 구간 조회, 달력, 환율, 기업행동 해석기. |
