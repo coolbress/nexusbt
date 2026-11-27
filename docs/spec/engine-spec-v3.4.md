@@ -149,7 +149,7 @@ This chapter is explanation; the norms start at chapter 1. The sizing block, the
 |---|---|
 | TDS | NexusBT Data Standard v1 (document edition v1.4, `tds_version = "1.0"`, status = draft → RC → 1.0). The only input format the engine reads (a folder + `tds.json` + Parquet). `engine-data-standard-v1.4.md` |
 | Package, snapshot | one immutable folder that follows TDS. It has a `snapshot_id` and a set of three hashes (physical, value, semantic). An export a producer published is a snapshot |
-| Hash set (physical / value / semantic) | physical = sha256 of the file bytes. value = sha256 of a language-independent canonical typed serialisation (TDS 4.5). semantic = value hash + normalised resolution metadata (TDS 4.5). Which hash names a snapshot: 4.2; what the **cache keys** (L0, L1) hold: 5.3.9 |
+| Hash set (physical / value / semantic) | physical = sha256 of the file bytes. value = sha256 of a language-independent canonical typed serialisation (TDS 4.5). semantic = value hash + normalised resolution metadata (TDS 4.5). Which hash names a snapshot: 4.2; the **cache keys** (L0, L1) do not hold the semantic hash, and what they hold is 5.3.9's |
 | Profile | a TDS bundle a package declares it follows, written with a version (`tds:equity-daily-core@1.0`). It is only a conformance claim; what the engine can do is set by **capability** (4.3) |
 | Capability result set | declared / checked up to a level (verified@manifest, schema, full) / supported by this engine. What was not checked is not called passing |
 | Fallback | the defined behaviour of the engine when a profile or column is missing. Always left in the warning `DataProfileWarning` (E30) and in the manifest's `assumptions` (4.5) |

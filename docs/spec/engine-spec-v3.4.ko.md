@@ -149,7 +149,7 @@ NexusBT는 이 다섯을 한 엔진에 모은다. 각 엔진에서 가져온 장
 |---|---|
 | TDS | NexusBT 데이터 표준 v1(문서 판 v1.4, `tds_version = "1.0"`, 상태 = 초안 → RC → 1.0). 엔진이 읽는 유일한 입력 형식(폴더 + `tds.json` + Parquet). `engine-data-standard-v1.4.md` |
 | 패키지·스냅숏 (package, snapshot) | TDS를 지키는 바뀌지 않는 폴더 하나. `snapshot_id`와 해시 셋(물리·값·의미)을 가진다. 생산자가 게시한 내보내기는 스냅숏이다 |
-| 해시 셋 (physical / value / semantic) | 물리 = 파일 바이트 sha256. 값 = 언어 무관 정규 형별 직렬화의 sha256(TDS 4.5). 의미 = 값 해시 + 정규화한 해석 메타(TDS 4.5). 어느 해시가 스냅숏을 가리키는지는 4.2, **캐시 열쇠**(L0, L1)가 무엇을 담는지는 5.3.9 |
+| 해시 셋 (physical / value / semantic) | 물리 = 파일 바이트 sha256. 값 = 언어 무관 정규 형별 직렬화의 sha256(TDS 4.5). 의미 = 값 해시 + 정규화한 해석 메타(TDS 4.5). 어느 해시가 스냅숏을 가리키는지는 4.2; **캐시 열쇠**(L0, L1)는 의미 해시를 담지 않고, 무엇을 담는지는 5.3.9 |
 | 프로필 (profile) | 패키지가 지킨다고 선언한 TDS 묶음, 판을 붙여 씀(`tds:equity-daily-core@1.0`). 적합성 주장일 뿐이고, 엔진이 무엇을 할 수 있는지는 **능력(capability)**이 정한다(4.3) |
 | 능력 결과 셋 | 선언됨(declared) / 어느 단계까지 검사됨(verified@manifest·schema·full) / 이 엔진이 지원함(supported). 검사하지 않은 것을 통과라 하지 않는다 |
 | 대체 동작 (fallback) | 프로필이나 칼럼이 모자랄 때 엔진이 하는 정해진 동작. 항상 경고 `DataProfileWarning`(E30)과 매니페스트 `assumptions`에 남는다(4.5) |
