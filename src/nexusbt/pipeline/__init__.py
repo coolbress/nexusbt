@@ -17,8 +17,9 @@ from ._terms import Filter as Filter
 from ._terms import Pipeline as Pipeline
 from ._terms import Term as Term
 from ._terms import describe_term as describe_term
-from ._terms import factor as factor
 from ._terms import graph_hash as graph_hash
+from ._user import factor as factor
+from ._user import user_filter
 
 from . import factors as factors  # the 2.4 "`factors` module"  # isort: skip
 
@@ -30,7 +31,8 @@ class Finding: ...
 def filter(  # noqa: A001 - the 3.1 name `nx.filter`
     window: int, inputs: Sequence[BoundColumn | Factor], *, mask: Filter | None = None
 ) -> Callable[[Callable[..., Any]], Filter]:
-    raise NotImplementedError
+    """3.3 `@nx.filter`: a Filter from a window function returning bool `(n_alive,)` (#620)."""
+    return user_filter(window, inputs, mask=mask)
 
 
 def classifier(

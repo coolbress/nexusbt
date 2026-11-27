@@ -44,6 +44,7 @@ from nexusbt.contracts import ID_COLUMN as ID
 from nexusbt.testing import _synth_degrade as dg
 from nexusbt.testing import _synth_events as ev
 from nexusbt.testing import _synth_package as pk
+from nexusbt.testing import _synth_values as vt
 from nexusbt.testing._synth_actions import BP, CA, FACTORS, YEAR, Applied, _actions, _at
 from nexusbt.testing._synth_daily import (
     OHLC,
@@ -459,7 +460,9 @@ def make_snapshot(
                 applied[m] = _recut(applied[m], _factors(pk._arrow(was[name])),
                                     _factors(tables[m][name]))  # fmt: skip
     APPLIED[root.resolve()] = applied
-    return pk.write(root, made, tables, about, degrade, through)
+    # `small` only: tiny is the golden cases' and full holds the M1 datasets (4.8, #752)
+    valued = vt.value_tables(tables, days, seed, tuple(MARKETS)) if preset == "small" else None
+    return pk.write(root, made, tables, about, degrade, through, valued)
 
 
 def read(root: Path, name: str) -> pa.Table:
