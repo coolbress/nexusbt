@@ -42,7 +42,7 @@ OHL = ("open", "high", "low")
 _INTEGER = frozenset({"i8", "i16", "i32", "i64"})
 #: Columns a bars file may lack: the block reads them when present (TDS 5.5).
 _OPTIONAL = ("obs_status", "ts_end", "ts_available")
-#: The open ends of the first and the last block's span: bars before or after the calendar.
+#: The ends of the first and the last block's span: bars before or after the calendar.
 _FIRST, _LAST = np.datetime64("0001-01-01", "D"), np.datetime64("9999-12-31", "D")
 
 
@@ -56,8 +56,10 @@ class MarketBlock:
     `dropped` names each bar the read left out for a cause no other rule gives, as
     `(dataset, cause, file, row)`: `unknown_instrument`, an `instrument_id` that `instruments`
     lacks, and `not_a_session`, a column's bar on a day that is no session of the calendar;
-    a bar is named by a block whose span holds its date, the span running from the day after
-    the session before the block's first row (4.4, INV-12; #866)."""
+    a bar is named by a block whose span holds its date and that opens its file, the span
+    running between the sessions next to the block's first and last rows, open at the
+    calendar's ends; the days between two blocks are in both spans, so each day's file is
+    opened by one of them (4.4, INV-12; #866)."""
 
     market: str
     dates: NDArray[np.datetime64]
@@ -108,7 +110,7 @@ def build_block(
     wanted = [ID, "session_date", "close", *sources]
     optional = [*_OPTIONAL, *([source] if source != "ts_close" else [])]  # ts_close: calendar's
     span = (calendar.dates[start - 1] if start else _FIRST,
-            dates[-1] if last + 1 < len(calendar.dates) else _LAST)  # fmt: skip
+            calendar.dates[last + 1] if last + 1 < len(calendar.dates) else _LAST)  # fmt: skip
     dropped: set[tuple[str, str, str, int]] = set()
     for path in _files(bars, calendar.market, dates) if n else ():
         meta = pq.read_metadata(manifest.root / path)
@@ -240,7 +242,7 @@ def _cells(
     columns are read when the file has them (`meta`, its footer). The dictionary of
     `instrument_id` is mapped to column numbers once, then each row's index is looked up in
     that small table (5.3.1, A-05). `ids` is sorted and not empty. Last, by cause, the rows
-    dated in the span `(low, high]` that `drops` gives with the known ids and the sessions,
+    dated in the span `(low, high)` that `drops` gives with the known ids and the sessions,
     left out for an unknown `instrument_id` or for a day that is no session (#866)."""
     known, sessions, (low, high) = drops
     names = set(meta.schema.to_arrow_schema().names)
@@ -260,7 +262,7 @@ def _cells(
     row = np.minimum(np.searchsorted(dates, days), len(dates) - 1)
     keep = (col >= 0) & (dates[row] == days)
     picked = np.flatnonzero(keep)
-    inside = (days > low) & (days <= high)
+    inside = (days > low) & (days < high)
     unknown = np.concatenate(strangers) if strangers else np.zeros(0, np.bool_)
     left = [
         ("unknown_instrument", np.flatnonzero(unknown & inside)),

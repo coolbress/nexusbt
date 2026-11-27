@@ -299,7 +299,7 @@ def dropped_rows(
             fix="tds check <package> --level full names each row",
             more="spec 4.4; INV-12", layer=layer(snapshot._manifest.data, min(counts)[0]),
             subject="dropped bars",
-        )), stacklevel=4)  # fmt: skip  # the caller of `run_pipeline`
+        )), stacklevel=3)  # fmt: skip  # the caller of `run_pipeline` or `screen`
     return records
 
 

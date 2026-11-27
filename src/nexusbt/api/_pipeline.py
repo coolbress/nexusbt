@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any, Literal
 import pyarrow as pa
 
 from nexusbt.contracts import ID_COLUMN, ConfigError, SchemaRegistry
-from nexusbt.data import DataConfig, MarketBlock, Schedule, Snapshot, dropped_rows, open_snapshot
+from nexusbt.data import DataConfig, MarketBlock, Schedule, Snapshot, open_snapshot
 from nexusbt.pipeline import Classifier, Filter, Pipeline, bind, graph_hash
 from nexusbt.pipeline._terms import describe_term
 
@@ -51,8 +51,9 @@ class PipelineResult:
     table: pa.Table
     term_diagnostics: pa.Table
     run_id: str | None = None  # the sealed run's id with `save=True` (3.8 `kind="pipeline"`)
-    #: The bars the read left out, by dataset and cause: the run manifest's `data.dropped`.
-    _dropped: tuple[dict[str, Any], ...] = field(default=(), repr=False)
+    #: The bars the read left out (`MarketBlock.dropped`), which the caller counts and says
+    #: once, as E30 and the run manifest's `data.dropped` (#866).
+    _dropped: frozenset[tuple[str, str, str, int]] = field(default=frozenset(), repr=False)
 
     def to_polars(self) -> Any:
         return importlib.import_module("polars").from_arrow(self.table)  # optional (3.5)
@@ -104,7 +105,6 @@ def run(
     dropped: set[tuple[str, str, str, int]] = set()
     tables = [_market(pipeline, terms, fields, opened, m, p, freq, cfg, counted, dropped)
               for m, p in periods.items()]  # fmt: skip
-    left = dropped_rows(opened, dropped)  # E30 when any (#866)
     found = [t for t in tables if t is not None]
     table = pa.concat_tables(found) if found else _empty(pipeline)
     labels = {graph_hash(t): f"{describe_term(t).splitlines()[0]} {graph_hash(t)[:12]}"
@@ -114,7 +114,7 @@ def run(
     order = [(k, "ascending") for k in COUNT_KEYS]
     diagnostics = pa.Table.from_pylist(rows, schema=_COUNTS).sort_by(order)
     return PipelineResult(table.sort_by([(k, "ascending") for k in KEYS]), diagnostics,
-                          _dropped=tuple(left))  # fmt: skip
+                          _dropped=frozenset(dropped))  # fmt: skip
 
 
 def _open(snapshot: str | Snapshot | None, cfg: Config) -> Snapshot:

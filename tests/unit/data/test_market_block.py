@@ -318,6 +318,24 @@ def test_dropped_rows_counted_once_by_cause(tiny: Path, tmp_path: Path) -> None:
     assert not whole(opened(tiny), "KR", ["close"]).dropped
 
 
+def test_dropped_bar_in_the_previous_years_file(years: Path, tmp_path: Path) -> None:
+    """A bar on the day after a year's last session lies in that year's file, which the
+    next year's first block does not open: the block that ends the year names it (#866)."""
+    sessions = opened(years).calendar("KR").dates
+    turn = int(np.searchsorted(sessions, np.datetime64("2019-01-01", "D")))
+    off = (sessions[turn - 1] + np.timedelta64(1, "D")).astype(dt.date)
+
+    def bars(rows: Rows) -> Rows:
+        if rows[0]["session_date"].year != 2018:
+            return rows
+        return [*rows, {**rows[0], "session_date": off}]
+
+    snap = opened(edited(years, tmp_path / "y", bars_1d=bars))
+    before = snap.market_block("KR", ["close"], sessions[:turn])
+    after = snap.market_block("KR", ["close"], sessions[turn:])
+    assert [c for _, c, _, _ in before.dropped | after.dropped] == ["not_a_session"]
+
+
 def test_tail_overlap_rows(years: Path) -> None:
     snap = opened(years)
     dates = snap.calendar("KR").dates
