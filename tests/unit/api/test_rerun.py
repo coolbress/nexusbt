@@ -579,6 +579,156 @@ def test_the_cli_new_snapshot_exits_0_when_the_outputs_differ(
     assert capsys.readouterr().out.splitlines()[1].startswith("outputs differ: ")
 
 
+#: #637 Decisions: L1-a's tolerance (8.1), the one a run without NAV is compared within when
+#: the environment differs.
+L1_A_ABS = L1_A_REL = 1e-9
+_WITHIN = f"environment differs; outputs within tolerance (|a{chr(0x2212)}b| ≤ 1e-9 + 1e-9·|b|)"
+_BEYOND = "environment differs; outputs differ beyond tolerance: pipeline.parquet"
+
+
+def _nudge(folder: Path, times: float) -> None:
+    """Move the run's first `close` by `times` L1-a's tolerance for it, as a run sealed in
+    another environment would hold it: the file and its recorded physical hash."""
+    table = pq.read_table(folder / "pipeline.parquet")
+    close = table["close"].to_pylist()
+    close[0] += times * (L1_A_ABS + L1_A_REL * abs(close[0]))
+    table = table.set_column(table.schema.get_field_index("close"), "close", pa.array(close))
+    pq.write_table(table, _edit(folder / "pipeline.parquet"))
+    found = _manifest(folder)
+    digest = hashlib.sha256((folder / "pipeline.parquet").read_bytes()).hexdigest()
+    found["outputs"]["pipeline.parquet"]["physical_sha256"] = digest
+    _edit(folder / "manifest.json", json.dumps(found, sort_keys=True, indent=2) + "\n")
+
+
+def _another_lock(folder: Path) -> None:
+    """The run's captured engine `uv.lock` as another environment's (#637 Decisions 1)."""
+    lock = folder / "source" / "engine-uv.lock"
+    _edit(lock, lock.read_text(encoding="utf-8") + "# another environment\n")
+
+
+def test_the_tolerance_is_l1_a(copied: tuple[Path, str]) -> None:
+    """#637 Decisions 2: the tolerance used is 8.1's L1-a, 1e-9 absolute and relative."""
+    from nexusbt.api import _rerun
+
+    assert (_rerun.ABS_TOL, _rerun.REL_TOL) == (L1_A_ABS, L1_A_REL)
+
+
+@pytest.mark.parametrize(("times", "line", "code"), [
+    (0.5, _WITHIN, 0),  # half the tolerance: within, though the bytes differ
+    (2.0, _BEYOND, 4),  # twice the tolerance: beyond it
+])  # fmt: skip
+def test_another_engine_lock_compares_within_l1_a(
+    copied: tuple[Path, str], capsys: pytest.CaptureFixture[str], times: float, line: str,
+    code: int,
+) -> None:  # fmt: skip
+    """#637 Decisions: a captured engine lock that is not the current one says "environment
+    differs" and compares the values within L1-a's tolerance, not the bytes; the CLI exits
+    0 within it and 4 beyond it."""
+    project, run_id = copied
+    folder = project / "runs" / run_id
+    _another_lock(folder)
+    _nudge(folder, times)
+    assert main(["rerun", run_id]) == code
+    assert capsys.readouterr().out.splitlines()[1] == line
+
+
+_NAN, _INF = float("nan"), float("inf")
+_F64 = pa.float64()
+
+
+def _table(values: list[Any], kind: pa.DataType | None = _F64) -> pa.Table:
+    """Keys 0, 1, … and one column `v` of `values`, as `kind` (inferred when `None`)."""
+    return pa.table({"k": list(range(len(values))), "v": pa.array(values, type=kind)})
+
+
+@pytest.mark.parametrize(("old", "new", "beyond"), [
+    (_table([1.0, _NAN, None, _INF]), _table([1.0, _NAN, None, _INF]), False),  # each its own
+    (_table([1.0]), _table([1.0 + 0.5 * (L1_A_ABS + L1_A_REL)]), False),
+    (_table([_NAN]), _table([None]), True),  # a null is not a NaN, in a float64 column
+    (_table([1.0, None]), _table([None, 1.0]), True),  # the nulls in other cells
+    (_table([_INF]), _table([-_INF]), True),
+    (_table([1.0]), _table([_INF]), True),  # the tolerance of an infinite `b` is no tolerance
+    (_table([1.0]), _table([1], None), True),  # float64 against int64, though the same value
+    (_table([1], None), _table([2], None), True),  # not a float: exactly, no tolerance
+    (_table([1.0]), pa.table({"k": [1], "v": [1.0]}), True),  # another key
+    (_table([1.0]), _table([1.0, 1.0]), True),  # another number of rows
+])  # fmt: skip
+def test_cells_within_l1_a(old: pa.Table, new: pa.Table, beyond: bool) -> None:
+    """#637 Decisions 2: cell by cell on the same keys, NaN agreeing with NaN; a null only
+    with a null in the same cell, an infinity only with itself, a column only with one of its
+    own type, a key or a cell that is not a float only with an equal one."""
+    from nexusbt.api import _rerun
+
+    assert _rerun._beyond(old, new, ["k"]) is beyond
+
+
+def _outputs(folder: Path, tables: dict[str, pa.Table], value: str | None = "v1") -> Path:
+    """A run folder holding `tables` and a manifest naming each with its file's sha256 and
+    the value hash `value` (none recorded when `None`)."""
+    folder.mkdir()
+    outputs: dict[str, dict[str, str]] = {}
+    for name, table in tables.items():
+        pq.write_table(table, folder / name)
+        digest = hashlib.sha256((folder / name).read_bytes()).hexdigest()
+        outputs[name] = {"physical_sha256": digest}
+        if value is not None:
+            outputs[name]["value_sha256"] = value
+    (folder / "manifest.json").write_text(json.dumps({"outputs": outputs}), encoding="utf-8")
+    return folder
+
+
+def test_a_reproduced_table_that_no_longer_matches_its_record_is_beyond(tmp_path: Path) -> None:
+    """#637: the reproduced run's file, rewritten after it was sealed, is not compared as if
+    it were the run's: its sha256 is not the recorded one, so it is not within."""
+    from nexusbt.api import _rerun
+
+    old = _outputs(tmp_path / "old", {"pipeline.parquet": _table([1.0])})
+    new = _outputs(tmp_path / "new", {"pipeline.parquet": _table([2.0])})
+    pq.write_table(_table([2.0]), old / "pipeline.parquet")  # the same values as the new run
+    assert _rerun.within(old, new) == _BEYOND
+
+
+def test_a_table_the_new_run_lacks_is_beyond_tolerance(tmp_path: Path) -> None:
+    """#637: a table of the reproduced run that the new run did not write is not within."""
+    from nexusbt.api import _rerun
+
+    old = _outputs(tmp_path / "old", {"pipeline.parquet": _table([1.0])})
+    new = _outputs(tmp_path / "new", {})
+    assert _rerun.within(old, new) == _BEYOND
+
+
+_EXTRA = "environment differs; outputs differ beyond tolerance: extra.parquet"
+
+
+@pytest.mark.parametrize(("value", "cells", "line"), [
+    ("v1", [1.0], _WITHIN),
+    ("v2", [1.0], _EXTRA),  # the cells are the same; only the recorded value hash moves
+    (None, [1.0], _WITHIN),  # no value hash recorded: its bytes, which are the same
+    (None, [1.0 + 1e-12], _EXTRA),  # within L1-a, but bytes are compared exactly
+])  # fmt: skip
+def test_a_table_of_no_known_key_is_compared_by_its_hash(
+    tmp_path: Path, value: str | None, cells: list[float], line: str
+) -> None:
+    """#637: a table whose key the comparison does not know is compared exactly, by its value
+    hash, or by its bytes when no value hash is recorded; never within the tolerance."""
+    from nexusbt.api import _rerun
+
+    recorded = None if value is None else "v1"
+    old = _outputs(tmp_path / "old", {"extra.parquet": _table([1.0])}, recorded)
+    new = _outputs(tmp_path / "new", {"extra.parquet": _table(cells)}, value)
+    assert _rerun.within(old, new) == line
+
+
+def test_a_project_lock_on_one_side_only_is_another_environment(
+    copied: tuple[Path, str],
+) -> None:
+    """#637 Decisions 1: the run kept no project `uv.lock`; the working folder has one now."""
+    project, run_id = copied
+    assert not (project / "runs" / run_id / "source" / "uv.lock").exists()
+    (project / "uv.lock").write_text("version = 1\n", encoding="utf-8")
+    assert nx.rerun(run_id).comparison == _WITHIN
+
+
 def test_the_cli_missing_snapshot_is_still_exit_code_1(
     copied: tuple[Path, str], capsys: pytest.CaptureFixture[str]
 ) -> None:

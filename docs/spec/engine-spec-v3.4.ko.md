@@ -488,7 +488,7 @@ def f(close: np.ndarray, *, n: int = 21) -> np.ndarray: ...
 - `adjustment`는 입력을 종목별로 상수배 했을 때 결과가 어떻게 되는지 밝힌다(3.4): `"degree 0"`(비율·수익률)은 그대로, `"degree 1"`(수준)은 같은 상수배가 된다. 없으면 결과는 차수가 없고, 지금처럼 E17로 거부되지 않는다. 두 값 밖의 값은 항을 만들 때 `ConfigError`(오류 E16). 엔진은 선언을 한 실행에서 사용자 항(묶은 값까지 같은 함수)마다 한 번, 어떤 종목의 결과가 유한하고 0이 아닌 첫 행에서 검사한다: 그 종목의 가격을 2배로 한 입력 창 복사본으로 함수를 한 번 더 부른다. 각 입력의 열은 가격 인자 차수 p(3.4)에 따라 `2^p`배가 된다(가격 칼럼·수준은 ×2, 수익률 같은 0차 입력은 그대로). 그 종목의 결과 b를 기대값 a(결과, `"degree 1"`이면 그 2배)와 `|a − b| ≤ 1e-12·max(1, |a|)`로 비교한다. 선언이 맞지 않으면 함수와 선언을 말하는 `TermDomainError`(오류 E17). 한 번 더 부르는 것은 값도 그래프 해시도 바꾸지 않고, 판정은 청크를 어떻게 나누든 같다. 실행이 끝날 때까지 그런 행이 없거나, 차수를 모르거나 수량 인자 차수·크기를 모르는 차수인 입력이 있으면 검사를 건너뛴 것으로 기록한다(E45, 이유 `declaration_unchecked`). 조용히 통과시키지 않는다(결정 2026-11-19, #246).
 - `dtype`은 Factor 값의 dtype인 `"float64"`만 받는다; 그 밖의 값은 항을 만들 때 `ConfigError`(오류 E16)(결정 2026-11-20, #638).
 - `col.latest`는 항이다: 행 s의 값은 행 s에서 정해진다(5.1.2). 각 칸을 t에 알려진 대로 보아야 하는 창은 `col.latest`가 아니라 칼럼 자체를 입력으로 받는다(`inputs=[col]`).
-- `@nx.filter`는 bool `(n_alive,)`를 반환한다: 그 종목의 입력 창 가운데 한 칸이라도 NaN이면 그 칸은 모름이고, 그 밖에는 함수가 낸 bool이다; 다른 dtype이나 shape의 결과(float)는 `WindowError`(오류 E8)(결정 2026-11-20, 2026-11-27, #620). `@nx.classifier`는 int 또는 str `(n_alive,)`를 반환한다.
+- `@nx.filter`는 bool `(n_alive,)`를 반환한다: 그 종목의 입력 창 가운데 한 칸이라도 NaN이면 그 칸은 모름이고, 그 밖에는 함수가 낸 bool이다. `@nx.classifier`는 정수 `(n_alive,)`, 곧 코드 자체를 반환한다: −1은 빈 묶음이고, 다른 음수는 어느 코드표에도 없으므로 `WindowError`(오류 E8)다; `mask` 밖의 칸과 창이 아직 모자란 칸은 빈 묶음이다. 다른 dtype이나 shape의 결과(둘 다 float, 분류기는 bool도)는 `WindowError`(오류 E8)(결정 2026-11-20, 2026-11-27, #620). str을 반환하는 분류기는 코드표와 함께 #818에서 오며, 그때까지 str 결과도 E8이다.
 - 함수가 `window`보다 앞 행을 인덱싱하면 numpy가 `IndexError`를 내고, 엔진은 그것을 `WindowError`(오류 E8)로 바꾸어 "`window=<필요한 값>`"을 제안한다(필요한 값 = 음수 인덱스의 절댓값). 그 밖의 사용자 예외는 원래 예외와 사용자 파일:줄을 그대로 보인다 [R-42]. 6.5 (5)의 시운전에서 난 예외도 같다: 1.0 창에서 예외를 내는 함수는 거기서 멈춘다(결정 2026-11-19, #246).
 - `nx.ops.rolling(x: Factor, window: int, min_periods: int | None = None).{mean,sum,std,min,max,median}()`: 항상 뒤만 보는 이동 연산(`std`는 ddof=1, `min_periods` 기본 = window) [설계 3.5]. `1 ≤ min_periods ≤ window`; `min_periods`는 축 위에 온전히 놓인 창의 유한한 칸을 세고, 축의 첫 행보다 앞에서 시작하는 창은 `min_periods`와 상관없이 NaN이다(INV-03, INV-14) (결정 2026-11-18, #243).
 - `nx.ops.where(cond: Filter, a, b)`, `nx.ops.coalesce(*factors)`: 명시적 대체.
@@ -963,7 +963,7 @@ write: orders.to_csv("orders/{date}.csv")   apply to paper book: nx.fill(book, o
 | `nexusbt book flow BOOK AMOUNT --ccy C --sleeve M [--session D]` | 입금·출금 [V31-19] |
 | `nexusbt book acknowledge BOOK DIVERGENCE_ID --note T [--by NAME]` | `reconciled: NO`의 차이를 확인 기록; 그 뒤 `live`가 다시 주문표를 냄(5.9.6 규칙 3) |
 | `nexusbt runs [--study S] [--html] [--prune] [--prune-detail]` | `--prune`은 실행 폴더만 지우고 색인 기록과 시도 수는 남김 [R-34]; `--prune-detail`은 실행마다 3단계 `detail/` 폴더만 지우고 지웠다고 기록(5.9.5, #206) |
-| `nexusbt rerun RUN_ID [--new-snapshot] [--trust] [--save-detail]` | 다른 기계에서 만든 실행 폴더는 `--trust` 없이 거절(E31); `--save-detail`은 3단계 산출물도 다시 만들어 대조(5.9.4, #206); 비교 줄이 `outputs differ`로 시작하면 종료 코드 4, `outputs identical`로 시작하면 0; `--new-snapshot`은 새 실행이므로(3.8) 비교 결과와 상관없이 0 (#655) |
+| `nexusbt rerun RUN_ID [--new-snapshot] [--trust] [--save-detail]` | 다른 기계에서 만든 실행 폴더는 `--trust` 없이 거절(E31); `--save-detail`은 3단계 산출물도 다시 만들어 대조(5.9.4, #206); 비교 줄이 `outputs differ`로 시작하거나, 환경이 다를 때 출력이 허용 오차 밖으로 다르다고 하면 종료 코드 4(#637), `outputs identical`로 시작하거나, 환경이 다를 때 허용 오차 안이라고 하면 0; `--new-snapshot`은 새 실행이므로(3.8) 비교 결과와 상관없이 0 (#655) |
 | `nexusbt stubs` | `.pyi` 다시 생성 |
 | `nexusbt check FILE[:VAR] [--probes K] [--start-probe]` | |
 
@@ -2134,7 +2134,7 @@ runs/<run_id>/
 
 #### 5.9.4 해시와 결정성 [R-31, INV-09]
 - 물리 해시 = 파일 sha256. 값 해시 = TDS 4.5의 정규 값 직렬화(같은 함수 `tds.value_hash`를 쓴다; Arrow 판·쓰기 도구와 무관). 실행 산출물의 "논리 비교"는 값 해시다.
-- 같은 고정 환경(같은 `uv.lock`, 같은 기계 종류)에서 `rerun`은 출력 물리 해시까지 같아야 한다. 환경이 다르면 논리 비교를 허용 오차(8.1 표의 L2 기준)로 한다.
+- 같은 고정 환경(같은 `uv.lock`, 같은 기계 종류)에서 `rerun`은 출력 물리 해시까지 같아야 한다. 환경이 다르면 논리 비교를 허용 오차(8.1 표의 L2 기준)로 한다. NAV가 없는 실행(파이프라인·스크린)은 L2 행이 없으므로, 그 표를 같은 키의 칸마다 L1-a의 `|a−b| ≤ 1e-9 + 1e-9·|b|`로 비교하고 NaN은 NaN과 같다고 본다. 잡은 엔진 또는 프로젝트 `uv.lock`의 sha256이 지금 것과 다르거나 프로젝트 잠금이 한쪽에만 있으면 환경이 다르다(결정 2026-11-20, #637).
 - 3단계 산출물(5.9.1, #206)은 있는 파일이 아니라 매니페스트가 적은 값 해시로 대조한다: 쓰지 않았거나 지운 `detail/` 파일은 `rerun --save-detail`이 다시 만들어 그 해시와 대조하고, `--save-detail` 없는 `rerun`은 1·2단계만 대조하고 3단계는 대조하지 않았다고 말한다.
 - Parquet 쓰기: pyarrow, zstd 3, row group 131,072행, 통계 켬, 문자열 dictionary, 메타데이터에 시각 없음.
 
