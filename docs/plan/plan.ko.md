@@ -1042,7 +1042,7 @@ v3는 3자 검토 합의대로 **M0을 계약만으로 줄이고**, 검사기 fu
 
 **T5.20 `feat(api): compare strategy variants in one table`** · `M5` `api` · S · Blocked by: T5.5, T3.34 · §3.8 compare
 - Context: `nx.compare(Strategy…)`가 각각 backtest(Pipeline 재사용) 후 변형 표(바뀐 칸 이름, 지표, waterfall 요약, DSR(집단)), CLI `nexusbt compare`.
-- Done means: `nx.compare(base, base.replace(sizing=nx.size.erc()), base.replace(risk=[nx.risk.drawdown_brake()]))`가 세 줄 표를 출력하고 후보 셋이 기록된다.
+- Done means: `nx.compare(base, base.replace(sizing=nx.size.erc()), base.replace(risk=[nx.risk.drawdown_brake(off=0.20, on=0.10)]))`가 세 줄 표를 출력하고 후보 셋이 기록된다.
 - Acceptance: `tests/unit/api/test_compare.py::test_variant_table_columns`, `::test_variants_counted_as_candidates`, `::test_pipeline_values_reused`.
 
 **T5.21 `feat(cli): commented two-tier nexusbt.toml template, config check and config show`** · `M5` `cli` · S · Blocked by: T1.2, T0.4b, T0.5a · §3.10, §3.11 [사용자 요청 2026-10-28]
