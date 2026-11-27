@@ -76,3 +76,9 @@ versions follow [Semantic Versioning](https://semver.org/).
   number, or the network address used before), so once `rerun` lands
   (#250) it will refuse such a run as another machine's (E31): read its `source/`,
   then run it with `nx.rerun(id, trust=True)` or `nexusbt rerun ID --trust`.
+- A run saved from an entry file outside the project folder reruns when `multiprocessing`
+  was imported during it (#644). That import gives the entry module a second name,
+  `__mp_main__`, which was recorded in `source.outside` as an outside module that no rerun
+  could find again by its name, so every rerun of such a run was refused (E15). This
+  happened on Linux, where a library imports it, since `source.outside` came in (#250). The
+  name is no longer recorded, and a run that recorded it is read without it.

@@ -17,8 +17,8 @@ from ._terms import Filter as Filter
 from ._terms import Pipeline as Pipeline
 from ._terms import Term as Term
 from ._terms import describe_term as describe_term
-from ._terms import factor as factor
 from ._terms import graph_hash as graph_hash
+from ._user import factor as factor
 
 from . import factors as factors  # the 2.4 "`factors` module"  # isort: skip
 
