@@ -206,6 +206,18 @@ def test_cross_section_terms_match_kernels() -> None:
     assert counts == {(0, graph_hash(t), "UnknownGroup"): 1 for t in grouped}
 
 
+def test_a_cross_section_of_one_valid_cell_has_no_rank() -> None:
+    """#868: alone in its cross-section, a cell is unknown to `percentile_between` (not between
+    0 and 100) and in the unknown group -1 of `quantiles` (not the top bucket), as `zscore` is
+    NaN there; the other cells are missing values."""
+    one = block(close=[[5.0, N, N]])
+    s = CLOSE.latest
+    found = values([s.percentile_between(0, 100), s.quantiles(2), s.zscore()], one)
+    assert found[0] == [U, False, False]
+    assert found[1] == [-1, -1, -1]
+    assert np.isnan(found[2]).all()
+
+
 def test_tiebreak_orders_equal_scores() -> None:
     """An ordinal `rank` of equal scores follows the `[portfolio] tiebreak` key (3.7): `"id"` by
     ascending id, `"hash"` (the default) by the salted hash, which orders I0..I5 as I0, I5, I4,
