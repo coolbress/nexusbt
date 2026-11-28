@@ -2,10 +2,16 @@
 # literals; implementation pull requests do not change this file. `expected` per row:
 # null = warm-up (no full window in the 5 rows), .nan = the factor gives NaN.
 factor: RollingStd
-spec: "3.4: nanstd(x, ddof=1), NaN left out, minimum observations 2; warm-up W-1"
+spec: "3.4: nanstd(x, ddof=1), NaN left out, fewer than min_periods finite cells (default W) or than 2 -> NaN; warm-up W-1"
 cases:
-  - term: "RollingStd(3)"
+  - term: "RollingStd(3, min_periods=2)"
     inputs: {close: [2, 4, .nan, 8, .nan]}
     # Worked by hand, not yet checked by the person:(2, 4) mean 3, (1 + 1)/1 = 2, sqrt 1.414214; (4, 8) mean 6, (4 + 4)/1 = 8,
     # sqrt 2.828427; (8) one value < 2 -> NaN.
     expected: [null, null, 1.414214, 2.828427, .nan]
+  - term: "RollingStd(3)"
+    # #868: min_periods defaults to the window.
+    inputs: {close: [2, 4, 6, .nan, 8]}
+    # Worked by hand, not yet checked by the person: (2, 4, 6) mean 4, (4 + 0 + 4)/2 = 4, sqrt
+    # 2.0; (4, 6, NaN) and (6, NaN, 8) two of 3 -> NaN.
+    expected: [null, null, 2.0, .nan, .nan]

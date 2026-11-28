@@ -2,9 +2,15 @@
 # literals; implementation pull requests do not change this file. `expected` per row:
 # null = warm-up (no full window in the 5 rows), .nan = the factor gives NaN.
 factor: SimpleMovingAverage
-spec: "3.4: nanmean, NaN left out, all NaN -> NaN; warm-up W-1. 8.2: SMA(3) 1, NaN, 3 -> 2.0"
+spec: "3.4: nanmean, NaN left out, fewer than min_periods finite cells (default W) -> NaN; warm-up W-1. 8.2: SMA(3, min_periods=1) 1, NaN, 3 -> 2.0; SMA(3) -> NaN"
 cases:
-  - term: "SMA(3)"
+  - term: "SMA(3, min_periods=1)"
     inputs: {close: [1, .nan, 3, 5, .nan]}
     # Worked by hand, not yet checked by the person:(1 + 3)/2 = 2.0; (3 + 5)/2 = 4.0; (3 + 5)/2 = 4.0.
     expected: [null, null, 2.0, 4.0, 4.0]
+  - term: "SMA(3)"
+    # #868: min_periods defaults to the window, so a window with a NaN is NaN.
+    inputs: {close: [1, 2, 3, .nan, 5]}
+    # Worked by hand, not yet checked by the person: (1 + 2 + 3)/3 = 2.0; (2, 3, NaN) two of 3
+    # -> NaN; (3, NaN, 5) -> NaN.
+    expected: [null, null, 2.0, .nan, .nan]
