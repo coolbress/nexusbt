@@ -2711,14 +2711,14 @@ P11 (a)는 M2가 구조를 굳히는 계산 그래프와 `evaluate`를 잰다(�
 | L1-b 조정 | 분할·역분할·배당 앞뒤 ±5세션 창 | 같음 | `compat.zipline.USEquityPricing.close` ↔ `Price.close_tr` |
 | L1-c 시점 재무 | `Fund`와 함께 2026-11-24에 뺐다(#752) | — | — |
 | L1-d 마스크·분류 | `top(N, mask=)`, `rank(ordinal, groupby=)`, `zscore`, `percentile_between`, `quantiles` | 집합·순위 정확히; `zscore` 값은 `|a−b| ≤ 1e-9 + 1e-9·|b|` (ADR 0046) | |
-| L2-a 백테스트 비용 0 | 월말 top-N 동일 가중, 프리셋 zipline + `information_lag_sessions=1`(zipline의 `before_trading_start`는 전날까지 자료), 크기 정하기 가격 = 판단 날 종가, 체결 다음 날 종가, 슬리피지 0, 수수료 0 | 일간 NAV 상대 1e-8, 체결 수량 정확히 | |
+| L2-a 백테스트 비용 0 | 월말 top-N 동일 가중, 프리셋 zipline + `information_lag_sessions=1`(zipline의 `before_trading_start`는 전날까지 자료), 크기 정하기 가격 = 판단 날 종가, 체결 다음 날 종가, 슬리피지 0, 수수료 0 | 일간 NAV 상대 1e-8, 체결 수량 정확히 | L2-c 행의 비교용 유니버스 |
 | L2-b 비용 켬 | FixedBasisPointsSlippage(5, 0.1), PerShare(0.001), 상한이 걸리는 경우 포함 | NAV 상대 1e-6, 수량 정확히 | 같은 봉 10% 상한은 프리셋이 구현 |
-| L2-c 기업행동 | 분할·현금배당(지급일)·폐지 보유; 배당락일 뒤에 금액이 공시되는 현금배당을 거치는 보유는 비교하지 않는다, L1이 그 행에서 사건이 확정되지 않은 칸을 빼는 것과 같이(위의 (B), ADR 0045; 소유자, 2026-11-28, #901) | 평가액 절대 0.01(통화) | 폐지 = 마지막 가격(프리셋) |
+| L2-c 기업행동 | 분할·현금배당(지급일)·폐지 보유. **L2-a와 L2-c의 비교용 유니버스**는, 배당락일 뒤에 금액이 공시되는 현금배당이 있는 종목과, 앞선 판으로 미수금이나 현금을 기록한 뒤에 정정되거나 취소되는 현금배당이 있는 종목(5.3.3a (7))을 통째로 뺀다: 위의 (B)가 L1에 대해 말하듯 상대 엔진에는 알려진 시각이 없고(ADR 0045), 백테스트는 경로에 달려 있어서 그 보유 하나만 빼서는 비교가 되살아나지 않는다. 증거 파일은 빠진 종목을 이유별로 센다(소유자, 2026-11-28, #901) | 평가액 절대 0.01(통화) | 폐지 = 마지막 가격(프리셋) |
 | L2-e 롱숏(프리셋) | 월말 top-N 롱 + bottom-N 숏 동일 가중, 비용 0, zipline 음수 보유 | 일간 NAV 상대 1e-8, 체결 수량 정확히 | 숏 배당 지급 포함 창 |
 | L2-d 주문 종류(프리셋 의미) | 프리셋 `zipline`에서 지정가·손절·손절지정가 매수·매도, day/GTC, 부분 체결 이월: 발동 세션·체결 수량·체결 가격 | 수량·세션 정확히, 가격 상대 1e-9 | 발동 = 그 봉 종가 하나(5.6.15, T3.15b가 zipline 코드로 확정). 우리 OHLC 규칙은 여기서 시험하지 않음 |
 | L3 자료 왕복 | 내보내기 → 묶음 → zipline 리더 값 | 같음(반올림 입력) | uint32 밖 행 목록 |
 
-- **증거**: `tests/parity/evidence/<YYYYMMDD>-<sha>-<suite>-<fixture>.json` = `{suite, zipline_version, fixture_semantic_hash, cases: [{id, metric, n, max_abs, max_rel, tolerance, pass}], environment}`. 마일스톤 끝마다 커밋(참조 생산자 계약 RESULTS처럼) [설계 4.8].
+- **증거**: `tests/parity/evidence/<YYYYMMDD>-<sha>-<suite>-<fixture>.json` = `{suite, zipline_version, fixture_semantic_hash, cases: [{id, metric, n, max_abs, max_rel, tolerance, pass}], environment}`, 그리고 L2 묶음에는 `left_out: {reason: n}`, 그 비교용 유니버스가 뺀 종목(L2-c 행; #901). 마일스톤 끝마다 커밋(참조 생산자 계약 RESULTS처럼) [설계 4.8].
 - 혼합 시장(슬리브 합)은 zipline 비교가 없다. "합친 결과 = 시장별 단독 실행의 합(환율 평가)"을 성질 시험 M-SLEEVE로 확인한다(전제: `market_local`, 시장 넘는 항 없음, 8.3) [설계 위험 13, SC-04].
 - 두 번째 대조 엔진(vectorbt 등)은 두지 않는다(기준 엔진은 zipline 하나, 9.0 Q35). 정답의 정본은 8.2의 손계산 정답이고, `handcalc.py`가 아니다.
 

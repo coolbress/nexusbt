@@ -18,12 +18,12 @@ The order now: M0 → M1 → **M1b** → M2 → M3a → M3b → M4 → M5 → M6
 
 No rule of the spec changes, and when a check becomes required does not change. A request outside the thin backtest stops with E18, as a feature not built does. A first-screen line whose source is not built yet prints `n/a (not built yet; available after ticket {ticket})` (spec §3.9).
 
-What was split, as the plan has it (#858, #871). M1b has 23 tickets. In each split, the half that stays keeps the original id, and the M1b half takes a new letter:
+What was split, as the plan has it (#858, #871). M1b has 24 tickets (23 until 2026-11-28, when #901 split T3.13c into T3.13c and T3.13d). In each split, the half that stays keeps the original id, and the M1b half takes a new letter:
 
 - **Moved whole:** T3.3, T3.4, T3.9, T3.12 and T3.15a from M3a, and T1.20 from M1.
 - **Split, the M1b half first:**
   - T2.4a / T2.4 and T2.7a / T2.7 (M2);
-  - T3.1a / T3.1, T3.2a / T3.2, T3.5c / T3.5a, T3.5d / T3.5b, T3.10a / T3.10, T3.11a / T3.11, T3.13c / T3.13a, T3.14a / T3.14, T3.16a / T3.16, T3.17c / T3.17a and T3.22a / T3.22 (M3a);
+  - T3.1a / T3.1, T3.2a / T3.2, T3.5c / T3.5a, T3.5d / T3.5b, T3.10a / T3.10, T3.11a / T3.11, T3.13c and T3.13d / T3.13a, T3.14a / T3.14, T3.16a / T3.16, T3.17c / T3.17a and T3.22a / T3.22 (M3a);
   - T5.18a / T5.18 (M5).
 - **Golden cases:** T3.Gg takes the cases the M1b tickets use from T3.Ga, T3.Gc, T3.Gd and T3.Ge, and adds G-119 to G-122 (#875).
 - **New:** T3.36 (`rerun` of a backtest run) and T3.37 (`examples/factors/momentum.py` and `examples/strategies/mom_kr.py`).
