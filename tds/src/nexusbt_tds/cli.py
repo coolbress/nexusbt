@@ -141,10 +141,12 @@ def _import(args: argparse.Namespace) -> int:
     except CsvImportError as exc:
         print(f"tds import csv: {exc}", file=sys.stderr)
         return ERRORS
-    said = json.loads((out.parent / REPORT).read_text(encoding="utf-8"))["datasets"]
-    n = sum(d.get("rows_filled", 0) for d in said.values())
+    said = json.loads((out.parent / REPORT).read_text(encoding="utf-8"))
+    n = sum(d.get("rows_filled", 0) for d in said["datasets"].values())
     filled = f"; {n} missing session rows filled (see the report)" if n else ""
-    print(f"wrote {out} and {out.parent / REPORT}{filled}")
+    checked = said["check"]  # #866: the import's own `full` check
+    print(f"wrote {out} and {out.parent / REPORT}{filled}; full check: {checked['errors']}"
+          f" errors, {checked['warnings']} warnings")  # fmt: skip
     return OK
 
 

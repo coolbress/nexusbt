@@ -6,6 +6,7 @@ A null `obs_status` states nothing: the row's values are read as stored."""
 
 from __future__ import annotations
 
+import importlib
 from pathlib import Path
 
 import numpy as np
@@ -13,6 +14,7 @@ import pytest
 
 from nexusbt.data import DataConfig, open_snapshot
 from nexusbt_tds import import_csv
+from nexusbt_tds.check import CheckResult
 
 INSTRUMENTS = """instrument_id,asset_class,market,calendar_id,currency,listed_on,lot_size,\
 multiplier,is_synthetic
@@ -31,6 +33,16 @@ datasets:
 """
 DAYS = np.array(["2024-01-02", "2024-01-03", "2024-01-04"], dtype="datetime64[D]")
 NAN = float("nan")
+
+
+@pytest.fixture(autouse=True)
+def unchecked(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The import's own `full` would refuse the S006 and V004 packages here (#866); these
+    tests are of what the engine reads from them, so the import keeps them."""
+    passed = CheckResult(level="full", errors=(), warnings=())
+    module = importlib.import_module("nexusbt_tds.import_csv")  # the package's name: a function
+    # by keyword: a positional "check" before a value reads as `tds check P` (2.7's trace)
+    monkeypatch.setattr(module, name="check", value=lambda *_, **__: passed)
 
 
 def closes(tmp_path: Path, bars: str) -> list[list[float]]:

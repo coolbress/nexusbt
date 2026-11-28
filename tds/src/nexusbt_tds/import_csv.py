@@ -10,7 +10,8 @@ cannot be read stops the import with its file and line, so every row read is kep
 fails; nothing is written until every dataset is read and checked. `import_report.json`, next to
 the package, says what was kept and every default and fill assumed (#257 decisions 3 to 5, 7).
 Without a `calendar_sessions` block, the bars' dates and the market's `open` and `close` give
-one (TDS 5.4, 9.5; #705 Decisions 59).
+one (TDS 5.4, 9.5; #705 Decisions 59). The import ends by checking what it wrote at `full`, its
+findings under `check` in the report; an error there removes the package (#866).
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ import datetime as dt
 import json
 import math
 import re
+import shutil
 from importlib.metadata import version
 from pathlib import Path
 from typing import Any
@@ -29,6 +31,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from ._mapping import read_mapping
+from .check import check
 from .hash import HASH_SPEC, write_hashes
 from .manifest import MANIFEST, TDS_DRAFT
 from .schemas.verify import SCHEMA_DIR
@@ -117,6 +120,7 @@ def import_csv(mapping: Path, out: Path) -> Path:
         "datasets": datasets, "hashes": {"hash_spec": HASH_SPEC},
         "writer": {"name": "pyarrow", "version": pa.__version__},
     }  # fmt: skip
+    made = not out.exists()
     out.mkdir(parents=True, exist_ok=True)
     for entry, groups in tables:
         entry["files"] = _write(out, entry, groups)
@@ -125,8 +129,22 @@ def import_csv(mapping: Path, out: Path) -> Path:
     given = ("name", "snapshot_id", "profiles", "id_namespaces")  # decision 7: each one used
     assumed = [f"{k}: {json.dumps(manifest[k], ensure_ascii=False)} (the mapping gives none)"
                for k in given if manifest[k] != spec.get(k)]  # fmt: skip  # `profiles: []` too
-    text = {"package": out.name, "mapping": mapping.name, "assumed": assumed, "datasets": report}
+    found = check(out, level="full")  # a producer runs `full` right after export (#866)
+    checked = {"level": "full", "errors": max(found.error_count, len(found.errors)),
+               "warnings": len(found.warnings),
+               "findings": [f.to_dict() for f in (*found.errors, *found.warnings)]}  # fmt: skip
+    text = {"package": out.name, "mapping": mapping.name, "assumed": assumed, "datasets": report,
+            "check": checked}  # fmt: skip
     report_path.write_text(json.dumps(text, indent=2, ensure_ascii=False) + "\n", "utf-8")
+    if found.failed:  # written whole or not at all: what it wrote goes, the report stays
+        for item in out.iterdir():  # `out` was empty or absent: every item is the import's
+            shutil.rmtree(item) if item.is_dir() and not item.is_symlink() else item.unlink()
+        if made:
+            out.rmdir()  # a folder the user gave, or a link to one, stays
+        raise CsvImportError(
+            f"`full` found {checked['errors']} errors and {checked['warnings']} warnings in"
+            f" {out.name}; the package was removed, the findings are in {report_path}"
+        )
     return out
 
 

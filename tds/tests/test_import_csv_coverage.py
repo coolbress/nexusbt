@@ -80,7 +80,10 @@ def test_kinds_without_a_session_date_and_empty_ones_check_clean(tmp_path: Path)
     """An empty dataset with no `session_date` (`delistings`) gets the counts alone, and is not
     TDS-D004 at `full`. The `market=` kind with no `session_date` this test also held,
     `fundamentals_events`, left with its kind; no kept kind has that shape (#752)."""
-    delistings = "delisting_id,instrument_id,exit_date\n"  # no rows, no `market=` partition
+    delistings = ("delisting_id,instrument_id,exit_date,last_trading_date,delist_type,ref_date,"
+                  "ref_price,exit_value_status,ret_lo,ret_hi,policy_id,ts_exit_known,"
+                  "ts_value_available\n")  # fmt: skip  # no rows, no `market=` partition; every
+    # column `full` requires, since the import now ends with it (#866)
     mapping = write(tmp_path, {
         "instruments.csv": CHAPTER_7, "bars.csv": BARS, "delistings.csv": delistings,
         "mapping.yaml": MINIMAL + "  delistings:\n    file: delistings.csv\n"
