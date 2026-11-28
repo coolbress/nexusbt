@@ -22,6 +22,7 @@ import json
 import math
 import re
 import shutil
+from collections.abc import Callable
 from importlib.metadata import version
 from pathlib import Path
 from typing import Any
@@ -61,7 +62,9 @@ class CsvImportError(ValueError):
     """The mapping file or a CSV cannot be imported as written; nothing is guessed."""
 
 
-def import_csv(mapping: Path, out: Path) -> Path:
+def import_csv(mapping: Path, out: Path, *, checking: Callable[[Path], None] | None = None) -> Path:
+    """`tds import csv` (9.5). `checking`, when given, is called with `out` just before the
+    closing `full` check, the larger part of a large import's time (#888)."""
     mapping, out = Path(mapping), Path(out)
     try:
         spec = read_mapping(mapping.read_text(encoding="utf-8"))
@@ -129,6 +132,8 @@ def import_csv(mapping: Path, out: Path) -> Path:
     given = ("name", "snapshot_id", "profiles", "id_namespaces")  # decision 7: each one used
     assumed = [f"{k}: {json.dumps(manifest[k], ensure_ascii=False)} (the mapping gives none)"
                for k in given if manifest[k] != spec.get(k)]  # fmt: skip  # `profiles: []` too
+    if checking is not None:
+        checking(out)
     found = check(out, level="full")  # a producer runs `full` right after export (#866)
     checked = {"level": "full", "errors": max(found.error_count, len(found.errors)),
                "warnings": len(found.warnings),
