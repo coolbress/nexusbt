@@ -1656,14 +1656,14 @@ class DecisionContext:
 | `demean` | `x − mean` |
 | `winsorize(a, b)` | `clip(x, q_a, q_b)`, q = 선형 보간 분위(numpy `method="linear"`) |
 | `top(N)` | (점수 내림, 동률 열쇠 오름) 순서의 앞 N개. 유한 점수가 N보다 적으면 전부 |
-| `percentile_between(a, b)` | 백분위 `p = 100·(rank_average − 1)/(n − 1)`(n=1이면 100); `a ≤ p ≤ b` |
-| `pct_rank(higher_is_better, na)` | `p = 100·(r − 1)/(n − 1)`, r = 평균 순위(높을수록 좋으면 오름차순 순위), n = 유효 칸 수(n = 1이면 100). `na="bottom"`: 결측 칸을 "가장 나쁜 값보다 나쁜 같은 값"으로 넣어 n을 늘려 계산. `na="middle"`: 유효 칸으로 계산한 뒤 결측 칸 = 50 |
+| `percentile_between(a, b)` | 백분위 `p = 100·(rank_average − 1)/(n − 1)`; `a ≤ p ≤ b`; n < 2 → 모름: 혼자인 칸은 순위가 없다(주인, 2026-11-28, #868) |
+| `pct_rank(higher_is_better, na)` | `p = 100·(r − 1)/(n − 1)`, r = 평균 순위(높을수록 좋으면 오름차순 순위), n = 유효 칸 수; 유효 칸이 둘보다 적으면 `na`가 무엇이든 모든 칸이 NaN(#868). `na="bottom"`: 결측 칸을 "가장 나쁜 값보다 나쁜 같은 값"으로 넣어 n을 늘려 계산. `na="middle"`: 유효 칸으로 계산한 뒤 결측 칸 = 50 |
 | `ops.composite` | 항마다 `pct_rank(na)` → `Σ w_k·p_k / Σ w_k`(그 칸에서 유효한 항만이 아니라 모든 항; `na="drop"`이면 하나라도 결측인 칸은 NaN) → 다시 `pct_rank` |
 | `groupby=g` | 위 정의를 그룹마다. 그룹 −1(모름) 칸은 NaN/False, 수를 진단 |
 | (mask 없음) | 단면 = 기본 도메인(3.3). Strategy 신호 경로에서 mask 없는 단면 연산이 유니버스와 다른 집합을 분모로 쓰면 알림 E34("rank over all listed equities, not the strategy universe; pass mask=universe") |
 
 #### 5.4.3 동률 보존 분위 [11.4.5]
-판단마다 유효 칸 n개의 평균 순위 `r`(1..n, 오름차순)로 `bucket = min(q, max(1, ceil(r·q/n)))`. 같은 점수는 같은 평균 순위 → 같은 분위. 분위별 크기가 다를 수 있다(억지로 나누지 않음).
+판단마다 유효 칸 n개의 평균 순위 `r`(1..n, 오름차순)로 `bucket = min(q, max(1, ceil(r·q/n)))`. 같은 점수는 같은 평균 순위 → 같은 분위. 분위별 크기가 다를 수 있다(억지로 나누지 않음). 유효 칸이 둘보다 적은 묶음은 순위가 없다: 그 칸은 맨 위 분위가 아니라 모르는 묶음 −1이다(5.4.1)(주인, 2026-11-28, #868).
 
 ### 5.5 점수 → 정규 목표 [C6, 11.4.6, INV-08, SC-01, SC-02]
 

@@ -126,6 +126,16 @@ def test_quantiles_preserve_ties() -> None:
     assert codes.dtype == np.int32
 
 
+def test_a_group_of_one_cell_has_no_quantile() -> None:
+    """#868: a group with fewer than two valid cells has no rank, so its cell is -1, the
+    unknown group, not the top bucket; the group of two beside it is bucketed as before."""
+    x = np.array([7.0, 1.0, 2.0, NAN])
+    mask = np.ones(4, dtype=bool)
+    groups = np.array([0, 1, 1, 0], dtype=np.int32)  # group 0: one finite cell
+    codes, _ = k.quantiles(x, mask, groups, xs.sorted_order(list("ABCD")), 2)
+    assert codes.tolist() == [-1, 1, 2, -1]
+
+
 def test_unknown_codes_refused() -> None:
     """A direction, a rank method or a bin count no kernel defines is refused, not guessed."""
     x = np.array([1.0, 2.0])
@@ -167,16 +177,18 @@ def test_winsorize_refuses_bounds_outside_fractions(low: float, high: float) -> 
 def test_percentile_between_includes_both_ends() -> None:
     """5.4.2: `p = 100 (r - 1) / (n - 1)` with the mean rank r, `a <= p <= b`, a and b on
     0..100. Scores 10, 20, 20, 40, 50 have r = 1, 2.5, 2.5, 4, 5 and p = 0, 37.5, 37.5, 75,
-    100; a single cell has p = 100; outside the cross-section, never between."""
+    100; a single cell has no rank (#868), so it is never between and `alone` names it;
+    outside the cross-section, never between."""
     x = np.array([40.0, 20.0, NAN, 10.0, 50.0, 20.0, 30.0])
     mask = np.array([True, True, True, True, True, True, False])
     assert k.percentile_between(x, mask, 37.5, 75.0).tolist() == [
         True, True, False, False, False, True, False]  # fmt: skip
     assert k.percentile_between(x, mask, 0.0, 0.0).tolist() == [
         False, False, False, True, False, False, False]  # fmt: skip
-    one = np.array([5.0])
-    assert k.percentile_between(one, np.array([True]), 100.0, 100.0).tolist() == [True]
-    assert k.percentile_between(one, np.array([True]), 0.0, 99.0).tolist() == [False]
+    one = np.array([5.0, NAN])
+    assert k.percentile_between(one, np.array([True, True]), 0.0, 100.0).tolist() == [False] * 2
+    assert k.alone(one, np.array([True, True])).tolist() == [True, False]
+    assert not k.alone(x, mask).any()
     for low, high in [(10.0, 101.0), (-1.0, 50.0), (60.0, 50.0)]:
         with pytest.raises(ValueError, match="0 <= min <= max <= 100"):
             k.percentile_between(x, mask, low, high)

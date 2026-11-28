@@ -448,18 +448,27 @@ def winsorize(x: F64, mask: Mask, groups: Codes, low: float, high: float) -> tup
 
 def percentile_between(x: F64, mask: Mask, low: float, high: float) -> Mask:
     """True where `low <= p <= high` (5.4.2), p = `100 (r - 1) / (n - 1)` with r the cell's
-    mean rank among the n cells, 100 when n = 1; `0 <= low <= high <= 100`. False outside the
-    cross-section."""
+    mean rank among the n cells; `0 <= low <= high <= 100`. False outside the cross-section,
+    and for a cell alone in it (n < 2 has no rank, #868), which `alone` names as unknown."""
     if not 0 <= low <= high <= 100:
         raise ValueError(f"percentiles are 0 <= min <= max <= 100, not {low}, {high}")
     out = np.zeros(len(x), dtype=bool)
     every = np.zeros(len(x), dtype=np.int32)
     for seq in _sections(x, mask, every, np.arange(len(x)))[0]:
+        if len(seq) < 2:
+            continue
         found, lo, hi, _ = _ordered(x, seq, every.astype(np.int64), ASCENDING)
-        n = len(found)
-        p = 100 * (lo + hi - 2) / (2 * (n - 1)) if n > 1 else np.full(n, 100.0)
+        p = 100 * (lo + hi - 2) / (2 * (len(found) - 1))
         out[found] = (low <= p) & (p <= high)
     return out
+
+
+def alone(x: F64, mask: Mask) -> Mask:
+    """The cell of a cross-section that holds fewer than two cells (`mask` true, value finite):
+    it has no rank, so `percentile_between` is unknown there (5.4.2, #868)."""
+    cells = mask & np.isfinite(x)
+    found: Mask = cells & (np.count_nonzero(cells) < 2)
+    return found
 
 
 def rank(
@@ -504,13 +513,14 @@ def select(
 
 def quantiles(x: F64, mask: Mask, groups: Codes, order: I64, bins: int) -> tuple[Codes, int]:
     """Tie-preserving quantiles (5.4.3): for each cell, with its mean rank r among the group's
-    n cells, `min(bins, max(1, ceil(r * bins / n)))`, 1..bins; -1 outside the cross-section.
-    Integer arithmetic on 2r, so no rounding moves a cell across a bucket edge."""
+    n cells, `min(bins, max(1, ceil(r * bins / n)))`, 1..bins; -1 outside the cross-section,
+    and for a group of fewer than two cells, which has no rank (#868). Integer arithmetic on
+    2r, so no rounding moves a cell across a bucket edge."""
     if bins < 1:
         raise ValueError(f"quantiles need at least one bin, not {bins}")
     out = np.full(len(x), -1, dtype=np.int32)
     sections, unknown = _sections(x, mask, groups, order)
-    for seq in sections:
+    for seq in (s for s in sections if len(s) >= 2):
         found, lo, hi, _ = _ordered(x, seq, np.argsort(order), ASCENDING)
         twice_r, twice_n = lo + hi, 2 * len(found)
         out[found] = np.clip(-(-twice_r * bins // twice_n), 1, bins)
