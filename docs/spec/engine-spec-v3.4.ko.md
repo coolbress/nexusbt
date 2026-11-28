@@ -838,7 +838,7 @@ saved  runs/{run_id}/report.html
 {name} · {start} → {end} ({years} y, {n} decisions) · {base_ccy}
 {the simulated-result line}
 
-return    CAGR {x} (benchmark {b}, excess {e}/yr) · max drawdown {m}
+return    CAGR {x} (benchmark {b}, excess {e}/yr geom) · max drawdown {m}
 trust     Sharpe {s} ± {se} (IID-based{: dependence visible}) · PSR(0) {p} · {n} candidates in the family
           luck: about {k} tries would give this · evaluation {label}
 costs     {own costs not set; statutory charges booked | profile …} · turnover {x}x/yr
@@ -848,29 +848,31 @@ data      {snapshot_id} · warnings {n} · rows dropped {n} · lines not built {
 details   run.details() · nexusbt backtest … --full
 ```
 
-1. 아래 틀의 모든 줄은 그 순서대로 자세히 보기에 남는다: `run.details()`와 `nexusbt backtest … --full`이 그것을 찍는다. 머리글은 그 숫자 몇 개를 되풀이할 뿐, 규칙 3이 이름 대는 것 말고는 그 줄들에 없는 숫자를 더하지 않는다.
+1. 아래 틀의 모든 줄은 그 순서대로 자세히 보기에 남는다: `run.details()`와 `nexusbt backtest … --full`이 그것을 찍는다. 머리글은 그 숫자 몇 개를 되풀이할 뿐, 그 줄들에 없는 숫자를 더하지 않는다. 예외는 규칙 3이 이름 대는 것, 규칙 4의 표준오차, 첫 줄의 실행 연수와 판단 수, 그리고 머리글과 자세히 보기를 합쳐 만들어지지 않은 꼴로 찍힌 자리의 수인 `lines not built`이다.
 2. `return`, `trust`, `assumed`는 늘 찍힌다. 원천이 아직 만들어지지 않은 숫자는 아래 "아직 만들어지지 않은 줄"의 꼴(#858)로 찍히고, 빠지지 않는다.
-3. 다른 결정이 맡은 줄은 그 결정에서 내용을 받고 여기서는 자리로만 이름 붙는다: 법정 비용을 포함한 `costs` 줄과 손익분기 비용(#841); 가족 전체의 셈과 `luck` 숫자(#860); 떨어진 행(#866). 각각이 들어오기 전에는 그 자리에 만들어지지 않은 꼴이 찍히고, 티켓이 아직 없으면 이슈 이름을 댄다.
+3. 다른 결정이 맡은 줄은 그 결정에서 내용을 받고 여기서는 자리로만 이름 붙는다: 법정 비용을 포함한 `costs` 줄과 손익분기 비용(#841); 가족 전체의 셈과 `luck` 숫자(#860); 떨어진 행(#866). 각각이 들어오기 전에는 그 자리에 만들어지지 않은 꼴이 찍히고, 티켓이 아직 없으면 티켓 자리에 이슈 번호를 넣는다. 하나의 예외는 `costs` 자리다: #841이 들어오기 전에는 `execution` 줄의 `costs {profile}`을 보여, 머리글이 비용을 셈했는지 말하게 한다.
 4. `Sharpe ± se`는 독립 수익률 가정 아래 5.7의 표준오차이며, Sharpe와 같은 방식으로 연율화한다. 표시는 `IID-based`이고, PSR 줄과 같은 Ljung–Box 조건에서는 `IID-based: dependence visible`이다.
 5. `assumed`는 `assumptions`·`execution` 줄의 가정 가운데 결과를 가장 많이 바꾸는 넷을 이름 댄다: 주문과 그 체결 시각, 결제, 배당, 체결 상한. `assumptions` 줄 전체는 자세히 보기에 남는다.
 6. Lo 보정 Sharpe는 머리글에 없다.
 7. FactorReport의 첫 화면은 바뀌지 않는다: 그 정답 줄이 이미 맨 위에 있다.
 
-reference가 있는 실행(6.3a)에서는 `return`이 primary 결과의 숫자를 싣고 그 이름을 댄다(`primary: {method}{, {n} folds | , {n} paths}`). reference는 자세히 보기에 남는다.
+reference가 있는 실행(6.3a)에서는 `return`이 primary 결과의 숫자를 싣고 그 이름을 대며(`primary: {method}{, {n} folds | , {n} paths}`), `trust`도 같은 primary 계열을 말한다; 그 계열에서 계산할 수 없는 값은 실패 표시(6.3a)를 찍는다. reference는 자세히 보기에 남는다.
 
-채운 예, #841·#860·#866이 들어오기 전에 만든 비용 0의 KR 실행:
+3.9의 다른 곳에서 "첫 화면"과 "위의 Run 줄"은 머리글과 자세히 보기를 함께 뜻한다.
+
+채운 예, #841·#860·#866이 들어오기 전에 만든 비용 프로필 `none`의 KR 실행:
 
 ```
 mom_kr · 2015-01-02 → 2024-12-30 (10.0 y, 120 decisions) · KRW
 {the simulated-result line}
 
-return    CAGR 9.4% (benchmark 5.1%, excess 4.2%/yr) · max drawdown −31.7%
-trust     Sharpe 0.62 ± 0.32 (IID-based) · PSR(0) 0.97 · candidates in the family: n/a (not built yet; available after #860)
-          luck: n/a (not built yet; available after #860) · evaluation research data
-costs     n/a (not built yet; available after #841) · turnover 3.8x/yr
-          break-even: n/a (not built yet; available after #841)
+return    CAGR 9.4% (benchmark 5.1%, excess 4.1%/yr geom) · max drawdown −31.7%
+trust     Sharpe 0.62 ± 0.32 (IID-based) · PSR(0) 0.97 · candidates in the family: n/a (not built yet; available after ticket #860)
+          luck: n/a (not built yet; available after ticket #860) · evaluation research data
+costs     none · turnover 3.8x/yr
+          break-even: n/a (not built yet; available after ticket #841)
 assumed   market at next open · immediate settlement · dividends pre-withholding · fill qty capped by realized session volume (ex-post)
-data      synth-small · warnings 2 · rows dropped: n/a (not built yet; available after #866) · lines not built 5
+data      synth-small · warnings 2 · rows dropped: n/a (not built yet; available after ticket #866) · lines not built 4
 details   run.details() · nexusbt backtest examples/strategies/mom_kr.py --full
 ```
 
@@ -2085,7 +2087,7 @@ v1은 이 절의 정의를 규범으로 고정하고(INV-08 문구, `DecisionCon
 | 노출 | 평가일마다 롱·숏·총(Σ|w|)·순(Σw) 노출(슬리브 안), 중앙값을 첫 화면에, 날짜별은 `exposures.parquet` |
 | 롤링 창·날짜 운 | 1년·3년 창(시작일을 월마다 옮김)의 벤치마크 초과 수익 분위(5·25·50·75·95%)와 건수 표(HTML), `offsets=k`면 k 계열의 CAGR·Sharpe·MDD 최소·중앙·최대 |
 | PSR(SR*) | `Φ( (SR̂ − SR*)·√(T−1) / sqrt(1 − γ̂₃·SR̂ + (γ̂₄ − 1)/4·SR̂²) )`, SR̂ = 초과 수익 `r_t − rf_t`의 일간(비연율) Sharpe(ddof=1)(Sharpe 행; #313, 결정 2026-11-10), γ̂₃ 왜도, γ̂₄ **원 첨도(정규 = 3; 초과 첨도가 아님)**, 둘 다 모집단 모멘트 `m_k/m_2^{k/2}`(편향 보정 없음), T = 일간 관측 수. 구현에서 scipy `kurtosis(fisher=False, bias=True)` 꼴만 허용하고 손계산 G-60으로 못 박는다(초과 첨도를 넣으면 정규 수익에서 분모가 −0.25·SR̂² 틀려 PSR이 커 보임: LEAN `Statistics.cs:200-214` [추], vectorbt#872) [Bailey·López de Prado 2012/2014; 식 3자 확인]. 계산 불가: T < 30, 분산 0, 근호 안 ≤ 0 → "n/a ({reason})"(E21). **가정**: 분모는 이 모멘트를 가진 시계열 독립 수익에서의 SR̂ 분산이다. 시계열 의존성은 들어 있지 않다(아래 Lo 행은 표시하는 연율 Sharpe만 바꾸고 PSR·DSR·MinTRL은 바꾸지 않는다) (설계 검수 2026-11-04) |
-| Sharpe 표준오차 | `se = √252 · sqrt((1 − γ̂₃·SR̂ + (γ̂₄ − 1)/4·SR̂²) / (T − 1))`, 독립 수익률 가정 아래 Sharpe의 연율화한 표준오차, PSR 분모와 같은 SR̂, γ̂₃, γ̂₄, T에서 구하므로 PSR(0) = Φ(Sharpe / se). 머리글(3.9)에 `Sharpe {s} ± {se} (IID-based)`로, PSR 줄의 Ljung–Box 조건에서는 `(IID-based: dependence visible)`로 찍힌다; PSR이 n/a인 곳에서는 n/a(#870) |
+| Sharpe 표준오차 | `se = √252 · sqrt((1 − γ̂₃·SR̂ + (γ̂₄ − 1)/4·SR̂²) / (T − 1))`, 독립 수익률 가정 아래 net 열 Sharpe의 연율화한 표준오차, PSR 분모와 같은 SR̂, γ̂₃, γ̂₄, T에서 구하므로 PSR(0) = Φ(Sharpe / se). 머리글(3.9)에 `Sharpe {s} ± {se} (IID-based)`로, PSR 줄의 Ljung–Box 조건에서는 `(IID-based: dependence visible)`로 찍힌다; PSR이 n/a인 곳에서는 n/a(#870) |
 | DSR | `PSR(SR*_N)`, `SR*_N = sqrt(V[SR]) · ((1 − γ)·Φ⁻¹(1 − 1/N) + γ·Φ⁻¹(1 − 1/(N·e)))`, γ = 0.5772156649, N = **집단(cohort, 6.2)** 안 기록된 서로 다른 전략 후보 수, V[SR] = 그 집단 각 후보의 대표 관측(가장 최근 관측)의 초과 수익 `r_t − rf_t` 일간 Sharpe(#313, 결정 2026-11-10) 분산(ddof=1). N = 1이면 SR* = 0(DSR = PSR(0))이고 "(1 candidate)" 표시. 보고서는 `cohort_sha256`을 남긴다 [C10, 6.3]. PSR의 가정 아래, 기록된 그 N개 후보 사이의 선택만 보정한다. 집단 밖의 선택(다른 study, 다른 kind, 같은 후보의 이전 관측)과 같은 자료를 여러 번 본 것은 N에 들어가지 않는다(6.2) (설계 검수 2026-11-04). 기록된 후보를 독립 시행으로 세므로, 후보끼리 상관이 있으면 DSR은 보수적이 된다: 상관된 시행은 독립 시행으로 치면 더 적다 [Bailey and López de Prado (2014), "The Deflated Sharpe Ratio", Journal of Portfolio Management 40(5), appendix A.3] |
 | MinTRL(SR*, α=0.05) | `1 + (1 − γ̂₃·SR̂ + (γ̂₄ − 1)/4·SR̂²)·(Φ⁻¹(1−α)/(SR̂ − SR*))²` 일간 관측 수, 252로 나눠 년; SR̂·γ̂₃·γ̂₄는 초과 수익 `r_t − rf_t`의 값(#313, 결정 2026-11-10). SR* = 0: 이 시계열 하나가 0에 맞서 필요한 길이이고, 후보 사이의 선택은 보정하지 않는다. `SR̂ ≤ SR*`이면 "n/a (SR ≤ 0)" [SC-09, Bailey·López de Prado 2012 S-23 미확인]. 집단의 N > 1이면 DSR 행의 SR*_N을 SR*로 쓴 둘째 값을 "selection-adjusted reference"라는 이름으로 붙인다(해당하지 않으면 "n/a (SR ≤ SR*_N)") (사용자 결정 2026-11-04, #197) |
 | 자기상관·Lo Sharpe | `ρ1` = 일간 순수익의 1차 자기상관. `|ρ1| > 0.1`이면 Lo(2002) 보정 연율화: `SR_ann = SR_daily · 252 / sqrt(252 + 2·Σ_{k=1}^{q}(252 − k)·ρ_k)`, q = 10(ρ_k는 표본 자기상관; k > 10은 0으로 **자름** — 원식은 k = 1..251이므로, 이 값은 `ρ_11 … ρ_251`이 0일 때만 원식과 같다), 첫 화면에 "lags ≤ 10" 표시 [SC-09, S-28 미확인]. 표시 문턱 `|ρ1| > 0.1`과 q = 10에서 자르기는 Lo의 것이 아니라 이 엔진의 선택이다. 연율화만 보정하며 불확실성 보정이 아니다. `ρ1`이 작고 `ρ2…ρ10`이 크면 의존성이 있어도 이 줄은 나오지 않는다. 그래서 HTML "hygiene" 절은 늘 `ρ1…ρ10`을 띠 ±1.96/√T와 함께 보이고 띠 밖의 개수를 세며, 시차 1~10의 Ljung–Box Q가 p < 0.05이면 **의존성이 보인다**고 하고 PSR·DSR·MinTRL 줄에 "IID-based: dependence visible (Ljung–Box lags 1–10, p < 0.05; may also reflect changing volatility)" 표시를 붙인다 — 이 검정은 변동성 변화에도 반응하며, 명목 오경보율 5 %는 가정하지 않고 `docs/design/statistics-verification-plan.md`의 시나리오 S11로 나중에 잰다(사용자 결정 2026-11-04, #197). HAC 표준오차와 블록 부트스트랩은 12.1(RS-01, RS-02) |
