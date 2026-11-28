@@ -1,0 +1,84 @@
+# Golden case G-12 (spec 8.2): cash shortfall, proportional reduction and partial cancel.
+# Expected numbers are literals. `check/G-12.py` reaches them by arithmetic only, and
+# `tests/golden/test_handcalc_self.py` compares the two. An implementation pull request does
+# not change this file (`tests/repo/test_golden_guard.py`); a wrong number reopens the golden
+# ticket ("spec deviation").
+id: G-12
+description: >-
+  One KR sleeve of 10,000,000 won in cash is given canonical targets of weight 0.6 in KR:T00001
+  and 0.4 in KR:T00002 at the 2020-01-02 close decision, so the two market buys are sized on
+  the closes 10,000 and 20,000. Both open higher on 2020-01-03 (10,500 and 20,400), and the cash
+  does not cover the two orders at those opens. Each buy is scaled by the same k < 1 and floored
+  to a whole share, the part not bought is cancelled (not carried over), and the cash left over
+  is not spent on another share. Zero costs.
+spec: "8.2 G-12; 5.6.7 quantities fixed at the decision and buy cash allocation, 5.6.2 quantity accounting and end status, 5.6.3 phases, 5.6.4 market at open"
+
+# Bars set by hand for this case: an open above the decision close is what makes the shortfall,
+# and the generator's `tiny` rows (spec 4.8) open at the previous close, so the implementing
+# ticket sets these rows by hand (as T-12 does). KR sessions of XKRX, prices in won.
+bars:
+  market: KR
+  calendar_id: XKRX
+  bars_1d:
+    - {instrument_id: "KR:T00001", session_date: "2020-01-02", open: 10000, high: 10000, low: 10000, close: 10000, volume: 100000}
+    - {instrument_id: "KR:T00002", session_date: "2020-01-02", open: 20000, high: 20000, low: 20000, close: 20000, volume: 100000}
+    - {instrument_id: "KR:T00001", session_date: "2020-01-03", open: 10500, high: 10600, low: 10500, close: 10600, volume: 100000}
+    - {instrument_id: "KR:T00002", session_date: "2020-01-03", open: 20400, high: 20400, low: 20300, close: 20300, volume: 100000}
+    - {instrument_id: "KR:T00001", session_date: "2020-01-06", open: 10600, high: 10600, low: 10400, close: 10400, volume: 100000}
+    - {instrument_id: "KR:T00002", session_date: "2020-01-06", open: 20300, high: 20500, low: 20300, close: 20500, volume: 100000}
+
+settings:
+  capital_minor: 10000000            # KRW, minor unit 1 won (KR pack minor_unit = 0)
+  costs: {profile: none}             # every need is quantity x open, nothing else (5.6.7)
+  lot_size: 1                        # the KR pack's lot
+  execution: {at: open, order: market, tif: day}
+  # Not the 5.6.6 defaults, as in G-01: this is not a volume-cap case. With these three,
+  # ADV = 100,000 on 2020-01-03 and the cap is 100,000 shares, above both orders.
+  max_participation: 1.0
+  max_bar_participation: 1.0
+  adv_min_obs: 1
+  cost_reserve_bps: 0
+
+# Test-execution input: the canonical targets, given directly. No decision after 2020-01-02.
+input:
+  targets:
+    - {decision: "2020-01-02", instrument_id: "KR:T00001", weight: 0.6}
+    - {decision: "2020-01-02", instrument_id: "KR:T00002", weight: 0.4}
+
+# One row per session, phase and instrument, and one row for the sleeve (`instrument_id` null)
+# that carries the cash once the phase is done. Columns not meaningful in a row are null. A
+# phase with no instrument row has no order event: the 2020-01-06 open has only its sleeve row,
+# so nothing fills and nothing is cancelled there.
+# value_minor = decision_value at a decision, nav_economic at close_mark. `order_qty` is the
+# order's `requested_qty`; in the open rows `fill_qty` + `cancelled_qty` + `remaining_qty` is
+# that quantity again (INV-18), and `status` is the order's status once the phase is done.
+#
+# Derivation, to be recomputed by hand (5.6.7; a person's own check of these numbers is still
+# owed, 8.2, and goes here when done):
+#   2020-01-02 decision: V = 10,000,000. T_1 = floor(0.6 x 10,000,000 / 10,000) = 600 shares,
+#                        T_2 = floor(0.4 x 10,000,000 / 20,000) = 200 shares
+#   2020-01-03 open:     need_1(600) = 600 x 10,500 = 6,300,000; need_2(200) = 200 x 20,400 =
+#                        4,080,000; together 10,380,000 > cash 10,000,000
+#                        (1) k = 10,000,000 / 10,380,000 = 500/519 = 0.963391...
+#                            q_1 = floor(600 x 500/519) = floor(578.03...) = 578
+#                            q_2 = floor(200 x 500/519) = floor(192.67...) = 192
+#                        (2) 578 x 10,500 = 6,069,000; 192 x 20,400 = 3,916,800; together
+#                            9,985,800 <= 10,000,000, so no share is taken off
+#                        cancelled 600 - 578 = 22 and 200 - 192 = 8 (`insufficient_cash`); both
+#                        orders have remaining 0 with filled < requested: CANCELLED
+#                        cash 10,000,000 - 9,985,800 = 14,200, more than one share of
+#                        KR:T00001 (10,500) and not spent on it (no redistribution)
+#   2020-01-03 close:    578 x 10,600 = 6,126,800; 192 x 20,300 = 3,897,600; + 14,200 = NAV
+#                        10,038,600
+#   2020-01-06:          nothing is pending, so nothing fills; 578 x 10,400 = 6,011,200;
+#                        192 x 20,500 = 3,936,000; + 14,200 = NAV 9,961,400
+expected:
+  - {session: "2020-01-02", phase: decision, instrument_id: "KR:T00001", order_qty: 600, fill_qty: null, fill_price: null, notional_minor: null, cancelled_qty: null, remaining_qty: null, status: null, cash_minor: null, qty: 0, value_minor: null}
+  - {session: "2020-01-02", phase: decision, instrument_id: "KR:T00002", order_qty: 200, fill_qty: null, fill_price: null, notional_minor: null, cancelled_qty: null, remaining_qty: null, status: null, cash_minor: null, qty: 0, value_minor: null}
+  - {session: "2020-01-02", phase: decision, instrument_id: null, order_qty: null, fill_qty: null, fill_price: null, notional_minor: null, cancelled_qty: null, remaining_qty: null, status: null, cash_minor: 10000000, qty: null, value_minor: 10000000}
+  - {session: "2020-01-03", phase: open, instrument_id: "KR:T00001", order_qty: null, fill_qty: 578, fill_price: 10500, notional_minor: 6069000, cancelled_qty: 22, remaining_qty: 0, status: CANCELLED, cash_minor: null, qty: 578, value_minor: null}
+  - {session: "2020-01-03", phase: open, instrument_id: "KR:T00002", order_qty: null, fill_qty: 192, fill_price: 20400, notional_minor: 3916800, cancelled_qty: 8, remaining_qty: 0, status: CANCELLED, cash_minor: null, qty: 192, value_minor: null}
+  - {session: "2020-01-03", phase: open, instrument_id: null, order_qty: null, fill_qty: null, fill_price: null, notional_minor: null, cancelled_qty: null, remaining_qty: null, status: null, cash_minor: 14200, qty: null, value_minor: null}
+  - {session: "2020-01-03", phase: close_mark, instrument_id: null, order_qty: null, fill_qty: null, fill_price: null, notional_minor: null, cancelled_qty: null, remaining_qty: null, status: null, cash_minor: 14200, qty: null, value_minor: 10038600}
+  - {session: "2020-01-06", phase: open, instrument_id: null, order_qty: null, fill_qty: null, fill_price: null, notional_minor: null, cancelled_qty: null, remaining_qty: null, status: null, cash_minor: 14200, qty: null, value_minor: null}
+  - {session: "2020-01-06", phase: close_mark, instrument_id: null, order_qty: null, fill_qty: null, fill_price: null, notional_minor: null, cancelled_qty: null, remaining_qty: null, status: null, cash_minor: 14200, qty: null, value_minor: 9961400}
