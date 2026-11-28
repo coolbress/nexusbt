@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import os
+import warnings
 from collections import Counter
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -14,6 +15,7 @@ from nexusbt.config.packs import PACKS, load_pack
 from nexusbt.contracts import (
     CapabilityError,
     ConfigError,
+    DataProfileWarning,
     DecimalRatioPolicy,
     FallbacksPolicy,
     PinsPolicy,
@@ -30,7 +32,7 @@ from nexusbt.data._capabilities import DataCapabilities as DataCapabilities
 from nexusbt.data._capabilities import FallbackRecord as FallbackRecord
 from nexusbt.data._capabilities import _columns, check_fields, decide, said
 from nexusbt.data._coverage import BarsExtent
-from nexusbt.data._datasets import chosen
+from nexusbt.data._datasets import chosen, layer
 from nexusbt.data._outputs import table_value_hash as table_value_hash
 from nexusbt.data._ratios import RatioExclusion as RatioExclusion
 from nexusbt.data._ratios import check_ratios
@@ -277,6 +279,28 @@ class Snapshot:
 
     def explain(self, instrument_id: str, field: str, ts: object) -> Explanation:
         raise NotImplementedError
+
+
+def dropped_rows(
+    snapshot: Snapshot, found: Collection[tuple[str, str, str, int]]
+) -> list[dict[str, Any]]:
+    """#866, INV-12: the bars a run's blocks left out (`MarketBlock.dropped`), counted by
+    dataset and cause, as the run manifest's `data.dropped` keeps them; one E30 when any."""
+    counts = Counter((dataset, cause) for dataset, cause, _, _ in found)
+    records = [{"dataset": d, "cause": c, "count": n} for (d, c), n in sorted(counts.items())]
+    if records:
+        named = "; ".join(f"dataset {d}: " + ", ".join(f"{r['cause']} {r['count']}" for r in
+                          records if r["dataset"] == d)
+                          for d in dict.fromkeys(r["dataset"] for r in records))  # fmt: skip
+        warnings.warn(str(DataProfileWarning(
+            what=f"bars left out of the run: {named}", where=named,
+            why="a bar of an instrument `instruments` lacks, or on a day that is no session of "
+                "its market's calendar, is not read (4.4)",
+            fix="tds check <package> --level full names each row",
+            more="spec 4.4; INV-12", layer=layer(snapshot._manifest.data, min(counts)[0]),
+            subject="dropped bars",
+        )), stacklevel=3)  # fmt: skip  # the caller of `run_pipeline` or `screen`
+    return records
 
 
 def dataset_columns(snapshot: Snapshot) -> dict[str, tuple[tuple[str, str | None], ...]]:

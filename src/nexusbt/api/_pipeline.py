@@ -12,14 +12,14 @@ import datetime as dt
 import functools
 import importlib
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 import pyarrow as pa
 
 from nexusbt.contracts import ID_COLUMN, ConfigError, SchemaRegistry
-from nexusbt.data import DataConfig, Schedule, Snapshot, open_snapshot
+from nexusbt.data import DataConfig, MarketBlock, Schedule, Snapshot, open_snapshot
 from nexusbt.pipeline import Classifier, Filter, Pipeline, bind, graph_hash
 from nexusbt.pipeline._terms import describe_term
 
@@ -51,6 +51,9 @@ class PipelineResult:
     table: pa.Table
     term_diagnostics: pa.Table
     run_id: str | None = None  # the sealed run's id with `save=True` (3.8 `kind="pipeline"`)
+    #: The bars the read left out (`MarketBlock.dropped`), which the caller counts and says
+    #: once, as E30 and the run manifest's `data.dropped` (#866).
+    _dropped: frozenset[tuple[str, str, str, int]] = field(default=frozenset(), repr=False)
 
     def to_polars(self) -> Any:
         return importlib.import_module("polars").from_arrow(self.table)  # optional (3.5)
@@ -99,7 +102,8 @@ def run(
     for m in periods:  # a market whose files hold no value of a field: E18 before any (#705)
         opened._check_fields(fields, m)
     counted: list[tuple[str, dt.date, str, str, int]] = []
-    tables = [_market(pipeline, terms, fields, opened, m, p, freq, cfg, counted)
+    dropped: set[tuple[str, str, str, int]] = set()
+    tables = [_market(pipeline, terms, fields, opened, m, p, freq, cfg, counted, dropped)
               for m, p in periods.items()]  # fmt: skip
     found = [t for t in tables if t is not None]
     table = pa.concat_tables(found) if found else _empty(pipeline)
@@ -109,7 +113,8 @@ def run(
             for m, d, k, name, n in counted]  # fmt: skip
     order = [(k, "ascending") for k in COUNT_KEYS]
     diagnostics = pa.Table.from_pylist(rows, schema=_COUNTS).sort_by(order)
-    return PipelineResult(table.sort_by([(k, "ascending") for k in KEYS]), diagnostics)
+    return PipelineResult(table.sort_by([(k, "ascending") for k in KEYS]), diagnostics,
+                          _dropped=frozenset(dropped))  # fmt: skip
 
 
 def _open(snapshot: str | Snapshot | None, cfg: Config) -> Snapshot:
@@ -154,10 +159,11 @@ def _nodes(terms: Sequence[Term]) -> list[Term]:
 def _market(
     pipeline: Pipeline, terms: list[Term], fields: list[str], snapshot: Snapshot, market: str,
     period: tuple[int, int], freq: Freq, cfg: Config,
-    counted: list[tuple[str, dt.date, str, str, int]],
+    counted: list[tuple[str, dt.date, str, str, int]], dropped: set[tuple[str, str, str, int]],
 ) -> pa.Table | None:  # fmt: skip
     """One market's rows on its own calendar (3.5 `market_local`), or None with no decision;
-    its 5.4.1 counts go to `counted` as `(market, session, graph hash, diagnostic, n)`.
+    its 5.4.1 counts go to `counted` as `(market, session, graph hash, diagnostic, n)`, and
+    the bars its blocks left out to `dropped` (#866).
     `compute` is imported here, not by `import nexusbt`: its kernels compile with a cache that
     an installed wheel's zip import cannot place (`tests/test_built_wheel.py`)."""
     from nexusbt.compute._chunks import lookback, most_alive, spans
@@ -176,9 +182,14 @@ def _market(
     chunks = spans(dates[first : last + 1], width, most_alive(terms), budget, lookback(terms))
     actions = Actions(functools.partial(snapshot.actions, market), calendar.ts_open)
     counts: Counts = {}
+
+    def block(a: int, b: int) -> MarketBlock:
+        read = snapshot.market_block(market, fields, dates[a : b + 1])
+        dropped.update(read.dropped)  # a bar two chunks name is one bar (#866)
+        return read
+
     frames = execute(
-        terms, rows.tolist(), [(a + first, b + first) for a, b in chunks],
-        lambda a, b: snapshot.market_block(market, fields, dates[a : b + 1]),
+        terms, rows.tolist(), [(a + first, b + first) for a, b in chunks], block,
         calendar.ready, tiebreak=cfg.values["portfolio"]["tiebreak"], actions=actions,
         counts=counts,
     )  # fmt: skip
