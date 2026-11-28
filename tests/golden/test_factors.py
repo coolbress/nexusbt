@@ -5,6 +5,7 @@ read their registered kernel; T1.10's four read the kernel with the case's param
 
 from __future__ import annotations
 
+import ast
 import math
 import re
 from collections.abc import Callable
@@ -15,11 +16,12 @@ import numpy.typing as npt
 import pytest
 import yaml
 
-from nexusbt.compute import _kernels
+from nexusbt import factors
+from nexusbt.compute import _factors, _kernels
 from nexusbt.compute._executor import execute
 from nexusbt.compute._kernels_ref import REGISTERED
 from nexusbt.data._block import MarketBlock
-from nexusbt.pipeline import Price, graph_hash
+from nexusbt.pipeline import Factor, Price, graph_hash
 
 pytestmark = pytest.mark.golden
 
@@ -59,18 +61,29 @@ def _latest(close: F64) -> F64:
     return np.array(found[graph_hash(term)]["value"].to_pylist(), dtype=np.float64)
 
 
-#: #868: the cases, by factor and place in its file, whose default `min_periods` (a full window)
-#: the built kernels do not give yet. Each must still differ from its kernel; the pull request
-#: that builds `min_periods` makes them agree and empties this set.
-PENDING = {("AnnualizedVolatility", 1), ("AverageTradedValue", 1), ("MaxDrawdown", 3),
-           ("RSI", 1), ("RollingStd", 1), ("SimpleMovingAverage", 1), ("VWAP", 3)}  # fmt: skip
+#: #868: the factors that take `min_periods`. Each case's own term is built and read through
+#: the engine's built-in path (`compute._factors.value`), which applies it; a kernel alone does
+#: not.
+TAKES = {"AnnualizedVolatility", "AverageTradedValue", "MaxDrawdown", "RSI", "RollingStd",
+         "SimpleMovingAverage", "VWAP"}  # fmt: skip
+
+
+def _term(text: str) -> Factor:
+    """The case's term, built by its 3.4 constructor from its literal arguments."""
+    call = ast.parse(text, mode="eval").body
+    assert isinstance(call, ast.Call)
+    assert isinstance(call.func, ast.Name)
+    args = [ast.literal_eval(a) for a in call.args]
+    keywords = {str(k.arg): ast.literal_eval(k.value) for k in call.keywords}
+    built: Factor = getattr(factors, call.func.id)(*args, **keywords)
+    return built
 
 
 def check(name: str) -> None:
     doc = yaml.safe_load((FACTORS / f"{name}.yaml").read_text())
     op, extra = KERNEL.get(name, (name, 0))
-    for i, case in enumerate(doc["cases"]):
-        differs = False
+    for case in doc["cases"]:
+        term = _term(case["term"]) if name in TAKES else None
         found = re.search(r"\((\d+)", case["term"])
         window = int(found.group(1)) if found else 1 if name == "Latest" else 2
         columns = [np.array(v, dtype=np.float64) for v in case["inputs"].values()]
@@ -81,16 +94,14 @@ def check(name: str) -> None:
                 assert t < rows - 1, (case["term"], t)  # warm-up: no full window yet
                 continue
             assert t >= rows - 1, (case["term"], t)  # a value only once the window is full
-            if name in CALL:
-                windows = [c[t - rows + 1 : t + 1, None] for c in columns]
+            windows = [c[t - rows + 1 : t + 1, None] for c in columns]
+            if term is not None:
+                value = _factors.value(term, windows)[0]
+            elif name in CALL:
                 value = CALL[name](case["term"], windows)[0]
             else:
                 value = REGISTERED[op].kernel(x[t - rows + 1 : t + 1, None])[0]
-            same = value == pytest.approx(expected, abs=5e-7, nan_ok=True)
-            assert same or (name, i) in PENDING, (case["term"], t)
-            differs = differs or not same
-        # a pending case the kernels already give is no longer pending: its line leaves PENDING
-        assert differs or (name, i) not in PENDING, (case["term"], "given: drop it from PENDING")
+            assert value == pytest.approx(expected, abs=5e-7, nan_ok=True), (case["term"], t)
 
 
 def test_T25_Returns() -> None:  # noqa: N802 - spec 10.1's name

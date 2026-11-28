@@ -37,6 +37,19 @@ def _price(column: str, inputs: Inputs) -> Sequence[BoundColumn | Factor]:
     return [BoundColumn.of("Price", column)] if inputs is None else inputs
 
 
+def _least(name: str, window: int, min_periods: int | None, full: int | None = None) -> int:
+    """3.4's `min_periods` (#868): `None` is a full window, `full` observations (W, or `RSI`'s
+    W - 1 differences); else a whole number from 1 to `full`, as `nx.ops.rolling` takes it."""
+    most = max(window if full is None else full, 1)
+    least = most if min_periods is None else min_periods
+    if not isinstance(least, int) or isinstance(least, bool):
+        raise TypeError(f"{name} takes a whole number for min_periods, not {least!r}")
+    if not 1 <= least <= most:
+        raise ValueError(f"{name}({window}) takes 1 <= min_periods <= {most},"
+                         f" not min_periods={least}")  # fmt: skip
+    return least
+
+
 def Returns(  # noqa: N802 - the 3.4 name
     window: int, inputs: Inputs = None, *, mask: Filter | None = None
 ) -> Factor:
@@ -50,11 +63,15 @@ def DailyReturns(inputs: Inputs = None, *, mask: Filter | None = None) -> Factor
 
 
 def SimpleMovingAverage(  # noqa: N802 - the 3.4 name
-    window: int, inputs: Inputs = None, *, mask: Filter | None = None
-) -> Factor:
-    """3.4 `SimpleMovingAverage(W, inputs=[Price.close])`: the mean of the finite cells."""
+    window: int, inputs: Inputs = None, *, mask: Filter | None = None,
+    min_periods: int | None = None,
+) -> Factor:  # fmt: skip
+    """3.4 `SimpleMovingAverage(W, inputs=[Price.close])`: the mean of the finite cells, NaN
+    with fewer than `min_periods` (default W, #868)."""
     found = _price("close", inputs)
-    return _node(Factor, "SimpleMovingAverage", *found, window=window, mask=mask)
+    least = _least("SimpleMovingAverage", window, min_periods)
+    return _node(Factor, "SimpleMovingAverage", *found, window=window, mask=mask,
+                 min_periods=least)  # fmt: skip
 
 
 SMA = SimpleMovingAverage
@@ -67,11 +84,15 @@ def AverageDollarVolume(window: int, *, mask: Filter | None = None) -> Factor:  
 
 
 def AverageTradedValue(  # noqa: N802 - the 3.4 name
-    window: int, ccy: str | None = None, *, mask: Filter | None = None
-) -> Factor:
-    """3.4 `AverageTradedValue(W, ccy=None)`: `nanmean(value_traded)`, `.to(ccy)` with `ccy`."""
+    window: int, ccy: str | None = None, *, mask: Filter | None = None,
+    min_periods: int | None = None,
+) -> Factor:  # fmt: skip
+    """3.4 `AverageTradedValue(W, ccy=None)`: `nanmean(value_traded)`, `.to(ccy)` with `ccy`;
+    NaN with fewer than `min_periods` finite cells (default W, #868)."""
     value = BoundColumn.of("Price", "value_traded")
-    found = _node(Factor, "AverageTradedValue", value, window=window, mask=mask)
+    least = _least("AverageTradedValue", window, min_periods)
+    found = _node(Factor, "AverageTradedValue", value, window=window, mask=mask,
+                  min_periods=least)  # fmt: skip
     return found if ccy is None else found.to(ccy)
 
 
@@ -81,20 +102,28 @@ def AnnualizedVolatility(  # noqa: N802 - the 3.4 name
     inputs: Inputs = None,
     *,
     mask: Filter | None = None,
+    min_periods: int | None = None,
 ) -> Factor:
     """3.4 `AnnualizedVolatility(W=252, annualization_factor=252, inputs=[Price.close_tr])`:
-    the standard deviation (ddof 0) of the W daily returns, so W + 1 prices, times `sqrt(a)`."""
+    the standard deviation (ddof 0) of the W daily returns, so W + 1 prices, times `sqrt(a)`;
+    NaN with fewer than `min_periods` finite returns (default W, #868)."""
     found = _price("close_tr", inputs)
+    least = _least("AnnualizedVolatility", window, min_periods)
     return _node(Factor, "AnnualizedVolatility", *found, window=window,
-                 annualization_factor=float(annualization_factor), mask=mask)  # fmt: skip
+                 annualization_factor=float(annualization_factor), mask=mask,
+                 min_periods=least)  # fmt: skip
 
 
 def RollingStd(  # noqa: N802 - the 3.4 name
-    window: int, inputs: Inputs = None, *, mask: Filter | None = None
-) -> Factor:
-    """3.4 `RollingStd(W, inputs)`: the standard deviation (ddof 1) of the finite cells; the
-    default input is `Price.close`, as for the other price-level factors (3.4)."""
-    return _node(Factor, "RollingStd", *_price("close", inputs), window=window, mask=mask)
+    window: int, inputs: Inputs = None, *, mask: Filter | None = None,
+    min_periods: int | None = None,
+) -> Factor:  # fmt: skip
+    """3.4 `RollingStd(W, inputs)`: the standard deviation (ddof 1) of the finite cells, NaN
+    with fewer than `min_periods` (default W, #868) or than 2; the default input is
+    `Price.close`, as for the other price-level factors (3.4)."""
+    least = _least("RollingStd", window, min_periods)
+    return _node(Factor, "RollingStd", *_price("close", inputs), window=window, mask=mask,
+                 min_periods=least)  # fmt: skip
 
 
 def _ewma_refused(op: str, name: str, value: float, allowed: str, why: str) -> ConfigError:
@@ -192,24 +221,36 @@ class _EWMA:
 ExponentialWeightedMovingAverage = EWMA = _EWMA()
 
 
-def VWAP(window: int, *, mask: Filter | None = None) -> Factor:  # noqa: N802 - the 3.4 name
-    """3.4 `VWAP(W)`: `sum(close * volume) / sum(volume)` over the rows where both are finite."""
+def VWAP(  # noqa: N802 - the 3.4 name
+    window: int, *, mask: Filter | None = None, min_periods: int | None = None
+) -> Factor:
+    """3.4 `VWAP(W)`: `sum(close * volume) / sum(volume)` over the rows where both are finite;
+    NaN with fewer than `min_periods` such pairs (default W, #868)."""
     close, volume = BoundColumn.of("Price", "close"), BoundColumn.of("Price", "volume")
-    return _node(Factor, "VWAP", close, volume, window=window, mask=mask)
+    least = _least("VWAP", window, min_periods)
+    return _node(Factor, "VWAP", close, volume, window=window, mask=mask, min_periods=least)
 
 
 def RSI(  # noqa: N802 - the 3.4 name
-    window: int = 15, inputs: Inputs = None, *, mask: Filter | None = None
-) -> Factor:
-    """3.4 `RSI(W=15, inputs=[Price.close_tr])`: `100 - 100/(1 + up/dn)` over W - 1 changes."""
-    return _node(Factor, "RSI", *_price("close_tr", inputs), window=window, mask=mask)
+    window: int = 15, inputs: Inputs = None, *, mask: Filter | None = None,
+    min_periods: int | None = None,
+) -> Factor:  # fmt: skip
+    """3.4 `RSI(W=15, inputs=[Price.close_tr])`: `100 - 100/(1 + up/dn)` over W - 1 changes;
+    NaN with fewer than `min_periods` changes of two finite cells (default W - 1, #868)."""
+    least = _least("RSI", window, min_periods, window - 1)
+    return _node(Factor, "RSI", *_price("close_tr", inputs), window=window, mask=mask,
+                 min_periods=least)  # fmt: skip
 
 
 def MaxDrawdown(  # noqa: N802 - the 3.4 name
-    window: int, inputs: Inputs = None, *, mask: Filter | None = None
-) -> Factor:
-    """3.4 `MaxDrawdown(W, inputs=[Price.close_tr])`: `max((cummax(x) - x) / cummax(x))`."""
-    return _node(Factor, "MaxDrawdown", *_price("close_tr", inputs), window=window, mask=mask)
+    window: int, inputs: Inputs = None, *, mask: Filter | None = None,
+    min_periods: int | None = None,
+) -> Factor:  # fmt: skip
+    """3.4 `MaxDrawdown(W, inputs=[Price.close_tr])`: `max((cummax(x) - x) / cummax(x))`;
+    NaN with fewer than `min_periods` finite cells (default W, #868)."""
+    least = _least("MaxDrawdown", window, min_periods)
+    return _node(Factor, "MaxDrawdown", *_price("close_tr", inputs), window=window, mask=mask,
+                 min_periods=least)  # fmt: skip
 
 
 #: Each built-in factor's numerics class (5.3.10 2a): every kernel is of the arithmetic class;
