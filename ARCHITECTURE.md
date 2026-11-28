@@ -82,7 +82,7 @@ All of them are tested in every milestone (§1.3). The ones that shape the archi
 - **screen = backtest** (INV-08): same strategy, snapshot, policy, anchor and context give the same canonical targets; targets never read account state.
 - **No hidden fills** (INV-12): missing values propagate; filling is an explicit operator, and data fallbacks are announced and recorded.
 - **Integer money and shares** (INV-06, INV-18): money is int64 minor units and the NAV bridge closes to zero every day; share counts use integer arithmetic and `requested = filled + cancelled + remaining`.
-- **Exact ratios, `exclude_instrument` default** (INV-18, §5.6.1, §3.11): share-changing corporate actions need exact integer ratios; an instrument with an inexact ratio is excluded from the moment the event is visible (`[corporate_actions] decimal_ratio = "exclude_instrument"`), never inferred from floats.
+- **Exact ratios, `exclude_instrument` default** (INV-18, §5.6.1, §3.11): share-changing corporate actions need exact integer ratios; an instrument with an inexact ratio is excluded from the moment the event is visible and returns after the event's effective session (`[corporate_actions] decimal_ratio = "exclude_instrument"`; #857), never inferred from floats.
 - **Events are the source of truth** (INV-16): every derived table can be rebuilt from `orders` and `account_events`.
 - **Switches off = baseline** (INV-22, INV-23): shorting off is bit-identical to long-only; no account-reading risk rule means final targets equal canonical targets.
 

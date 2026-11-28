@@ -13,7 +13,10 @@ evaluation, a backtest, today's screen and a paper book. Korean translation:
 
 ## Status
 
-The first milestone (M1) is being built. On `main` today, on synthetic data:
+The first milestone (M1) is being built. Next comes M1b, a thin backtest that
+runs end to end (one market, long only, no costs), which brings `nx.backtest`
+and the `backtest` command before factor evaluation (M2). On `main` today, on
+synthetic data:
 the `tds` checker and its CSV import; opening and checking a TDS package;
 `nx.run_pipeline` with the built-in factors over prices; `nx.screen` of a
 factor; saved runs and `nexusbt rerun`; `nexusbt init`, `doctor` and `stubs`.
