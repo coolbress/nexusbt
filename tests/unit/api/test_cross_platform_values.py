@@ -80,10 +80,16 @@ def _floats(table: pa.Table) -> dict[str, list[str | None]]:
     return found
 
 
+def _not_floats(table: pa.Table) -> pa.Table:
+    """The columns that are not floats (the keys and `decision_ts`), compared exactly."""
+    return table.select([f.name for f in table.schema if not pa.types.is_floating(f.type)])
+
+
 def _record(table: pa.Table) -> dict[str, Any]:
     return {
         "platform": sys.platform,
         "value_sha256": table_value_hash(table, KEYS),
+        "keys_sha256": table_value_hash(_not_floats(table), KEYS),
         "rows": table.num_rows,
         "floats": _floats(table),
     }
@@ -115,12 +121,15 @@ def _first_differ(was: dict[str, Any], now: dict[str, Any]) -> str:
     return "no float cell differs; another column's value differs"
 
 
+@pytest.mark.filterwarnings("default::UserWarning")  # pyproject's "error" would fail within it
 def test_the_recorded_values_hold_on_this_platform(tmp_path: Path) -> None:
-    """#867 item 3: the value hash recorded on one platform, here; otherwise every cell within
-    L1-a's tolerance, and a warning naming the first cell that differs."""
+    """#867 item 3: the value hash recorded on one platform, here; otherwise the same keys and
+    every float cell within L1-a's tolerance, and a warning naming the first cell that differs,
+    which pytest's warnings summary shows in the CI log."""
     was = json.loads(RECORD.read_text(encoding="utf-8"))
     now = _record(_run(tmp_path))
     assert now["rows"] == was["rows"]
+    assert now["keys_sha256"] == was["keys_sha256"]  # the same rows: only floats may differ
     assert list(now["floats"]) == list(was["floats"])
     if now["value_sha256"] == was["value_sha256"]:
         return
@@ -130,6 +139,20 @@ def test_the_recorded_values_hold_on_this_platform(tmp_path: Path) -> None:
         stacklevel=1,
     )
     assert _first_beyond(was, now) is None, _first_beyond(was, now)
+
+
+@pytest.mark.parametrize(("times", "beyond"), [(0.0, False), (0.5, False), (2.0, True)])
+def test_the_tolerance_path_finds_the_first_cell_beyond_it(times: float, beyond: bool) -> None:
+    """The path a differing platform takes, on the record itself: a cell moved by half
+    L1-a's tolerance is within it, and by twice it is the cell named."""
+    was = json.loads(RECORD.read_text(encoding="utf-8"))
+    now = json.loads(json.dumps(was))
+    row = next(i for i, c in enumerate(was["floats"]["std"]) if c and c != "nan")
+    x = float.fromhex(was["floats"]["std"][row])
+    now["floats"]["std"][row] = float.hex(x + times * (ABS_TOL + REL_TOL * abs(x)))
+    found = _first_beyond(was, now)
+    assert (found is not None) is beyond
+    assert found is None or found[:2] == ("std", row)
 
 
 def _dump(record: dict[str, Any]) -> str:
