@@ -6,7 +6,7 @@ import datetime as dt
 import re
 import warnings
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -16,6 +16,7 @@ import pyarrow.parquet as pq
 
 from nexusbt.contracts import ConfigError, SessionNotice, SnapshotError
 from nexusbt.data._datasets import dataset
+from nexusbt_tds.import_csv import INFERRED
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
@@ -32,7 +33,8 @@ class Calendar:
     and `ts_close(s)` in UTC microseconds (5.1.1) and its absolute number `session_ord` (3.7).
 
     `ready_delay` is the constant the data sets for the market (5.1.2), so `ready`, the time
-    each row freezes, does not depend on any row of the bars (INV-02)."""
+    each row freezes, does not depend on any row of the bars (INV-02). `source` is each row's
+    TDS 5.4 `source` as the package wrote it, empty when the rows have none."""
 
     market: str
     calendar_id: str
@@ -41,11 +43,28 @@ class Calendar:
     ts_close: NDArray[np.datetime64]
     session_ord: NDArray[np.int64]
     ready_delay: np.timedelta64
+    source: NDArray[np.object_] = field(default_factory=lambda: np.array([], dtype=object))
 
     @property
     def ready(self) -> NDArray[np.datetime64]:
         """`ready_m(s) = ts_close(s) + delta_m` for every row (5.1.2)."""
         return self.ts_close + self.ready_delay
+
+    @property
+    def sources(self) -> list[str | None]:
+        """The rows' distinct `source` values, sorted: the run manifest's
+        `markets.<market>.calendar_sources` (5.9.2; #866)."""
+        return sorted(set(self.source.tolist()), key=lambda s: (s is None, s or ""))
+
+    def said(self) -> str | None:
+        """The `assumptions` sentence of a calendar with rows inferred from bar dates (TDS 5.4,
+        9.5), over those rows; None when it has none (#866, #725 Decisions 97)."""
+        inferred = self.dates[self.source == INFERRED] if len(self.source) else self.source
+        if not len(inferred):
+            return None
+        return (f"calendar {self.market} inferred from bar dates ({len(inferred):,} sessions, "
+                f"{inferred[0]}..{inferred[-1]}): not compared with an exchange calendar; a day "
+                "with no bar for any instrument cannot be seen")  # fmt: skip
 
     def align(self, start: dt.date | str, end: dt.date | str) -> tuple[int, int]:
         """The rows of the first session on or after `start` and the last on or before `end`
@@ -114,8 +133,10 @@ def read_calendar(manifest: Manifest, market: str) -> Calendar:
 
     numbered = "session_ord" in rows.column_names  # 3.7: the package's, else from 0
     ords = rows["session_ord"].to_numpy() if numbered else np.arange(len(rows))
+    held_source = rows["source"].to_pylist() if "source" in rows.column_names else []
     return Calendar(market, calendar_id, column("session_date", "D"), column("ts_open", "us"),
-                    column("ts_close", "us"), ords.astype(np.int64), delta)  # fmt: skip
+                    column("ts_close", "us"), ords.astype(np.int64), delta,
+                    np.array(held_source, dtype=object))  # fmt: skip
 
 
 def bars_availability(bars: Mapping[str, Any] | None, snapshot_id: str) -> tuple[str, int]:
