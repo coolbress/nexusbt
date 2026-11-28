@@ -1,0 +1,42 @@
+# Golden case G-131 (spec 8.2): a series with one return, or with one valuation date. Expected
+# values are literals; `check/G-131.py` reaches them by arithmetic only, and
+# `tests/golden/test_handcalc_self.py` compares the two. An implementation pull request does
+# not change this file (`tests/repo/test_golden_guard.py`); a wrong value reopens the golden
+# ticket ("spec deviation").
+id: G-131
+description: >-
+  Two series too short for a ratio. (a) two valuation dates, so one return of 1%: a sample
+  standard deviation needs two returns, so volatility, Sharpe and Sortino are "n/a (fewer than
+  2 returns)"; the span is one day, so the CAGR is "n/a (under one year)" and the period
+  return 1% is given. (b) one valuation date, so no return: the CAGR is "n/a (one valuation
+  date)", no period return is given (null), and the three ratios read as in (a). Nothing
+  divides by zero.
+spec: "8.2 G-131; 5.7 rows CAGR (one valuation date) and Volatility (fewer than two returns)"
+
+input:
+  a:
+    - {session: "2024-01-02", nav: 100}
+    - {session: "2024-01-03", nav: 101}
+  b:
+    - {session: "2024-01-02", nav: 100}
+
+# One row per value.
+#
+# Derivation, to be recomputed by hand (a person's own check is still owed, 8.2):
+#   (a) one return, 101/100 - 1 = 0.01; 1 < 2 returns -> the three ratios n/a;
+#       D = 1 day < 365 -> CAGR n/a (under one year); period return 0.01
+#   (b) no return, 0 < 2 -> the three ratios n/a; D = 0 -> CAGR n/a (one valuation date),
+#       which comes before "under one year" although 0 < 365; no period return
+expected:
+  - {part: a, metric: returns, value: 1}
+  - {part: a, metric: volatility, value: "n/a (fewer than 2 returns)"}
+  - {part: a, metric: sharpe, value: "n/a (fewer than 2 returns)"}
+  - {part: a, metric: sortino, value: "n/a (fewer than 2 returns)"}
+  - {part: a, metric: cagr, value: "n/a (under one year)"}
+  - {part: a, metric: period_return, value: 0.01}
+  - {part: b, metric: returns, value: 0}
+  - {part: b, metric: volatility, value: "n/a (fewer than 2 returns)"}
+  - {part: b, metric: sharpe, value: "n/a (fewer than 2 returns)"}
+  - {part: b, metric: sortino, value: "n/a (fewer than 2 returns)"}
+  - {part: b, metric: cagr, value: "n/a (one valuation date)"}
+  - {part: b, metric: period_return, value: null}
