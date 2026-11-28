@@ -48,3 +48,4 @@ E45 = { skip_reason = "*" }
 E46 = "engine bug"
 E48 = "your code"
 E49 = "your code"
+E50 = "config"

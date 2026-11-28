@@ -34,7 +34,8 @@ from nexusbt.api import run_pipeline as run_pipeline
 # `screen(factor, top=n)`, T1.13 (#249).
 from nexusbt.api import screen as screen
 
-# Errors (3.1): `NexusBTError` and the 6.6 classes E1~E39, T0.4 (#49); E40~E49, T0.4b (#52).
+# Errors (3.1): `NexusBTError` and the 6.6 classes E1~E39, T0.4 (#49); E40~E49, T0.4b (#52);
+# E50 with its rule (#873).
 from nexusbt.contracts import AccountingDataError as AccountingDataError
 from nexusbt.contracts import AccountNotEvaluatedNotice as AccountNotEvaluatedNotice
 from nexusbt.contracts import BlockOutputError as BlockOutputError
@@ -66,6 +67,7 @@ from nexusbt.contracts import ProvisionalCostWarning as ProvisionalCostWarning
 from nexusbt.contracts import ReconcileMismatch as ReconcileMismatch
 from nexusbt.contracts import ReplayError as ReplayError
 from nexusbt.contracts import SegmentNotice as SegmentNotice
+from nexusbt.contracts import SelectionUndefinedError as SelectionUndefinedError
 from nexusbt.contracts import SessionNotice as SessionNotice
 from nexusbt.contracts import SkippedWorkNotice as SkippedWorkNotice
 from nexusbt.contracts import SnapshotError as SnapshotError

@@ -3,7 +3,7 @@
 The 2.4 shared types, declared empty, and the 6.6 error classes. `ID_COLUMN`,
 `ENGINE_COLUMNS`, `Unit`, `Currency`, `Phase` and the schema version constants
 are T0.3's (#48); the 26 policy enums are the ones 2.4 names (#68); the
-E1~E39 messages are T0.4's (#49), the `layer` lines and E40~E49 T0.4b's.
+E1~E39 messages are T0.4's (#49), the `layer` lines and E40~E49 T0.4b's, E50 #873's.
 """
 
 # The 6.6 class names are the spec's: warnings and notices do not end in `Error`.
@@ -513,6 +513,7 @@ class SkippedWorkNotice(NexusBTError, code="E45", kinds=("notice",)): ...
 class EngineBugError(NexusBTError, code="E46"): ...
 class PretrainedLeakError(NexusBTError, code="E48"): ...
 class PretrainedOverlapWarning(NexusBTError, code="E49", kinds=("warning",)): ...
+class SelectionUndefinedError(NexusBTError, code="E50"): ...
 # fmt: on
 
 
@@ -637,6 +638,7 @@ _EXAMPLES: dict[str, tuple[str, str, str, str, str, str, str]] = {
     "E46": ("", "run r1", "this is a NexusBT bug, not your code or data", "run r1", "an engine invariant does not hold", "please report: nexusbt bugreport r1", "spec 6.6 E46"),  # noqa: E501
     "E48": ("strategy.py:25", "model", "model m1 was trained on data up to 2021-12-30; decision 2021-06-30 is before it", "ml.pretrained model m1", "the model has seen the period it would decide on", "start after 2022-01-14, or nx.ml.pretrained(..., allow_overlap=True) to mark instead of fail", "spec 5.3.11"),  # noqa: E501
     "E49": ("strategy.py:25", "model", "6 decisions use a pretrained model that saw their period", "ml.pretrained model m1", "results on those decisions are optimistic", "read the marked rows before trusting the result", "spec 5.3.11"),  # noqa: E501
+    "E50": ("", "select", "select='calmar' is n/a for every candidate of fold 2 (no drawdown)", "backtest(method='walk_forward', select='calmar'), fold 2", "no candidate's criterion could be computed, so there is nothing to rank", "choose another select=, or a longer training window", "spec 6.3a and 5.7"),  # noqa: E501
 }
 
 
@@ -683,5 +685,6 @@ _EXAMPLE_LAYERS: dict[str, str] = {
     "E43": f"data — {_data('bars', 'close')}", "E44": "config — nexusbt.toml [ml] threads = 4",
     "E45": f"data — {_data('market_rules', 'tick_size')}", "E46": f"engine bug — {_BUG}",
     "E48": "your code — strategy.py:25 in model", "E49": "your code — strategy.py:25 in model",
+    "E50": "config — argument select=calmar",
 }
 # fmt: on
