@@ -328,7 +328,21 @@ class DecisionGrid:
 
 
 @dataclass(frozen=True, slots=True)
-class DecisionContext: ...
+class DecisionContext:
+    """5.1.3: what one decision of one sleeve is taken on. With the same strategy, snapshot,
+    policies and anchor, the same context gives the same canonical target (INV-08)."""
+
+    decision_id: str  # f"{sleeve_id}:{session_date:%Y%m%d}:{clock}"
+    snapshot_id: str
+    snapshot_semantic_hash: str  # TDS 4.5 semantic hash
+    sleeve_id: str  # market key (TDS markets)
+    calendar_id: str  # schedule calendar
+    session_date: dt.date  # session date of the schedule calendar
+    decision_ts: dt.datetime  # UTC
+    clock: str
+    availability_policy: str  # tds.json policies.availability_default
+    scheduled: bool  # is the decision on the schedule (False for a screen preview)
+    anchor_decision_id: str | None  # where the target-state recursion starts; None: not used
 
 
 @dataclass(frozen=True, slots=True)
