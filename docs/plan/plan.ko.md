@@ -443,7 +443,7 @@ v3는 3자 검토 합의대로 **M0을 계약만으로 줄이고**, 검사기 fu
 - Acceptance: `tests/unit/artifacts/test_backtest_outputs.py::test_orders_schema`, `::test_account_events_schema_v1`, `::test_pnl_bridge_closes`, `::test_daily_has_financing_and_flow_bridge_columns`.
 
 **T3.16a `test(property): NAV, bridge and quantity invariants`** · `M1b` `property` · S · Blocked by: T3.13c, T3.14a · §8.3
-- Done means: `uv run pytest -m property -k "NAV or BRIDGE or QTY"` 통과.
+- Done means: `uv run pytest -m property -k "NAV or BRIDGE or QTY or ADJ_ORDER"` 통과.
 - Acceptance: `tests/property/test_execution_invariants.py::test_P_NAV`, `::test_P_BRIDGE`, `::test_P_QTY`, `::test_P_QTY_integer_ratios`, `tests/property/test_adjust.py::test_P_ADJ_ORDER`(조정 가격이 순서를 지킴, #874).
 
 **T3.15a `feat(execution): zipline parity preset (market orders, costs, sizing)`** · `M1b` `execution` · S · Blocked by: T3.12 · §5.6.15 [SC-12]
