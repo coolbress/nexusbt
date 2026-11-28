@@ -42,6 +42,7 @@ from nexusbt.data import (
     _snapshot_folder,
     _snapshot_markets,
     dataset_columns,
+    dropped_rows,
     open_snapshot,
     table_value_hash,
 )
@@ -180,22 +181,25 @@ def screen(
     if top is not None:
         columns["kept"] = obj.top(top)
     picked, days, universe, selected = [], {}, {}, {}
+    left: set[tuple[str, str, str, int]] = set()
     for m in sorted(opened.markets, key=str.encode):
         days[m] = day = _screen_day(opened.calendar(m), asof)
-        found = _pipeline.run(pipeline.Pipeline(columns), start=day, end=day, freq="daily",
-                              markets=[m], snapshot=opened, cfg=cfg,
-                              registry=schema_registry).table  # fmt: skip
+        result = _pipeline.run(pipeline.Pipeline(columns), start=day, end=day, freq="daily",
+                               markets=[m], snapshot=opened, cfg=cfg,
+                               registry=schema_registry)  # fmt: skip
+        found, left = result.table, left | result._dropped
         universe[m] = found.num_rows
         scored = pc.invert(pc.is_nan(found["rank"]))  # no score, no rank
         kept = found.filter(found["kept"] if top is not None else scored)
         selected[m] = kept.num_rows
         picked.append(kept.select(["market", "session_date", "rank", ID_COLUMN, "score"]))
     table = _ranked(pa.concat_tables(picked))
+    dropped = dropped_rows(opened, left)  # one E30 for every market (4.4 step 5, #866)
     named = {"factor": pipeline.graph_hash(obj), "top": top}
     params_ = {"asof": None if asof is None else str(asof), "top": top}
     if not common.get("save", True):
         return Screen(table, True, days, universe, selected, opened.id)
-    run_id = _seal("screen", named, {}, opened, cfg, params_ | {"markets": None})
+    run_id = _seal("screen", named, {}, opened, cfg, params_ | {"markets": None}, dropped)
     return Screen(table, True, days, universe, selected, opened.id, run_id)
 
 
@@ -253,34 +257,38 @@ def run_pipeline(
         _rerun.check_snapshot(opened)
     result = _pipeline.run(pipeline, start=start, end=end, freq=freq, markets=markets,
                            snapshot=opened, cfg=cfg, registry=schema_registry)  # fmt: skip
+    dropped = dropped_rows(opened, result._dropped)  # E30 when any (4.4 step 5, #866)
     if not save:
         return result
     params = {"start": str(start), "end": str(end), "freq": freq,
               "markets": list(markets) if markets is not None else None}  # fmt: skip
-    run_id = _save_pipeline(result, pipeline, opened, cfg, params)
+    run_id = _save_pipeline(result, pipeline, opened, cfg, params, dropped)
     return dataclasses.replace(result, run_id=run_id)
 
 
 def _save_pipeline(
-    result: PipelineResult, pipe: Pipeline, opened: Snapshot, cfg: Config, params: dict[str, Any]
-) -> str:
+    result: PipelineResult, pipe: Pipeline, opened: Snapshot, cfg: Config,
+    params: dict[str, Any], dropped: Sequence[Mapping[str, Any]],
+) -> str:  # fmt: skip
     """3.8's `kind="pipeline"`: `pipeline.parquet` and `term_diagnostics.parquet` (5.9.1)."""
     columns = {n: pipeline.graph_hash(t) for n, t in pipe.columns.items()}
     named = {"columns": columns, "screen": pipe.screen and pipeline.graph_hash(pipe.screen)}
     tables = {"pipeline": (result.table, _pipeline.KEYS),
               "term_diagnostics": (result.term_diagnostics, _pipeline.COUNT_KEYS)}  # fmt: skip
-    return _seal("pipeline", named, tables, opened, cfg, params)
+    return _seal("pipeline", named, tables, opened, cfg, params, dropped=dropped)
 
 
 def _seal(
     kind: str, named: dict[str, Any], tables: Mapping[str, tuple[pa.Table, Sequence[str]]],
     opened: Snapshot, cfg: Config, params: dict[str, Any],
+    dropped: Sequence[Mapping[str, Any]] = (),
 ) -> str:  # fmt: skip
     """A run of `kind` (3.8) with `tables` (5.9.1), each with the key its value hash orders rows
     by (5.9.2 `outputs`, TDS 4.5), and `source/` with the entry file,
     `__main__`'s file or none in an interactive session, and the project's modules imported so
     far (5.9.3; #283, #304). The run's name is the entry file's stem. The root pin goes beside
-    the package the snapshot was opened from (4.2)."""
+    the package the snapshot was opened from (4.2). `dropped`, the bars the read left out by
+    dataset and cause, is the manifest's `data.dropped`, written only when not empty (#866)."""
     from nexusbt.artifacts import RunStore  # only a saved run opens the store
     from nexusbt.artifacts._runstore import run_h6
 
@@ -307,11 +315,14 @@ def _seal(
         markets = {m: {"calendar_id": i.calendar_id, "currency": i.currency,
                        "rules_pack": i.rules or "untested"}
                    for m, i in opened.markets.items() if m in used}  # fmt: skip
+        recorded = opened._recorded()
+        if dropped:
+            recorded["data"]["dropped"] = [dict(r) for r in dropped]
         txn.set_manifest({"kind": kind, "snapshot_id": opened.id, "markets": markets,
                           "snapshot_semantic_hash": opened.semantic_hash,
                           "snapshot_value_hash": opened.value_hash,
                           "snapshot_physical_hash": opened.physical_hash,
-                          **opened._recorded()})  # fmt: skip
+                          **recorded})  # fmt: skip
     except BaseException:
         txn.abort()
         raise
