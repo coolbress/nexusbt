@@ -20,7 +20,7 @@ cases:
     #   rows 2-4: 3600/300 = 12.0
     #   rows 3-5: (3600 + 0)/(300 + 0) = 12.0
     expected: [null, null, 11.5, 12.0, 12.0]
-  - term: "VWAP(3)"
+  - term: "VWAP(3, min_periods=1)"
     # No pair in the window, or the only pair has volume 0 -> NaN (#278). zipline's literal
     # formula gives 0/600, 0/500, 0/700 = 0.
     inputs: {close: [.nan, .nan, .nan, 12, .nan], volume: [100, 200, 300, 0, 400]}

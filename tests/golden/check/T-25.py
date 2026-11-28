@@ -174,7 +174,7 @@ ROWS = (
     case("SimpleMovingAverage", "SMA(3)", {"close": S2}, sma_full),
     case("VWAP", "VWAP(3, min_periods=1)", {"close": WC, "volume": WV}, vwap),
     case("VWAP", "VWAP(3, min_periods=1)", {"close": YC, "volume": YV}, vwap_pairs),
-    case("VWAP", "VWAP(3)", {"close": ZC, "volume": ZV}, vwap_none),
+    case("VWAP", "VWAP(3, min_periods=1)", {"close": ZC, "volume": ZV}, vwap_none),
     case("VWAP", "VWAP(3)", {"close": VC, "volume": VV}, vwap_full),
 )  # fmt: skip
 
