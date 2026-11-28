@@ -292,14 +292,23 @@ def test_the_import_ends_with_full(tmp_path: Path, capsys: pytest.CaptureFixture
     files = {"instruments.csv": CHAPTER_7, "bars.csv": WHOLE, "mapping.yaml": MINIMAL}
     out = tmp_path / "ok" / "pkg"
     assert main(["import", "csv", str(write(tmp_path / "ok", files)), "--out", str(out)]) == 0
-    assert "full check: 0 errors, 0 warnings" in capsys.readouterr().out
+    printed = capsys.readouterr()
+    # #888 (the owner, 2026-11-28): the check is most of a large import's time, so the
+    # command says when it starts and how long it took, on the screen only
+    assert printed.err == (f"tds import csv: checking {out} at the full level"
+                           " (on a large package most of the import's time)\n")  # fmt: skip
+    assert re.search(r"; full check: 0 errors, 0 warnings \(\d+\.\d s of \d+\.\d s\)\n$",
+                     printed.out)  # fmt: skip
     said = json.loads((out.parent / "import_report.json").read_text(encoding="utf-8"))
     assert said["check"] == {"level": "full", "errors": 0, "warnings": 0, "findings": []}
     twice = WHOLE + WHOLE.splitlines()[1] + "\n"
     out = tmp_path / "dup" / "pkg"
     mapping = write(tmp_path / "dup", {**files, "bars.csv": twice})
     assert main(["import", "csv", str(mapping), "--out", str(out)]) == 1
-    assert "removed" in capsys.readouterr().err
+    printed = capsys.readouterr()
+    assert printed.err.startswith(f"tds import csv: checking {out} at the full level")
+    assert "removed" in printed.err
+    assert " s of " not in printed.out + printed.err  # no seconds: there is no last line
     assert not out.exists()
     said = json.loads((out.parent / "import_report.json").read_text(encoding="utf-8"))
     assert said["check"]["errors"] >= 1
