@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
+from typing import Any
 
 import pyarrow.parquet as pq
 import pytest
@@ -51,6 +52,19 @@ def rows(package: Path, dataset: str) -> list[dict[str, object]]:
     return [r for f in entry["files"] for r in pq.read_table(package / f["path"]).to_pylist()]
 
 
+def refused(mapping: Path, out: Path) -> dict[str, Any]:
+    """An import whose package `full` refuses (#866): no package, the report beside it."""
+    with pytest.raises(CsvImportError, match="the package was removed"):
+        import_csv(mapping, out)
+    assert not out.exists()
+    report: dict[str, Any] = json.loads((out.parent / "import_report.json").read_text("utf-8"))
+    return report
+
+
+def codes(report: dict[str, Any]) -> set[str]:
+    return {f["code"] for f in report["check"]["findings"] if f["severity"] == "error"}
+
+
 def test_mapping_template_and_format(tmp_path: Path) -> None:
     mapping = write(tmp_path, {
         "instruments.csv": INSTRUMENTS,
@@ -91,11 +105,14 @@ datasets:
     assert check(out, level="full").error_count == 0
     name = json.loads((out / "tds.json").read_text("utf-8"))["name"]
     assert name == "demo: a colon inside quotes"
-    # JSON is YAML too, and is read first
+    # JSON is YAML too, and is read first; bars, so that `full` passes the package (#866)
+    write(tmp_path, {"b.csv": BARS})
     as_json = {"profiles": ["tds:minimal-daily@1.0"],
                "market": {"code": "US", "calendar_id": "XNYS", "currency": "USD",
-                          "timezone": "America/New_York"},
-               "datasets": {"instruments": {"file": "instruments.csv"}}}  # fmt: skip
+                          "timezone": "America/New_York", "open": "09:30", "close": "16:00"},
+               "datasets": {"instruments": {"file": "instruments.csv"},
+                            "bars": {"file": "b.csv", "params": {
+                                "freq": "1d", "price_basis": "total_adjusted"}}}}  # fmt: skip
     (tmp_path / "m.json").write_text(json.dumps(as_json), encoding="utf-8")
     assert rows(import_csv(tmp_path / "m.json", tmp_path / "json"), "instruments")
     as_json["datasets"] = {"instruments": {"file": "instruments.csv",
@@ -224,10 +241,12 @@ def test_package_defaults_and_layout(tmp_path: Path) -> None:
     counted = write(tmp_path / "n", {"instruments.csv": INSTRUMENTS, "bars.csv": COUNT.format(5),
                                      "mapping.yaml": MINIMAL})  # fmt: skip
     assert rows(import_csv(counted, tmp_path / "n" / "pkg"), "bars")[0]["trade_count"] == 5
-    # a header-only, unpartitioned CSV: one file of no rows
+    # a header-only CSV is read as no rows; without bars, `full` refuses the package (#866)
     empty = write(tmp_path / "e", {"instruments.csv": INSTRUMENTS.splitlines()[0] + "\n",
                                    "mapping.yaml": MINIMAL.split("  bars:")[0]})  # fmt: skip
-    assert rows(import_csv(empty, tmp_path / "e" / "pkg"), "instruments") == []
+    report = refused(empty, tmp_path / "e" / "pkg")
+    assert report["datasets"]["instruments"]["rows_kept"] == 0
+    assert codes(report) == {"TDS-M008"}
 
 
 #: TDS chapter 7's `instruments.csv` as it stands, without the three 5.1 columns the fills give.
@@ -264,6 +283,27 @@ def test_minimal_two_csv(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> 
     # an import that cannot be read: exit 1 and the reason, no traceback
     assert main(["import", "csv", str(mapping), "--out", str(out)]) == 1
     assert "tds import csv: " in capsys.readouterr().err
+
+
+def test_the_import_ends_with_full(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """#866: the import runs `full` on what it wrote and says its counts. An error there
+    (here a duplicate key, K001) removes the package and exits 1; the report beside it keeps
+    the findings (owner, 2026-11-28)."""
+    files = {"instruments.csv": CHAPTER_7, "bars.csv": WHOLE, "mapping.yaml": MINIMAL}
+    out = tmp_path / "ok" / "pkg"
+    assert main(["import", "csv", str(write(tmp_path / "ok", files)), "--out", str(out)]) == 0
+    assert "full check: 0 errors, 0 warnings" in capsys.readouterr().out
+    said = json.loads((out.parent / "import_report.json").read_text(encoding="utf-8"))
+    assert said["check"] == {"level": "full", "errors": 0, "warnings": 0, "findings": []}
+    twice = WHOLE + WHOLE.splitlines()[1] + "\n"
+    out = tmp_path / "dup" / "pkg"
+    mapping = write(tmp_path / "dup", {**files, "bars.csv": twice})
+    assert main(["import", "csv", str(mapping), "--out", str(out)]) == 1
+    assert "removed" in capsys.readouterr().err
+    assert not out.exists()
+    said = json.loads((out.parent / "import_report.json").read_text(encoding="utf-8"))
+    assert said["check"]["errors"] >= 1
+    assert "TDS-K001" in {f["code"] for f in said["check"]["findings"]}
 
 
 @pytest.mark.parametrize("status", ["", ",obs_status"], ids=["close", "close and obs_status"])
@@ -414,19 +454,27 @@ def test_values_and_fills(tmp_path: Path) -> None:
     given = "file: instruments.csv\n    values: {lot_size: '100', is_synthetic: 'false'}\n"
     files = {"instruments.csv": CHAPTER_7.replace("equity", "bond"), "bars.csv": BARS,
              "mapping.yaml": MINIMAL.replace("file: instruments.csv\n", given)}  # fmt: skip
-    package = import_csv(write(tmp_path / "v", files), tmp_path / "v" / "pkg")
-    got = rows(package, "instruments")[0]
-    assert (got["lot_size"], got["is_synthetic"], "multiplier" in got) == (100.0, False, False)
-    assert {f.code for f in check(package, level="schema").errors} == {"TDS-S001"}
-    report = json.loads((tmp_path / "v" / "import_report.json").read_text(encoding="utf-8"))
+    report = refused(write(tmp_path / "v", files), tmp_path / "v" / "pkg")  # S001: removed
+    assert codes(report) == {"TDS-S001"}
+    assert [f["message"] for f in report["check"]["findings"]] == [
+        "required column multiplier is missing"]  # fmt: skip
     assert report["datasets"]["instruments"]["values"] == {"lot_size": "100",
                                                           "is_synthetic": "false"}  # fmt: skip
     index = {"instruments.csv": CHAPTER_7.replace("equity", "index"), "mapping.yaml": MINIMAL}
-    package = import_csv(write(tmp_path / "i", index | {"bars.csv": BARS}), tmp_path / "i" / "p")
-    assert rows(package, "instruments")[0]["is_synthetic"] is True
-    us = {"code": "US", "calendar_id": "XNYS", "currency": "USD", "timezone": "America/New_York"}
-    as_json = {"market": us, "datasets": {"instruments": {
-        "file": "instruments.csv", "values": {"is_synthetic": True, "lot_size": 10}}}}  # fmt: skip
+    report = refused(write(tmp_path / "i", index | {"bars.csv": BARS}), tmp_path / "i" / "p")
+    assert codes(report) == {"TDS-S001"}  # no multiplier fill for an index (TDS 5.1)
+    assert [a for a in report["datasets"]["instruments"]["assumed"]
+            if a.startswith("is_synthetic")] == [
+        "is_synthetic ['True'] for every row (TDS 5.1, 5.26: equity, etf, fund false, index true)"
+    ]  # fmt: skip
+    us = {"code": "US", "calendar_id": "XNYS", "currency": "USD", "timezone": "America/New_York",
+          "open": "09:30", "close": "16:00"}  # fmt: skip
+    as_json = {"market": us, "datasets": {
+        "instruments": {"file": "equity.csv",  # an equity: its multiplier is filled
+                        "values": {"is_synthetic": True, "lot_size": 10}},
+        "bars": {"file": "bars.csv", "params": {"freq": "1d", "price_basis": "total_adjusted"}},
+    }}  # fmt: skip
+    write(tmp_path / "i", {"equity.csv": CHAPTER_7})
     (tmp_path / "i" / "m.json").write_text(json.dumps(as_json), encoding="utf-8")
     package = import_csv(tmp_path / "i" / "m.json", tmp_path / "i" / "j" / "p")
     assert (rows(package, "instruments")[0]["is_synthetic"], rows(package, "instruments")[0][
@@ -472,10 +520,10 @@ def test_report_never_lands_on_an_input(tmp_path: Path) -> None:
     with pytest.raises(CsvImportError, match="is an input or not a file"):
         import_csv(tmp_path / "d" / "m.json", tmp_path / "d" / "pkg")
     assert not (tmp_path / "d" / "pkg").exists()  # refused before writing
-    # `profiles: []` gets the default, and the report says so
-    out = import_csv(tmp_path / "d" / "m.json", tmp_path / "d" / "e" / "pkg")
-    report = json.loads((out.parent / "import_report.json").read_text("utf-8"))
+    # `profiles: []` gets the default, and the report says so; its M008 removes the package
+    report = refused(tmp_path / "d" / "m.json", tmp_path / "d" / "e" / "pkg")
     assert report["assumed"][2].startswith('profiles: ["tds:minimal-daily@1.0"]')
+    assert codes(report) == {"TDS-M008"}
     for constant in (None, [1], {"a": 1}):
         as_json["datasets"] = {"instruments": {"file": "instruments.csv",
                                                "values": {"currency": constant}}}  # fmt: skip
@@ -588,6 +636,6 @@ def test_last_session_stops_the_fill_and_complete_through_extends_it(tmp_path: P
         import_csv(write(tmp_path / "n", files | {"mapping.yaml": naive}), tmp_path / "n" / "p")
     nameless = GAPS_BARS + ",2024-01-04,5,1\n"  # an id left empty: the checker's S003, no crash
     files |= {"bars.csv": nameless, "mapping.yaml": MINIMAL}
-    package = import_csv(write(tmp_path / "e", files), tmp_path / "e" / "pkg")
-    assert filled(package) == []
-    assert "TDS-S003" in [f.code for f in check(package, level="schema").errors]
+    report = refused(write(tmp_path / "e", files), tmp_path / "e" / "pkg")  # #866
+    assert report["datasets"]["bars"].get("rows_filled", 0) == 0
+    assert "TDS-S003" in codes(report)

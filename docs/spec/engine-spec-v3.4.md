@@ -968,7 +968,7 @@ write: orders.to_csv("orders/{date}.csv")   apply to paper book: nx.fill(book, o
 | `nexusbt stubs` | regenerates `.pyi` |
 | `nexusbt check FILE[:VAR] [--probes K] [--start-probe]` | |
 
-The data-standard tools are separate — `tds check PATH [--level manifest|schema|full] [--profile P] [--format json]`, `tds hash`, `tds describe`, `tds import csv MAPPING --out PKG`, `tds manifest build PKG` (TDS 8.1, package `nexusbt-tds`; the commands implemented in v1 and the "planned" commands are in the table of TDS 8.1) — and are not mixed into the engine CLI. `nexusbt doctor --full` calls the same checker as a library.
+The data-standard tools are separate — `tds check PATH [--level manifest|schema|full] [--profile P] [--format json]`, `tds hash`, `tds describe`, `tds import csv MAPPING --out PKG`, `tds manifest build PKG` (TDS 8.1, package `nexusbt-tds`; the commands implemented in v1 and the "planned" commands are in the table of TDS 8.1) — and are not mixed into the engine CLI. `nexusbt doctor --full` calls the same checker as a library. `tds import csv` ends by checking what it wrote at `full`; an error there removes the package and exits 1, the findings staying in `import_report.json` (TDS 9.5; #866).
 
 The default VAR of `FILE[:VAR]`: `strategy` for a strategy file; for a factor file, the last Factor defined (when there are several, `ConfigError` asks for the name).
 

@@ -4,6 +4,7 @@ package without one is the checker's TDS-M003, so the open stops with E14 (4.4-1
 
 from __future__ import annotations
 
+import importlib
 import json
 from pathlib import Path
 
@@ -14,6 +15,7 @@ from nexusbt.contracts import SnapshotError, VerifyPolicy
 from nexusbt.data import DataConfig, open_snapshot
 from nexusbt.testing.synth import make_snapshot
 from nexusbt_tds import check, import_csv
+from nexusbt_tds.check import CheckResult
 from nexusbt_tds.hash import write_hashes
 
 #: TDS chapter 7's two CSVs, with the instrument in market ZZ, and a mapping declaring only US.
@@ -54,6 +56,15 @@ def test_a_market_without_a_field_stops_the_open_naming_m003(
         open_snapshot(DataConfig(path=path, verify=verify))
     assert "[E14]" in str(raised.value)
     assert f"markets.US: field {field!r} is missing" in str(raised.value)
+
+
+@pytest.fixture(autouse=True)
+def unchecked(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The import's own `full` would refuse the M010 and M008 packages here (#866); these
+    tests are of how the engine opens them, so the import keeps them."""
+    passed = CheckResult(level="full", errors=(), warnings=())
+    module = importlib.import_module("nexusbt_tds.import_csv")  # the package's name: a function
+    monkeypatch.setattr(module, "check", lambda *_, **__: passed)
 
 
 def undeclared_market_package(tmp_path: Path, bars_csv: str = BARS) -> Path:

@@ -14,6 +14,11 @@ package version follows the `tds_version` it checks (`1.0.x`), tagged
   fail). A package without value tables checks as before
 
 ### Changed
+- `tds import csv` ends by checking what it wrote at `full` (TDS 9.5; #866): the findings go
+  under `check` in `import_report.json` and the command prints their counts. An error there
+  removes the package and exits 1, the report staying beside it; an import whose package a
+  `full` check refuses, such as `instruments` without the bars its profile requires, no longer
+  leaves a package
 - `tds_draft` moves to 2026-11-27, the end of the stage-(1) revision (#752's 12e, TDS 10.5): the
   checker, `tds import csv`, `tds draft` and the conformance packages write it; a package naming
   2026-11-19 gets TDS-M017 (W)
