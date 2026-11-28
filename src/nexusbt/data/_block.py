@@ -42,6 +42,8 @@ OHL = ("open", "high", "low")
 _INTEGER = frozenset({"i8", "i16", "i32", "i64"})
 #: Columns a bars file may lack: the block reads them when present (TDS 5.5).
 _OPTIONAL = ("obs_status", "ts_end", "ts_available")
+#: The ends of the first and the last block's span: bars before or after the calendar.
+_FIRST, _LAST = np.datetime64("0001-01-01", "D"), np.datetime64("9999-12-31", "D")
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -50,7 +52,14 @@ class MarketBlock:
     chunk (5.3.1). Every array is `(rows, columns)`: `values[field]` float64, `exists` the
     listing mask, `obs_status` codes into `OBS_STATUS`, `ts_available` each cell's availability
     instant (NaT without a bar), which a reader compares with `ready(t)` (5.1.2); a late bar
-    stays in its session's row. The first `overlap` rows are the previous chunk's tail."""
+    stays in its session's row. The first `overlap` rows are the previous chunk's tail.
+    `dropped` names each bar the read left out for a cause no other rule gives, as
+    `(dataset, cause, file, row)`: `unknown_instrument`, an `instrument_id` that `instruments`
+    lacks, and `not_a_session`, a column's bar on a day that is no session of the calendar;
+    a bar is named by a block whose span holds its date and that opens its file, the span
+    running between the sessions next to the block's first and last rows, open at the
+    calendar's ends; the days between two blocks are in both spans, so each day's file is
+    opened by one of them (4.4, INV-12; #866)."""
 
     market: str
     dates: NDArray[np.datetime64]
@@ -60,6 +69,7 @@ class MarketBlock:
     exists: NDArray[np.bool_]
     obs_status: NDArray[np.int8]
     ts_available: NDArray[np.datetime64]
+    dropped: frozenset[tuple[str, str, str, int]] = frozenset()
 
 
 def partition_values(path: str, partitioning: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
@@ -89,7 +99,7 @@ def build_block(
     dates = calendar.dates[start : last + 1]
     bars = needed(manifest.data, "bars")  # by kind and freq=1d, never by list order (4.3)
     instruments = needed(manifest.data, "instruments")
-    ids, listed, delisted = _axis(manifest, instruments, calendar.market, given)
+    ids, listed, delisted, known = _axis(manifest, instruments, calendar.market, given)
     n, shape = len(ids), (len(dates), len(ids))
     exists = (listed[None, :] <= dates[:, None]) & ~(delisted[None, :] < dates[:, None])
     values = {f: np.full(shape, np.nan) for f in fields}
@@ -99,9 +109,14 @@ def build_block(
     sources = [_SOURCE.get(f, f) for f in fields]
     wanted = [ID, "session_date", "close", *sources]
     optional = [*_OPTIONAL, *([source] if source != "ts_close" else [])]  # ts_close: calendar's
+    span = (calendar.dates[start - 1] if start else _FIRST,
+            calendar.dates[last + 1] if last + 1 < len(calendar.dates) else _LAST)  # fmt: skip
+    dropped: set[tuple[str, str, str, int]] = set()
     for path in _files(bars, calendar.market, dates) if n else ():
         meta = pq.read_metadata(manifest.root / path)
-        rows, cols, table = _cells(manifest.root / path, meta, ids, dates, wanted, optional)
+        rows, cols, table, left = _cells(manifest.root / path, meta, ids, dates, wanted,
+                                         optional, (known, calendar.dates, span))  # fmt: skip
+        dropped |= {(str(bars["name"]), cause, path, int(i)) for cause, at in left for i in at}
         if source not in (*table.column_names, "ts_end", "ts_close"):
             raise _absent(manifest, bars, path, source)
         for f, s in zip(fields, sources, strict=True):
@@ -124,7 +139,7 @@ def build_block(
         values[f][status == 1] = 0.0  # no_trade (3.2)
     status[~exists] = -1
     return MarketBlock(calendar.market, dates, first - start, ids, values, exists, status,
-                       available)  # fmt: skip
+                       available, frozenset(dropped))  # fmt: skip
 
 
 def _files(entry: Mapping[str, Any], market: str, dates: NDArray[np.datetime64]) -> list[str]:
@@ -170,11 +185,13 @@ def block_columns(manifest: Manifest, market: str, sessions: object) -> tuple[st
 
 def _axis(
     manifest: Manifest, entry: Mapping[str, Any], market: str, given: NDArray[np.datetime64]
-) -> tuple[tuple[str, ...], NDArray[np.datetime64], NDArray[np.datetime64]]:
+) -> tuple[tuple[str, ...], NDArray[np.datetime64], NDArray[np.datetime64], NDArray[Any]]:
     """The block's columns: `equity ∧ not synthetic` of `market` whose listing period
-    `[listed_on, delisted_on]` meets the chunk's own sessions, by `instrument_id` (5.3.1)."""
+    `[listed_on, delisted_on]` meets the chunk's own sessions, by `instrument_id` (5.3.1);
+    last, every `instrument_id` of `instruments`, of any market."""
     tables = [pq.read_table(manifest.root / f["path"]) for f in entry["files"]]
     t = pa.concat_tables(tables)
+    known = np.array(t[ID].to_pylist(), dtype=object)
     keep = pc.and_(pc.equal(t["market"], market), pc.equal(t["asset_class"], "equity"))
     keep = pc.and_(keep, pc.invert(pc.fill_null(t["is_synthetic"], False)))
     t = t.filter(keep).sort_by(ID)
@@ -185,7 +202,7 @@ def _axis(
                 else np.full(len(t), np.datetime64("NaT", "D")))  # fmt: skip  # a unit: NumPy 2
     meets = (listed <= given[-1]) & ~(delisted < given[0])
     ids = tuple(str(i) for i in np.array(t[ID].to_pylist(), dtype=object)[meets])
-    return ids, listed[meets], delisted[meets]
+    return ids, listed[meets], delisted[meets], known
 
 
 def _absent(manifest: Manifest, bars: Mapping[str, Any], path: str, column: str) -> SnapshotError:
@@ -219,27 +236,39 @@ def _cells(
     dates: NDArray[np.datetime64],
     wanted: Sequence[str],
     optional: Sequence[str],
-) -> tuple[NDArray[np.intp], NDArray[np.intp], pa.Table]:
+    drops: tuple[NDArray[Any], NDArray[np.datetime64], tuple[np.datetime64, np.datetime64]],
+) -> tuple[NDArray[np.intp], NDArray[np.intp], pa.Table, list[tuple[str, NDArray[np.intp]]]]:
     """A file's rows that fall in the block, with their row and column numbers; the `optional`
     columns are read when the file has them (`meta`, its footer). The dictionary of
     `instrument_id` is mapped to column numbers once, then each row's index is looked up in
-    that small table (5.3.1, A-05). `ids` is sorted and not empty."""
+    that small table (5.3.1, A-05). `ids` is sorted and not empty. Last, by cause, the rows
+    dated in the span `(low, high)` that `drops` gives with the known ids and the sessions,
+    left out for an unknown `instrument_id` or for a day that is no session (#866)."""
+    known, sessions, (low, high) = drops
     names = set(meta.schema.to_arrow_schema().names)
     columns = list(dict.fromkeys([*wanted, *(c for c in optional if c in names)]))
     table = pq.read_table(path, columns=columns, read_dictionary=[ID])
     sorted_ids = np.array(ids, dtype=object)
-    cols = []
+    cols, strangers = [], []
     for chunk in table[ID].chunks:
         words = np.array(chunk.dictionary.to_pylist(), dtype=object)
         at = np.minimum(np.searchsorted(sorted_ids, words), len(ids) - 1)
         lookup = np.where(sorted_ids[at] == words, at, -1)
-        cols.append(lookup[chunk.indices.to_numpy(zero_copy_only=False)])
+        indices = chunk.indices.to_numpy(zero_copy_only=False)
+        cols.append(lookup[indices])
+        strangers.append(~np.isin(words, known)[indices])
     col = np.concatenate(cols) if cols else np.zeros(0, np.intp)
     days = table["session_date"].to_numpy(zero_copy_only=False).astype("datetime64[D]")
     row = np.minimum(np.searchsorted(dates, days), len(dates) - 1)
     keep = (col >= 0) & (dates[row] == days)
     picked = np.flatnonzero(keep)
-    return row[keep], col[keep], table.take(pa.array(picked))
+    inside = (days > low) & (days < high)
+    unknown = np.concatenate(strangers) if strangers else np.zeros(0, np.bool_)
+    left = [
+        ("unknown_instrument", np.flatnonzero(unknown & inside)),
+        ("not_a_session", np.flatnonzero((col >= 0) & inside & ~np.isin(days, sessions))),
+    ]
+    return row[keep], col[keep], table.take(pa.array(picked)), left
 
 
 def _available(
