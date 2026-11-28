@@ -5,6 +5,7 @@ declares in `pipeline` is the class its kernel is registered with in `compute` (
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 
 import numpy as np
 import pytest
@@ -95,9 +96,9 @@ def test_daily_returns_nan_rule() -> None:
 
 
 def test_simple_moving_average_nan_rule() -> None:
-    """`nanmean` of `close`; NaN left out, all NaN -> NaN, minimum 1; warm-up W-1."""
+    """`nanmean` of `close`; NaN left out, all NaN -> NaN, at `min_periods=1`; warm-up W-1."""
     assert column(factors.SMA(3)) == "close"
-    found = run(factors.SMA(3), close=[1, NAN, 3, 5, NAN, NAN, NAN])
+    found = run(factors.SMA(3, min_periods=1), close=[1, NAN, 3, 5, NAN, NAN, NAN])
     same(found, [NAN, NAN, 2.0, 4.0, 4.0, 5.0, NAN])
 
 
@@ -110,32 +111,61 @@ def test_average_dollar_volume_nan_rule() -> None:
 
 
 def test_average_traded_value_nan_rule() -> None:
-    """`nanmean(value_traded)`; NaN left out, minimum 1 (all NaN -> NaN); warm-up W-1."""
+    """`nanmean(value_traded)`; NaN left out, all NaN -> NaN, at `min_periods=1`; warm-up W-1."""
     assert column(factors.AverageTradedValue(2)) == "value_traded"
-    found = run(factors.AverageTradedValue(2), value_traded=[1000, NAN, NAN, 3000, 5000])
+    term = factors.AverageTradedValue(2, min_periods=1)
+    found = run(term, value_traded=[1000, NAN, NAN, 3000, 5000])
     same(found, [NAN, 1000.0, NAN, 3000.0, 4000.0])
 
 
 def test_annualized_volatility_nan_rule() -> None:
-    """`nanstd(DailyReturns, ddof=0) * sqrt(a)` over W returns; NaN left out, minimum 1;
-    warm-up W, also when the W + 1 prices reach across a chunk's first row."""
-    prices = [100, 110, 99, NAN, 108.9]
+    """`nanstd(DailyReturns, ddof=0) * sqrt(a)` over W returns; NaN left out, at
+    `min_periods=1`; warm-up W, also when the W + 1 prices reach across a chunk's first row."""
+    prices, term = [100, 110, 99, NAN, 108.9], factors.AnnualizedVolatility(3, min_periods=1)
     expected = [NAN, NAN, NAN, 0.1 * math.sqrt(252), 0.0]
-    same(run(factors.AnnualizedVolatility(3), close_tr=prices), expected)
-    same(run(factors.AnnualizedVolatility(3), [(0, 2), (3, 4)], close_tr=prices), expected)
+    same(run(term, close_tr=prices), expected)
+    same(run(term, [(0, 2), (3, 4)], close_tr=prices), expected)
+
+
+def test_one_finite_return_is_nan_by_default() -> None:
+    """#868: by default a window needs W finite returns, so one finite return is NaN, not the
+    0.0 of a standard deviation of one value; `min_periods=1` gives the 0.0 (zipline's rule)."""
+    prices = [100, 110, NAN, NAN, 108.9, 99]  # row 5: only 108.9 -> 99 is finite of 3
+    same(run(factors.AnnualizedVolatility(3), close_tr=prices), [NAN] * 6)
+    one = run(factors.AnnualizedVolatility(3, min_periods=1), close_tr=prices)
+    same(one[5:], [0.0])
+
+
+@pytest.mark.parametrize(("make", "full"), [
+    (factors.SMA, 3), (factors.AverageTradedValue, 3), (factors.AnnualizedVolatility, 3),
+    (factors.RollingStd, 3), (factors.VWAP, 3), (factors.MaxDrawdown, 3), (factors.RSI, 2),
+])  # fmt: skip
+def test_min_periods_defaults_to_a_full_window(make: Callable[..., Term], full: int) -> None:
+    """#868: `min_periods` defaults to a full window (W, `RSI`'s W - 1 differences) and is a
+    parameter of the node, so the default and `min_periods=1` hash apart; outside 1..full the
+    term is refused when it is built, as `nx.ops.rolling` refuses it."""
+    assert dict(make(3).params)["min_periods"] == full
+    assert graph_hash(make(3)) == graph_hash(make(3, min_periods=full))
+    assert graph_hash(make(3)) != graph_hash(make(3, min_periods=1))
+    for bad in (0, full + 1):
+        with pytest.raises(ValueError, match=f"1 <= min_periods <= {full}"):
+            make(3, min_periods=bad)
+    with pytest.raises(TypeError, match="whole number"):
+        make(3, min_periods=1.0)
 
 
 def test_annualized_volatility_uses_its_factor() -> None:
     """The term's `annualization_factor` reaches the kernel, not 3.4's default 252."""
-    found = run(factors.AnnualizedVolatility(3, annualization_factor=12),
+    found = run(factors.AnnualizedVolatility(3, annualization_factor=12, min_periods=1),
                 close_tr=[100, 110, 99, NAN, 108.9])  # fmt: skip
     same(found, [NAN, NAN, NAN, 0.1 * math.sqrt(12), 0.0])
 
 
 def test_rolling_std_nan_rule() -> None:
-    """`nanstd(x, ddof=1)` of `close`; NaN left out, minimum 2; warm-up W-1."""
+    """`nanstd(x, ddof=1)` of `close`; NaN left out, at `min_periods=2`, its floor; warm-up W-1."""
     assert column(factors.RollingStd(3)) == "close"
-    found = run(factors.RollingStd(3), close=[2, 4, NAN, 8, NAN])
+    found = run(factors.RollingStd(3, min_periods=2), close=[2, 4, NAN, 8, NAN])
+    same(found, run(factors.RollingStd(3, min_periods=1), close=[2, 4, NAN, 8, NAN]))
     same(found, [NAN, NAN, math.sqrt(2), math.sqrt(8), NAN])
 
 
@@ -176,8 +206,8 @@ def test_ewma_weights_precomputed(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_vwap_nan_rule() -> None:
     """Pairs only (#278): a row with a NaN close or volume is out of both sums; no pair, or
-    the pairs' volume 0 -> NaN; warm-up W-1."""
-    term = factors.VWAP(3)
+    the pairs' volume 0 -> NaN, at `min_periods=1`; warm-up W-1."""
+    term = factors.VWAP(3, min_periods=1)
     assert (column(term, 0), column(term, 1)) == ("close", "volume")
     found = run(term, close=[10, NAN, 12, NAN, 11, NAN, NAN], volume=[100, 300, 300, 200, 0, 5, 5])
     same(found, [NAN, NAN, 11.5, 12.0, 12.0, NAN, NAN])
@@ -195,18 +225,19 @@ def test_vwap_unmoved_by_a_volume_scalar() -> None:
 
 def test_rsi_nan_rule() -> None:
     """`100 - 100/(1 + up/dn)` of `close_tr`; a NaN change is left out, a clipped 0 counts;
-    `dn` 0 -> 100, no change at all -> NaN, as zipline; warm-up W-1, W = 15 by default."""
+    `dn` 0 -> 100, no change at all -> NaN, as zipline, at `min_periods=1`; warm-up W-1, W = 15
+    by default."""
     assert column(factors.RSI()) == "close_tr"
     assert dict(factors.RSI().params)["window"] == 15
-    found = run(factors.RSI(4), close_tr=[10, 12, 11, 13, NAN, 14, 15, 15, 15, 15])
+    found = run(factors.RSI(4, min_periods=1), close_tr=[10, 12, 11, 13, NAN, 14, 15, 15, 15, 15])
     same(found, [NAN, NAN, NAN, 80.0, 100 - 100 / 3, 100.0, 100.0, 100.0, 100.0, NAN])
 
 
 def test_maxdd_nan_rule() -> None:
-    """`max((cummax(x) - x) / cummax(x))` of `close_tr`; NaN left out, minimum 1 (one cell
-    -> 0), all NaN -> NaN; warm-up W-1."""
+    """`max((cummax(x) - x) / cummax(x))` of `close_tr`; NaN left out, at `min_periods=1` (one
+    cell -> 0), all NaN -> NaN; warm-up W-1."""
     assert column(factors.MaxDrawdown(3)) == "close_tr"
-    found = run(factors.MaxDrawdown(3), close_tr=[NAN, 12, 9, NAN, 6, NAN, NAN, NAN])
+    found = run(factors.MaxDrawdown(3, min_periods=1), close_tr=[NAN, 12, 9, NAN, 6, NAN, NAN, NAN])
     same(found, [NAN, NAN, 0.25, 0.25, 1 / 3, 0.0, 0.0, NAN])
 
 

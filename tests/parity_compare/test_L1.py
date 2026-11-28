@@ -145,7 +145,8 @@ COVERAGE = {"KR": {"cash": 1900, "share": 36}, "US": {"cash": 5838, "share": 24}
 
 def engine_terms(market: str) -> dict[str, Any]:
     """The engine's terms of parity.l1's cases, default inputs; the user factors from the
-    same source file as zipline's, through `nexusbt.compat.zipline`."""
+    same source file as zipline's, through `nexusbt.compat.zipline`. zipline's built-in windows
+    give a value from one observation: the engine's `min_periods=1` (3.4, #868)."""
     from nexusbt.compat.zipline import CustomFactor, USEquityPricing
     from nexusbt.factors import (
         EWMA,
@@ -166,10 +167,12 @@ def engine_terms(market: str) -> dict[str, Any]:
     spec.loader.exec_module(users)
     return {"close_latest": USEquityPricing.close.latest,
             **{f"returns_{w}": Returns(w) for w in (2, 21, 252)},
-            "annualized_volatility": AnnualizedVolatility(), "rsi": RSI(),
+            "annualized_volatility": AnnualizedVolatility(min_periods=1),
+            "rsi": RSI(min_periods=1),
             **users.build(CustomFactor, USEquityPricing, THRESHOLDS[market]),
-            **{f"sma_{w}": SMA(w) for w in (20, 200)}, "ewma": EWMA(30, 0.9),
-            "average_dollar_volume": AverageDollarVolume(63), "vwap": VWAP(20)}  # fmt: skip
+            **{f"sma_{w}": SMA(w, min_periods=1) for w in (20, 200)}, "ewma": EWMA(30, 0.9),
+            "average_dollar_volume": AverageDollarVolume(63),
+            "vwap": VWAP(20, min_periods=1)}  # fmt: skip
 
 
 def actions(snapshot: Path, market: str) -> tuple[pd.DataFrame, pd.DataFrame]:

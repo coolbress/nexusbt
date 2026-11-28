@@ -44,14 +44,15 @@ START, END = "2020-01-02", "2020-02-28"
 def _pipeline() -> nx.Pipeline:
     close = nx.Price.close.latest
     returns = DailyReturns()
+    # min_periods=1, the record's rule before #868 (3.4): the record measures platforms
     return nx.Pipeline({
         "close": close,
-        "sma": SMA(10),
-        "std": RollingStd(10),
+        "sma": SMA(10, min_periods=1),
+        "std": RollingStd(10, min_periods=1),
         "ewma": EWMA(10, decay_rate=0.8),
-        "vol": AnnualizedVolatility(10),
+        "vol": AnnualizedVolatility(10, min_periods=1),
         "log_close": close.log(),
-        "ratio": close / SMA(10),
+        "ratio": close / SMA(10, min_periods=1),
         "rank": returns.rank(),
         "z": returns.zscore(),
     })  # fmt: skip

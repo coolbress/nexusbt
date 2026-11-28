@@ -104,8 +104,8 @@ def diagnosed(term: Term, windows: Sequence[F64]) -> tuple[F64, Mask, Mask]:
     those with a zero divisor inside the kernel, and those whose overflow came out (as ±inf, made
     NaN) or left a return out. `AverageDollarVolume` reads `close * volume`, an overflowed product
     carried; `VWAP` the two windows stacked. An `inf` input cell is NaN before the kernel. A
-    column with fewer observations than the term's `min_periods` is NaN and counts nothing
-    (#868)."""
+    column with fewer observations than the term's `min_periods` is NaN (#868); its cells are
+    counted as the kernel found them, as before."""
     cells = [np.where(np.isinf(w), np.nan, w) for w in windows]
     adv, vwap = term.op == "AverageDollarVolume", term.op == "VWAP"
     x = cells[0] * cells[1] if adv else np.stack(cells) if vwap else cells[0]
@@ -118,7 +118,7 @@ def diagnosed(term: Term, windows: Sequence[F64]) -> tuple[F64, Mask, Mask]:
     zero = ZERO[term.op](x) if term.op in ZERO else none
     infinite = np.isinf(found) | (OVERFLOW[term.op](x) if term.op in OVERFLOW else none)
     out: F64 = np.where(np.isinf(found) | ~enough, np.nan, found)
-    return out, zero & enough, infinite & ~zero & enough
+    return out, zero, infinite & ~zero
 
 
 def value(term: Term, windows: Sequence[F64]) -> F64:

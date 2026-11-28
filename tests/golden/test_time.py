@@ -252,8 +252,9 @@ def test_T12_momentum_forms_equal() -> None:  # noqa: N802 - spec 10.1's name
 
 
 def _sma3_rows(case: dict[str, Any], root: Path, rows: list[str]) -> dict[str, list[float]]:
-    """`SMA(3)` of `close` for A and B at the case's `rows`, through the executor over the
-    snapshot's block: each cell's `ts_available` is the snapshot's, its close the case's."""
+    """`SMA(3, min_periods=1)` of `close` for A and B at the case's `rows`, through the
+    executor over the snapshot's block: each cell's `ts_available` is the snapshot's, its close
+    the case's."""
     snapshot = open_snapshot(DataConfig(path=root))
     calendar = snapshot.calendar("KR")
     days = [str(d) for d in calendar.dates]
@@ -265,7 +266,7 @@ def _sma3_rows(case: dict[str, Any], root: Path, rows: list[str]) -> dict[str, l
         close[days.index(bar["session_date"]), ids.index(bar["instrument_id"])] = bar["close"]
     block = MarketBlock(whole.market, whole.dates, 0, whole.instrument_ids, {"close": close},
                         whole.exists, whole.obs_status, whole.ts_available)  # fmt: skip
-    term = SMA(3)
+    term = SMA(3, min_periods=1)  # the case's term (#868)
     wanted = [days.index(sessions[r]) for r in rows]
     found = execute([term], wanted, [(0, last)], lambda a, b: block, calendar.ready[: last + 1])
     table = found[graph_hash(term)].to_pylist()

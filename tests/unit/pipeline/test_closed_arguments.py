@@ -78,23 +78,25 @@ def test_quantiles_bins_not_a_whole_number_of_one_or_more_is_refused_at_build(bi
 
 
 #: Graph hashes on main at 0349edd, before #602: the checks refuse, they do not rewrite a value.
+#: Pinned again at #868, whose `min_periods` is a parameter of `X = SMA(3)`'s node and so
+#: changes every hash over it (the owner's decision, #868); the arguments here are unchanged.
 PINNED: dict[str, tuple[Callable[[], Term], str]] = {
-    "rank": (X.rank, "3c9ca76329f9686a3ef557431cefd5bc2b521ba9f2699cdbbead430fcb90382b"),
+    "rank": (X.rank, "c697b1684155ce9f509914ab9be4cc62365b6e3b1212a28fe72a202e6a2859ec"),
     "rank_dense_descending": (
         lambda: X.rank("dense", False),
-        "b4eb33f0c6e54561978b0ad65b2de38c11bb33f2ad3846bcaddfbd1384526780",
+        "b500c7b594cc567ba4d0b94edab3fec908863be4f2cf9098694f19691e98532c",
     ),
     "pct_rank_middle": (
         lambda: X.pct_rank(False, na="middle"),
-        "9ac74e34d1727e6624034b028ccf51d3c1cb8f663eda08bd1ff30207996d79a9",
+        "e66fff52add88abc35341a57bea0bcb96b2a434941ddc96f6d86d46de195398b",
     ),
     "quantiles_4": (
         lambda: X.quantiles(4),
-        "621a832480388f1e918b90d4a45aafdd148fb0e1273c77e5b9691c12d05d59a7",
+        "e46c856628c859b1295d655363ec7b12823845e3dfa3eb132eadb8874aaabf35",
     ),
     "zscore_across_markets": (
         lambda: X.zscore(across_markets=True),
-        "0ffe6394e7f0076ec0b7b07af0fc5dc925b8446dc337b3a1a170370d21c84338",
+        "202fb26aa2dbc7983bd0be6b126d358f599c9919b11a6ade737c2538da106b8a",
     ),
 }
 
