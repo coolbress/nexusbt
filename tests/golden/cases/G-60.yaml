@@ -1,0 +1,68 @@
+# Golden case G-60 (spec 8.2): the metrics of 5.7 by hand, and the kurtosis convention of PSR.
+# Expected numbers are literals. `check/G-60.py` reaches them by arithmetic only, and
+# `tests/golden/test_handcalc_self.py` compares the two. An implementation pull request does
+# not change this file (`tests/repo/test_golden_guard.py`); a wrong number reopens the golden
+# ticket ("spec deviation").
+id: G-60
+description: >-
+  Two valuation series, no trades, rf 0 (no `cash_rate`, `cash_rate_bps` 0). Series `nav`: four
+  valuations inside one calendar month, NAV 100, 110, 99, 108.9, so three daily returns 0.10,
+  -0.10, 0.10; its mean, sample standard deviation, Sharpe, Sortino, maximum drawdown and the
+  calendar-month return, which compounds (0.089) and does not add (0.10). Series `psr`: 60
+  daily returns, 0.02 and 0.00 alternating, 30 of each; its daily Sharpe, skewness and raw
+  kurtosis, and PSR against SR* = 0.9 (a daily Sharpe, as SR-hat is). The same series with
+  excess kurtosis (raw - 3) in the PSR formula gives 0.915240: that value is wrong, and the
+  consuming test rejects it.
+spec: "8.2 G-60; 5.7 rows Daily return, Volatility, Sharpe, Sortino, Maximum drawdown, Monthly table, PSR(SR*)"
+
+input:
+  nav:        # the first value is NAV_0 at inception (5.7 Maximum drawdown row)
+    - {session: "2020-01-02", nav: 100}
+    - {session: "2020-01-03", nav: 110}
+    - {session: "2020-01-06", nav: 99}
+    - {session: "2020-01-07", nav: 108.9}
+  psr:
+    returns: "0.02, 0.00, 0.02, 0.00, ... : 60 daily returns, 30 of each"
+    sr_star: 0.9
+  rf: 0
+
+# One row per number, rounded to 6 places. `value` of the last row is the number a wrong
+# kurtosis convention gives; no result of the engine equals it.
+#
+# Derivation, to be recomputed by hand (5.7; a person's own check of these numbers is still
+# owed, 8.2, and goes here when done):
+#   nav: r = 110/100 - 1 = 0.10; 99/110 - 1 = -0.10; 108.9/99 - 1 = 0.10
+#        mean = 0.10/3 = 0.033333
+#        deviations 0.066667, -0.133333, 0.066667; squares sum 0.026667; / (3 - 1) = 0.013333;
+#        std (ddof = 1) = sqrt(0.013333) = 0.115470
+#        Sharpe = 0.033333 / 0.115470 x sqrt(252) = 0.288675 x 15.874508 = 4.582576
+#        Sortino: min(r, 0)^2 = 0, 0.01, 0; mean over all three = 0.003333; sqrt = 0.057735;
+#                 0.033333 / 0.057735 x 15.874508 = 9.165151
+#        MDD: peaks 100, 110, 110, 110; 99/110 - 1 = -0.10 is the lowest
+#        month: 1.10 x 0.90 x 1.10 - 1 = 0.089 (= 108.9/100 - 1); the sum is 0.10
+#   psr: mean = (30 x 0.02 + 30 x 0.00)/60 = 0.01; every deviation is +0.01 or -0.01
+#        variance (ddof = 1) = 60 x 0.0001 / 59; SR-hat = 0.01 / sqrt(0.006/59) = sqrt(59/60) =
+#        0.991632
+#        population moments: m2 = 0.0001, m3 = 0, m4 = 0.00000001; skewness = 0;
+#        raw kurtosis = m4 / m2^2 = 1
+#        radicand = 1 - 0 x SR + (1 - 1)/4 x SR^2 = 1
+#        z = (0.991632 - 0.9) x sqrt(59) / 1 = 0.091632 x 7.681146 = 0.703836;
+#        PSR = Phi(0.703836) = 0.759233
+#        with excess kurtosis 1 - 3 = -2: radicand = 1 + (-2 - 1)/4 x 59/60 = 0.2625;
+#        z = 0.703836 / sqrt(0.2625) = 1.373746; Phi = 0.915240: wrong
+expected:
+  - {series: nav, metric: return_1, value: 0.1}
+  - {series: nav, metric: return_2, value: -0.1}
+  - {series: nav, metric: return_3, value: 0.1}
+  - {series: nav, metric: mean, value: 0.033333}
+  - {series: nav, metric: std, value: 0.11547}
+  - {series: nav, metric: sharpe, value: 4.582576}
+  - {series: nav, metric: sortino, value: 9.165151}
+  - {series: nav, metric: max_drawdown, value: -0.1}
+  - {series: nav, metric: month_return, value: 0.089}
+  - {series: psr, metric: observations, value: 60}
+  - {series: psr, metric: sr_daily, value: 0.991632}
+  - {series: psr, metric: skewness, value: 0.0}
+  - {series: psr, metric: kurtosis_raw, value: 1.0}
+  - {series: psr, metric: psr, value: 0.759233}
+  - {series: psr, metric: psr_with_excess_kurtosis_wrong, value: 0.91524}

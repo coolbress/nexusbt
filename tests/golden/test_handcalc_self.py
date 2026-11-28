@@ -140,6 +140,21 @@ def test_time_cases_M1_expected_present(case_id: str) -> None:  # noqa: N802 - s
     assert nan_as_text(rows) == nan_as_text(case["expected"])
 
 
+#: The cases the first backtest uses (T3.Gg, spec 8.2), a tuple that grows with each pull
+#: request of the ticket until it holds every case the plan's 10.1 entry names: G-12 a cash
+#: shortfall scales two buys and cancels the rest, G-60 the metrics of 5.7 by hand and PSR's
+#: raw-kurtosis convention.
+FIRST_BACKTEST = ("G-12", "G-60")
+
+
+@pytest.mark.parametrize("case_id", FIRST_BACKTEST)
+def test_cases_first_backtest_expected_present(case_id: str) -> None:
+    case, rows = _case(case_id)
+    assert case["id"] == case_id
+    assert case["expected"], f"{case_id} has no expected rows"
+    assert nan_as_text(rows) == nan_as_text(case["expected"])
+
+
 def test_nan_as_text_tells_nan_apart() -> None:
     assert nan_as_text([{"v": (1.0, math.nan)}]) == [{"v": [1.0, "NaN"]}]
     assert nan_as_text([math.nan]) != nan_as_text([0.0])
