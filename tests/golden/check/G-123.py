@@ -14,7 +14,8 @@ def cagr(first: float, last: float, days: int) -> float | str:
     """5.7 CAGR: (I_T/I_0)^(365.25/D) - 1, and no number under one year."""
     if days < YEAR:
         return "n/a (under one year)"
-    return round((last / first) ** (365.25 / days) - 1, 6)
+    grown: float = (last / first) ** (365.25 / days)
+    return round(grown - 1, 6)
 
 
 # (a) NAV 100 on 2024-01-02 and 104 on 2024-07-01.
