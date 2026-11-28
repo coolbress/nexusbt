@@ -63,7 +63,7 @@ def test_draft_lists_files_and_stats(tmp_path: Path, capsys: pytest.CaptureFixtu
     assert instruments["value_sha256"] == written["datasets"][0]["value_sha256"]
     assert "semantic_sha256" not in draft["hashes"]  # it covers fields the draft leaves open
     assert draft["writer"]["name"].startswith("parquet-cpp-arrow")
-    assert draft["tds_draft"] == written["tds_draft"] == "2026-11-27"  # TDS 4.2 (#529; 12e)
+    assert draft["tds_draft"] == written["tds_draft"] == "2026-11-28"  # TDS 4.2 (#529; #874)
     # a tds.json that is there is never replaced; a folder with no Parquet file has no draft
     before = (package / "tds.json").read_bytes()
     assert main(["manifest", "build", str(package)]) == 1

@@ -14,7 +14,7 @@ from .schemas.verify import SCHEMA_DIR
 MANIFEST = "tds.json"
 #: TDS 4.2's `tds_draft`: the date of the last edit of the draft text that changed what a
 #: conforming package holds or hashes, the text these writers and this checker follow (#529).
-TDS_DRAFT = "2026-11-27"
+TDS_DRAFT = "2026-11-28"
 #: TDS 4.2's fields as a JSON Schema (8.3's M001, #417), read by `schema_violations`.
 MANIFEST_SCHEMA: Mapping[str, Any] = json.loads(
     (SCHEMA_DIR / "manifest" / "1.0.json").read_text(encoding="utf-8")
