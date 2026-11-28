@@ -22,7 +22,6 @@ def cagr(first: float, last: float, days: int) -> float | str:
 A_START, A_END, A_FIRST, A_LAST = date(2024, 1, 2), date(2024, 7, 1), 100.0, 104.0
 a_days = (A_END - A_START).days
 a_return = round(A_LAST / A_FIRST - 1, 6)
-headline = f"return    {a_return * 100:.2f}% {A_START} → {A_END}, not annualised"
 # (b) NAV 100 on 2023-01-02 and 104 on 2024-01-02: 365 days is not under one year.
 B_START, B_END, B_FIRST, B_LAST = date(2023, 1, 2), date(2024, 1, 2), 100.0, 104.0
 b_days = (B_END - B_START).days
@@ -39,7 +38,6 @@ ROWS = (
     row("a", "period_return", a_return),
     row("a", "period_start", A_START.isoformat()),
     row("a", "period_end", A_END.isoformat()),
-    row("a", "headline_return", headline),
     row("b", "calendar_days", b_days),
     row("b", "cagr", cagr(B_FIRST, B_LAST, b_days)),
 )

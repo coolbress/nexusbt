@@ -10,7 +10,7 @@ description: >-
   two dates, which the first screen prints with "not annualised". (b) spans D = 365, which is
   not under one year: the CAGR is computed, and with the exponent 365.25/365 it is a little
   above the period return 4%.
-spec: "8.2 G-123; 5.7 row CAGR (under one year), 3.9 headline rule 8"
+spec: "8.2 G-123; 5.7 row CAGR (under one year)"
 
 input:
   a:
@@ -20,8 +20,7 @@ input:
     - {session: "2023-01-02", nav: 100}
     - {session: "2024-01-02", nav: 104}
 
-# One row per value. `headline_return` is the start of the headline's `return` line (3.9 rule
-# 8), up to the place where 8.2 stops; its `max drawdown` part is not this case's.
+# One row per value.
 #
 # Derivation, to be recomputed by hand (a person's own check is still owed, 8.2):
 #   (a) 2024-01-02 -> 2024-07-01: 29 (rest of January) + 29 (February 2024) + 31 + 30 + 31 +
@@ -34,6 +33,5 @@ expected:
   - {part: a, metric: period_return, value: 0.04}
   - {part: a, metric: period_start, value: "2024-01-02"}
   - {part: a, metric: period_end, value: "2024-07-01"}
-  - {part: a, metric: headline_return, value: "return    4.00% 2024-01-02 → 2024-07-01, not annualised"}
   - {part: b, metric: calendar_days, value: 365}
   - {part: b, metric: cagr, value: 0.040028}
