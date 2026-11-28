@@ -829,7 +829,51 @@ next   nx.evaluate(f, by=["year"]) · .quantiles() · .decay() · .to_strategy("
 saved  runs/{run_id}/report.html
 ```
 
-**Run** (attributes: `run_id`, `path`, `manifest`, `metrics`, `primary`, `diagnostics`, `provenance`, `validation` (6.3a), `daily`, `targets`, `orders`, `fills`, `events`, `positions`, `scenarios`, `attribution`, `exposures`, `warnings`, `comparison` (`rerun` only, #250); methods `report()`, `why(instrument_id, date)`, `returns(ccy=None)`, `to_pyfolio()`):
+**Run** (attributes: `run_id`, `path`, `manifest`, `metrics`, `primary`, `diagnostics`, `provenance`, `validation` (6.3a), `daily`, `targets`, `orders`, `fills`, `events`, `positions`, `scenarios`, `attribution`, `exposures`, `warnings`, `comparison` (`rerun` only, #250); methods `details()`, `report()`, `why(instrument_id, date)`, `returns(ccy=None)`, `to_pyfolio()`):
+
+**The headline** (owner decision 2026-11-28, #870): the first screen of a Run opens with this block, which answers three questions first: did it make money, how far can it be trusted, what was assumed.
+
+```
+{name} · {start} → {end} ({years} y, {n} decisions) · {base_ccy}
+{the simulated-result line}
+
+return    CAGR {x} (benchmark {b}, excess {e}/yr) · max drawdown {m}
+trust     Sharpe {s} ± {se} (IID-based{: dependence visible}) · PSR(0) {p} · {n} candidates in the family
+          luck: about {k} tries would give this · evaluation {label}
+costs     {own costs not set; statutory charges booked | profile …} · turnover {x}x/yr
+          break-even {bp} bp one-way
+assumed   {order} at next {open|close} · {settlement} · {dividends} · {fill cap}
+data      {snapshot_id} · warnings {n} · rows dropped {n} · lines not built {n}
+details   run.details() · nexusbt backtest … --full
+```
+
+1. Every line of the template below stays, in its order, in the details: `run.details()` and `nexusbt backtest … --full` print them. The headline repeats some of their numbers and adds none that they do not hold, except the ones rule 3 names.
+2. `return`, `trust` and `assumed` are always printed. A number whose source is not built yet is printed in the form of "A line not built yet" below (#858), never left out.
+3. The lines that other decisions own take their content from them and are named here only by place: the `costs` line with its statutory charges, and the break-even cost (#841); the family count and the `luck` figure (#860); the dropped rows (#866). Until each lands, its place shows the not-built form, naming the issue while no ticket is cut.
+4. `Sharpe ± se` is the standard error of 5.7 under independent returns, annualised as the Sharpe is. It carries the label `IID-based`, and `IID-based: dependence visible` under the same Ljung–Box condition as the PSR line.
+5. `assumed` names the four assumptions of the `assumptions` and `execution` lines that change a result most: the order and its fill time, settlement, dividends, and the fill cap. The whole `assumptions` line stays in the details.
+6. The Lo-corrected Sharpe is not in the headline.
+7. The FactorReport's first screen is not changed: its label line already sits at the top.
+
+With a reference (6.3a), `return` carries the primary result's numbers and names it (`primary: {method}{, {n} folds | , {n} paths}`). The reference stays in the details.
+
+A filled example, a zero-cost KR run made before #841, #860 and #866 land:
+
+```
+mom_kr · 2015-01-02 → 2024-12-30 (10.0 y, 120 decisions) · KRW
+{the simulated-result line}
+
+return    CAGR 9.4% (benchmark 5.1%, excess 4.2%/yr) · max drawdown −31.7%
+trust     Sharpe 0.62 ± 0.32 (IID-based) · PSR(0) 0.97 · candidates in the family: n/a (not built yet; available after #860)
+          luck: n/a (not built yet; available after #860) · evaluation research data
+costs     n/a (not built yet; available after #841) · turnover 3.8x/yr
+          break-even: n/a (not built yet; available after #841)
+assumed   market at next open · immediate settlement · dividends pre-withholding · fill qty capped by realized session volume (ex-post)
+data      synth-small · warnings 2 · rows dropped: n/a (not built yet; available after #866) · lines not built 5
+details   run.details() · nexusbt backtest examples/strategies/mom_kr.py --full
+```
+
+The details print these lines, in this order:
 
 ```
 {name}   run {run_id}   study: {study}  candidate #{k} ({N} candidates in study)
@@ -952,7 +996,7 @@ write: orders.to_csv("orders/{date}.csv")   apply to paper book: nx.fill(book, o
 | `nexusbt doctor [--full]` | snapshot id, semantic hash, the three profile results (declared / check level / supported), items not checked, counts per TDS code, **the list of fallbacks (4.5)**, per market the rules pack (present / untested), period, instrument count and daily row count, column count, free disk, L0/L1 cache sizes, whether the stubs are current. A line with the number of runs whose root pin could not be written, "pins not visible to producer". When the data root has the publishing mark `<root>/.publishing` (a general distribution convention, outside TDS), it shows only "publishing in progress" and says to wait for the new snapshot [blueprint 12.5] |
 | `nexusbt new factor NAME` / `nexusbt new strategy NAME [--template T]` / `nexusbt new --list` | creates a file that runs as it is (default template `monthly-topn`). 22 templates (each a runnable example + an output test, 8.5; a template not yet usable is marked in `--list`, for example "(available after T7.1)"): `monthly-topn`, `value-quality-composite`, `momentum-12-1`, `low-vol`, `dividend-yield`, `sector-neutral`, `kr-us-sleeves`, `long-short`, `inverse-vol-weight`, `erc-vol-target`, `drawdown-brake`, `exits-stop-trail`, `buffer-hold`, `custom-factor`, `custom-sizer`, `custom-risk-rule`, `factor-evaluate-only`, `walk-forward-cpcv`, `ml-factor`, `zipline-port`, `event-driven-earnings` (a Filter on `nx.Item.<name>.age()` after earnings announcements + `time_stop`), `macro-regime` (a market-wide item as a regime filter) [#752] |
 | `nexusbt evaluate FILE[:VAR]` | `--segment --start --end --freq --quantiles --set k=v` |
-| `nexusbt backtest FILE[:VAR]` | `--segment --start --end --set k=v --preset --no-scenarios --scenarios a,b --offsets K --preview --method linear|walk_forward|cpcv|cscv --method-opt k=v --grid k=v1,v2 --save-detail` [`--save-detail` = `save_detail=True`, 5.9.1, #206] |
+| `nexusbt backtest FILE[:VAR]` | `--segment --start --end --set k=v --preset --no-scenarios --scenarios a,b --offsets K --preview --method linear|walk_forward|cpcv|cscv --method-opt k=v --grid k=v1,v2 --save-detail --full` [`--save-detail` = `save_detail=True`, 5.9.1, #206; `--full` prints the details after the headline, `Run.details()`, 3.9, #870] |
 | `nexusbt screen FILE[:VAR]` | `--asof --top --anchor --show selected|held+near|all --near K --html --ledger BOOK --as-backtest` |
 | `nexusbt explain FILE[:VAR] ID DATE` | for a term, the value explanation; for a strategy, the decision path (5.9.9) |
 | `nexusbt sweep FILE[:VAR]` | `--grid k=v1,v2` (= `backtest --method cscv --grid`) |
@@ -2040,6 +2084,7 @@ Valuation series: the combined `nav_economic`, daily (valuation calendar); the p
 | Exposure | on every valuation day, long, short, gross (Σ|w|) and net (Σw) exposure (within the sleeve), the median on the first screen, per date in `exposures.parquet` |
 | Rolling windows and date luck | a table (HTML) of quantiles (5·25·50·75·95%) and counts of the benchmark excess return over 1-year and 3-year windows (start date moved each month); with `offsets=k`, the minimum, median and maximum of CAGR, Sharpe and MDD across the k series |
 | PSR(SR*) | `Φ( (SR̂ − SR*)·√(T−1) / sqrt(1 − γ̂₃·SR̂ + (γ̂₄ − 1)/4·SR̂²) )`, SR̂ = daily (non-annualised) Sharpe (ddof=1) of the excess returns `r_t − rf_t` (Sharpe row; #313, decision 2026-11-10), γ̂₃ skewness, γ̂₄ **raw kurtosis (normal = 3; not excess kurtosis)**, both population moments `m_k/m_2^{k/2}` (no bias correction), T = number of daily observations. The implementation allows only the scipy `kurtosis(fisher=False, bias=True)` form, pinned by hand calculation G-60 (putting in excess kurtosis makes the denominator wrong by −0.25·SR̂² for normal returns, so PSR looks larger: LEAN `Statistics.cs:200-214` [est.], vectorbt#872) [Bailey·López de Prado 2012/2014; formula confirmed by three reviewers]. Not computable: T < 30, zero variance, radicand ≤ 0 → "n/a ({reason})" (E21). **Assumption**: the denominator is the variance of SR̂ for serially independent returns with these moments; serial dependence is not in it (the Lo row below changes only the annualised Sharpe shown, not PSR, DSR or MinTRL) (design review 2026-11-04) |
+| Sharpe standard error | `se = √252 · sqrt((1 − γ̂₃·SR̂ + (γ̂₄ − 1)/4·SR̂²) / (T − 1))`, the annualised standard error of the Sharpe under independent returns, from the same SR̂, γ̂₃, γ̂₄ and T as PSR's denominator, so that PSR(0) = Φ(Sharpe / se). Printed in the headline (3.9) as `Sharpe {s} ± {se} (IID-based)`, or `(IID-based: dependence visible)` under the Ljung–Box condition of the PSR line; n/a wherever PSR is n/a (#870) |
 | DSR | `PSR(SR*_N)`, `SR*_N = sqrt(V[SR]) · ((1 − γ)·Φ⁻¹(1 − 1/N) + γ·Φ⁻¹(1 − 1/(N·e)))`, γ = 0.5772156649, N = the number of distinct strategy candidates recorded within the **cohort (6.2)**, V[SR] = the variance (ddof=1) of the daily Sharpe, on excess returns `r_t − rf_t` (#313, decision 2026-11-10), of each candidate's representative observation (the most recent observation) in that cohort. With N = 1, SR* = 0 (DSR = PSR(0)), shown as "(1 candidate)". The report records `cohort_sha256` [C10, 6.3]. It corrects for selection among those N recorded candidates only, under the PSR assumption; selections outside the cohort (other studies, other kinds, earlier observations of the same candidate) and repeated looks at the same data are not in N (6.2) (design review 2026-11-04). Counting the recorded candidates as independent trials makes DSR conservative when they are correlated, since correlated trials are fewer independent ones [Bailey and López de Prado (2014), "The Deflated Sharpe Ratio", Journal of Portfolio Management 40(5), appendix A.3] |
 | MinTRL(SR*, α=0.05) | `1 + (1 − γ̂₃·SR̂ + (γ̂₄ − 1)/4·SR̂²)·(Φ⁻¹(1−α)/(SR̂ − SR*))²` daily observations, divided by 252 for years, with SR̂, γ̂₃ and γ̂₄ of the excess returns `r_t − rf_t` (#313, decision 2026-11-10). SR* = 0: the length this one series needs against zero, with no adjustment for selection among candidates. If `SR̂ ≤ SR*`, "n/a (SR ≤ 0)" [SC-09, Bailey·López de Prado 2012 S-23 unverified]. With N > 1 in the cohort, a second value with SR* = SR*_N of the DSR row, labelled "selection-adjusted reference" ("n/a (SR ≤ SR*_N)" when it does not apply) (user decision 2026-11-04, #197) |
 | Autocorrelation and Lo Sharpe | `ρ1` = the first-order autocorrelation of daily net returns. If `|ρ1| > 0.1`, the Lo (2002) corrected annualisation: `SR_ann = SR_daily · 252 / sqrt(252 + 2·Σ_{k=1}^{q}(252 − k)·ρ_k)`, q = 10 (ρ_k is the sample autocorrelation; k > 10 **truncated** to 0 — the original formula is k = 1..251, so the figure equals the original only when `ρ_11 … ρ_251` are 0), shown on the first screen as "lags ≤ 10" [SC-09, S-28 unverified]. The display threshold `|ρ1| > 0.1` and the truncation at q = 10 are this engine's choices, not Lo's. A correction of the annualisation only, not of uncertainty; with a small `ρ1` and larger `ρ2…ρ10` the line is not shown although the dependence is there. So the HTML "hygiene" section always shows `ρ1…ρ10` against the band ±1.96/√T with the count outside it, and **dependence is visible** when the Ljung–Box Q over lags 1–10 has p < 0.05; then the PSR, DSR and MinTRL line carries the label "IID-based: dependence visible (Ljung–Box lags 1–10, p < 0.05; may also reflect changing volatility)" — the test also reacts to changing volatility, and its nominal 5 % false-alarm rate is measured later by scenario S11 of `docs/design/statistics-verification-plan.md`, not assumed (user decision 2026-11-04, #197). HAC standard errors and the block bootstrap are 12.1 (RS-01, RS-02) |
