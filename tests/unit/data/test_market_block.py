@@ -342,7 +342,8 @@ def test_a_chunk_with_no_listed_instrument_still_names_an_unknown_bar(
     empty = snap.market_block("KR", ["close"], sessions[:3])
     assert empty.instrument_ids == ()
     assert [c for _, c, _, _ in empty.dropped] == ["unknown_instrument"]
-    rest = snap.market_block("KR", ["close"], sessions[3:], overlap=2)
+    rest = snap.market_block("KR", ["close"], sessions[3:])  # its span opens at sessions[2]
+    assert not rest.dropped  # the bar of sessions[1] is the empty chunk's alone to name
     assert empty.dropped | rest.dropped == whole(snap, "KR", ["close"]).dropped
 
 
