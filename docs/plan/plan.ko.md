@@ -448,7 +448,7 @@ v3는 3자 검토 합의대로 **M0을 계약만으로 줄이고**, 검사기 fu
 
 **T3.15a `feat(execution): zipline parity preset (market orders, costs, sizing)`** · `M1b` `execution` · S · Blocked by: T3.12 · §5.6.15 [SC-12]
 - Done means: `preset="zipline"` 실행 보고서 머리에 "parity preset (not a realistic model)".
-- Acceptance: `tests/unit/execution/test_preset_zipline.py::test_knobs_table`, `::test_forbidden_in_toml`.
+- Acceptance: `tests/unit/execution/test_preset_zipline.py::test_knobs_table`, `::test_forbidden_in_toml`, #874(3.11)에서: `::test_preset_takes_the_height_of_its_place`, `::test_explicit_value_beside_realistic_wins_and_is_reported`, `::test_value_zipline_fixes_given_beside_it_E16`.
 - Notes:
   - carried (#858, 2026-11-28): 프리셋의 수수료와 같은 봉 거래량 상한(5.6.15)은 T3.8·T3.5b가 들어온 뒤 작동한다; L2-a·L2-c는 비용 0으로 돌리고, T3.17a(L2-b)가 처음 그것을 쓴다.
 
@@ -698,7 +698,7 @@ v3는 3자 검토 합의대로 **M0을 계약만으로 줄이고**, 검사기 fu
 
 **T3.13a `feat(api): single-market backtest and metrics`** · `M3a` `api` · M · Blocked by: T3.13c, T3.5b, T3.22, T3.2, T2.9, T2.18, T3.Ge · §5.7, §3.8, §3.9 Run
 - Done means: `uv run nexusbt backtest examples/strategies/mom_kr.py`가 3.9 Run 모양(net/gross, 가정 줄, 비용 직접/경로, 폐지 lo/hi, PSR)을 출력; 5.7의 Calmar 행이 G-110(#310)과 맞는다; PSR·DSR·MinTRL이 5.7의 초과 수익 `r_t − rf_t`로 계산되고 `assumptions` 줄이 3.9의 시계열 꼴이나 상수 꼴을 보인다(#313, 결정 2026-11-10).
-- Acceptance: `tests/unit/api/test_backtest.py::test_run_summary_template`, `::test_assumption_lines_present`, `::test_observation_recorded`, `::test_evaluation_label_and_fixed_sample_line`(3.9 `evaluation` 줄과 확인 2에서 PSR·DSR 줄의 "fixed-sample statistic; n looks", #269), `tests/unit/research/test_metrics.py::test_cost_drag_direct_vs_path`, `tests/golden/test_metrics.py::test_G60_metrics_and_month_compounding`, `::test_G125_sortino_no_downside`(#873), `::test_G128_per_year_values_under_one_year`(#874), `tests/unit/api/test_backtest.py::test_assumption_ex_post_volume_cap`, `tests/docs/test_tool_cards.py::test_card[linear]`, `tests/unit/report/test_next_line.py::test_entries_from_run_facts_not_values`(D19, #218, #219).
+- Acceptance: `tests/unit/api/test_backtest.py::test_run_summary_template`, `::test_assumption_lines_present`, `::test_observation_recorded`, `::test_evaluation_label_and_fixed_sample_line`(3.9 `evaluation` 줄과 확인 2에서 PSR·DSR 줄의 "fixed-sample statistic; n looks", #269), `tests/unit/research/test_metrics.py::test_cost_drag_direct_vs_path`, `tests/golden/test_metrics.py::test_G60_metrics_and_month_compounding`, `::test_G125_sortino_no_downside`(#873), `::test_G128_per_year_values_under_one_year`(#874), `tests/unit/config/test_precedence.py::test_backtest_costs_over_strategy_costs`(3.11의 전략 단계, #874), `tests/unit/api/test_backtest.py::test_assumption_ex_post_volume_cap`, `tests/docs/test_tool_cards.py::test_card[linear]`, `tests/unit/report/test_next_line.py::test_entries_from_run_facts_not_values`(D19, #218, #219).
 - Notes:
   - owner decides at the cut (#314 Findings, 2026-11-06; #314 Decision, 2026-11-10): 기준지수의 α와 β를 5.7의 "Relative to benchmark" 행에 두 줄로 둘지. 만드는 쪽의 추천은 더하는 것이고, 새 입력이 필요 없기 때문이다. 지금 계획 문서의 v1.x 밑 "Later (P3)" 문단은 α와 β를 뒤로 미룬 기준지수 회귀 지표에 넣고 있다.
   - owner decides at the cut (#43 Decisions, 2026-11-19, #437): #437의 Outcome이 열어 둔 네 가지(A1, A4~A6): 여러 통화 실행에서 `rf_t`의 `day_count`와 `date_t`, 두 시장이 한 통화를 나눌 때의 대체, `assumptions` 한 줄에 여러 통화, G-77 (b)의 시험 이름(T3.4, T3.Ge도).
@@ -1144,7 +1144,7 @@ v3는 3자 검토 합의대로 **M0을 계약만으로 줄이고**, 검사기 fu
 - Acceptance: `tests/unit/api/test_compare.py::test_variant_table_columns`, `::test_variants_counted_as_candidates`, `::test_pipeline_values_reused`.
 
 **T5.21 `feat(cli): commented two-tier nexusbt.toml template, config check and config show`** · `M5` `cli` · S · Blocked by: T1.2, T0.4b, T0.5a · §3.10, §3.11 [사용자 요청 2026-10-28]
-- Context: `nexusbt init`이 1부 "꼭 확인할 것"·2부 "고급" 주석 틀을 씀(영어 정본 + `--lang ko`), `nexusbt config check`(형·범위·모순을 `layer config` 서식으로), `nexusbt config show [--all]`(해석된 값 + 출처 default/file/CLI/code, `load_config`와 같은 해석기), 보고서 머리 "settings (tier 1)" 블록.
+- Context: `nexusbt init`이 1부 "꼭 확인할 것"·2부 "고급" 주석 틀을 씀(영어 정본 + `--lang ko`), `nexusbt config check`(형·범위·모순을 `layer config` 서식으로), `nexusbt config show [--all]`(해석된 값 + 자리 CLI/backtest()/preset/strategy/nexusbt.toml/default, 3.11 #874, `load_config`와 같은 해석기), 보고서 머리 "settings (tier 1)" 블록.
 - Done means: `uv run nexusbt init --lang ko && uv run nexusbt config check`가 "config ok"를 출력하고, `[account] type = "cash"`에 `debit_rate_bps = 300`을 넣으면 `config check`가 `layer  config` 줄과 fix 줄을 내며 종료 코드 1; `config show`가 `capital`의 출처를 `file`로, 전략 코드가 덮은 `start`를 `code`로 보인다.
 - Acceptance: `tests/docs/test_config_template.py::test_template_keys_match_3_11`, `::test_en_ko_same_keys_and_values`, `::test_example_file_keys_exist`, `tests/unit/cli/test_config_check.py::test_margin_keys_on_cash_account_E16`, `::test_contradictions_listed_with_layer_config`, `tests/unit/cli/test_config_show.py::test_source_default_file_cli_code`, `::test_show_matches_manifest_config`, `tests/golden/test_report.py::test_header_lists_tier1_values`.
 
