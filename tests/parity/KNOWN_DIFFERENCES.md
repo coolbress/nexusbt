@@ -23,6 +23,10 @@ parity failure; when the two engines differ elsewhere, the hand calculation (T-2
 - Spec 8.1 lists the others it knows, compared around as it says: missing values under Filter
   `~`, tie-breaking of `top` and `rank("ordinal")` (compared with `tiebreak = "id"`), and `VWAP`
   with a NaN close and a volume.
+- A built-in window short of a full window (#868, spec 3.4): by default the engine's `SMA`,
+  `AnnualizedVolatility`, `VWAP` and `RSI` are NaN until their window is full (`min_periods`
+  = W, W − 1 differences for `RSI`); zipline gives a value from one observation. L1-a builds
+  the engine's terms at `min_periods = 1`, zipline's rule, so they compare cell for cell.
 - `MaxDrawdown` (#253 Decisions, 2026-11-18, PR #546): the engine divides the drop by the
   running peak, as spec 3.4 says; zipline 3.2.1 divides by the trough. Not compared; the golden
   case in `tests/golden/factors/` holds the engine's.
