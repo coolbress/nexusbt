@@ -23,7 +23,8 @@ _WEIGHTS = ("pre_risk_weight", "target_weight", "decided_weight", "final_weight"
 @dataclass(frozen=True, slots=True)
 class PortfolioRule:
     """3.7 `top(n)`: at most the `n` highest finite scores of each sleeve, weighted equally.
-    `tiebreak` None is the default of `[portfolio] tiebreak`, the hash key."""
+    `tiebreak` None is the hash key, the value `[portfolio] tiebreak` has by default:
+    `build_targets` reads no config, so the caller that has one passes the project's key."""
 
     n: int
     tiebreak: TiebreakPolicy | None = None

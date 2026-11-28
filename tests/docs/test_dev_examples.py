@@ -67,8 +67,8 @@ def test_show_targets_prints_one_decision_with_a_sum_of_at_most_one() -> None:
         ["KR:T00002", "2.0", "3", "0.333333"],
     ]  # fmt: skip
     assert lines[5] == "sum of weights 1.000000, n_tied_at_cutoff 3"
-    assert [line.split()[1::2] for line in lines[9:12]] == [
-        ["KR:T00003", "1"], ["KR:T00005", "2"], ["KR:T00001", "3"],
+    assert [line.split()[1::3] for line in lines[9:12]] == [
+        ["KR:T00003", "0.333333"], ["KR:T00005", "0.333333"], ["KR:T00001", "0.333333"],
     ]  # fmt: skip
     assert lines[12] == "sum of weights 1.000000, n_tied_at_cutoff 0"
 

@@ -115,7 +115,8 @@ def top(
     tiebreak: Literal["hash", "id"] | None = None,
 ) -> PortfolioRule:
     """3.7 `nx.top(n)`: the n highest scores of each sleeve at equal weights; `tiebreak` None
-    is `[portfolio] tiebreak`'s default. The other arguments come with T3.1.
+    leaves the key to the caller that reads `[portfolio] tiebreak` (hash until one does). The
+    other arguments come with T3.1.
     `portfolio` is imported here: at `import nexusbt` it would hold 3.1's name `nx.portfolio`."""
     from nexusbt.portfolio import PortfolioRule
 
