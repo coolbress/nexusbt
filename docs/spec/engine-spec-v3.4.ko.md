@@ -1021,7 +1021,7 @@ write: orders.to_csv("orders/{date}.csv")   apply to paper book: nx.fill(book, o
 | `nexusbt check FILE[:VAR] [--probes K] [--start-probe]` | |
 | `nexusbt bugreport RUN_ID` | 엔진 버그(E46, 6.6)일 때 재현 명령·매니페스트·버전을 담은 `./bugreport-RUN_ID.zip`을 쓴다 |
 
-자료 표준 도구는 따로 `tds check PATH [--level manifest|schema|full] [--profile P] [--format json]`, `tds hash`, `tds describe`, `tds import csv MAPPING --out PKG`, `tds manifest build PKG`(TDS 8.1, 패키지 `nexusbt-tds`; v1에서 구현되는 명령과 "예정" 명령은 TDS 8.1 표)이고 엔진 CLI에 섞지 않는다. `nexusbt doctor --full`은 같은 검사기를 라이브러리로 부른다.
+자료 표준 도구는 따로 `tds check PATH [--level manifest|schema|full] [--profile P] [--format json]`, `tds hash`, `tds describe`, `tds import csv MAPPING --out PKG`, `tds manifest build PKG`(TDS 8.1, 패키지 `nexusbt-tds`; v1에서 구현되는 명령과 "예정" 명령은 TDS 8.1 표)이고 엔진 CLI에 섞지 않는다. `nexusbt doctor --full`은 같은 검사기를 라이브러리로 부른다. `tds import csv`는 쓴 것을 `full`로 검사하며 끝나고, 거기서 오류가 나면 패키지를 지우고 1로 끝나며, 판정은 `import_report.json`에 남는다(TDS 9.5; #866).
 
 `FILE[:VAR]`의 VAR 기본: 전략 파일은 `strategy`, 팩터 파일은 마지막에 정의된 Factor(여럿이면 `ConfigError`로 이름을 요구).
 
