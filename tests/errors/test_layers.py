@@ -86,7 +86,7 @@ def test_every_code_has_layer_case() -> None:
     """Every number of 6.6 but a retired one has its class and its layer; a retired number has
     neither (its number is not reused)."""
     assert {"E3", "E47"} == RETIRED  # 6.6 today; a new retirement changes this line
-    live = [f"E{n}" for n in range(1, 50) if f"E{n}" not in RETIRED]
+    live = [f"E{n}" for n in range(1, 51) if f"E{n}" not in RETIRED]
     assert live == CODES == sorted(CLASSES, key=lambda c: int(c[1:]))
     assert not RETIRED & (set(CLASSES) | set(TABLE))
     covered = {(err.code, condition_of(err)) for err in CASES}
