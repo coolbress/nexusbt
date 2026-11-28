@@ -358,8 +358,8 @@ v3는 3자 검토 합의대로 **M0을 계약만으로 줄이고**, 검사기 fu
 
 - decided (#858, 2026-11-28): T3.23(팩의 금액 반올림)과 T3.24(가격 격자)는 M1b에 없다: M1b가 기록하는 모든 항목(체결, 배당, 단주 현금, 종료 금액)은 모든 팩에서 최소 단위로 half_up이고(5.6.1), 격자는 주문 가격과 가격 제한 비교에만 쓰인다(5.6.4a); 0이 아닌 원천징수나 사용자의 `[rounding.<MARKET>]`는 T3.10·T3.23까지 E18이다.
 
-**T3.Gg `test(golden): first-backtest cases (G-12, G-15..G-19, G-22, G-30, G-34, G-45, G-46, G-48, G-53..G-55, G-60, G-61, G-119..G-124, G-127)`** · `M1b` `golden` · M · Blocked by: T0.9, T0.15a · §5.6.3–5.6.13, §5.7, §8.2
-- Context: M1b 티켓들이 쓰는 사례를 T3.Ga(G-12, G-15), T3.Gc(G-16~G-19, G-22, G-30, G-34, G-45, G-46, G-48), T3.Gd(G-53~G-55), T3.Ge(G-60, G-61)에서 가져오고 나머지는 그 티켓들에 남는다. 얇은 백테스트의 지표·현금·폐지·주식 사건 사례 G-119~G-122(#875)와 한 해 미만 사례 G-123·G-124(#873)·G-127(#874)도 여기서 쓴다. 소비 티켓 T3.3·T3.4·T3.5d·T3.9·T3.10a·T3.11a·T3.12·T3.13c·T3.22a 전에 병합.
+**T3.Gg `test(golden): first-backtest cases (G-12, G-15..G-19, G-22, G-30, G-34, G-45, G-46, G-48, G-53..G-55, G-60, G-61, G-119..G-124, G-127, G-129, G-130)`** · `M1b` `golden` · M · Blocked by: T0.9, T0.15a · §5.6.3–5.6.13, §5.7, §8.2
+- Context: M1b 티켓들이 쓰는 사례를 T3.Ga(G-12, G-15), T3.Gc(G-16~G-19, G-22, G-30, G-34, G-45, G-46, G-48), T3.Gd(G-53~G-55), T3.Ge(G-60, G-61)에서 가져오고 나머지는 그 티켓들에 남는다. 얇은 백테스트의 지표·현금·폐지·주식 사건 사례 G-119~G-122(#875)와 한 해 미만 사례 G-123·G-124(#873)·G-127(#874), 그리고 #874에서 G-46의 숫자와 가격·배당 금액 사례 G-129·G-130도 여기서 쓴다. 소비 티켓 T3.3·T3.4·T3.5d·T3.9·T3.10a·T3.11a·T3.12·T3.13c·T3.22a 전에 병합.
 - Done means: `uv run python tests/golden/check/G-12.py`가 세션별 현금(최소 단위)·체결·`cancelled_qty`를 출력; `uv run python tests/golden/check/G-60.py`가 PSR 0.759233과 "excess-kurtosis value 0.915240 is wrong" 줄을 출력.
 - Acceptance: `test_handcalc_self.py::test_cases_first_backtest_expected_present`.
 
