@@ -12,7 +12,9 @@ description: >-
   (close 18) has ts_available = ready(s+2) = 2020-01-08T06:30Z: it is NaN in its own row
   (LateBar), stays NaN for the window of s+1 and is read at its own position s by the window of
   s+2. Every other bar has ts_available = ready of its session; B closes 12.2 on every session.
-  Signal SMA(3) of close, top(1), the run starting at s.
+  Signal SMA(3, min_periods=1) of close, top(1), the run starting at s: the case is about the
+  late bar, not the window rule (by default, min_periods = W, a window holding the late bar's
+  NaN is NaN, #868).
 spec: "8.4 G-TIME-LATE; 5.1.2 freeze time and visibility, 5.3.1 blocks, 3.4 SMA, 1.3 INV-01"
 
 bars:
@@ -33,7 +35,7 @@ bars:
 # One row per row of the 8.4 table. `a_close`: A's term value of `close` at that row (the cell
 # as the row's reference time ready(t) sees it). `late_bar`: the row's `LateBar` count (5.1.2:
 # instruments whose bar of that row has ts_available > ready). `a_sma3`, `b_sma3`, `target`:
-# SMA(3) and top(1), null where the table has "–" (the run starts at s).
+# SMA(3, min_periods=1) and top(1), null where the table has "–" (the run starts at s).
 # `order_intents_m3a`: the table's "order intents" column, word for word, with A and B as the
 # table names them. It is M3a's: no executor exists yet, and no M1 test reads it (#353).
 # `lookahead_a_sma3`, `lookahead_target`: what a rule that reads the bar as soon as some

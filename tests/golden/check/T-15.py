@@ -2,10 +2,10 @@
 
 Run it: `uv run python tests/golden/check/T-15.py` prints one row per computation day t: the
 closes as traded, the adjusted window with NaN in the rows before the event while the window
-crosses it, SMA(3) as nanmean, the value a silent 1.0 would give, which must not appear, and the
-run's `AdjustmentUnavailable` count through t (one per instrument and event).
-No loops, classes or engine imports (`tests/golden/test_handcalc_self.py`); the sessions, bars
-and the event are written out.
+crosses it, SMA(3, min_periods=1) as nanmean (#868), the value a silent 1.0 would give, which
+must not appear, and the run's `AdjustmentUnavailable` count through t (one per instrument
+and event). No loops, classes or engine imports (`tests/golden/test_handcalc_self.py`); the
+sessions, bars and the event are written out.
 """
 
 from math import isnan, nan
