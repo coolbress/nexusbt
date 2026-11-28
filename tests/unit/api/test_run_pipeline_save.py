@@ -4,15 +4,18 @@ Decisions 2026-11-19): the sealed run, its tables, and the entry file the run st
 
 from __future__ import annotations
 
+import datetime as dt
 import hashlib
 import importlib
 import json
 import math
+import shutil
 import sqlite3
 import sys
 from contextlib import closing
 from pathlib import Path
 
+import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
@@ -20,7 +23,7 @@ import nexusbt as nx
 from nexusbt.artifacts import RunTxn
 from nexusbt.factors import SMA
 from nexusbt.testing.synth import make_snapshot
-from nexusbt_tds.hash import encode_table
+from nexusbt_tds.hash import encode_table, write_hashes
 
 pytestmark = pytest.mark.unit
 
@@ -147,6 +150,54 @@ def test_a_failure_while_saving_aborts_the_run(
     assert [p.name for p in runs.iterdir() if p.is_dir()] == []
     with closing(sqlite3.connect(runs / "index.sqlite")) as db:  # `with` alone does not close
         assert db.execute("SELECT kind, status FROM runs").fetchall() == [("pipeline", "aborted")]
+
+
+@pytest.fixture
+def dropping(tiny: Path, tmp_path: Path) -> Path:
+    """`tiny` with a KR bar of an instrument `instruments` lacks, on 2020-01-07, and a KR bar
+    on Saturday 2020-01-04 (#866)."""
+    root = tmp_path / "pkg"
+    shutil.copytree(tiny, root)
+    part = next(root.glob("bars/freq=1d/market=KR/*/*.parquet"))
+    table = pq.read_table(part)
+    first = table.slice(0, 1).to_pylist()[0]
+    extra = [{**first, "instrument_id": "KR:T09999", "session_date": dt.date(2020, 1, 7)},
+             {**first, "session_date": dt.date(2020, 1, 4)}]  # fmt: skip
+    pq.write_table(pa.concat_tables([table, pa.Table.from_pylist(extra, schema=table.schema)]),
+                   part)  # fmt: skip
+    data = json.loads((root / "tds.json").read_text(encoding="utf-8"))
+    for f in (f for d in data["datasets"] for f in d["files"] if root / f["path"] == part):
+        f.update(bytes=part.stat().st_size, rows=table.num_rows + 2)
+    (root / "tds.json").write_text(json.dumps(data), encoding="utf-8")
+    write_hashes(root)
+    return root
+
+
+def test_dropped_bars_are_a_warning_and_a_record(dropping: Path, project: Path) -> None:
+    """#866, INV-12: both bars lie in the span the run reads and are left out of the result,
+    and the run says how many by cause: one E30 and `data.dropped`."""
+    pipe = nx.Pipeline({"c": nx.Price.close.latest})
+    said = r"(?s)\[E30\] dropped bars.*not_a_session 1, unknown_instrument 1"
+    with pytest.warns(UserWarning, match=said):
+        result = nx.run_pipeline(pipe, start="2020-01-06", end="2020-01-08",
+                                 snapshot=str(dropping), save=True)  # fmt: skip
+    manifest = json.loads((project / "runs" / str(result.run_id) / "manifest.json").read_text())
+    assert manifest["data"]["dropped"] == [
+        {"dataset": "bars_1d", "cause": "not_a_session", "count": 1},
+        {"dataset": "bars_1d", "cause": "unknown_instrument", "count": 1},
+    ]
+
+
+def test_a_screen_says_its_dropped_bars_once(dropping: Path, project: Path) -> None:
+    """A screen reads each market apart; the bars it left out are one E30 and its manifest's
+    `data.dropped` (#866). Only the unknown instrument's bar lies on the screened session."""
+    with pytest.warns(UserWarning, match=r"\[E30\] dropped bars") as caught:
+        screened = nx.screen(nx.Price.close.latest, asof="2020-01-07", snapshot=str(dropping))
+    assert sum("[E30] dropped bars" in str(w.message) for w in caught) == 1
+    manifest = json.loads((project / "runs" / str(screened.run_id) / "manifest.json").read_text())
+    assert manifest["data"]["dropped"] == [
+        {"dataset": "bars_1d", "cause": "unknown_instrument", "count": 1}
+    ]
 
 
 def test_the_manifest_records_the_fallbacks_the_run_used(

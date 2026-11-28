@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import itertools
 import json
 import shutil
 from collections.abc import Callable
@@ -290,6 +291,49 @@ def test_sessions_not_of_the_market(tiny: Path) -> None:
         snap.market_block("KR", ["close"], np.array(["2020-01-04"], dtype="datetime64[D]"))
     with pytest.raises(ValueError, match="not KR sessions"):
         snap.market_block("KR", ["close"], np.array([], dtype="datetime64[D]"))
+
+
+def test_dropped_rows_counted_once_by_cause(tiny: Path, tmp_path: Path) -> None:
+    """A bar of an instrument `instruments` lacks and a bar on a day that is no session are
+    dropped and named, each once, also when chunks read overlapping rows (#866)."""
+    dates = read(tiny, "calendar_sessions").to_pandas()
+    days = sorted(dates[dates["calendar_id"] == "XKRX"]["session_date"])
+    gap = next(a for a, b in itertools.pairwise(days) if (b - a).days > 1)
+    off = gap + dt.timedelta(days=1)  # a weekend day inside the calendar's span
+
+    def bars(rows: Rows) -> Rows:
+        if rows[0]["instrument_id"].startswith("US:"):
+            return rows
+        first = next(r for r in rows if r["instrument_id"] == A)
+        return [*rows, {**first, "instrument_id": "KR:T09999"}, {**first, "session_date": off}]
+
+    snap = opened(edited(tiny, tmp_path / "d", bars_1d=bars))
+    whole_block = whole(snap, "KR", ["close"])
+    causes = sorted((d, c) for d, c, _, _ in whole_block.dropped)
+    assert causes == [("bars_1d", "not_a_session"), ("bars_1d", "unknown_instrument")]
+    sessions = snap.calendar("KR").dates
+    halves = [snap.market_block("KR", ["close"], sessions[:3]),
+              snap.market_block("KR", ["close"], sessions[3:], overlap=2)]  # fmt: skip
+    assert halves[0].dropped | halves[1].dropped == whole_block.dropped
+    assert not whole(opened(tiny), "KR", ["close"]).dropped
+
+
+def test_dropped_bar_in_the_previous_years_file(years: Path, tmp_path: Path) -> None:
+    """A bar on the day after a year's last session lies in that year's file, which the
+    next year's first block does not open: the block that ends the year names it (#866)."""
+    sessions = opened(years).calendar("KR").dates
+    turn = int(np.searchsorted(sessions, np.datetime64("2019-01-01", "D")))
+    off = (sessions[turn - 1] + np.timedelta64(1, "D")).astype(dt.date)
+
+    def bars(rows: Rows) -> Rows:
+        if rows[0]["session_date"].year != 2018:
+            return rows
+        return [*rows, {**rows[0], "session_date": off}]
+
+    snap = opened(edited(years, tmp_path / "y", bars_1d=bars))
+    before = snap.market_block("KR", ["close"], sessions[:turn])
+    after = snap.market_block("KR", ["close"], sessions[turn:])
+    assert [c for _, c, _, _ in before.dropped | after.dropped] == ["not_a_session"]
 
 
 def test_tail_overlap_rows(years: Path) -> None:
