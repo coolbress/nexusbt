@@ -318,6 +318,34 @@ def test_dropped_rows_counted_once_by_cause(tiny: Path, tmp_path: Path) -> None:
     assert not whole(opened(tiny), "KR", ["close"]).dropped
 
 
+def test_a_chunk_with_no_listed_instrument_still_names_an_unknown_bar(
+    tiny: Path, tmp_path: Path
+) -> None:
+    """#888 item 1: below `full` the checker reads no row that finds an unknown instrument
+    (4.4 step 5), and a calendar may start before a market's first listing. A chunk in which
+    the market has no listed instrument still opens the bars files of its span and names a
+    bar of an unknown instrument dated there, once with the block of the whole calendar."""
+    sessions = opened(tiny).calendar("KR").dates
+    later = sessions[5].astype(dt.date)  # every KR name listed from the sixth session
+
+    def instruments(rows: Rows) -> Rows:
+        return [{**r, "listed_on": later} if r["market"] == "KR" else r for r in rows]
+
+    def bars(rows: Rows) -> Rows:
+        if rows[0]["instrument_id"].startswith("US:"):
+            return rows
+        kept = [r for r in rows if r["session_date"] >= later]
+        return [*kept, {**kept[0], "instrument_id": "KR:T09999",
+                        "session_date": sessions[1].astype(dt.date)}]  # fmt: skip
+
+    snap = opened(edited(tiny, tmp_path / "e", instruments=instruments, bars_1d=bars))
+    empty = snap.market_block("KR", ["close"], sessions[:3])
+    assert empty.instrument_ids == ()
+    assert [c for _, c, _, _ in empty.dropped] == ["unknown_instrument"]
+    rest = snap.market_block("KR", ["close"], sessions[3:], overlap=2)
+    assert empty.dropped | rest.dropped == whole(snap, "KR", ["close"]).dropped
+
+
 def test_dropped_bar_in_the_previous_years_file(years: Path, tmp_path: Path) -> None:
     """A bar on the day after a year's last session lies in that year's file, which the
     next year's first block does not open: the block that ends the year names it (#866)."""
