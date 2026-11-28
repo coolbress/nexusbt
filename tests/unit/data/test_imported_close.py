@@ -41,7 +41,8 @@ def unchecked(monkeypatch: pytest.MonkeyPatch) -> None:
     tests are of what the engine reads from them, so the import keeps them."""
     passed = CheckResult(level="full", errors=(), warnings=())
     module = importlib.import_module("nexusbt_tds.import_csv")  # the package's name: a function
-    monkeypatch.setattr(module, "check", lambda *_, **__: passed)
+    # by keyword: a positional "check" before a value reads as `tds check P` (2.7's trace)
+    monkeypatch.setattr(module, name="check", value=lambda *_, **__: passed)
 
 
 def closes(tmp_path: Path, bars: str) -> list[list[float]]:
