@@ -258,17 +258,20 @@ INFERRED = "inferred_from_bar_dates"
 
 @pytest.fixture
 def mixed(tiny: Path, tmp_path: Path) -> Path:
-    """`tiny` whose US calendar has its last three sessions inferred from bar dates and every
-    earlier one from its producer, as a calendar that mixes sources holds them (TDS 5.4)."""
+    """`tiny` whose US calendar has three sessions in its middle inferred from bar dates, the
+    11th to the 13th by date, and every other one from its producer, as a calendar that mixes
+    sources holds them; an inferred row's `is_half_day` is null (TDS 5.4). Neither end of the
+    calendar is inferred, so the sentence's dates can only be the inferred rows'."""
     root = tmp_path / "pkg"
     shutil.copytree(tiny, root)
     part = root / "calendar_sessions" / "part-00000.parquet"
     table = pq.read_table(part)
     us = json.loads((root / "tds.json").read_text(encoding="utf-8"))["markets"]["US"]
     rows = table.to_pylist()
-    last = [i for i, r in enumerate(rows) if r["calendar_id"] == us["calendar_id"]][-3:]
-    for i in last:
-        rows[i]["source"] = INFERRED
+    ours = sorted((r["session_date"], i) for i, r in enumerate(rows)
+                  if r["calendar_id"] == us["calendar_id"])  # fmt: skip
+    for _, i in ours[10:13]:
+        rows[i].update(source=INFERRED, is_half_day=None)
     pq.write_table(pa.Table.from_pylist(rows, schema=table.schema), part)
     data = json.loads((root / "tds.json").read_text(encoding="utf-8"))
     for f in (f for d in data["datasets"] for f in d["files"] if root / f["path"] == part):
@@ -290,7 +293,7 @@ def test_a_calendar_that_mixes_sources_names_both_and_counts_the_inferred_rows(
     assert manifest["markets"]["US"]["calendar_sources"] == [INFERRED, "nexusbt-synth"]
     assert manifest["markets"]["KR"]["calendar_sources"] == ["nexusbt-synth"]
     assert [a for a in manifest["assumptions"] if a.startswith("calendar ")] == [
-        "calendar US inferred from bar dates (3 sessions, 2020-03-27..2020-03-31): not compared "
+        "calendar US inferred from bar dates (3 sessions, 2020-01-16..2020-01-21): not compared "
         "with an exchange calendar; a day with no bar for any instrument cannot be seen"
     ]
 
