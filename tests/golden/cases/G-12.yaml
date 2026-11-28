@@ -46,7 +46,9 @@ input:
     - {decision: "2020-01-02", instrument_id: "KR:T00002", weight: 0.4}
 
 # One row per session, phase and instrument, and one row for the sleeve (`instrument_id` null)
-# that carries the cash once the phase is done. Columns not meaningful in a row are null.
+# that carries the cash once the phase is done. Columns not meaningful in a row are null. A
+# phase with no instrument row has no order event: the 2020-01-06 open has only its sleeve row,
+# so nothing fills and nothing is cancelled there.
 # value_minor = decision_value at a decision, nav_economic at close_mark. `order_qty` is the
 # order's `requested_qty`; in the open rows `fill_qty` + `cancelled_qty` + `remaining_qty` is
 # that quantity again (INV-18), and `status` is the order's status once the phase is done.
@@ -78,5 +80,5 @@ expected:
   - {session: "2020-01-03", phase: open, instrument_id: "KR:T00002", order_qty: null, fill_qty: 192, fill_price: 20400, notional_minor: 3916800, cancelled_qty: 8, remaining_qty: 0, status: CANCELLED, cash_minor: null, qty: 192, value_minor: null}
   - {session: "2020-01-03", phase: open, instrument_id: null, order_qty: null, fill_qty: null, fill_price: null, notional_minor: null, cancelled_qty: null, remaining_qty: null, status: null, cash_minor: 14200, qty: null, value_minor: null}
   - {session: "2020-01-03", phase: close_mark, instrument_id: null, order_qty: null, fill_qty: null, fill_price: null, notional_minor: null, cancelled_qty: null, remaining_qty: null, status: null, cash_minor: 14200, qty: null, value_minor: 10038600}
-  - {session: "2020-01-06", phase: open, instrument_id: null, order_qty: null, fill_qty: 0, fill_price: null, notional_minor: null, cancelled_qty: 0, remaining_qty: null, status: null, cash_minor: 14200, qty: null, value_minor: null}
+  - {session: "2020-01-06", phase: open, instrument_id: null, order_qty: null, fill_qty: null, fill_price: null, notional_minor: null, cancelled_qty: null, remaining_qty: null, status: null, cash_minor: 14200, qty: null, value_minor: null}
   - {session: "2020-01-06", phase: close_mark, instrument_id: null, order_qty: null, fill_qty: null, fill_price: null, notional_minor: null, cancelled_qty: null, remaining_qty: null, status: null, cash_minor: 14200, qty: null, value_minor: 9961400}

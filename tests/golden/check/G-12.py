@@ -58,8 +58,7 @@ ROWS = (
             "status": "CANCELLED", "qty": fill_b},
     NONE | {"session": D1, "phase": "open", "cash_minor": cash},
     NONE | {"session": D1, "phase": "close_mark", "cash_minor": cash, "value_minor": nav_0103},
-    NONE | {"session": D2, "phase": "open", "fill_qty": 0, "cancelled_qty": 0,
-            "cash_minor": cash},
+    NONE | {"session": D2, "phase": "open", "cash_minor": cash},  # no order event that day
     NONE | {"session": D2, "phase": "close_mark", "cash_minor": cash, "value_minor": nav_0106},
 )  # fmt: skip
 
