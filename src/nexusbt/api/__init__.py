@@ -288,7 +288,9 @@ def _seal(
     `__main__`'s file or none in an interactive session, and the project's modules imported so
     far (5.9.3; #283, #304). The run's name is the entry file's stem. The root pin goes beside
     the package the snapshot was opened from (4.2). `dropped`, the bars the read left out by
-    dataset and cause, is the manifest's `data.dropped`, written only when not empty (#866)."""
+    dataset and cause, is the manifest's `data.dropped`, written only when not empty (#866).
+    Each market records its calendar's `source` values, and a calendar inferred from bar dates
+    adds its sentence to `assumptions` (#866)."""
     from nexusbt.artifacts import RunStore  # only a saved run opens the store
     from nexusbt.artifacts._runstore import run_h6
 
@@ -312,10 +314,13 @@ def _seal(
         txn.capture_sources(modules.values(), project=project, entry=entry,
                             outside=_rerun.outside(modules, project))  # fmt: skip
         used = params["markets"] or opened.markets
+        calendars = {m: opened.calendar(m) for m in opened.markets if m in used}
         markets = {m: {"calendar_id": i.calendar_id, "currency": i.currency,
-                       "rules_pack": i.rules or "untested"}
+                       "rules_pack": i.rules or "untested",
+                       "calendar_sources": calendars[m].sources}
                    for m, i in opened.markets.items() if m in used}  # fmt: skip
         recorded = opened._recorded()
+        recorded["assumptions"] += [s for c in calendars.values() if (s := c.said())]
         if dropped:
             recorded["data"]["dropped"] = [dict(r) for r in dropped]
         txn.set_manifest({"kind": kind, "snapshot_id": opened.id, "markets": markets,
