@@ -15,11 +15,12 @@ description: >-
   the run. When the window of computation day t has a row s with s < e <= t, the adjusted close
   of every row before e is NaN; the row e itself and later rows are as traded. No 1.0 is
   substituted: not by default, and not from the package's `cum_factor_split`, which here holds
-  1.0 after the event (the resolver leaves the ratio across e as none). SMA(3) of close is
-  nanmean (3.4), so it ignores the NaN cells. The event is in the split class (`affects =
+  1.0 after the event (the resolver leaves the ratio across e as none). SMA(3, min_periods=1)
+  of close is nanmean (3.4), so it ignores the NaN cells; by default (min_periods = W, #868) a
+  window with a NaN cell is NaN, and this case is about the adjustment, not the window rule. The event is in the split class (`affects =
   split_and_total`): the 4.6 kind table gives a spinoff's adjustment as `price_factor` without
   the `total_only` mark that cash distributions carry, so `C_split` sees it; `C_total` sees it
-  too, and SMA(3) of `close_tr` gives the same rows.
+  too, and SMA(3, min_periods=1) of `close_tr` gives the same rows.
 spec: "8.2 T-15; 4.6 null price_factor, 5.3.3 adjustment, 3.4 SMA, 1.3 INV-12; TDS 5.11, 8.3 A003"
 
 calendar: "XKRX tiny: 2020-01-02, 01-03, 01-06, 01-07, 01-08, 01-09, 01-10 (rows 0..6)"

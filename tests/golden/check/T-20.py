@@ -46,7 +46,8 @@ def mean3(x: float, y: float, z: float) -> float:
 
 # Term values of `close` at each row: the row's own cell as its reference time sees it.
 a_close = (A_CLOSE[0], A_CLOSE[1], nan, A_CLOSE[3], A_CLOSE[4])
-# SMA(3): nanmean over the window as the row's reference time sees the cells (3.4).
+# SMA(3, min_periods=1): nanmean over the window as the row's reference time sees the cells
+# (3.4; by default a window holding the late cell would be NaN, #868).
 a_sma_0106 = round((A_CLOSE[0] + A_CLOSE[1]) / 2, 6)  # the late cell left out
 a_sma_0107 = mean3(A_CLOSE[1], A_CLOSE[2], A_CLOSE[3])  # the late cell back at its position
 a_sma_0108 = mean3(A_CLOSE[2], A_CLOSE[3], A_CLOSE[4])
