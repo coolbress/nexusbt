@@ -11,7 +11,7 @@ import pytest
 
 import nexusbt as nx
 from nexusbt.compute._executor import execute
-from nexusbt.contracts import DecisionGrid, FactorFrame, TiebreakPolicy
+from nexusbt.contracts import DecisionGrid, FactorFrame, TargetState, TiebreakPolicy
 from nexusbt.data._block import MarketBlock
 from nexusbt.pipeline import BoundColumn, graph_hash
 from nexusbt.portfolio import build_targets
@@ -57,6 +57,8 @@ def test_top_n_equal_weights() -> None:
     assert picked(frame(scores), 0) == []
     with pytest.raises(NotImplementedError, match="max_weight"):
         nx.top(2, max_weight=0.1)
+    with pytest.raises(NotImplementedError, match="no risk rule and no prior state yet"):
+        build_targets(frame(scores), nx.top(2), GRID, prior=TargetState())
     with pytest.raises(ValueError, match="at least zero"):
         picked(frame(scores), -1)
 
