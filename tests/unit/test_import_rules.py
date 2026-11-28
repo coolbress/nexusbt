@@ -46,7 +46,7 @@ Check = Callable[[tuple[str, ...], str], list[str]]
 #: leaves this list in the change that exports it; the spec names no single ticket for many.
 PENDING_3_1 = {
     "Data": "Trad Market Dataset universe",
-    "Strategy": "Strategy param monthly weekly daily quarterly annually every bottom"
+    "Strategy": "Strategy param weekly quarterly annually every bottom"
     " long_short portfolio size sizer risk risk_rule PortfolioContext SizingContext"
     " RiskContext TargetView RiskDecision Scalar execution exits ExitRule costs ml labels"
     " LabelTerm splits",
@@ -56,8 +56,7 @@ PENDING_3_1 = {
     "Results": "FactorReport Run Orders BookUpdate ReconcileReport SweepResult Comparison"
     " ValidationResult Split Explanation DecisionExplanation CheckReport"
     " RunTable Description Preregistration Config Snapshot Book",
-    "Types": "Param Schedule PortfolioRule Sizer RiskRule ExecutionRule"
-    " CostModel Window DecisionContext",
+    "Types": "Param PortfolioRule Sizer RiskRule ExecutionRule CostModel Window",
     "Modules": "compat testing",  # `__version__`: T1.4 (#236)
 }
 ROOT = Path(__file__).resolve().parents[2]

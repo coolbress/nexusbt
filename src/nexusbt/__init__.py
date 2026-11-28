@@ -51,6 +51,7 @@ from nexusbt.contracts import CostTableError as CostTableError
 from nexusbt.contracts import CoverageWarning as CoverageWarning
 from nexusbt.contracts import DataAvailabilityError as DataAvailabilityError
 from nexusbt.contracts import DataProfileWarning as DataProfileWarning
+from nexusbt.contracts import DecisionContext as DecisionContext
 from nexusbt.contracts import EngineBugError as EngineBugError
 from nexusbt.contracts import FillWarning as FillWarning
 from nexusbt.contracts import FitLeakError as FitLeakError
@@ -88,6 +89,12 @@ from nexusbt.contracts import UnsupportedCorporateActionError as UnsupportedCorp
 from nexusbt.contracts import UntrustedRunError as UntrustedRunError
 from nexusbt.contracts import ValidationNotice as ValidationNotice
 from nexusbt.contracts import WindowError as WindowError
+
+# Schedules (3.1, 3.7), T3.2a (#909): `monthly`, `daily` and their type; with them the type
+# `DecisionContext` (5.1.3), among the names above.
+from nexusbt.data import Schedule as Schedule
+from nexusbt.data import daily as daily
+from nexusbt.data import monthly as monthly
 from nexusbt.pipeline import BoundColumn as BoundColumn
 from nexusbt.pipeline import Classifier as Classifier
 from nexusbt.pipeline import Factor as Factor
