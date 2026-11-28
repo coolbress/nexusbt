@@ -8,6 +8,7 @@ internal error.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import sys
 import time
@@ -141,8 +142,9 @@ def _import(args: argparse.Namespace) -> int:
 
     def checking(out: Path) -> None:  # #888: the check is most of a large import's time
         checked_at.append(time.monotonic())
-        print(f"tds import csv: checking {out} at the full level"
-              " (on a large package most of the import's time)", file=sys.stderr)  # fmt: skip
+        with contextlib.suppress(OSError):  # a closed stderr must not leave a half import
+            print(f"tds import csv: checking {out} at the full level"
+                  " (on a large package most of the import's time)", file=sys.stderr)  # fmt: skip
 
     try:
         out = import_csv(args.path, args.out, checking=checking)

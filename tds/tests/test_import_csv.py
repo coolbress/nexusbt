@@ -305,7 +305,10 @@ def test_the_import_ends_with_full(tmp_path: Path, capsys: pytest.CaptureFixture
     out = tmp_path / "dup" / "pkg"
     mapping = write(tmp_path / "dup", {**files, "bars.csv": twice})
     assert main(["import", "csv", str(mapping), "--out", str(out)]) == 1
-    assert "removed" in capsys.readouterr().err
+    printed = capsys.readouterr()
+    assert printed.err.startswith(f"tds import csv: checking {out} at the full level")
+    assert "removed" in printed.err
+    assert " s of " not in printed.out + printed.err  # no seconds: there is no last line
     assert not out.exists()
     said = json.loads((out.parent / "import_report.json").read_text(encoding="utf-8"))
     assert said["check"]["errors"] >= 1
