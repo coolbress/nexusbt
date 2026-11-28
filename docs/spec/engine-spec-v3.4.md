@@ -2620,7 +2620,7 @@ Layers (`layers.toml`): E1·E2·E4·E5·E7·E8·E17·E24·E29·E32·E34·E41·E4
 | P10 | zipline comparison tolerance | table 8.1 | | correctness gate |
 | P11 | **High-dimensional**: 300 factors (made from about 40 base columns through windows, ranks and composites) × 30 years × KR+US, monthly decisions — (a) `nx.evaluate({300 factors})`, (b) `backtest` of a 300-factor `ops.composite` score (top-N, costs and accounting included), (c) (b) with `method="walk_forward"` + a 3-point `grid` | **target only** (no gate: since 2026-11-24 its first number after T6.26's measurement is an alert, as for the others) | (a) ≤ 300 s, (b) ≤ 60 s, (c) ≤ 180 s; engine tree USS ≤ 6 GB | new process, both without and with the engine cache; bytes of columns read, decision rows computed, node count and shared node count reported alongside |
 
-**Early measurement**: the bench rig (T1.24) comes in at **M1**, and each milestone measures the workloads pinned in the table below, so that the real cost of the structure is known before M3a fixes it rather than at M6. M6 (T6.11) measures every workload, records it and compares it with the earlier measurements; M6's correctness gates stay (10.0) [#725 Decisions 257]. P7 memory is measured as the sum over the **whole process tree** (main + workers). The rule "a stage over 2 times its first number: profile → cause ADR" (under P11 below) applies to every stage measured from M1 on, as soon as that stage has a first number; it asks for a cause, not a rewrite.
+**Early measurement**: the bench rig (T1.24) comes in at **M1**, and each milestone measures the workloads pinned in the table below, so that the real cost of the structure is known early rather than at M6: what M1 and M2 build (the compute graph and `evaluate`) is measured at their ends, and the executor, which M1b first builds (#858) and M3a completes, at the end of M3a. M6 (T6.11) measures every workload, records it and compares it with the earlier measurements; M6's correctness gates stay (10.0) [#725 Decisions 257]. P7 memory is measured as the sum over the **whole process tree** (main + workers). The rule "a stage over 2 times its first number: profile → cause ADR" (under P11 below) applies to every stage measured from M1 on, as soon as that stage has a first number; it asks for a cause, not a rewrite.
 
 | When | Ticket | Snapshot | Workloads |
 |---|---|---|---|
@@ -2645,7 +2645,7 @@ Layers (`layers.toml`): E1·E2·E4·E5·E7·E8·E17·E24·E29·E32·E34·E41·E4
 5. **Parallelism by market and factor**: workers compute independently per (market, year chunk, node chunk), and the results are gathered in sorted-index order so they are bit-identical (INV-03, INV-04). The worker count and the memory budget are in `[compute]` (5.3.8).
 6. **Memory ceiling** (outputs too, decision 2026-11-04, #206: no output tier of 5.9.1 is held whole in memory; predictions are written per fit and per chunk as they are produced): processing is done in year chunks with immediate reduction — `evaluate` reduces to IC and quantile statistics per decision and does not hold the whole factor value matrix (300 × 360 × about 12,000 × 8 B ≈ 10 GB) in memory, and a composite score holds only the 300 × n matrix of one decision (about 30 MB). [new]
 7. **Rust seam**: window and cross-section kernels and reductions sit behind Arrow input and output (2.4), so when ADR 0054's trigger holds (most of a workload's time in one Numba kernel, and the owner judges it too slow), they are swapped (ADR-0016, bit-identity test). [the P11 measurement is the new basis]
-P11 (a) is measured before M3a fixes the structure (decision 2026-11-04, #175): reduced to the M1 columns at the end of M2 (T2.24) and in full at the end of M3a (T3.18), both in the early-measurement table above. Both run on the plan of 5.3.2 (shared terms, decision rows only; T1.7a) but before T6.26's column pruning and batched reductions, so they show the cost of the structure as the engine first implements it. The engine measurement of (a)(b)(c) with the design means is T6.26 (P11 on synthetic `full`), and with its result this table's first numbers are re-written; no gate is set (ADR 0054 [#725 Decisions 257]).
+P11 (a) measures the compute graph and `evaluate`, whose structure M2 fixes (decision 2026-11-04, #175); it runs no backtest, so M1b, which first builds the executor (#858), does not move it: reduced to the M1 columns at the end of M2 (T2.24) and in full at the end of M3a (T3.18), both in the early-measurement table above. Both run on the plan of 5.3.2 (shared terms, decision rows only; T1.7a) but before T6.26's column pruning and batched reductions, so they show the cost of the structure as the engine first implements it. The engine measurement of (a)(b)(c) with the design means is T6.26 (P11 on synthetic `full`), and with its result this table's first numbers are re-written; no gate is set (ADR 0054 [#725 Decisions 257]).
 
 **Prototype results (2026-10-28, summary `docs/design/prototype-results.md`)**: P5 on a Mac mini M4 cold p50 5.8 s / p95 6.8 s, warm 1.6 / 3.7 s, USS 2.1 GiB (laptop M1 cold p95 19.6 s); P11 (a) 50 s, (b) 34 s, (c) 30 s (simplified version), USS ≤ 1.35 GiB; with daily ffill, financials alone would have been 194.6 GB (computed); computing only decision rows = full computation (2,190,000 values bit-identical); output hashes identical across two machines and cold/warm; hand calculations 32/32. Design means added: **8. Skipping by row-group statistics** — the min/max statistics of Parquet row groups are used so that chunks of other markets and years are not read (P11 (a) 122 s → 45 s). Measurement rule added: macOS cannot read the USS of other processes, so the summed tree USS of P7 is summed from **the measuring rig inside each worker process** reporting its own USS. The synthetic generator (4.8) adds the shapes missing in the comparison with real data: `obs_status` no_trade and missing, `symbol_change` and `announced` events, and the `full` scale matched to real data (about 27,000 instruments, about 60 million daily bar rows).
 
@@ -3431,7 +3431,7 @@ Priority of the early rows (the v1/v2 order; the current order is the header's *
 
 ## Appendix B. Requirement map
 
-Status: **v1** = implemented by this spec, **changed** = implemented with a corrected meaning, **later** = after v1 (with the reason), **reserved** = name only. M is the milestone at which it first holds; the ticket is the representative ticket (the issue number once made into an issue).
+Status: **v1** = implemented by this spec, **changed** = implemented with a corrected meaning, **later** = after v1 (with the reason), **reserved** = name only. M is the milestone at which it first holds, and a range such as `M1b~M3a` names where it starts to be met and where it is met in full; the ticket is the representative ticket (the issue number once made into an issue).
 
 ### B.1 Requirements R, performance P
 
@@ -3443,10 +3443,10 @@ Status: **v1** = implemented by this spec, **changed** = implemented with a corr
 | R-04 column attributes, stubs, typos | 3.2 | M1 | v1 | T1.6 |
 | R-05 user functions in two styles | 3.3 | M1 | changed (window style only; panel later, A-37) | T1.12 |
 | R-06 zipline compatibility layer | 3.4 | M1 | v1 | T1.16 |
-| R-07 declarative Strategy | 3.7 | M3 | changed (no `on_rebalance`, `risk=` slot, A-10, A-46; the `decide` slot, 2026-11-24, #752) | T3.2 |
-| R-08 `nx.param` | 3.7 | M3 | v1 | T3.2 |
+| R-07 declarative Strategy | 3.7 | M1b~M3a | changed (no `on_rebalance`, `risk=` slot, A-10, A-46; the `decide` slot, 2026-11-24, #752) | T3.2a, T3.2 |
+| R-08 `nx.param` | 3.7 | M1b~M3a | v1 | T3.2a, T3.2 |
 | R-09 function and CLI list | 3.8, 3.10 | M5 | v1 | T5.4 |
-| R-10 result object display | 3.9 | M2 | v1 | T2.10a, T3.13a |
+| R-10 result object display | 3.9 | M1b~M3a | v1 | T3.13c, T2.10a, T3.13a |
 | R-11 counts beside ratios | 3.9 | M2 | v1 | T2.10a |
 | R-12 structure hash, reuse | 5.3.9 (L0·L1) | M6 | changed (semantic key, A-42) | T1.5, T6.4, T6.12 |
 | R-13 screen = backtest | 5.5, INV-08 (anchor) | M3 | changed (A-38; with `decide`, up to the Pipeline values, 2026-11-24, #752) | T3.1, T3.16, T7.1 |
@@ -3472,7 +3472,7 @@ Status: **v1** = implemented by this spec, **changed** = implemented with a corr
 | R-35 study | 6.2 | M2 | changed (name + UUID, A-04) | T2.9 |
 | R-36 blocking the holdout | 6.1 | M2 | changed (segments, exposure, A-07) | T2.9 |
 | R-37 evaluate report | 5.8 | M2 | v1 | T2.8, T2.10a, T2.16 |
-| R-38 backtest report (including 0×, 1×, 2×) | 5.7 | M3 | v1 | T3.13a, T3.20 |
+| R-38 backtest report (including 0×, 1×, 2×) | 5.7 | M1b~M3b | v1 | T3.13c, T3.13a, T3.20 |
 | R-39 sweep PBO, DSR, matrix | 6.3 | M6 | v1 | T6.8 |
 | R-40 static check in 1 second | 6.5 | M2 | v1 | T2.12 |
 | R-41 progress display | 3.9 | M6 | v1 | T6.10 |
@@ -3484,7 +3484,7 @@ Status: **v1** = implemented by this spec, **changed** = implemented with a corr
 | R-47 period windows | 11.3 | E4 | later (A-36) | – |
 | R-48 engine choice | 11.1 | E4 | changed (`panel` only, A-35) | – |
 | R-49 ledger adapters | 5.9.6~5.9.7, 11.4 | M5 | v1 (paper), brokers later | T5.1~T5.3, T5.7 |
-| R-50 zipline comparison | 8.1 | M1~M3b | changed (scope narrowed, SC-12, A-57) | T1.17, T1.18, T3.17a, T3.17b |
+| R-50 zipline comparison | 8.1 | M1~M3b | changed (scope narrowed, SC-12, A-57) | T1.17, T1.18, T3.17c, T3.17a, T3.17b |
 | R-51 future-information test list | 8.4 | M2, M6 | v1 | T2.6, T6.9, T6.13 |
 | R-52 survivorship, currency, segment tests | 8.4 | M2 | v1 | T2.4, T2.5, T2.9 |
 | R-53 documentation example tests | 8.5 | all | v1 | T1.20 |
@@ -3621,7 +3621,7 @@ Engine invariant check: of the 24 differences, none breaks INV-01 (the one rule 
 | D1 | – | window kernel definition A/B | 5.3.10, ADR-0019, OI-47 | T1.24, T6.2 |
 | D2 | – | default label | 5.8, OI-48 | T2.7 |
 | D3 | user | hold band timing | OI-12 | T7.1 |
-| D9 | – | M3a/M3b | 10.0 | chapter 10 |
+| D9 | – | M3a/M3b (and, since #858, M1b between M1 and M2) | 10.0 | chapter 10 |
 
 ---
 
