@@ -56,6 +56,23 @@ def test_show_ties_prints_both_tiebreak_orders_and_equal_zscore_bits() -> None:
     assert lines[-1] == "zscore bit-identical under the shuffle: True"
 
 
+def test_show_targets_prints_one_decision_with_a_sum_of_at_most_one() -> None:
+    """T3.1a's "Done means" (#908): the TargetFrame of one decision, selection rank and weight,
+    with a sum of at most 1; and three names at 1/3 when `top(4)` finds three scores."""
+    command = [sys.executable, str(ROOT / "examples" / "dev" / "show_targets.py")]
+    done = subprocess.run(command, capture_output=True, text=True, check=True)  # noqa: S603
+    lines = done.stdout.splitlines()
+    assert [line.split()[1:] for line in lines[2:5]] == [
+        ["KR:T00004", "5.0", "1", "0.333333"], ["KR:T00006", "4.0", "2", "0.333333"],
+        ["KR:T00002", "2.0", "3", "0.333333"],
+    ]  # fmt: skip
+    assert lines[5] == "sum of weights 1.000000, n_tied_at_cutoff 3"
+    assert [line.split()[1::3] for line in lines[9:12]] == [
+        ["KR:T00003", "0.333333"], ["KR:T00005", "0.333333"], ["KR:T00001", "0.333333"],
+    ]  # fmt: skip
+    assert lines[12] == "sum of weights 1.000000, n_tied_at_cutoff 0"
+
+
 def test_m1_screen_prints_the_top_10_per_market_and_the_run(
     capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:

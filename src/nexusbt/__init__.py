@@ -34,6 +34,9 @@ from nexusbt.api import run_pipeline as run_pipeline
 # `screen(factor, top=n)`, T1.13 (#249).
 from nexusbt.api import screen as screen
 
+# `top(n)` at equal weights (3.7), T3.1a (#908).
+from nexusbt.api import top as top
+
 # Errors (3.1): `NexusBTError` and the 6.6 classes E1~E39, T0.4 (#49); E40~E49, T0.4b (#52);
 # E50 with its rule (#873).
 from nexusbt.contracts import AccountingDataError as AccountingDataError
