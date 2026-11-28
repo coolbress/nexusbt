@@ -244,11 +244,12 @@ def compare(old: Mapping[str, Any], new: Mapping[str, Any], *, new_snapshot: boo
     """5.9.4: each table of the reproduced run against the new run's, by value and bytes."""
     tables = {k: v for k, v in old["outputs"].items() if not k.startswith("source/")}
     kinds = [h for h in ("value", "physical") if any(f"{h}_sha256" in v for v in tables.values())]
-    differ = []
-    for name, hashes in sorted(tables.items()):
+    differ = [f"{name} (only in the new run)" for name in _only_new(old, new)]  # #867
+    for name, hashes in tables.items():
         got = new["outputs"].get(name, {})
         if which := [h for h in kinds if hashes.get(f"{h}_sha256") != got.get(f"{h}_sha256")]:
             differ.append(f"{name} ({', '.join(which)})")
+    differ.sort()
     if not differ:
         return f"outputs identical ({', '.join(kinds)})"
     return "outputs differ: " + "; ".join(differ) + _unrecorded(old, new_snapshot)
@@ -266,15 +267,37 @@ def _lock_sha256(path: Path) -> str | None:
     return _sha256(path) if path.is_file() else None
 
 
-def environment_differs(folder: Path, project: Path) -> bool:
-    """#637 Decisions 1: the captured engine or project `uv.lock` against the current one, by
-    sha256; a project lock on one side only differs too."""
+#: #867 (the owner, 2026-11-28): the fields of the manifest's `environment` (5.9.2) whose
+#: difference is another environment. `machine_id` names the host, not what computes, and
+#: `uv_lock_sha256` is the engine lock, compared as `uv.lock` with the project's.
+_FIELDS = ("python", "platform", "cpu", "packages", "numerics")
+
+
+def _only_new(old: Mapping[str, Any], new: Mapping[str, Any]) -> list[str]:
+    """#867: the outputs the new run wrote that the saved manifest does not name."""
+    kept = old["outputs"]
+    return sorted(k for k in new["outputs"] if not k.startswith("source/") and k not in kept)
+
+
+def environment_differs(folder: Path, project: Path) -> list[str]:
+    """What makes the current environment another one, empty when it is the same.
+
+    `uv.lock` when the captured engine or project lock differs from the current one by sha256,
+    a project lock on one side only included (#637 Decisions 1); then each field of `_FIELDS`
+    the saved `environment` holds with another value (#867): a lock is the same on every
+    platform. A field an older manifest does not hold is not judged.
+    """
+    from nexusbt.artifacts._environment import environment
     from nexusbt.artifacts._runstore import _engine_lock  # as a saved run reads it (5.9.3)
 
-    engine = hashlib.sha256(_engine_lock()).hexdigest()
+    lock = _engine_lock()
     kept = folder / "source"
-    return (_lock_sha256(kept / "engine-uv.lock") != engine
-            or _lock_sha256(kept / "uv.lock") != _lock_sha256(project / "uv.lock"))  # fmt: skip
+    fields = []
+    if (_lock_sha256(kept / "engine-uv.lock") != hashlib.sha256(lock).hexdigest()
+            or _lock_sha256(kept / "uv.lock") != _lock_sha256(project / "uv.lock")):  # fmt: skip
+        fields.append("uv.lock")
+    saved, now = read(folder).get("environment") or {}, environment(lock)
+    return fields + [name for name in _FIELDS if name in saved and saved[name] != now[name]]
 
 
 def _beyond(old: pa.Table, new: pa.Table, keys: Sequence[str]) -> bool:
@@ -303,10 +326,16 @@ def _beyond(old: pa.Table, new: pa.Table, keys: Sequence[str]) -> bool:
     return False
 
 
-def within(old: Path, new: Path, *, new_snapshot: bool) -> str:
-    """#637 Decisions 1, 2: the line when the environment differs; values only, no bytes."""
-    manifest = read(old)
-    was, now = manifest["outputs"], read(new)["outputs"]
+def within(old: Path, new: Path, fields: Sequence[str], *, new_snapshot: bool) -> str:
+    """#637 Decisions 1, 2: the line when the environment differs; values only, no bytes.
+
+    It names the `fields` that differed and, after the verdict, the outputs only the new run
+    has, which a newer engine may write without the verdict changing (#867)."""
+    manifest, fresh = read(old), read(new)
+    was, now = manifest["outputs"], fresh["outputs"]
+    head = f"environment differs ({', '.join(fields)}); "
+    names = _only_new(manifest, fresh)
+    extra = f"; only in the new run: {', '.join(names)}" if names else ""
     beyond = []
     for name in sorted(k for k in was if not k.startswith("source/")):
         keys, hashes = _KEYS.get(name), was[name]
@@ -320,9 +349,9 @@ def within(old: Path, new: Path, *, new_snapshot: bool) -> str:
         elif _beyond(pq.read_table(kept), pq.read_table(new / name), keys):
             beyond.append(name)
     if beyond:
-        line = "environment differs; outputs differ beyond tolerance: " + "; ".join(beyond)
+        line = head + "outputs differ beyond tolerance: " + "; ".join(beyond) + extra
         return line + _unrecorded(manifest, new_snapshot)  # #815 Decisions 2
-    return f"environment differs; outputs within tolerance ({_TOLERANCE})"
+    return head + f"outputs within tolerance ({_TOLERANCE})" + extra
 
 
 def rerun(folder: Path, *, new_snapshot: bool) -> tuple[str, str]:
@@ -347,6 +376,6 @@ def rerun(folder: Path, *, new_snapshot: bool) -> tuple[str, str]:
     if not match:
         raise RuntimeError(f"rerun of {folder.name}: it sealed no {manifest['kind']} run")
     new_id, new_manifest = match[0]
-    if environment_differs(folder, project()):  # 5.9.4: another environment, within tolerance
-        return new_id, within(folder, folder.parent / new_id, new_snapshot=new_snapshot)
+    if fields := environment_differs(folder, project()):  # 5.9.4: another environment
+        return new_id, within(folder, folder.parent / new_id, fields, new_snapshot=new_snapshot)
     return new_id, compare(manifest, new_manifest, new_snapshot=new_snapshot)

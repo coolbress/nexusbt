@@ -582,8 +582,10 @@ def test_the_cli_new_snapshot_exits_0_when_the_outputs_differ(
 #: #637 Decisions: L1-a's tolerance (8.1), the one a run without NAV is compared within when
 #: the environment differs.
 L1_A_ABS = L1_A_REL = 1e-9
-_WITHIN = f"environment differs; outputs within tolerance (|a{chr(0x2212)}b| ≤ 1e-9 + 1e-9·|b|)"
-_BEYOND = "environment differs; outputs differ beyond tolerance: pipeline.parquet"
+_TOL = f"(|a{chr(0x2212)}b| ≤ 1e-9 + 1e-9·|b|)"
+#: #867: the line names the fields that differed; another lock reads `uv.lock`.
+_WITHIN = f"environment differs (uv.lock); outputs within tolerance {_TOL}"
+_BEYOND = "environment differs (uv.lock); outputs differ beyond tolerance: pipeline.parquet"
 
 
 def _nudge(folder: Path, times: float) -> None:
@@ -686,7 +688,7 @@ def test_a_reproduced_table_that_no_longer_matches_its_record_is_beyond(tmp_path
     old = _outputs(tmp_path / "old", {"pipeline.parquet": _table([1.0])})
     new = _outputs(tmp_path / "new", {"pipeline.parquet": _table([2.0])})
     pq.write_table(_table([2.0]), old / "pipeline.parquet")  # the same values as the new run
-    assert _rerun.within(old, new, new_snapshot=False) == _BEYOND
+    assert _rerun.within(old, new, ["uv.lock"], new_snapshot=False) == _BEYOND
 
 
 def test_a_table_the_new_run_lacks_is_beyond_tolerance(tmp_path: Path) -> None:
@@ -695,10 +697,10 @@ def test_a_table_the_new_run_lacks_is_beyond_tolerance(tmp_path: Path) -> None:
 
     old = _outputs(tmp_path / "old", {"pipeline.parquet": _table([1.0])})
     new = _outputs(tmp_path / "new", {})
-    assert _rerun.within(old, new, new_snapshot=False) == _BEYOND
+    assert _rerun.within(old, new, ["uv.lock"], new_snapshot=False) == _BEYOND
 
 
-_EXTRA = "environment differs; outputs differ beyond tolerance: extra.parquet"
+_EXTRA = "environment differs (uv.lock); outputs differ beyond tolerance: extra.parquet"
 
 
 @pytest.mark.parametrize(("value", "cells", "line"), [
@@ -717,7 +719,80 @@ def test_a_table_of_no_known_key_is_compared_by_its_hash(
     recorded = None if value is None else "v1"
     old = _outputs(tmp_path / "old", {"extra.parquet": _table([1.0])}, recorded)
     new = _outputs(tmp_path / "new", {"extra.parquet": _table(cells)}, value)
-    assert _rerun.within(old, new, new_snapshot=False) == line
+    assert _rerun.within(old, new, ["uv.lock"], new_snapshot=False) == line
+
+
+def _another_platform(folder: Path) -> None:
+    """The run's manifest as sealed on another operating system: the lock files are the same
+    on every platform, so only the `environment` block says so (#867)."""
+    found = _manifest(folder)
+    found["environment"]["platform"] = "Another-OS-1.0-x86_64"
+    _edit(folder / "manifest.json", json.dumps(found, sort_keys=True, indent=2) + "\n")
+
+
+def test_another_platform_with_the_same_lock_takes_the_tolerance_path_and_names_it(
+    copied: tuple[Path, str],
+) -> None:
+    """#867 item 2: a run made on another platform with the same `uv.lock` is compared within
+    the tolerance, not exactly, and the line names the field that differed."""
+    project, run_id = copied
+    folder = project / "runs" / run_id
+    _another_platform(folder)
+    _nudge(folder, 0.5)  # bytes another platform could give: the exact path would fail
+    line = nx.rerun(run_id).comparison
+    assert line == f"environment differs (platform); outputs within tolerance {_TOL}"
+
+
+@pytest.mark.parametrize("name", ["python", "platform", "cpu", "packages", "numerics"])
+def test_each_field_but_the_host_is_another_environment(
+    copied: tuple[Path, str], name: str
+) -> None:
+    """#867 (the owner, 2026-11-28): every field of `environment` that bears on computing,
+    `machine_id` alone left out; the lock's own field is the lock comparison above."""
+    from nexusbt.api import _rerun
+
+    project, run_id = copied
+    folder = project / "runs" / run_id
+    found = _manifest(folder)
+    found["environment"][name] = "another"
+    found["environment"]["machine_id"] = "0" * 16  # another host: not by itself a difference
+    _edit(folder / "manifest.json", json.dumps(found, sort_keys=True, indent=2) + "\n")
+    assert _rerun.environment_differs(folder, project) == [name]
+
+
+def test_another_host_alone_is_the_same_environment(copied: tuple[Path, str]) -> None:
+    """#867: `machine_id` names the host, not what computes."""
+    from nexusbt.api import _rerun
+
+    project, run_id = copied
+    folder = project / "runs" / run_id
+    found = _manifest(folder)
+    found["environment"]["machine_id"] = "0" * 16
+    _edit(folder / "manifest.json", json.dumps(found, sort_keys=True, indent=2) + "\n")
+    assert _rerun.environment_differs(folder, project) == []
+
+
+def test_an_output_only_the_new_run_has_is_a_difference_in_the_same_environment() -> None:
+    """#867 item 2: in the same environment an output the saved manifest lacks differs."""
+    from nexusbt.api import _rerun
+
+    old = {"outputs": {"a.parquet": {"value_sha256": "v1"}}, "source": {"outside": {}}}
+    new = {"outputs": {"a.parquet": {"value_sha256": "v1"}, "b.parquet": {"value_sha256": "v"}}}
+    line = _rerun.compare(old, new, new_snapshot=False)
+    assert line == "outputs differ: b.parquet (only in the new run)"
+
+
+def test_an_output_only_the_new_run_has_is_named_in_another_environment(tmp_path: Path) -> None:
+    """#867 (the owner, 2026-11-28): in another environment, a newer engine may write a table
+    the old one did not; it is named after the line and does not change the verdict."""
+    from nexusbt.api import _rerun
+
+    old = _outputs(tmp_path / "old", {"extra.parquet": _table([1.0])})
+    new = _outputs(tmp_path / "new", {"extra.parquet": _table([1.0]), "b.parquet": _table([1.0])})
+    line = _rerun.within(old, new, ["packages"], new_snapshot=False)
+    assert line == f"environment differs (packages); outputs within tolerance {_TOL}" + (
+        "; only in the new run: b.parquet"
+    )
 
 
 _NOTE = "; this run's outside helpers were not recorded"
