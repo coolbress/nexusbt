@@ -2,7 +2,7 @@
 # literals; implementation pull requests do not change this file. `expected` per row:
 # null = warm-up (no full window in the 5 rows), .nan = the factor gives NaN.
 factor: MaxDrawdown
-spec: "3.4: max((cummax(x) - x)/cummax(x)), NaN left out; warm-up W-1. 8.2: MaxDrawdown(4) 10, 12, 9, 11 -> 0.25; 50 outside the window does not enter MaxDrawdown(3)"
+spec: "3.4: max((cummax(x) - x)/cummax(x)), NaN left out, fewer than min_periods finite cells (default W) -> NaN; warm-up W-1. 8.2: MaxDrawdown(4) 10, 12, 9, 11 -> 0.25; 50 outside the window does not enter MaxDrawdown(3)"
 # Hand-checked by the person 2026-11-04 (#221; via the coordinating session, recomputed from the
 # 3.4 formula):
 #   MaxDrawdown(4) on 10, 12, 9, 11: (12 - 9)/12 = 0.25 (the peak, not the trough)
@@ -16,7 +16,12 @@ cases:
     inputs: {close_tr: [50, 10, 12, 9, 11]}
     # Worked by hand, not yet checked by the person:(50 - 10)/50 = 0.8; then 50 is outside: (12 - 9)/12 = 0.25 twice.
     expected: [null, null, 0.8, 0.25, 0.25]
-  - term: "MaxDrawdown(3)"
+  - term: "MaxDrawdown(3, min_periods=1)"
     inputs: {close_tr: [.nan, 12, 9, .nan, 6]}
     # Worked by hand, not yet checked by the person:(12 - 9)/12 = 0.25 twice; (9, NaN, 6): (9 - 6)/9 = 0.333333.
     expected: [null, null, 0.25, 0.25, 0.333333]
+  - term: "MaxDrawdown(3)"
+    # #868: min_periods defaults to the window; the two cases above have full windows.
+    inputs: {close_tr: [.nan, 12, 9, .nan, 6]}
+    # Worked by hand, not yet checked by the person: every window holds a NaN -> NaN.
+    expected: [null, null, .nan, .nan, .nan]

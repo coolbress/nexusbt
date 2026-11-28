@@ -2,10 +2,22 @@
 # literals; implementation pull requests do not change this file. `expected` per row:
 # null = warm-up (no full window in the 5 rows), .nan = the factor gives NaN.
 factor: AnnualizedVolatility
-spec: "3.4: nanstd(DailyReturns window, ddof=0) * sqrt(a), NaN left out, minimum observations 1; warm-up W"
+spec: "3.4: nanstd(DailyReturns window, ddof=0) * sqrt(a), NaN left out, fewer than min_periods finite returns (default W) -> NaN; warm-up W"
 cases:
-  - term: "AnnualizedVolatility(3, annualization_factor=252)"
+  - term: "AnnualizedVolatility(3, annualization_factor=252, min_periods=1)"
     inputs: {close_tr: [100, 110, 99, .nan, 108.9]}
     # Worked by hand, not yet checked by the person:daily returns 0.1, -0.1, NaN, NaN (rows 2 to 5). Row 4: std(0.1, -0.1)
     # = 0.1, x sqrt(252) = 1.587451. Row 5: one return left, std 0.
     expected: [null, null, null, 1.587451, 0.0]
+  - term: "AnnualizedVolatility(3, annualization_factor=252)"
+    # #868: min_periods defaults to the window, so one finite return is NaN, not 0.0.
+    inputs: {close_tr: [100, 110, 99, .nan, 108.9]}
+    # Worked by hand, not yet checked by the person: row 4 has 2 finite returns of 3, row 5 has
+    # 1 -> NaN both.
+    expected: [null, null, null, .nan, .nan]
+  - term: "AnnualizedVolatility(3, annualization_factor=252)"
+    inputs: {close_tr: [100, 110, 99, 108.9, 98.01]}
+    # Worked by hand, not yet checked by the person: daily returns 0.1, -0.1, 0.1, -0.1. Row 4:
+    # (0.1, -0.1, 0.1), mean 1/30, squared deviations 4/900, 16/900, 4/900, /3 = 0.008889,
+    # sqrt 0.094281, x sqrt(252) = 1.496663. Row 5: (-0.1, 0.1, -0.1), the same 1.496663.
+    expected: [null, null, null, 1.496663, 1.496663]
