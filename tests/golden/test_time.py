@@ -24,11 +24,12 @@ from nexusbt.compute import _crosssection as xs
 from nexusbt.compute import _kernels as k
 from nexusbt.compute._executor import execute
 from nexusbt.compute._kernels_ref import adjusted_window
-from nexusbt.contracts import TiebreakPolicy
+from nexusbt.contracts import DecisionGrid, FactorFrame, TargetFrame, TiebreakPolicy
 from nexusbt.data import Calendar, DataConfig, open_snapshot
 from nexusbt.data._block import MarketBlock
 from nexusbt.factors import SMA, Returns
 from nexusbt.pipeline import BoundColumn, graph_hash
+from nexusbt.portfolio import PortfolioRule, build_targets, tie_key
 from nexusbt.testing.synth import make_snapshot, read, write_actions
 from nexusbt_tds.hash import write_hashes
 
@@ -107,6 +108,46 @@ def test_T11_ties() -> None:  # noqa: N802 - spec 10.1's name
         assert row["n_tied_at_cutoff"] == tied
         for column, values in found.items():
             assert values[i] == row[column] or (math.isnan(values[i]) and math.isnan(row[column]))
+
+
+def _targets(scores: dict[str, float], n: int, tiebreak: str) -> TargetFrame:
+    """The rule of `nx.top(n)` on one KR decision holding `scores`, in the order given."""
+    day, at = dt.date(2019, 6, 28), instant("2019-06-28T06:30:00Z")
+    rows = [{"market": "KR", "session_date": day, "decision_ts": at, "instrument_id": i,
+             "score": s} for i, s in scores.items()]  # fmt: skip
+    grid = DecisionGrid("KR", "XKRX", "KR_close", day, day, (day,), (at,))
+    rule = PortfolioRule(n, TiebreakPolicy(tiebreak))
+    return build_targets(FactorFrame(pa.Table.from_pylist(rows)), rule, grid)[0]
+
+
+def test_T27_hash_tiebreak() -> None:  # noqa: N802 - spec 10.1's name
+    """T-27: the fixed-salt key of each of three equal scores, and the order `top(3)` ranks
+    them in under `tiebreak = "hash"` and `"id"`, the same as the Pipeline's tie places (3.7)."""
+    case = yaml.safe_load((CASES / "T-27.yaml").read_text())
+    scores, expected = case["input"]["scores"], case["expected"]
+    for policy, column in ((TiebreakPolicy.HASH, "hash_order"), (TiebreakPolicy.ID, "id_order")):
+        table = _targets(scores, 3, policy).table
+        ranks = {r["instrument_id"]: r["selected_rank"] for r in table.to_pylist()}
+        places = xs.tie_order(list(scores), policy)
+        for row in expected:
+            assert ranks[row["instrument_id"]] == row[column]
+            assert places[list(scores).index(row["instrument_id"])] + 1 == row[column]
+            assert tie_key(row["instrument_id"], TiebreakPolicy.HASH)[0] == row["key"]
+
+
+def test_n_tied_at_cutoff_counted() -> None:
+    """T-11's `n_tied_at_cutoff` (3.7): `top(2)` takes one of the three 2.0 and leaves two out,
+    so the decision counts the whole tie group, 3; `top(4)` cuts between 2.0 and 1.0: 0."""
+    case = yaml.safe_load((CASES / "T-11.yaml").read_text())
+    scores = {c["instrument_id"]: c["score"] for c in case["input"]["scores"]}
+    found = _targets(scores, 2, case["input"]["tiebreak"])
+    taken = sorted(r["instrument_id"] for r in case["expected"] if r["in_top2"])
+    assert sorted(found.table["instrument_id"].to_pylist()) == taken
+    assert found.coverage.to_pylist() == [
+        {"decision_id": "KR:20190628:KR_close",
+         "n_tied_at_cutoff": case["expected"][0]["n_tied_at_cutoff"]}
+    ]  # fmt: skip
+    assert _targets(scores, 4, "id").coverage["n_tied_at_cutoff"].to_pylist() == [0]
 
 
 def _cells(found: tuple[Any, Any]) -> list[bool | None]:
