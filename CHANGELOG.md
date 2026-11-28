@@ -33,6 +33,8 @@ versions follow [Semantic Versioning](https://semver.org/).
   to #820.
 
 ### Changed
+- Packages written now name `tds_draft = 2026-11-28` (TDS 10.5, #874), and one naming
+  2026-11-27 opens with the warning TDS-M017; no hash changes.
 - A package's semantic hash no longer covers `editions` or `roll_rules` (TDS 4.5, #752's 12e),
   so the same package has another semantic hash than before. Opened with `verify = "full"`, a
   package whose hashes an earlier checker wrote is E14 (TDS-H003) until `tds hash --write`

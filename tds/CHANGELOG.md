@@ -19,6 +19,10 @@ package version follows the `tds_version` it checks (`1.0.x`), tagged
   removes the package and exits 1, the report staying beside it; an import whose package a
   `full` check refuses, such as `instruments` without the bars its profile requires, no longer
   leaves a package
+- `tds_draft` moves to 2026-11-28, the end of #874's stage (TDS 10.5): the text of 5.5 and 5.11
+  (a dividend on a split day, a price that is not positive, a dividend amount of zero or none)
+  changed a required value; the checker, `tds import csv`, `tds draft` and the conformance
+  packages write it, only that field moving; a package naming 2026-11-27 gets TDS-M017 (W)
 - `tds_draft` moves to 2026-11-27, the end of the stage-(1) revision (#752's 12e, TDS 10.5): the
   checker, `tds import csv`, `tds draft` and the conformance packages write it; a package naming
   2026-11-19 gets TDS-M017 (W)
