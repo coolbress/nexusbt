@@ -1241,7 +1241,7 @@ The thin backtest (#858, the owner, 2026-11-28): one market in a run (KR or US),
 **T6.Gv `test(golden): validation, ML window, triple-barrier and pretrained-cutoff cases (G-88..G-93, G-106, G-116, G-126)`** *(R6: the G-106 pretrained cutoff first here)* *(2026-11-04: G-116, strict and approximate IS scores, #215)* · `M6` `golden` · M · Blocked by: T0.9 · §5.3.11, §5.8, §6.3a, §8.2
 - Context: hand-calculated cases of split counting, purge and embargo (the label of a late-published delisting), chained account / fresh capital, the ML training window, and the four triple-barrier cases. Merged before the implementation PR.
 - Done means: `uv run python tests/golden/check/G-89.py` prints the purged and embargoed samples per fold.
-- Acceptance: `tests/golden/test_handcalc_self.py::test_case_G88_to_G93_expected_present`, `::test_case_G116_expected_present` (#215).
+- Acceptance: `tests/golden/test_handcalc_self.py::test_case_G88_to_G93_expected_present`, `::test_case_G116_expected_present` (#215), `::test_case_G126_expected_present` (#873).
 - Notes:
   - owner decides at the cut (#314 Findings, 2026-11-06; #314 Decision, 2026-11-10): whether an AR(1) closed-form correction of PSR and MinTRL comes as one diagnostic row, if this ticket can hand-compute it in a case, or stays a 12.1 row.
 

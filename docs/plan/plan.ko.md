@@ -1241,7 +1241,7 @@ v3는 3자 검토 합의대로 **M0을 계약만으로 줄이고**, 검사기 fu
 **T6.Gv `test(golden): validation, ML window, triple-barrier and pretrained-cutoff cases (G-88..G-93, G-106, G-116, G-126)`** *(R6: G-106 사전학습 마감을 여기서 먼저)* *(2026-11-04: G-116, 엄격한 IS 점수와 근사 IS 점수, #215)* · `M6` `golden` · M · Blocked by: T0.9 · §5.3.11, §5.8, §6.3a, §8.2
 - Context: 분할 셈, 정화·엠바고(늦은 공개 폐지 정답), 계좌 이어 감/새 자본, ML 학습 창, 삼중 장벽 네 경우의 손계산 사례. 구현 PR 전에 병합.
 - Done means: `uv run python tests/golden/check/G-89.py`가 폴드별 정화·엠바고 표본을 출력.
-- Acceptance: `tests/golden/test_handcalc_self.py::test_case_G88_to_G93_expected_present`, `::test_case_G116_expected_present`(#215).
+- Acceptance: `tests/golden/test_handcalc_self.py::test_case_G88_to_G93_expected_present`, `::test_case_G116_expected_present`(#215), `::test_case_G126_expected_present`(#873).
 - Notes:
   - owner decides at the cut (#314 Findings, 2026-11-06; #314 Decision, 2026-11-10): PSR과 MinTRL의 AR(1) 닫힌꼴 보정을, 이 티켓이 사례로 손계산할 수 있으면 진단 행 하나로 둘지, 12.1의 행으로 남길지.
 
