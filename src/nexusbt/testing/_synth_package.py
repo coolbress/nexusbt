@@ -233,7 +233,7 @@ def write(
         for market, day in through(name).items():
             by_market.setdefault(market, {})["processed_through_session"] = day
     manifest = {
-        "tds_version": "1.0", "tds_draft": "2026-11-27",  # the TDS text followed (4.2, #529)
+        "tds_version": "1.0", "tds_draft": "2026-11-28",  # the TDS text followed (4.2, #529)
         "name": about["name"], "created": about["created"],
         "snapshot_id": about["snapshot_id"], "producer": {"name": PRODUCER, "hints": HINTS},
         "profiles": dg.profiles(["tds:minimal-daily@1.0", "tds:equity-daily-core@1.0"], degrade),
