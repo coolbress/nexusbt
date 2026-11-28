@@ -46,7 +46,7 @@ Check = Callable[[tuple[str, ...], str], list[str]]
 #: leaves this list in the change that exports it; the spec names no single ticket for many.
 PENDING_3_1 = {
     "Data": "Trad Market Dataset universe",
-    "Strategy": "Strategy param monthly weekly daily quarterly annually every top bottom"
+    "Strategy": "Strategy param monthly weekly daily quarterly annually every bottom"
     " long_short portfolio size sizer risk risk_rule PortfolioContext SizingContext"
     " RiskContext TargetView RiskDecision Scalar execution exits ExitRule costs ml labels"
     " LabelTerm splits",

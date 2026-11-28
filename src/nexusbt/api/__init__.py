@@ -34,6 +34,7 @@ from nexusbt.contracts import (
     ReplayError,
     SchemaRegistry,
     SessionNotice,
+    TiebreakPolicy,
     UntrustedRunError,
 )
 from nexusbt.data import (
@@ -52,7 +53,8 @@ from nexusbt.pipeline._terms import _project_file
 if TYPE_CHECKING:
     from nexusbt.artifacts import RunStore, RunTxn
     from nexusbt.data import Calendar, Explanation, Snapshot
-    from nexusbt.pipeline import BoundColumn, Factor, Filter, Pipeline, Term
+    from nexusbt.pipeline import BoundColumn, Classifier, Factor, Filter, Pipeline, Term
+    from nexusbt.portfolio import PortfolioRule
 
 _Day = str | dt.date
 _Scenario = Literal["gross", "cost0x", "cost2x", "delist_lo", "delist_hi", "capacity"]
@@ -98,6 +100,31 @@ class RunTable: ...
 @dataclass(frozen=True, slots=True)
 class Preregistration: ...
 # fmt: on
+
+
+def top(
+    n: int,
+    *,
+    per: Classifier | None = None,
+    weight: Literal["equal", "value", "inverse_vol"] = "equal",
+    max_weight: float | None = None,
+    vol_lookback: int = 252,
+    redistribute: bool = False,
+    hold: int | None = None,
+    on_missing: Literal["drop", "hold"] = "drop",
+    tiebreak: Literal["hash", "id"] | None = None,
+) -> PortfolioRule:
+    """3.7 `nx.top(n)`: the n highest scores of each sleeve at equal weights; `tiebreak` None
+    is `[portfolio] tiebreak`'s default. The other arguments come with T3.1.
+    `portfolio` is imported here: at `import nexusbt` it would hold 3.1's name `nx.portfolio`."""
+    from nexusbt.portfolio import PortfolioRule
+
+    given = {"per": per is not None, "weight": weight != "equal", "hold": hold is not None,
+             "max_weight": max_weight is not None, "vol_lookback": vol_lookback != 252,
+             "redistribute": redistribute, "on_missing": on_missing != "drop"}  # fmt: skip
+    if refused := sorted(k for k, v in given.items() if v):
+        raise NotImplementedError(f"top(n) does not take {refused} yet")
+    return PortfolioRule(n, None if tiebreak is None else TiebreakPolicy(tiebreak))
 
 
 def evaluate(

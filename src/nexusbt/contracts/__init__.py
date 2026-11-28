@@ -22,7 +22,10 @@ from functools import cache
 from importlib import resources
 from pathlib import Path
 from types import MappingProxyType
-from typing import ClassVar, Literal, NewType, Protocol, Self
+from typing import TYPE_CHECKING, ClassVar, Literal, NewType, Protocol, Self
+
+if TYPE_CHECKING:
+    import pyarrow as pa
 
 #: The instrument key, in data, internals, outputs, the API and documents alike (spec header
 #: "Identifier name"). The only place in code that spells it; there is no alias.
@@ -286,11 +289,21 @@ class RoundingModePolicy(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
-class FactorFrame: ...
+class FactorFrame:
+    """One factor's scores at the decisions of a run (2.4). `table` holds one row per decision
+    and instrument: `market` (the sleeve), `session_date`, `decision_ts`, `instrument_id` and
+    `score` (float64); a `universe` column (boolean, null = unknown) is read when present."""
+
+    table: pa.Table
 
 
 @dataclass(frozen=True, slots=True)
-class TargetFrame: ...
+class TargetFrame:
+    """5.5.1's table, sorted by `(decision_id, selected_rank, instrument_id)`; and `coverage`,
+    one row per decision: `decision_id` and 3.7's `n_tied_at_cutoff`."""
+
+    table: pa.Table
+    coverage: pa.Table
 
 
 @dataclass(frozen=True, slots=True)

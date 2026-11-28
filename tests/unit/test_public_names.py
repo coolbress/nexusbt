@@ -76,6 +76,7 @@ BUILT = {
     "nexusbt.api.run_pipeline",  # T1.13 (#249)
     "nexusbt.api.screen",  # T1.13 (#249): `screen(factor, top=n)`
     "nexusbt.api.rerun",  # T1.15 (#250)
+    "nexusbt.portfolio.build_targets",  # T3.1a (#908): `top(n)` at equal weights
 }
 
 #: 6.6, the classes whose kind is block or fail: the sub-errors of `NexusBTError`. The warnings
