@@ -849,7 +849,7 @@ details   run.details() · nexusbt backtest … --full
 
 1. Every line of the template below stays, in its order, in the details: `run.details()` and `nexusbt backtest … --full` print them. The headline repeats some of their numbers and adds none that they do not hold, except the ones rule 3 names, the standard error of rule 4, the run's years and decisions on its first line, and `lines not built`, the number of places printed in the not-built form in the headline and the details together.
 2. `return`, `trust` and `assumed` are always printed. A number whose source is not built yet is printed in the form of "A line not built yet" below (#858), never left out.
-3. The lines that other decisions own take their content from them and are named here only by place: the `costs` line with its statutory charges, and the break-even cost (#841); the family count and the `luck` figure (#860); the dropped rows (#866). Until each lands, its place shows the not-built form, with the issue's number in the place of the ticket while no ticket is cut. The one exception is the `costs` place: until #841 lands it shows the `costs {profile}` of the `execution` line, so that the headline says whether costs are counted.
+3. The lines that other decisions own take their content from them and are named here only by place: the `costs` line with its statutory charges, and the break-even cost (#841); the family count and the `luck` figure (#860); the dropped rows (#866). Until each lands, its place shows the not-built form, with the issue's number in the place of the ticket while no ticket is cut. The one exception is the `costs` place: until #841 lands it says what the run did, the `costs {profile}` of the `execution` line, and when the run booked no cost it adds `no costs and no statutory charges included`. The thin backtest of M1b has no cost code (#858) and books nothing, the statutory charges included, so there the place prints that statement as a line not built yet: `n/a (not built yet; available after ticket T3.8) · no costs and no statutory charges included`.
 4. `Sharpe ± se` is the standard error of 5.7 under independent returns, annualised as the Sharpe is. It carries the label `IID-based`, and `IID-based: dependence visible` under the same Ljung–Box condition as the PSR line.
 5. `assumed` names the four assumptions of the `assumptions` and `execution` lines that change a result most: the order and its fill time, settlement, dividends, and the fill cap. The whole `assumptions` line stays in the details.
 6. The Lo-corrected Sharpe is not in the headline.
@@ -868,11 +868,17 @@ mom_kr · 2015-01-02 → 2024-12-30 (10.0 y, 120 decisions) · KRW
 return    CAGR 9.4% (benchmark 5.1%, excess 4.1%/yr geom) · max drawdown −31.7%
 trust     Sharpe 0.62 ± 0.32 (IID-based) · PSR(0) 0.97 · candidates in the family: n/a (not built yet; available after ticket #860)
           luck: n/a (not built yet; available after ticket #860) · evaluation research data
-costs     none · turnover 3.8x/yr
+costs     none · no costs and no statutory charges included · turnover 3.8x/yr
           break-even: n/a (not built yet; available after ticket #841)
 assumed   market at next open · immediate settlement · dividends pre-withholding · fill qty capped by realized session volume (ex-post)
 data      synth-small · warnings 2 · rows dropped: n/a (not built yet; available after ticket #866) · lines not built 4
 details   run.details() · nexusbt backtest examples/strategies/mom_kr.py --full
+```
+
+In the thin backtest of M1b, the same place reads:
+
+```
+costs     n/a (not built yet; available after ticket T3.8) · no costs and no statutory charges included · turnover 3.8x/yr
 ```
 
 The details print these lines, in this order:

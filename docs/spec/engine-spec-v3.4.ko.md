@@ -850,7 +850,7 @@ details   run.details() · nexusbt backtest … --full
 
 1. 아래 틀의 모든 줄은 그 순서대로 자세히 보기에 남는다: `run.details()`와 `nexusbt backtest … --full`이 그것을 찍는다. 머리글은 그 숫자 몇 개를 되풀이할 뿐, 그 줄들에 없는 숫자를 더하지 않는다. 예외는 규칙 3이 이름 대는 것, 규칙 4의 표준오차, 첫 줄의 실행 연수와 판단 수, 그리고 머리글과 자세히 보기를 합쳐 만들어지지 않은 꼴로 찍힌 자리의 수인 `lines not built`이다.
 2. `return`, `trust`, `assumed`는 늘 찍힌다. 원천이 아직 만들어지지 않은 숫자는 아래 "아직 만들어지지 않은 줄"의 꼴(#858)로 찍히고, 빠지지 않는다.
-3. 다른 결정이 맡은 줄은 그 결정에서 내용을 받고 여기서는 자리로만 이름 붙는다: 법정 비용을 포함한 `costs` 줄과 손익분기 비용(#841); 가족 전체의 셈과 `luck` 숫자(#860); 떨어진 행(#866). 각각이 들어오기 전에는 그 자리에 만들어지지 않은 꼴이 찍히고, 티켓이 아직 없으면 티켓 자리에 이슈 번호를 넣는다. 하나의 예외는 `costs` 자리다: #841이 들어오기 전에는 `execution` 줄의 `costs {profile}`을 보여, 머리글이 비용을 셈했는지 말하게 한다.
+3. 다른 결정이 맡은 줄은 그 결정에서 내용을 받고 여기서는 자리로만 이름 붙는다: 법정 비용을 포함한 `costs` 줄과 손익분기 비용(#841); 가족 전체의 셈과 `luck` 숫자(#860); 떨어진 행(#866). 각각이 들어오기 전에는 그 자리에 만들어지지 않은 꼴이 찍히고, 티켓이 아직 없으면 티켓 자리에 이슈 번호를 넣는다. 하나의 예외는 `costs` 자리다: #841이 들어오기 전에는 실행이 한 일, 곧 `execution` 줄의 `costs {profile}`을 말하고, 실행이 아무 비용도 기록하지 않았으면 `no costs and no statutory charges included`를 덧붙인다. M1b의 얇은 백테스트는 비용 코드가 없어(#858) 법정 비용까지 아무것도 기록하지 않으므로, 거기서는 이 자리가 그 말을 아직 만들어지지 않은 줄로 찍는다: `n/a (not built yet; available after ticket T3.8) · no costs and no statutory charges included`.
 4. `Sharpe ± se`는 독립 수익률 가정 아래 5.7의 표준오차이며, Sharpe와 같은 방식으로 연율화한다. 표시는 `IID-based`이고, PSR 줄과 같은 Ljung–Box 조건에서는 `IID-based: dependence visible`이다.
 5. `assumed`는 `assumptions`·`execution` 줄의 가정 가운데 결과를 가장 많이 바꾸는 넷을 이름 댄다: 주문과 그 체결 시각, 결제, 배당, 체결 상한. `assumptions` 줄 전체는 자세히 보기에 남는다.
 6. Lo 보정 Sharpe는 머리글에 없다.
@@ -869,11 +869,17 @@ mom_kr · 2015-01-02 → 2024-12-30 (10.0 y, 120 decisions) · KRW
 return    CAGR 9.4% (benchmark 5.1%, excess 4.1%/yr geom) · max drawdown −31.7%
 trust     Sharpe 0.62 ± 0.32 (IID-based) · PSR(0) 0.97 · candidates in the family: n/a (not built yet; available after ticket #860)
           luck: n/a (not built yet; available after ticket #860) · evaluation research data
-costs     none · turnover 3.8x/yr
+costs     none · no costs and no statutory charges included · turnover 3.8x/yr
           break-even: n/a (not built yet; available after ticket #841)
 assumed   market at next open · immediate settlement · dividends pre-withholding · fill qty capped by realized session volume (ex-post)
 data      synth-small · warnings 2 · rows dropped: n/a (not built yet; available after ticket #866) · lines not built 4
 details   run.details() · nexusbt backtest examples/strategies/mom_kr.py --full
+```
+
+M1b의 얇은 백테스트에서는 같은 자리가 이렇게 찍힌다:
+
+```
+costs     n/a (not built yet; available after ticket T3.8) · no costs and no statutory charges included · turnover 3.8x/yr
 ```
 
 자세히 보기는 다음 줄들을 이 순서대로 찍는다:
