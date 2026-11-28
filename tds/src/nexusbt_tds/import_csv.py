@@ -120,6 +120,7 @@ def import_csv(mapping: Path, out: Path) -> Path:
         "datasets": datasets, "hashes": {"hash_spec": HASH_SPEC},
         "writer": {"name": "pyarrow", "version": pa.__version__},
     }  # fmt: skip
+    made = not out.exists()
     out.mkdir(parents=True, exist_ok=True)
     for entry, groups in tables:
         entry["files"] = _write(out, entry, groups)
@@ -135,8 +136,11 @@ def import_csv(mapping: Path, out: Path) -> Path:
     text = {"package": out.name, "mapping": mapping.name, "assumed": assumed, "datasets": report,
             "check": checked}  # fmt: skip
     report_path.write_text(json.dumps(text, indent=2, ensure_ascii=False) + "\n", "utf-8")
-    if found.failed:  # written whole or not at all: the package goes, the report stays
-        shutil.rmtree(out)
+    if found.failed:  # written whole or not at all: what it wrote goes, the report stays
+        for item in out.iterdir():  # `out` was empty or absent: every item is the import's
+            shutil.rmtree(item) if item.is_dir() and not item.is_symlink() else item.unlink()
+        if made:
+            out.rmdir()  # a folder the user gave, or a link to one, stays
         raise CsvImportError(
             f"`full` found {checked['errors']} errors and {checked['warnings']} warnings in"
             f" {out.name}; the package was removed, the findings are in {report_path}"

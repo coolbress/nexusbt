@@ -304,6 +304,15 @@ def test_the_import_ends_with_full(tmp_path: Path, capsys: pytest.CaptureFixture
     said = json.loads((out.parent / "import_report.json").read_text(encoding="utf-8"))
     assert said["check"]["errors"] >= 1
     assert "TDS-K001" in {f["code"] for f in said["check"]["findings"]}
+    # what the import wrote goes; a folder the user gave stays, also through a link
+    given = tmp_path / "given"
+    given.mkdir()
+    (tmp_path / "link").symlink_to(given)
+    for folder in (given, tmp_path / "link"):
+        assert main(["import", "csv", str(mapping), "--out", str(folder)]) == 1
+        assert "removed" in capsys.readouterr().err
+        assert folder.is_dir()
+        assert not any(folder.iterdir())
 
 
 @pytest.mark.parametrize("status", ["", ",obs_status"], ids=["close", "close and obs_status"])
@@ -454,6 +463,10 @@ def test_values_and_fills(tmp_path: Path) -> None:
     given = "file: instruments.csv\n    values: {lot_size: '100', is_synthetic: 'false'}\n"
     files = {"instruments.csv": CHAPTER_7.replace("equity", "bond"), "bars.csv": BARS,
              "mapping.yaml": MINIMAL.replace("file: instruments.csv\n", given)}  # fmt: skip
+    equity = {**files, "instruments.csv": CHAPTER_7}  # the same text values, written typed
+    got = rows(import_csv(write(tmp_path / "q", equity), tmp_path / "q" / "pkg"), "instruments")
+    assert (got[0]["lot_size"], got[0]["is_synthetic"], got[0]["multiplier"]) == (100.0, False,
+                                                                                1.0)  # fmt: skip
     report = refused(write(tmp_path / "v", files), tmp_path / "v" / "pkg")  # S001: removed
     assert codes(report) == {"TDS-S001"}
     assert [f["message"] for f in report["check"]["findings"]] == [
