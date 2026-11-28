@@ -754,10 +754,11 @@ def test_each_field_but_the_host_is_another_environment(
     project, run_id = copied
     folder = project / "runs" / run_id
     found = _manifest(folder)
+    now = json.loads(json.dumps(found["environment"]))  # the new run's, as sealed
     found["environment"][name] = "another"
     found["environment"]["machine_id"] = "0" * 16  # another host: not by itself a difference
     _edit(folder / "manifest.json", json.dumps(found, sort_keys=True, indent=2) + "\n")
-    assert _rerun.environment_differs(folder, project) == [name]
+    assert _rerun.environment_differs(folder, project, now) == [name]
 
 
 def test_another_host_alone_is_the_same_environment(copied: tuple[Path, str]) -> None:
@@ -767,9 +768,23 @@ def test_another_host_alone_is_the_same_environment(copied: tuple[Path, str]) ->
     project, run_id = copied
     folder = project / "runs" / run_id
     found = _manifest(folder)
-    found["environment"]["machine_id"] = "0" * 16
-    _edit(folder / "manifest.json", json.dumps(found, sort_keys=True, indent=2) + "\n")
-    assert _rerun.environment_differs(folder, project) == []
+    now = {**found["environment"], "machine_id": "1" * 16}
+    assert _rerun.environment_differs(folder, project, now) == []
+
+
+def test_the_new_run_s_environment_is_compared_not_the_caller_s(
+    copied: tuple[Path, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#867: an entry file may set a thread variable before it seals; the new process runs the
+    same file, so its sealed `environment` is compared, not that of the process calling
+    `rerun`, which never ran it."""
+    from nexusbt.api import _rerun
+
+    project, run_id = copied
+    folder = project / "runs" / run_id
+    saved = _manifest(folder)["environment"]
+    monkeypatch.setenv("OMP_NUM_THREADS", "7")  # the caller's own, not the run's
+    assert _rerun.environment_differs(folder, project, saved) == []
 
 
 def test_an_output_only_the_new_run_has_is_a_difference_in_the_same_environment() -> None:

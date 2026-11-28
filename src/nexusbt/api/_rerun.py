@@ -279,25 +279,25 @@ def _only_new(old: Mapping[str, Any], new: Mapping[str, Any]) -> list[str]:
     return sorted(k for k in new["outputs"] if not k.startswith("source/") and k not in kept)
 
 
-def environment_differs(folder: Path, project: Path) -> list[str]:
-    """What makes the current environment another one, empty when it is the same.
+def environment_differs(folder: Path, project: Path, now: Mapping[str, Any]) -> list[str]:
+    """What makes the new run's environment another one, empty when it is the same.
 
     `uv.lock` when the captured engine or project lock differs from the current one by sha256,
     a project lock on one side only included (#637 Decisions 1); then each field of `_FIELDS`
-    the saved `environment` holds with another value (#867): a lock is the same on every
-    platform. A field an older manifest does not hold is not judged.
+    the saved `environment` holds with another value than `now`, the new run's (#867): a lock
+    is the same on every platform. `now` is what the new process sealed after running the same
+    entry file, so a thread variable or a path that file sets is on both sides. A field an
+    older manifest does not hold is not judged.
     """
-    from nexusbt.artifacts._environment import environment
     from nexusbt.artifacts._runstore import _engine_lock  # as a saved run reads it (5.9.3)
 
-    lock = _engine_lock()
     kept = folder / "source"
     fields = []
-    if (_lock_sha256(kept / "engine-uv.lock") != hashlib.sha256(lock).hexdigest()
+    if (_lock_sha256(kept / "engine-uv.lock") != hashlib.sha256(_engine_lock()).hexdigest()
             or _lock_sha256(kept / "uv.lock") != _lock_sha256(project / "uv.lock")):  # fmt: skip
         fields.append("uv.lock")
-    saved, now = read(folder).get("environment") or {}, environment(lock)
-    return fields + [name for name in _FIELDS if name in saved and saved[name] != now[name]]
+    saved = read(folder).get("environment") or {}
+    return fields + [name for name in _FIELDS if name in saved and saved[name] != now.get(name)]
 
 
 def _beyond(old: pa.Table, new: pa.Table, keys: Sequence[str]) -> bool:
@@ -376,6 +376,7 @@ def rerun(folder: Path, *, new_snapshot: bool) -> tuple[str, str]:
     if not match:
         raise RuntimeError(f"rerun of {folder.name}: it sealed no {manifest['kind']} run")
     new_id, new_manifest = match[0]
-    if fields := environment_differs(folder, project()):  # 5.9.4: another environment
+    now = new_manifest.get("environment") or {}
+    if fields := environment_differs(folder, project(), now):  # 5.9.4: another environment
         return new_id, within(folder, folder.parent / new_id, fields, new_snapshot=new_snapshot)
     return new_id, compare(manifest, new_manifest, new_snapshot=new_snapshot)
