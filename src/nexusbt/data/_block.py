@@ -112,11 +112,15 @@ def build_block(
     span = (calendar.dates[start - 1] if start else _FIRST,
             calendar.dates[last + 1] if last + 1 < len(calendar.dates) else _LAST)  # fmt: skip
     dropped: set[tuple[str, str, str, int]] = set()
-    for path in _files(bars, calendar.market, dates) if n else ():
+    # A chunk with no listed instrument opens its files too: a bar of an unknown instrument
+    # dated in its span is named only by a block that opens that bar's file (#888).
+    for path in _files(bars, calendar.market, dates):
         meta = pq.read_metadata(manifest.root / path)
         rows, cols, table, left = _cells(manifest.root / path, meta, ids, dates, wanted,
                                          optional, (known, calendar.dates, span))  # fmt: skip
         dropped |= {(str(bars["name"]), cause, path, int(i)) for cause, at in left for i in at}
+        if not n:  # no cell to fill
+            continue
         if source not in (*table.column_names, "ts_end", "ts_close"):
             raise _absent(manifest, bars, path, source)
         for f, s in zip(fields, sources, strict=True):
@@ -241,7 +245,8 @@ def _cells(
     """A file's rows that fall in the block, with their row and column numbers; the `optional`
     columns are read when the file has them (`meta`, its footer). The dictionary of
     `instrument_id` is mapped to column numbers once, then each row's index is looked up in
-    that small table (5.3.1, A-05). `ids` is sorted and not empty. Last, by cause, the rows
+    that small table (5.3.1, A-05). `ids` is sorted; when it is empty no row is kept and only
+    the unknown instruments are looked for (#888). Last, by cause, the rows
     dated in the span `(low, high)` that `drops` gives with the known ids and the sessions,
     left out for an unknown `instrument_id` or for a day that is no session (#866)."""
     known, sessions, (low, high) = drops
@@ -252,8 +257,11 @@ def _cells(
     cols, strangers = [], []
     for chunk in table[ID].chunks:
         words = np.array(chunk.dictionary.to_pylist(), dtype=object)
-        at = np.minimum(np.searchsorted(sorted_ids, words), len(ids) - 1)
-        lookup = np.where(sorted_ids[at] == words, at, -1)
+        if ids:
+            at = np.minimum(np.searchsorted(sorted_ids, words), len(ids) - 1)
+            lookup = np.where(sorted_ids[at] == words, at, -1)
+        else:
+            lookup = np.full(len(words), -1, dtype=np.intp)
         indices = chunk.indices.to_numpy(zero_copy_only=False)
         cols.append(lookup[indices])
         strangers.append(~np.isin(words, known)[indices])
