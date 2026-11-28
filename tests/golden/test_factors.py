@@ -59,10 +59,18 @@ def _latest(close: F64) -> F64:
     return np.array(found[graph_hash(term)]["value"].to_pylist(), dtype=np.float64)
 
 
+#: #868: the cases, by factor and place in its file, whose default `min_periods` (a full window)
+#: the built kernels do not give yet. Each must still differ from its kernel; the pull request
+#: that builds `min_periods` makes them agree and empties this set.
+PENDING = {("AnnualizedVolatility", 1), ("AverageTradedValue", 1), ("MaxDrawdown", 3),
+           ("RSI", 1), ("RollingStd", 1), ("SimpleMovingAverage", 1), ("VWAP", 3)}  # fmt: skip
+
+
 def check(name: str) -> None:
     doc = yaml.safe_load((FACTORS / f"{name}.yaml").read_text())
     op, extra = KERNEL.get(name, (name, 0))
-    for case in doc["cases"]:
+    for i, case in enumerate(doc["cases"]):
+        differs = False
         found = re.search(r"\((\d+)", case["term"])
         window = int(found.group(1)) if found else 1 if name == "Latest" else 2
         columns = [np.array(v, dtype=np.float64) for v in case["inputs"].values()]
@@ -78,7 +86,11 @@ def check(name: str) -> None:
                 value = CALL[name](case["term"], windows)[0]
             else:
                 value = REGISTERED[op].kernel(x[t - rows + 1 : t + 1, None])[0]
-            assert value == pytest.approx(expected, abs=5e-7, nan_ok=True), (case["term"], t)
+            same = value == pytest.approx(expected, abs=5e-7, nan_ok=True)
+            assert same or (name, i) in PENDING, (case["term"], t)
+            differs = differs or not same
+        # a pending case the kernels already give is no longer pending: its line leaves PENDING
+        assert differs or (name, i) not in PENDING, (case["term"], "given: drop it from PENDING")
 
 
 def test_T25_Returns() -> None:  # noqa: N802 - spec 10.1's name

@@ -2,15 +2,15 @@
 # literals; implementation pull requests do not change this file. `expected` per row:
 # null = warm-up (no full window in the 5 rows), .nan = the factor gives NaN.
 factor: VWAP
-spec: "3.4: sum(close * volume)/sum(volume) over the rows whose close and volume are both finite; no pair, or the pairs' volume summing to 0 -> NaN; minimum observations 1 pair; warm-up W-1. 8.2: VWAP(3) 10, NaN, 12 with 100, 300, 300 -> 11.5"
+spec: "3.4: sum(close * volume)/sum(volume) over the rows whose close and volume are both finite; no pair, the pairs' volume summing to 0, or fewer than min_periods pairs (default W) -> NaN; warm-up W-1. 8.2: VWAP(3, min_periods=1) 10, NaN, 12 with 100, 300, 300 -> 11.5"
 cases:
-  - term: "VWAP(3)"
+  - term: "VWAP(3, min_periods=1)"
     # A row's close and volume are NaN together, or only its volume: both readings of "NaN left
     # out" (zipline's literal formula, or pairs only) give the same values.
     inputs: {close: [10, .nan, 12, 11, 10], volume: [100, .nan, 300, .nan, 100]}
     # Worked by hand, not yet checked by the person:(1000 + 3600)/400 = 11.5; 3600/300 = 12.0; (3600 + 1000)/400 = 11.5.
     expected: [null, null, 11.5, 12.0, 11.5]
-  - term: "VWAP(3)"
+  - term: "VWAP(3, min_periods=1)"
     # A NaN close with a volume (#278): the row is out of both sums. zipline's literal formula
     # keeps its volume in the denominator: 4600/700, 3600/800, 3600/500.
     inputs: {close: [10, .nan, 12, .nan, 11], volume: [100, 300, 300, 200, 0]}
@@ -30,3 +30,9 @@ cases:
     #   rows 2-4: the one pair (12, 0), 0/0 -> NaN
     #   rows 3-5: the one pair (12, 0), 0/0 -> NaN
     expected: [null, null, .nan, .nan, .nan]
+  - term: "VWAP(3)"
+    # #868: min_periods defaults to the window, counted in pairs.
+    inputs: {close: [10, 11, 12, .nan, 10], volume: [100, 200, 300, 100, 100]}
+    # Worked by hand, not yet checked by the person: rows 1-3, three pairs: (1000 + 2200 +
+    # 3600)/600 = 11.333333; rows 2-4 and 3-5 hold two pairs of 3 -> NaN.
+    expected: [null, null, 11.333333, .nan, .nan]
