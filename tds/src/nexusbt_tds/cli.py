@@ -8,8 +8,10 @@ internal error.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import sys
+import time
 from collections.abc import Sequence
 from pathlib import Path
 from typing import NoReturn
@@ -136,17 +138,27 @@ def _hash(args: argparse.Namespace) -> int:
 
 
 def _import(args: argparse.Namespace) -> int:
+    began, checked_at = time.monotonic(), []
+
+    def checking(out: Path) -> None:  # #888: the check is most of a large import's time
+        checked_at.append(time.monotonic())
+        with contextlib.suppress(OSError):  # a closed stderr must not leave a half import
+            print(f"tds import csv: checking {out} at the full level"
+                  " (on a large package most of the import's time)", file=sys.stderr)  # fmt: skip
+
     try:
-        out = import_csv(args.path, args.out)
+        out = import_csv(args.path, args.out, checking=checking)
     except CsvImportError as exc:
         print(f"tds import csv: {exc}", file=sys.stderr)
         return ERRORS
+    ended = time.monotonic()
+    took = f" ({ended - checked_at[0]:.1f} s of {ended - began:.1f} s)" if checked_at else ""
     said = json.loads((out.parent / REPORT).read_text(encoding="utf-8"))
     n = sum(d.get("rows_filled", 0) for d in said["datasets"].values())
     filled = f"; {n} missing session rows filled (see the report)" if n else ""
     checked = said["check"]  # #866: the import's own `full` check
     print(f"wrote {out} and {out.parent / REPORT}{filled}; full check: {checked['errors']}"
-          f" errors, {checked['warnings']} warnings")  # fmt: skip
+          f" errors, {checked['warnings']} warnings{took}")  # fmt: skip
     return OK
 
 
