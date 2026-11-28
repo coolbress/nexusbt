@@ -297,7 +297,7 @@ nexusbt/                                     (공개 저장소, Apache-2.0)
 │   └── src/nexusbt_tds/                       check, hash, manifest, describe, import_csv (import 없음: nexusbt)
 ├── src/nexusbt/
 │   ├── __init__.py          공개 표면(3.1)만 다시 내보냄
-│   ├── contracts/           ID 상수, 엔진 쪽 칼럼 집합, 단위·정책·오류, 공유 프레임·판단 맥락 타입 (의존 없음)
+│   ├── contracts/           ID 상수, 엔진 쪽 칼럼 집합, 단위·정책·오류, 공유 프레임·판단 맥락 타입, 5.6.13의 공용 종료가치 함수 (의존 없음)
 │   ├── config/              nexusbt.toml 읽기·검증 (비밀 키 금지)
 │   ├── data/                스냅숏 열기(tds 검사기 호출), 프로필·대체 동작, 시장 블록, L0 캐시, 값 표, 달력, 환율
 │   ├── pipeline/            항 값 객체, 데이터셋, 연산자, 내장 팩터, Pipeline, 해시, 정적 검사
@@ -306,7 +306,7 @@ nexusbt/                                     (공개 저장소, Apache-2.0)
 │   ├── risk/                자금 관리 `size.*`·위험 규칙 `risk.*`(5.5.1a·5.5.2·5.5.2a; 예약 `ledoit_wolf`)
 │   ├── ml/                  `ml.factor` 학습 노드, 학습 창, `fits`·`predictions` 기록(5.3.11; sklearn을 import하지 않음)
 │   ├── execution/           주문(열 배열 주문 표), 체결 모형, 비용, 크기 정하기, 일간 상태 기계, 프리셋
-│   ├── accounting/          열 배열 계좌 상태, 정수 최소 단위 기입, 기업행동 해석기 소비, 권리·종료가치·평가, NAV 다리
+│   ├── accounting/          열 배열 계좌 상태, 정수 최소 단위 기입, 기업행동 해석기 소비, 권리·종료가치 기입(함수는 `contracts`에 있다)·평가, NAV 다리
 │   ├── research/            정답(삼중 장벽 포함), IC·분위·폭, 통계(NW, PSR, DSR, PBO, MinTRL, BHY, Lo), 구간, 분할기·검증 방법(6.3a), 시도 기록, 탐침
 │   ├── artifacts/           실행 트랜잭션, 매니페스트, 해시, 색인(SQLite), 소스 저장, 장부, 대조, 귀속·노출, 보고서
 │   ├── api/                 evaluate/backtest/screen/live/fill/reconcile/sweep/compare/explain/check/describe/runs
@@ -857,7 +857,7 @@ details   run.details() · nexusbt backtest … --full
 2. `return`, `trust`, `assumed`는 늘 찍힌다. 원천이 아직 만들어지지 않은 숫자는 아래 "아직 만들어지지 않은 줄"의 꼴(#858)로 찍히고, 빠지지 않는다.
 3. 다른 결정이 맡은 줄은 그 결정에서 내용을 받고 여기서는 자리로만 이름 붙는다: 법정 비용을 포함한 `costs` 줄과 손익분기 비용(#841); 가족 전체의 셈과 `luck` 숫자(#860); 떨어진 행(#866). 각각이 들어오기 전에는 그 자리에 만들어지지 않은 꼴이 찍히고, 티켓이 아직 없으면 티켓 자리에 이슈 번호를 넣는다. 하나의 예외는 `costs` 자리다: #841이 들어오기 전에는 실행이 한 일, 곧 `execution` 줄의 `costs {profile}`을 말하고, 실행이 아무 비용도 기록하지 않았으면 `no costs and no statutory charges included`를 덧붙인다. M1b의 얇은 백테스트는 비용 코드가 없어(#858) 법정 비용까지 아무것도 기록하지 않으므로, 거기서는 이 자리가 그 말을 아직 만들어지지 않은 줄로 찍는다: `n/a (not built yet; available after ticket T3.8) · no costs and no statutory charges included`.
 4. `Sharpe ± se`는 독립 수익률 가정 아래 5.7의 표준오차이며, Sharpe와 같은 방식으로 연율화한다. 표시는 `IID-based`이고, PSR 줄과 같은 Ljung–Box 조건에서는 `IID-based: dependence visible`이다.
-5. `assumed`는 `assumptions`·`execution` 줄의 가정 가운데 결과를 가장 많이 바꾸는 넷을 이름 댄다: 주문과 그 체결 시각, 결제, 배당, 체결 상한. `assumptions` 줄 전체는 자세히 보기에 남는다.
+5. `assumed`는 `assumptions`·`execution` 줄의 가정 가운데 결과를 가장 많이 바꾸는 넷을 이름 댄다: 주문과 그 체결 시각, 결제, 배당, 체결 상한. `assumptions` 줄 전체는 자세히 보기에 남는다. T3.5b 전 M1b의 얇은 백테스트처럼 체결 상한이 없는 실행은 두 줄의 그 자리에 `no fill cap`이라고 쓴다(소유자, 2026-11-28, #901).
 6. Lo 보정 Sharpe는 머리글에 없다.
 7. FactorReport의 첫 화면은 바뀌지 않는다: 그 정답 줄이 이미 맨 위에 있다.
 8. **한 해 미만** (5.7, #873): 계열이 한 해 미만이면 `return`은 CAGR 자리에 기간 수익률을 찍고(`return    {p}% {start} → {end}, not annualised · max drawdown {m}`), `trust`는 Sharpe 뒤에 `under one year: {T} sessions`를 붙인다; 둘 다 details의 `under one year` 줄의 숫자다. `costs` 줄은 `turnover {x}x/yr` 대신 `turnover {x}x over the period`를 찍고, `return`은 벤치마크와 기간 초과도 준다(`benchmark {b}, excess {e} over the period`)(#874). details에서는 모든 `{cagr}`·`CAGR`·`/yr` 값이 5.7이 한 해 미만에 주는 꼴을 갖는다: CAGR로 계산하는 값은 기간 값에 `over the period, not annualised`를, 단위만 바꾸는 값은 뒤에 `under one year: {T} sessions`를 찍는다.
@@ -2057,7 +2057,7 @@ v1은 이 절의 정의를 규범으로 고정하고(INV-08 문구, `DecisionCon
 
 - **null인 범위** [#705 결정 8; #737]: `unobserved`인 줄은 `ret_lo`, `ret_hi`, `policy_id`를 null로 둘 수 있고(TDS 5.13), F-13이 메모리에서 짓는 사건(4.5)도 똑같이 null로 둔다; 엔진은 둘을 똑같이 읽는다. 그때 엔진은 `ret_lo = −1`(전부 잃음)과 `ret_hi = 0`을 가정하고, (c)에서 그것은 `ref_price`가 아니라 분배 뒤 남은 자본인 종료가치 `q·ref*`이다. 정책 `lo`와 `hi`, 시나리오 `delist_lo`와 `delist_hi`, `short_exit_estimate`가 이 값을 쓰고, 결과의 꼬리표는 그 퇴장들의 범위가 생산자의 것이 아니라 엔진의 가정이라고 말한다. 두 값은 한계가 아니라 시나리오다: `ref*`보다 높은 대가는 그 밖에 있다. 전형적인 결과의 추정도 아니다: 빠진 폐지 수익을 0으로 읽을 수 없어서 둔, 가정한 범위의 두 끝이다 [Shumway (1997), "The Delisting Bias in CRSP Data", Journal of Finance 52(1); Shumway and Warther (1999), "The Delisting Bias in CRSP's Nasdaq Data and Its Implications for the Size Effect", Journal of Finance 54(6); 그들의 대체값은 쓰지 않는다]. `observed_then_policy`에서는 그런 보유가 위와 같이 E13이다.
 
-- **공용 종료가치 함수 하나**: (a)~(d)·정책 표·금액 공개 시각은 함수 `terminal_value(q, held_path, delisting_row, policy, as_of) -> (amount, ts_known, basis)` 하나로만 계산하고, 회계(이 절), 정답 `fwd_return`(5.8), 그림자 지수(5.5.2a), 삼중 장벽 정답(5.8)이 모두 이 함수를 부른다(따로 된 식 금지; `tests/unit/research/test_labels.py::test_terminal_uses_shared_resolver`). 정답 경로는 1주에서 시작한 수량(분할·주식배당 반영)과 그 경로가 이미 받은(재투자한) 분배를 `held_path`로 넘긴다; 재투자할 유효 가격이 없는 분배(마지막 거래일 뒤 배당락)는 현금으로 들고 간다.
+- **공용 종료가치 함수 하나**: (a)~(d)·정책 표·금액 공개 시각은 함수 `terminal_value(q, held_path, delisting_row, policy, as_of) -> (amount, ts_known, basis)` 하나로만 계산하고, 회계(이 절), 정답 `fwd_return`(5.8), 그림자 지수(5.5.2a), 삼중 장벽 정답(5.8)이 모두 이 함수를 부른다(따로 된 식 금지; `tests/unit/research/test_labels.py::test_terminal_uses_shared_resolver`). 이 함수는 모든 모듈이 가져올 수 있는 `contracts`(2.3)에 있어서, 다른 계층의 호출자들에게 2.5에 없는 화살표가 필요 없다(소유자, 2026-11-28, #901). 정답 경로는 1주에서 시작한 수량(분할·주식배당 반영)과 그 경로가 이미 받은(재투자한) 분배를 `held_path`로 넘긴다; 재투자할 유효 가격이 없는 분배(마지막 거래일 뒤 배당락)는 현금으로 들고 간다.
 - 종료가치는 한 번만 적용한다(기준 가격 `ref_price`가 이미 손실을 담은 한국 정리매매 가격이면 참조 생산자가 `ret_observed = 0`으로 준다).
 - 숏 보유의 금액 모르는 종료 의무는 `decision_value`에서 규칙 추정 `short_exit_estimate = q·ref*·(1 + max(ret_hi, 0))`으로 잡고, `nav_economic`에서는 사후 금액으로 바꾼다(5.6.9).
 - 시나리오 `delist_lo`·`delist_hi`(기본 시나리오에 포함)는 `lo`, `hi` 정책으로 같은 목표를 다시 돌려 CAGR 범위를 보고한다. 정책 id(`policy_id`)와 사용 건수를 매니페스트에 남긴다.
@@ -3481,7 +3481,7 @@ v1 명세의 O1~O11, 청사진 OQ-1~OQ-15, TDS Q1~Q16을 하나로 모았고, v3
 | R-07 선언형 Strategy | 3.7 | M1b~M3a | 바뀜(`on_rebalance` 없음, `risk=` 칸, A-10, A-46; `decide` 칸, 2026-11-24, #752) | T3.2a, T3.2 |
 | R-08 `nx.param` | 3.7 | M1b~M3a | v1 | T3.2a, T3.2 |
 | R-09 함수·CLI 목록 | 3.8, 3.10 | M5 | v1 | T5.4 |
-| R-10 결과 객체 표시 | 3.9 | M1b~M3a | v1 | T3.13c, T2.10a, T3.13a |
+| R-10 결과 객체 표시 | 3.9 | M1b~M3a | v1 | T3.13d, T2.10a, T3.13a |
 | R-11 비율 옆 건수 | 3.9 | M2 | v1 | T2.10a |
 | R-12 구조 해시·재사용 | 5.3.9 (L0·L1) | M6 | 바뀜(의미 열쇠, A-42) | T1.5, T6.4, T6.12 |
 | R-13 screen = backtest | 5.5, INV-08(기준점) | M3 | 바뀜(A-38; `decide`가 있으면 Pipeline 값까지, 2026-11-24, #752) | T3.1, T3.16, T7.1 |
@@ -3702,7 +3702,7 @@ v1 명세의 O1~O11, 청사진 OQ-1~OQ-15, TDS Q1~Q16을 하나로 모았고, v3
 
 | R3 | 우선 | 반영한 곳 | 티켓 |
 |---|---|---|---|
-| 01 해석기 존재·조건 시각 | P0 | INV-01, 1.2, 5.1.5, 5.3.3a(2)(4)(9)(10), 5.3.4, 5.6.11, 8.2 G-20, 8.3 P-FUT, TDS 5.11 | T0.15a, T3.Gc, T3.10, T4.15b |
+| 01 해석기 존재·조건 시각 | P0 | INV-01, 1.2, 5.1.5, 5.3.3a(2)(4)(9)(10), 5.3.4, 5.6.11, 8.2 G-20, 8.3 P-FUT, TDS 5.11 | T0.15a, T3.Gg, T3.10a, T3.10, T4.15b |
 | 02 최소 단위 정수 비교 | P0 | INV-20, 1.1, 1.2, 4.6, 4.7 `base_unit`, 5.6.4a, 8.2 G-57 (f)(h), 8.3 P-GRID, TDS 5.27 | T0.5b, T0.15d, T3.Gf, T3.24 |
 | 03 거래량 상한 문장·P-FILLCAUSAL | P0 | INV-01, 3.9, 5.6.6, 5.9.2, 8.3 | T3.5b, T3.13a, T3.16 |
 | 04 캐시 열쇠 | P0 | INV-05, 4.2, 5.3.9, 3.11 `cache_max_gb`, 7 P2b, 8.3 P-CACHE-INCR, ADR-0025, TDS 4.2 | T0.15a, T1.4, T6.4, T6.11, T6.12 |

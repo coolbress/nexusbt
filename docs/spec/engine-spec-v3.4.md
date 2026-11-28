@@ -297,7 +297,7 @@ nexusbt/                                     (public repository, Apache-2.0)
 │   └── src/nexusbt_tds/                       check, hash, manifest, describe, import_csv (no import of nexusbt)
 ├── src/nexusbt/
 │   ├── __init__.py          re-exports only the public surface (3.1)
-│   ├── contracts/           the ID constant, engine-side column sets, units, policies, errors, shared frame and decision-context types (no dependencies)
+│   ├── contracts/           the ID constant, engine-side column sets, units, policies, errors, shared frame and decision-context types, the shared terminal-value function of 5.6.13 (no dependencies)
 │   ├── config/              reading and validating nexusbt.toml (secret keys forbidden)
 │   ├── data/                opening snapshots (calls the tds checker), profiles and fallbacks, market blocks, L0 cache, value tables, calendars, exchange rates
 │   ├── pipeline/            term value objects, datasets, operators, built-in factors, Pipeline, hashes, static checks
@@ -306,7 +306,7 @@ nexusbt/                                     (public repository, Apache-2.0)
 │   ├── risk/                money management `size.*` and risk rules `risk.*` (5.5.1a, 5.5.2, 5.5.2a; reserved `ledoit_wolf`)
 │   ├── ml/                  the `ml.factor` training node, training windows, `fits` and `predictions` records (5.3.11; does not import sklearn)
 │   ├── execution/           orders (columnar order table), fill models, costs, sizing, the daily state machine, presets
-│   ├── accounting/          columnar account state, integer minor-unit booking, consuming the corporate-action resolver, entitlements, terminal value, valuation, NAV bridge
+│   ├── accounting/          columnar account state, integer minor-unit booking, consuming the corporate-action resolver, entitlements, booking the terminal value (the function is in `contracts`), valuation, NAV bridge
 │   ├── research/            labels (triple barrier included), IC, quantiles, breadth, statistics (NW, PSR, DSR, PBO, MinTRL, BHY, Lo), segments, splitters and validation methods (6.3a), attempt records, probes
 │   ├── artifacts/           run transactions, manifests, hashes, index (SQLite), saved sources, ledgers, reconciliation, attribution and exposure, reports
 │   ├── api/                 evaluate/backtest/screen/live/fill/reconcile/sweep/compare/explain/check/describe/runs
@@ -856,7 +856,7 @@ details   run.details() · nexusbt backtest … --full
 2. `return`, `trust` and `assumed` are always printed. A number whose source is not built yet is printed in the form of "A line not built yet" below (#858), never left out.
 3. The lines that other decisions own take their content from them and are named here only by place: the `costs` line with its statutory charges, and the break-even cost (#841); the family count and the `luck` figure (#860); the dropped rows (#866). Until each lands, its place shows the not-built form, with the issue's number in the place of the ticket while no ticket is cut. The one exception is the `costs` place: until #841 lands it says what the run did, the `costs {profile}` of the `execution` line, and when the run booked no cost it adds `no costs and no statutory charges included`. The thin backtest of M1b has no cost code (#858) and books nothing, the statutory charges included, so there the place prints that statement as a line not built yet: `n/a (not built yet; available after ticket T3.8) · no costs and no statutory charges included`.
 4. `Sharpe ± se` is the standard error of 5.7 under independent returns, annualised as the Sharpe is. It carries the label `IID-based`, and `IID-based: dependence visible` under the same Ljung–Box condition as the PSR line.
-5. `assumed` names the four assumptions of the `assumptions` and `execution` lines that change a result most: the order and its fill time, settlement, dividends, and the fill cap. The whole `assumptions` line stays in the details.
+5. `assumed` names the four assumptions of the `assumptions` and `execution` lines that change a result most: the order and its fill time, settlement, dividends, and the fill cap. The whole `assumptions` line stays in the details. A run with no fill cap, as the thin backtest of M1b is before T3.5b, reads `no fill cap` in that place of both lines (the owner, 2026-11-28, #901).
 6. The Lo-corrected Sharpe is not in the headline.
 7. The FactorReport's first screen is not changed: its label line already sits at the top.
 8. **Under one year** (5.7, #873): when the series spans under one year, `return` prints the period return in the place of the CAGR, `return    {p}% {start} → {end}, not annualised · max drawdown {m}`, and `trust` adds `under one year: {T} sessions` after the Sharpe; both are numbers of the details' `under one year` line. The `costs` line prints `turnover {x}x over the period` in place of `turnover {x}x/yr`, and `return` gives the benchmark and the excess over the period too (`benchmark {b}, excess {e} over the period`) (#874). In the details every `{cagr}`, `CAGR` and `/yr` figure takes the form 5.7 gives it under one year: a figure from a CAGR prints its period value with `over the period, not annualised`, a figure that only changes a unit prints `under one year: {T} sessions` after it.
@@ -2056,7 +2056,7 @@ At the start of the effective session (quantity events whose terms are published
 
 - **A null range** [#705 Decisions 8; #737]: an `unobserved` row may leave `ret_lo`, `ret_hi` and `policy_id` null (TDS 5.13), and F-13's in-memory event (4.5) leaves them null the same way; the engine reads both alike. It then assumes `ret_lo = −1`, everything lost, and `ret_hi = 0`, which under (c) is the terminal value `q·ref*`, the capital left after distributions, not `ref_price`. The policies `lo` and `hi`, the scenarios `delist_lo` and `delist_hi` and `short_exit_estimate` take these, and the result's labels say that the range of those exits is the engine's assumption, not the producer's. The two values are scenarios, not bounds: a consideration above `ref*` lies outside them. Nor are they estimates of a typical outcome: they are the ends of an assumed range, because a missing delisting return cannot be read as 0 [Shumway (1997), "The Delisting Bias in CRSP Data", Journal of Finance 52(1); Shumway and Warther (1999), "The Delisting Bias in CRSP's Nasdaq Data and Its Implications for the Size Effect", Journal of Finance 54(6); their replacement values are not adopted]. Under `observed_then_policy` such a holding is E13, as above.
 
-- **One shared terminal-value function**: (a)~(d), the policy table and the amount publication time are computed only by the one function `terminal_value(q, held_path, delisting_row, policy, as_of) -> (amount, ts_known, basis)`, and accounting (this section), the label `fwd_return` (5.8), the shadow index (5.5.2a) and the triple-barrier label (5.8) all call this function (no separate formulas; `tests/unit/research/test_labels.py::test_terminal_uses_shared_resolver`). The label path passes as `held_path` the quantity starting from 1 share (splits and stock dividends reflected) and the distributions that path has already received (reinvested); a distribution with no valid price to reinvest at (ex-date after the last trading day) is carried as cash.
+- **One shared terminal-value function**: (a)~(d), the policy table and the amount publication time are computed only by the one function `terminal_value(q, held_path, delisting_row, policy, as_of) -> (amount, ts_known, basis)`, and accounting (this section), the label `fwd_return` (5.8), the shadow index (5.5.2a) and the triple-barrier label (5.8) all call this function (no separate formulas; `tests/unit/research/test_labels.py::test_terminal_uses_shared_resolver`). The function lives in `contracts` (2.3), which every module may import, so its callers in different layers need no arrow that 2.5 does not have (the owner, 2026-11-28, #901). The label path passes as `held_path` the quantity starting from 1 share (splits and stock dividends reflected) and the distributions that path has already received (reinvested); a distribution with no valid price to reinvest at (ex-date after the last trading day) is carried as cash.
 - The terminal value is applied only once (when the reference price `ref_price` is a Korean liquidation-trading price that already contains the loss, the reference producer gives `ret_observed = 0`).
 - A short holding's terminal obligation of unknown amount is taken in `decision_value` as the rule estimate `short_exit_estimate = q·ref*·(1 + max(ret_hi, 0))`, and replaced in `nav_economic` by the after-the-fact amount (5.6.9).
 - The scenarios `delist_lo` and `delist_hi` (included in the default scenarios) rerun the same targets with the `lo` and `hi` policies and report the CAGR range. The policy id (`policy_id`) and the usage count are recorded in the manifest.
@@ -3480,7 +3480,7 @@ Status: **v1** = implemented by this spec, **changed** = implemented with a corr
 | R-07 declarative Strategy | 3.7 | M1b~M3a | changed (no `on_rebalance`, `risk=` slot, A-10, A-46; the `decide` slot, 2026-11-24, #752) | T3.2a, T3.2 |
 | R-08 `nx.param` | 3.7 | M1b~M3a | v1 | T3.2a, T3.2 |
 | R-09 function and CLI list | 3.8, 3.10 | M5 | v1 | T5.4 |
-| R-10 result object display | 3.9 | M1b~M3a | v1 | T3.13c, T2.10a, T3.13a |
+| R-10 result object display | 3.9 | M1b~M3a | v1 | T3.13d, T2.10a, T3.13a |
 | R-11 counts beside ratios | 3.9 | M2 | v1 | T2.10a |
 | R-12 structure hash, reuse | 5.3.9 (L0·L1) | M6 | changed (semantic key, A-42) | T1.5, T6.4, T6.12 |
 | R-13 screen = backtest | 5.5, INV-08 (anchor) | M3 | changed (A-38; with `decide`, up to the Pipeline values, 2026-11-24, #752) | T3.1, T3.16, T7.1 |
@@ -3701,7 +3701,7 @@ Engine invariant check: of the 24 differences, none breaks INV-01 (the one rule 
 
 | R3 | Priority | Where reflected | Ticket |
 |---|---|---|---|
-| 01 resolver existence and terms times | P0 | INV-01, 1.2, 5.1.5, 5.3.3a(2)(4)(9)(10), 5.3.4, 5.6.11, 8.2 G-20, 8.3 P-FUT, TDS 5.11 | T0.15a, T3.Gc, T3.10, T4.15b |
+| 01 resolver existence and terms times | P0 | INV-01, 1.2, 5.1.5, 5.3.3a(2)(4)(9)(10), 5.3.4, 5.6.11, 8.2 G-20, 8.3 P-FUT, TDS 5.11 | T0.15a, T3.Gg, T3.10a, T3.10, T4.15b |
 | 02 integer comparison in minor units | P0 | INV-20, 1.1, 1.2, 4.6, 4.7 `base_unit`, 5.6.4a, 8.2 G-57 (f)(h), 8.3 P-GRID, TDS 5.27 | T0.5b, T0.15d, T3.Gf, T3.24 |
 | 03 volume-cap sentence, P-FILLCAUSAL | P0 | INV-01, 3.9, 5.6.6, 5.9.2, 8.3 | T3.5b, T3.13a, T3.16 |
 | 04 cache key | P0 | INV-05, 4.2, 5.3.9, 3.11 `cache_max_gb`, 7 P2b, 8.3 P-CACHE-INCR, ADR-0025, TDS 4.2 | T0.15a, T1.4, T6.4, T6.11, T6.12 |
