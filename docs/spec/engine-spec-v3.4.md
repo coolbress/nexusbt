@@ -3489,8 +3489,8 @@ Status: **v1** = implemented by this spec, **changed** = implemented with a corr
 | R-52 survivorship, currency, segment tests | 8.4 | M2 | v1 | T2.4, T2.5, T2.9 |
 | R-53 documentation example tests | 8.5 | all | v1 | T1.20 |
 | R-54 automatic truncation | 6.5 | M6 | changed (diagnostic, A-25) | T6.9 |
-| R-55 zipline preset | 5.6.15 | M3 | changed (tests only, A-40) | T3.15a/b |
-| R-56 order types | 3.7, 5.6 | M3 | changed (OHLC rules by hand-calculated tests, A-57) | T3.4~T3.7, T3.17a/b |
+| R-55 zipline preset | 5.6.15 | M1b~M3b | changed (tests only, A-40) | T3.15a/b |
+| R-56 order types | 3.7, 5.6 | M1b~M3b | changed (OHLC rules by hand-calculated tests, A-57) | T3.4~T3.7, T3.5c/d, T3.17a/b |
 | R-57 segments, no locks | 6.1 | M2 | v1 | T2.9 |
 | R-58 micro-caps | 3.6 | M2 | v1 | T2.4 |
 | R-59 benchmark | 4.6, 5.7 | M4 | v1 | T4.6 |

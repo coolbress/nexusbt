@@ -8,7 +8,7 @@
 
 The plan built in this order: M0 normative contracts → M1 snapshot, pipeline slice and first public path → M2 PIT and factor evaluation → M3a single-market market orders end to end → M3b → M4 → M5 → M6 → v1.x. The first run of a backtest from start to end was M3a's, after every ticket of M2. #43's decision of 2026-11-04 kept it there: reordering the milestones would have been a spec change the owner had not asked for.
 
-On 2026-11-28, 55 of the 222 v1 tickets were closed, all in M0 and M1, and nothing could run a backtest (#43's Decisions, 2026-11-28; #858).
+On 2026-11-28, as #43 records it, 55 of the 222 v1 tickets were closed (the plan's count before the six removed on 2026-11-24, #752), all in M0 and M1, and nothing could run a backtest (#43's Decisions, 2026-11-28; #858).
 
 ## Decision
 
