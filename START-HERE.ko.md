@@ -65,7 +65,7 @@
 
 ### (d) `/to-tickets`
 
-[docs/plan/plan.md](docs/plan/plan.md)의 10.1에서 이슈를 만든다. 티켓은 마일스톤 순서(M0 → M6, 그다음 v1.x)로 만든다. 이슈 본문은 `docs/plan/plan.md` 10.1의 티켓 글을 그대로 옮긴다: 제목, 크기, Done means, Acceptance, Blocked by, § 절. 이슈 자체의 제목은 티켓이 무엇을 하는지 한 문장으로 쓰고, 티켓의 커밋 꼴 제목(`T6.16 ci(release): …`)은 쓰지 않는다. 티켓 id와 그 제목은 본문 `## Parent`에 둔다. 정답 티켓(`T<m>.G…`)이 그것을 쓰는 티켓보다 먼저다. `Blocked by`의 티켓 번호는 만들면서 이슈 번호로 바꾸고, 티켓 번호 → 이슈 번호 대응은 계획 이슈에 둔다.
+[docs/plan/plan.md](docs/plan/plan.md)의 10.1에서 이슈를 만든다. 티켓은 마일스톤 순서(M0 → M1 → M1b → M2 → … → M6, 그다음 v1.x. M1b는 처음부터 끝까지 도는 얇은 백테스트이고 M1과 M2 사이에 온다)로 만든다. 이슈 본문은 `docs/plan/plan.md` 10.1의 티켓 글을 그대로 옮긴다: 제목, 크기, Done means, Acceptance, Blocked by, § 절. 이슈 자체의 제목은 티켓이 무엇을 하는지 한 문장으로 쓰고, 티켓의 커밋 꼴 제목(`T6.16 ci(release): …`)은 쓰지 않는다. 티켓 id와 그 제목은 본문 `## Parent`에 둔다. 정답 티켓(`T<m>.G…`)이 그것을 쓰는 티켓보다 먼저다. `Blocked by`의 티켓 번호는 만들면서 이슈 번호로 바꾸고, 티켓 번호 → 이슈 번호 대응은 계획 이슈에 둔다.
 
 ### (e) `/implement #N`
 

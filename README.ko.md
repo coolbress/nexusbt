@@ -11,7 +11,9 @@ NexusBT는 일봉으로 주식 팩터를 연구하는 오픈소스(Apache-2.0) �
 
 ## 상태
 
-첫 이정표(M1)를 짓는 중이다. 지금 `main`에서 합성 자료로 돌아가는 것:
+첫 이정표(M1)를 짓는 중이다. 다음은 처음부터 끝까지 도는 얇은 백테스트(한
+시장, 롱온리, 비용 없음)인 M1b이고, 이것이 `nx.backtest`와 `backtest` 명령을
+팩터 평가(M2)보다 먼저 가져온다. 지금 `main`에서 합성 자료로 돌아가는 것:
 `tds` 검사기와 CSV 가져오기, TDS 패키지 열기와 검사, 가격 위의 내장 팩터를
 쓰는 `nx.run_pipeline`, 팩터 하나의 `nx.screen`, 저장된 실행과
 `nexusbt rerun`, `nexusbt init`·`doctor`·`stubs`. 아직 없는 것: 재무 자료,

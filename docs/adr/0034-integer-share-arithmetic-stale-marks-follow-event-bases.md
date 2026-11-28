@@ -3,6 +3,7 @@
 - Status: Accepted
 - Date: 2026-10-28
 - Amended: 2026-10-29 (user decision R7-01, spec §3.11 `[corporate_actions] decimal_ratio`); recorded here 2026-11-03
+- Amended by: [ADR 0055](0055-an-instrument-with-an-inexact-share-ratio-returns-after-the-event.md) (2026-11-28)
 - Spec: §5.6.1, §5.6.10, §3.11, TDS 5.11
 
 ## Context
