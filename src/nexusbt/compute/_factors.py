@@ -63,6 +63,23 @@ def _rolling(x: F64, how: str, min_periods: int) -> F64:
     return found
 
 
+def observed(op: str, x: F64) -> npt.NDArray[np.intp]:
+    """Per column, the finite observations `min_periods` counts, in 3.4's unit (#868): the
+    finite returns of `AnnualizedVolatility`, the pairs of `VWAP` (`x` the two windows stacked),
+    the differences of two finite cells of `RSI`, the finite cells otherwise."""
+    if op == "VWAP":
+        kept = np.isfinite(x[0]) & np.isfinite(x[1])
+    elif op == "AnnualizedVolatility":  # a return over a zero price, or overflowed, is left out
+        with np.errstate(all="ignore"):
+            kept = np.isfinite(x[1:] / x[:-1])
+    elif op == "RSI":
+        kept = np.isfinite(x[1:]) & np.isfinite(x[:-1])
+    else:
+        kept = np.isfinite(x)
+    counted: npt.NDArray[np.intp] = kept.sum(axis=0)
+    return counted
+
+
 def rows(term: Term) -> int:
     """The window rows the term reads of each input."""
     size: int = dict(term.params)["window"]
@@ -86,15 +103,21 @@ def diagnosed(term: Term, windows: Sequence[F64]) -> tuple[F64, Mask, Mask]:
     """The term's values at the window's last row, and its cells to count once there (5.4.1):
     those with a zero divisor inside the kernel, and those whose overflow came out (as ±inf, made
     NaN) or left a return out. `AverageDollarVolume` reads `close * volume`, an overflowed product
-    carried; `VWAP` the two windows stacked. An `inf` input cell is NaN before the kernel."""
+    carried; `VWAP` the two windows stacked. An `inf` input cell is NaN before the kernel. A
+    column with fewer observations than the term's `min_periods` is NaN (#868); its cells are
+    counted as the kernel found them, as before."""
     cells = [np.where(np.isinf(w), np.nan, w) for w in windows]
     adv, vwap = term.op == "AverageDollarVolume", term.op == "VWAP"
     x = cells[0] * cells[1] if adv else np.stack(cells) if vwap else cells[0]
-    found = KERNELS[term.op](x, dict(term.params))
+    params = dict(term.params)
+    found = KERNELS[term.op](x, params)
     none = np.zeros(found.shape, dtype=bool)
+    # `rolling` applies its own; the other factors without `min_periods` keep every column
+    least = "min_periods" in params and term.op != "rolling"
+    enough = observed(term.op, x) >= params["min_periods"] if least else ~none
     zero = ZERO[term.op](x) if term.op in ZERO else none
     infinite = np.isinf(found) | (OVERFLOW[term.op](x) if term.op in OVERFLOW else none)
-    out: F64 = np.where(np.isinf(found), np.nan, found)
+    out: F64 = np.where(np.isinf(found) | ~enough, np.nan, found)
     return out, zero, infinite & ~zero
 
 

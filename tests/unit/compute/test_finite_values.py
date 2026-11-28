@@ -88,11 +88,13 @@ def test_a_comparison_with_a_division_by_zero_is_unknown_and_isfinite_is_false_a
 
 
 def test_a_built_in_factor_reading_an_inf_term_sees_nan() -> None:
-    """`SMA` over a division by zero is the mean of the finite cells, as over a NaN cell (3.4)."""
-    ratio = CLOSE.latest / OPEN.latest
+    """`SMA` over a division by zero is the mean of the finite cells, as over a NaN cell (3.4),
+    at `min_periods=1` (by default both are NaN, #868)."""
+    ratio, sma = CLOSE.latest / OPEN.latest, SMA(2, [CLOSE.latest / OPEN.latest], min_periods=1)
     whole = block(close=[[1.0], [6.0]], open=[[0.0], [2.0]])
     with_nan = block(close=[[N], [6.0]], open=[[1.0], [2.0]])
-    assert values([SMA(2, [ratio])], whole) == values([SMA(2, [ratio])], with_nan) == [[3.0]]
+    assert values([sma], whole) == values([sma], with_nan) == [[3.0]]
+    assert np.isnan(values([SMA(2, [ratio])], whole)[0][0])
 
 
 def test_annualized_volatility_leaves_out_a_return_over_a_zero_price() -> None:
@@ -101,7 +103,7 @@ def test_annualized_volatility_leaves_out_a_return_over_a_zero_price() -> None:
     1, 0, 2, 3, 5 give the returns -1, 2/0, 0.5, 2/3: three kept, so ddof 0 is ddof 1 times
     sqrt(2/3)."""
     whole = block(close=[[1.0], [0.0], [2.0], [3.0], [5.0]])
-    vol = AnnualizedVolatility(4, annualization_factor=252, inputs=[CLOSE])
+    vol = AnnualizedVolatility(4, annualization_factor=252, inputs=[CLOSE], min_periods=1)
     std = nx.ops.rolling(DailyReturns(inputs=[CLOSE]), 4, 1).std()
     [[found]], [[sample]] = values([vol], whole), values([std], whole)
     assert found == pytest.approx(sample * np.sqrt(2 / 3) * np.sqrt(252), rel=1e-12)

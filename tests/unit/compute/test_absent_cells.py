@@ -94,7 +94,7 @@ def test_fillna_fills_listed_cells_only() -> None:
     assert at(filled.shift(1), 3) == {"KR:T00001": 0.0, "KR:T00002": None, "KR:T00003": None}
     expected = {"KR:T00001": 25 / 3, "KR:T00002": 20.5, "KR:T00003": 32.5}
     assert at(nx.ops.rolling(filled, 3, min_periods=1).mean(), 4) == pytest.approx(expected)
-    assert at(nx.factors.SMA(3, inputs=[filled]), 4) == pytest.approx(expected)
+    assert at(nx.factors.SMA(3, inputs=[filled], min_periods=1), 4) == pytest.approx(expected)
 
 
 def test_constant_and_if_else_are_absent_where_not_listed() -> None:

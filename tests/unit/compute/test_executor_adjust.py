@@ -109,7 +109,8 @@ def test_T15_through_executor(tmp_path: Path) -> None:  # noqa: N802 - spec 10.1
     traded with NaN where the reference leaves a cell NaN (volume 1 in every row here)."""
     case, axis = golden("T-15", tmp_path)
     rows = [axis.days.index(r["session"]) for r in case["expected"]]
-    terms = [SMA(3), SMA(3, inputs=[BoundColumn.of("Price", "close_tr")]), AverageDollarVolume(3)]
+    tr = [BoundColumn.of("Price", "close_tr")]  # the case's SMA(3, min_periods=1) (#868)
+    terms = [SMA(3, min_periods=1), SMA(3, inputs=tr, min_periods=1), AverageDollarVolume(3)]
     got = axis.run(terms, rows)
     for t, row in zip(rows, case["expected"], strict=True):
         cells = np.array(row["adjusted_window"], dtype=float)
