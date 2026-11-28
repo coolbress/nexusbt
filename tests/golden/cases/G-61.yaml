@@ -1,0 +1,57 @@
+# Golden case G-61 (spec 8.2): drawdown boundaries. Expected values are literals;
+# `check/G-61.py` reaches them by arithmetic only, and `tests/golden/test_handcalc_self.py`
+# compares the two. An implementation pull request does not change this file
+# (`tests/repo/test_golden_guard.py`); a wrong value reopens the golden ticket ("spec deviation").
+id: G-61
+description: >-
+  Two valuation series, no trades. (a) NAV_0 100 at inception, then 90, 94.5 and 100.17: the
+  first-day loss is a drawdown because NAV_0 counts in the peak, and the recovery is counted
+  from the trough to the first NAV at or above the peak. (b) 100, 100, 99, 100, 99: a NAV equal
+  to the previous peak ends a drawdown, so there are two drawdowns and not one; the peak date
+  of the first is the last day at the peak (2020-01-03, not 2020-01-02), and the second is not
+  recovered. Durations are calendar days.
+spec: "8.2 G-61; 5.7 rows Maximum drawdown and Drawdown duration, recovery duration"
+
+# (a)'s dates are this case's choice (8.2 gives its NAVs only); (b)'s are 8.2's.
+input:
+  a:
+    - {session: "2020-01-02", nav: 100}      # NAV_0, the initial funding at inception
+    - {session: "2020-01-03", nav: 90}
+    - {session: "2020-01-06", nav: 94.5}
+    - {session: "2020-01-07", nav: 100.17}
+  b:
+    - {session: "2020-01-02", nav: 100}
+    - {session: "2020-01-03", nav: 100}
+    - {session: "2020-01-06", nav: 99}
+    - {session: "2020-01-07", nav: 100}
+    - {session: "2020-01-08", nav: 99}
+
+# One row per value. Both drawdowns of (b) are -1%: 8.2 lists the two, and this case does not
+# say which of them a single "maximum drawdown" duration line shows.
+#
+# Derivation, to be recomputed by hand (a person's own check is still owed, 8.2):
+#   (a) peaks so far 100, 100, 100, 100.17; NAV/peak - 1 = 0, -0.10, -0.055, 0 -> MDD -0.10
+#       peak 2020-01-02 -> trough 2020-01-03: 1 calendar day
+#       94.5 < 100, 100.17 >= 100: recovered 2020-01-07; 01-03 -> 01-07 = 4 calendar days
+#   (b) NAV/peak - 1 = 0, 0, -0.01, 0, -0.01 -> MDD -0.01
+#       first: at the peak on 01-02 and 01-03, the last of them 01-03; trough 01-06, Friday to
+#              Monday = 3 calendar days; 100 >= 100 on 01-07 recovers it: 1 calendar day
+#       second: peak 01-07, trough 01-08 = 1 calendar day; no later NAV: not recovered
+expected:
+  - {part: a, metric: max_drawdown, value: -0.1}
+  - {part: a, metric: peak_date, value: "2020-01-02"}
+  - {part: a, metric: trough_date, value: "2020-01-03"}
+  - {part: a, metric: drawdown_days, value: 1}
+  - {part: a, metric: recovery_date, value: "2020-01-07"}
+  - {part: a, metric: recovery_days, value: 4}
+  - {part: b, metric: max_drawdown, value: -0.01}
+  - {part: b, metric: drawdowns, value: 2}
+  - {part: b, metric: first_peak_date, value: "2020-01-03"}
+  - {part: b, metric: first_trough_date, value: "2020-01-06"}
+  - {part: b, metric: first_drawdown_days, value: 3}
+  - {part: b, metric: first_recovery_date, value: "2020-01-07"}
+  - {part: b, metric: first_recovery_days, value: 1}
+  - {part: b, metric: second_peak_date, value: "2020-01-07"}
+  - {part: b, metric: second_trough_date, value: "2020-01-08"}
+  - {part: b, metric: second_drawdown_days, value: 1}
+  - {part: b, metric: second_recovery, value: "not recovered"}

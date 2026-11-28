@@ -143,8 +143,14 @@ def test_time_cases_M1_expected_present(case_id: str) -> None:  # noqa: N802 - s
 #: The cases the first backtest uses (T3.Gg, spec 8.2), a tuple that grows with each pull
 #: request of the ticket until it holds every case the plan's 10.1 entry names: G-12 a cash
 #: shortfall scales two buys and cancels the rest, G-60 the metrics of 5.7 by hand and PSR's
-#: raw-kurtosis convention.
-FIRST_BACKTEST = ("G-12", "G-60")
+#: raw-kurtosis convention. One case a line, so a later pull request only adds lines.
+FIRST_BACKTEST = (
+    "G-12",
+    "G-60",
+    "G-61",  # drawdown boundaries: NAV_0 in the peak, equality recovers, calendar days
+    "G-123",  # under one year the CAGR is n/a and the period return is given
+    "G-131",  # one return, or one valuation date: n/a, nothing divides by zero
+)
 
 
 @pytest.mark.parametrize("case_id", FIRST_BACKTEST)

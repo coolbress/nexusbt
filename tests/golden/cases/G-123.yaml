@@ -1,0 +1,37 @@
+# Golden case G-123 (spec 8.2): under one year, a return is not annualised. Expected values are
+# literals; `check/G-123.py` reaches them by arithmetic only, and
+# `tests/golden/test_handcalc_self.py` compares the two. An implementation pull request does
+# not change this file (`tests/repo/test_golden_guard.py`); a wrong value reopens the golden
+# ticket ("spec deviation").
+id: G-123
+description: >-
+  Two valuation series of two dates each, zero costs. (a) spans D = 181 calendar days, under
+  one year: the CAGR is "n/a (under one year)" and the result gives the period return with its
+  two dates, which the first screen prints with "not annualised". (b) spans D = 365, which is
+  not under one year: the CAGR is computed, and with the exponent 365.25/365 it is a little
+  above the period return 4%.
+spec: "8.2 G-123; 5.7 row CAGR (under one year)"
+
+input:
+  a:
+    - {session: "2024-01-02", nav: 100}
+    - {session: "2024-07-01", nav: 104}
+  b:
+    - {session: "2023-01-02", nav: 100}
+    - {session: "2024-01-02", nav: 104}
+
+# One row per value.
+#
+# Derivation, to be recomputed by hand (a person's own check is still owed, 8.2):
+#   (a) 2024-01-02 -> 2024-07-01: 29 (rest of January) + 29 (February 2024) + 31 + 30 + 31 +
+#       30 + 1 = 181 days < 365 -> CAGR n/a; period return 104/100 - 1 = 0.04 = 4.00%
+#   (b) 2023-01-02 -> 2024-01-02 = 365 days, not < 365 -> CAGR = 1.04^(365.25/365) - 1;
+#       ln 1.04 = 0.039221; x 365.25/365 = 0.039248; e^0.039248 = 1.040028 -> 0.040028
+expected:
+  - {part: a, metric: calendar_days, value: 181}
+  - {part: a, metric: cagr, value: "n/a (under one year)"}
+  - {part: a, metric: period_return, value: 0.04}
+  - {part: a, metric: period_start, value: "2024-01-02"}
+  - {part: a, metric: period_end, value: "2024-07-01"}
+  - {part: b, metric: calendar_days, value: 365}
+  - {part: b, metric: cagr, value: 0.040028}
