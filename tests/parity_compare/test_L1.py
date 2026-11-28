@@ -367,11 +367,13 @@ def mean_rank(v: np.ndarray) -> np.ndarray:
 
 def bucket(v: np.ndarray, inside: np.ndarray, rule: str) -> np.ndarray:
     """Each cell's quintile among the finite `inside` cells, -1 elsewhere: 5.4.3's mean-rank
-    `ceil(r q / n)` (in integers, as 2r) or zipline's `qcut` edges, both 1..q."""
+    `ceil(r q / n)` (in integers, as 2r) or zipline's `qcut` edges, both 1..q; under 5.4.3 one
+    cell alone has no rank and stays -1 (#868)."""
     out, ok = np.full(len(v), -1), np.isfinite(v) & inside
     if rule == "5.4.3":
-        twice_r = (2 * mean_rank(v[ok])).astype(int)
-        out[ok] = np.clip(-(-twice_r * L1D_Q // (2 * ok.sum())), 1, L1D_Q)
+        if ok.sum() >= 2:
+            twice_r = (2 * mean_rank(v[ok])).astype(int)
+            out[ok] = np.clip(-(-twice_r * L1D_Q // (2 * ok.sum())), 1, L1D_Q)
     else:
         out[ok] = pd.qcut(v[ok], L1D_Q, labels=False) + 1
     return out
@@ -379,13 +381,15 @@ def bucket(v: np.ndarray, inside: np.ndarray, rule: str) -> np.ndarray:
 
 def between(v: np.ndarray, inside: np.ndarray, rule: str) -> np.ndarray:
     """`percentile_between(10, 90)` among the finite `inside` cells: 5.4.2's mean-rank
-    percentile or zipline's values between numpy's linear percentiles."""
+    percentile or zipline's values between numpy's linear percentiles; under 5.4.2 one cell
+    alone has no rank and is never between (#868)."""
     out, ok = np.zeros(len(v), bool), np.isfinite(v) & inside
     lo, hi = L1D_PCT
     if rule == "5.4.2":
         n = ok.sum()
-        p = 100 * (mean_rank(v[ok]) - 1) / (n - 1) if n > 1 else np.full(n, 100.0)
-        out[ok] = (lo <= p) & (p <= hi)
+        if n > 1:
+            p = 100 * (mean_rank(v[ok]) - 1) / (n - 1)
+            out[ok] = (lo <= p) & (p <= hi)
     else:
         out[ok] = (np.percentile(v[ok], lo) <= v[ok]) & (v[ok] <= np.percentile(v[ok], hi))
     return out
