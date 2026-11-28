@@ -23,6 +23,7 @@ import nexusbt as nx
 from nexusbt.artifacts import RunTxn
 from nexusbt.factors import SMA
 from nexusbt.testing.synth import make_snapshot
+from nexusbt_tds import import_csv
 from nexusbt_tds.hash import encode_table, write_hashes
 
 pytestmark = pytest.mark.unit
@@ -198,6 +199,58 @@ def test_a_screen_says_its_dropped_bars_once(dropping: Path, project: Path) -> N
     assert manifest["data"]["dropped"] == [
         {"dataset": "bars_1d", "cause": "unknown_instrument", "count": 1}
     ]
+
+
+@pytest.fixture
+def inferred(tmp_path: Path) -> Path:
+    """A package `tds import csv` writes from two CSVs and no `calendar_sessions` block: its
+    calendar is inferred from the bars' three dates (TDS 9.5, 5.4)."""
+    instruments = (
+        "instrument_id,asset_class,market,calendar_id,currency,listed_on,lot_size,"
+        "multiplier,is_synthetic\nXNYS:AAPL,equity,US,XNYS,USD,2024-01-02,1,1,false\n"
+    )
+    bars = (
+        "instrument_id,session_date,close\nXNYS:AAPL,2024-01-02,10\n"
+        "XNYS:AAPL,2024-01-03,11\nXNYS:AAPL,2024-01-04,12\n"
+    )
+    us = "code: US, calendar_id: XNYS, currency: USD, timezone: America/New_York"
+    mapping = f"""profiles: [tds:minimal-daily@1.0]
+market: {{{us}, open: "09:30", close: "16:00"}}
+datasets:
+  instruments: {{file: instruments.csv}}
+  bars: {{file: bars.csv, params: {{freq: 1d, price_basis: total_adjusted}}}}
+"""  # fmt: skip
+    for name, text in (("instruments.csv", instruments), ("bars.csv", bars),
+                       ("mapping.yaml", mapping)):  # fmt: skip
+        (tmp_path / name).write_text(text, encoding="utf-8")
+    return import_csv(tmp_path / "mapping.yaml", tmp_path / "imported")
+
+
+def test_an_inferred_calendar_is_recorded_and_named(inferred: Path, project: Path) -> None:
+    """#866 item 3 (owner, 2026-11-28; #725 Decisions 97): a run on a calendar inferred from bar
+    dates records the calendar's sources under its market and says so in `assumptions`, with
+    the inferred sessions' count and dates, and that no exchange calendar was compared."""
+    pipe = nx.Pipeline({"c": nx.Price.close.latest})
+    result = nx.run_pipeline(pipe, start="2024-01-03", end="2024-01-03", snapshot=str(inferred),
+                             save=True)  # fmt: skip
+    manifest = json.loads((project / "runs" / str(result.run_id) / "manifest.json").read_text())
+    assert manifest["markets"]["US"]["calendar_sources"] == ["inferred_from_bar_dates"]
+    assert [a for a in manifest["assumptions"] if a.startswith("calendar ")] == [
+        "calendar US inferred from bar dates (3 sessions, 2024-01-02..2024-01-04): not compared "
+        "with an exchange calendar; a day with no bar for any instrument cannot be seen"
+    ]
+
+
+def test_a_calendar_not_inferred_is_recorded_and_not_named(tiny: Path, project: Path) -> None:
+    """The synthetic package's calendar has its producer's `source`: the manifest records it,
+    and `assumptions` gains no calendar sentence (#866 item 3)."""
+    pipe = nx.Pipeline({"c": nx.Price.close.latest})
+    result = nx.run_pipeline(pipe, start="2020-01-06", end="2020-01-06", snapshot=str(tiny),
+                             save=True)  # fmt: skip
+    manifest = json.loads((project / "runs" / str(result.run_id) / "manifest.json").read_text())
+    assert {m: e["calendar_sources"] for m, e in manifest["markets"].items()} == {
+        "KR": ["nexusbt-synth"], "US": ["nexusbt-synth"]}  # fmt: skip
+    assert not [a for a in manifest["assumptions"] if a.startswith("calendar ")]
 
 
 def test_the_manifest_records_the_fallbacks_the_run_used(
