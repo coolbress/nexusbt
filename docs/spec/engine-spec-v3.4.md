@@ -1655,14 +1655,14 @@ Removed 2026-11-24 (#752) [#725 Decisions 224, 250, 251]: macro series and event
 | `demean` | `x − mean` |
 | `winsorize(a, b)` | `clip(x, q_a, q_b)`, q = linearly interpolated quantiles (numpy `method="linear"`) |
 | `top(N)` | the first N in the order (score descending, tie key ascending). When fewer than N scores are finite, all of them |
-| `percentile_between(a, b)` | percentile `p = 100·(rank_average − 1)/(n − 1)` (100 when n=1); `a ≤ p ≤ b` |
-| `pct_rank(higher_is_better, na)` | `p = 100·(r − 1)/(n − 1)`, r = mean rank (ascending rank when higher is better), n = number of valid cells (100 when n = 1). `na="bottom"`: missing cells are put in as "one equal value worse than the worst value", increasing n. `na="middle"`: computed on the valid cells, then missing cells = 50 |
+| `percentile_between(a, b)` | percentile `p = 100·(rank_average − 1)/(n − 1)`; `a ≤ p ≤ b`; n < 2 → unknown: a cell alone has no rank (owner, 2026-11-28, #868) |
+| `pct_rank(higher_is_better, na)` | `p = 100·(r − 1)/(n − 1)`, r = mean rank (ascending rank when higher is better), n = number of valid cells; fewer than two valid cells → NaN in every cell, whatever `na` (#868). `na="bottom"`: missing cells are put in as "one equal value worse than the worst value", increasing n. `na="middle"`: computed on the valid cells, then missing cells = 50 |
 | `ops.composite` | per term `pct_rank(na)` → `Σ w_k·p_k / Σ w_k` (over all terms, not only the terms valid in that cell; with `na="drop"`, a cell with any missing term is NaN) → `pct_rank` again |
 | `groupby=g` | the definitions above per group. Cells in group −1 (unknown) are NaN/False, with the count in diagnostics |
 | (no mask) | cross-section = the default domain (3.3). When a cross-sectional operation without a mask on the Strategy signal path uses a different set from the universe as its denominator, notice E34 ("rank over all listed equities, not the strategy universe; pass mask=universe") |
 
 #### 5.4.3 Tie-preserving quantiles [11.4.5]
-For each decision, with the mean rank `r` (1..n, ascending) of the n valid cells, `bucket = min(q, max(1, ceil(r·q/n)))`. Equal scores → the same mean rank → the same quantile. Quantile sizes can differ (not forced to split evenly).
+For each decision, with the mean rank `r` (1..n, ascending) of the n valid cells, `bucket = min(q, max(1, ceil(r·q/n)))`. Equal scores → the same mean rank → the same quantile. Quantile sizes can differ (not forced to split evenly). A group of fewer than two valid cells has no rank: its cell is −1, the unknown group (5.4.1), not the top bucket (owner, 2026-11-28, #868).
 
 ### 5.5 Score → canonical target [C6, 11.4.6, INV-08, SC-01, SC-02]
 

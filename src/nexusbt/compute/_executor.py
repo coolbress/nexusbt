@@ -363,7 +363,8 @@ class _Chunk:
             self.unknown += n
             return _cells(picked, inside)
         if term.op == "percentile_between":
-            return _cells(k.percentile_between(x, inside, p["min"], p["max"]), inside)
+            found = k.percentile_between(x, inside, p["min"], p["max"])
+            return _cells(found, inside & ~k.alone(x, inside))  # one cell: no rank (#868)
         if term.op == "rank":
             way = k.ASCENDING if p["ascending"] else k.DESCENDING
             out, n = k.rank(x, inside, groups, self.tie, _RANK[p["method"]], way)
